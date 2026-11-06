@@ -15,8 +15,10 @@
 --       and an office-server file's way back to the exact place it came from.
 --   §2  fn_moth_apply_moves, the core: every check before any write. Closed to clients.
 --   §3  moth_move_items and moth_undo_move. Redo is the undo of the undo.
---   §4  _network_share_replay_origin gets its real body (0117 left a stub), and
---       network_share_settle, lifted from 0117 whole, locks both projects first.
+--   §4  _network_share_replay_origin gets its real body (0117 left a stub).
+--       network_share_settle, lifted from 0117 whole, locks both projects first, and
+--       after 24 hours lets whoever could check both folders call off a move between
+--       projects; network_share_stale_moves is how they find one.
 --   §5  moth_trash_files, moth_restore_files, moth_trash_index.
 --   §6  COMMENTs; §7 post-conditions.
 --
@@ -101,11 +103,16 @@ BEGIN
       ('public.soft_delete_row(text,uuid)', '09d142cbea2762a6f23201005c0ca8f0', NULL),
       ('public.restore_soft_deleted(text,uuid)', '6d8cb3aa32277e7770f76e7e270e6c46', NULL),
       ('public.fn_trash_authz(text,uuid)', 'ccd7f61f4a860b9382744fd9d52c3166', NULL),
+      ('public.purge_soft_deleted(interval)', '65f3322262d48afa923ccd5f40c69a4c', NULL),
+      ('public.fn_projects_owner_guard()', '49ebe6b9f996f75682982dfbe1c842e4', NULL),
+      ('public.fn_checked_move_admits(uuid,uuid,uuid,text,text)', '84634c663e58fe02b4a981e04f168722', NULL),
+      ('public._network_share_lock_projects(uuid[])', '9cf2f1f4f6aab6519d848f66fbebedb2', NULL),
+      ('rabbit_private.file_key_admissible(text,text,uuid,uuid,uuid,boolean)', 'c2307ece6296a6fd6643606b4801b74e', NULL),
       ('public._network_share_target(uuid,uuid,uuid,text,uuid)', '29b78dcb712422327aacb2eaf7c5bbaa', NULL),
       ('public._network_share_move_core(uuid,uuid,uuid,jsonb,boolean)', 'a445156e8bcb7fecbd973110e6b5d05d', NULL),
       ('public._network_share_adopt_core(uuid,uuid,uuid,jsonb,boolean)', '982c2e07510d0880a439bcf17b7e528f', NULL),
-      ('public.network_share_settle(uuid[],text,jsonb)', '56e6fac18cb0135559dd05c180e316db', '83aa3ac83d5693de5bba14edd4f78f1b'),
-      ('public._network_share_replay_origin(uuid)', '5d39b9c730c8f04132a938f24e2c70c6', 'cd580dd4741f8177ecba7df790d18cd6')
+      ('public.network_share_settle(uuid[],text,jsonb)', '56e6fac18cb0135559dd05c180e316db', '3a4e5d614de881b5c80662304603bf05'),
+      ('public._network_share_replay_origin(uuid)', '5d39b9c730c8f04132a938f24e2c70c6', 'f99f94a4b18b38afcb7e98d1d9766f63')
     ) AS t(sig, was, mine)
   LOOP
     SELECT md5(replace(prosrc, chr(13), '')) INTO v_md5 FROM pg_proc WHERE oid = v_fn.sig::regprocedure;
@@ -313,6 +320,8 @@ DECLARE
   v_retires    jsonb := '{}'::jsonb;
   v_ops        jsonb := '[]'::jsonb;
   v_cleared    integer := 0;
+  v_lost       integer := 0;
+  v_pictures   integer := 0;
   it           jsonb;
   v_msg        text;
   v_detail     text;
@@ -460,6 +469,13 @@ BEGIN
               RAISE EXCEPTION 'moth_move:only_on_a_computer' USING ERRCODE = 'P0001';
             END IF;
             v_company := public.fn_moth_body_provider_for(v_ws);
+            -- files_body_follow's switch asks only where the body is now, and file_key_admissible
+            -- looks for an object only in Petal's storage: a key in a company's own bucket would be
+            -- taken on the caller's word, and the only body queued for deletion. Until 0120 can look.
+            IF v_company = 's3' AND NOT rabbit_private.s3_body_moves_on() THEN
+              RAISE EXCEPTION 'moth_move:s3_moves_off' USING ERRCODE = 'P0001',
+                DETAIL = 'Files cannot move into your company''s own bucket yet.';
+            END IF;
 
             IF v_company = 'network_share' THEN
               IF v_how <> 'copy_up' THEN
@@ -489,10 +505,13 @@ BEGIN
                 -- The key the plan minted: this project, this file, a time, this file's own name.
                 v_tail := CASE WHEN starts_with(COALESCE(v_body ->> 'path', ''), v_prefix)
                                THEN substr(v_body ->> 'path', length(v_prefix) + 1) END;
-                IF v_tail IS NULL OR v_tail !~ '^[0-9]{10,16}-'
-                   OR regexp_replace(v_tail, '^[0-9]{10,16}-', '') <> public._moth_key_leaf(f.name) THEN
+                IF v_tail IS NULL OR v_tail !~ '^[0-9]{10,16}-' THEN
                   RAISE EXCEPTION 'moth_move:copy_refused' USING ERRCODE = 'P0001',
                     DETAIL = 'The new copy is not one this project can use.';
+                END IF;
+                -- Renamed while the copy was being made: plan again, rather than read as a bad key.
+                IF regexp_replace(v_tail, '^[0-9]{10,16}-', '') <> public._moth_key_leaf(f.name) THEN
+                  RAISE EXCEPTION 'moth_move:plan_changed' USING ERRCODE = 'P0001';
                 END IF;
                 v_follow := rabbit_private.files_body_follow(v_id, v_to_project, jsonb_build_array(jsonb_build_object(
                   'file_id', v_id, 'to_provider', v_to_prov, 'to_path', v_body ->> 'path', 'to_thumb', v_body ->> 'thumbnail')));
@@ -535,6 +554,14 @@ BEGIN
         IF v_r ? 'op_id' THEN
           v_ops := v_ops || v_r;
         END IF;
+        -- What an undo could not bring back, so the person is told rather than left to find out.
+        IF q ? 'back' AND f.project_id <> v_to_project THEN
+          v_lost := v_lost + (SELECT count(*)::int FROM jsonb_each_text(q -> 'back' -> 'links') e
+                               WHERE e.value IS NOT NULL AND v_to_links ->> e.key IS NULL);
+          IF btrim(COALESCE(q -> 'back' ->> 'thumb', '')) <> '' AND btrim(COALESCE(v_to_thumb, '')) = '' THEN
+            v_pictures := v_pictures + 1;
+          END IF;
+        END IF;
       END IF;
     END LOOP;
 
@@ -568,8 +595,15 @@ BEGIN
     END LOOP;
     PERFORM set_config('wilson.file_move', '', true);
 
-    RETURN jsonb_build_object('move_id', v_move, 'moved', jsonb_array_length(v_journal), 'links_cleared', v_cleared, 'ops', v_ops);
-  EXCEPTION WHEN raise_exception THEN
+    RETURN jsonb_build_object('move_id', v_move, 'moved', jsonb_array_length(v_journal), 'links_cleared', v_cleared, 'ops', v_ops)
+      || CASE WHEN p_undo_of IS NOT NULL
+              THEN jsonb_build_object('links_not_restored', v_lost, 'pictures_not_restored', v_pictures)
+              ELSE '{}'::jsonb END;
+  EXCEPTION
+  WHEN foreign_key_violation THEN
+    -- A link or a folder deleted between the read and the write: no constraint's name goes out.
+    RAISE EXCEPTION 'moth_move:changed_since' USING ERRCODE = 'P0001';
+  WHEN raise_exception THEN
     -- One vocabulary for the client: the body contract's codes and the office server's.
     GET STACKED DIAGNOSTICS v_msg = MESSAGE_TEXT, v_detail = PG_EXCEPTION_DETAIL;
     IF v_msg IN ('body_missing', 'body_shape', 's3_moves_off', 'body_elsewhere', 'needs_copy', 'copy_not_needed', 'copy_refused') THEN
@@ -662,6 +696,19 @@ BEGIN
     RAISE EXCEPTION 'moth_move:not_a_workspace_member' USING ERRCODE = 'P0001';
   END IF;
   SELECT * INTO v_row FROM public.file_moves m
+   WHERE m.id = p_move_id AND m.workspace_id = v_ws AND m.actor_user_id = auth.uid();
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'moth_move:not_found' USING ERRCODE = 'P0001';
+  END IF;
+
+  v_ids := ARRAY(SELECT (e ->> 'id')::uuid FROM jsonb_array_elements(v_row.items) e ORDER BY 1);
+  v_projs := ARRAY(SELECT DISTINCT x FROM jsonb_array_elements(v_row.items) e,
+                     LATERAL unnest(ARRAY[(e ->> 'from_project')::uuid, (e ->> 'to_project')::uuid]) x);
+  v_fold := ARRAY(SELECT DISTINCT (e ->> 'from_folder')::uuid FROM jsonb_array_elements(v_row.items) e WHERE e ->> 'from_folder' IS NOT NULL);
+  PERFORM public._moth_lock_moves(v_projs, v_fold, v_ids);
+  -- The journal row after the advisory locks: a settle's way back holds those and then touches this
+  -- row, so taking it first would cross. Asked again here, because the wait may have changed it.
+  SELECT * INTO v_row FROM public.file_moves m
    WHERE m.id = p_move_id AND m.workspace_id = v_ws AND m.actor_user_id = auth.uid()
    FOR UPDATE;
   IF NOT FOUND THEN
@@ -670,12 +717,6 @@ BEGIN
   IF v_row.undone_at IS NOT NULL THEN
     RAISE EXCEPTION 'moth_move:already_undone' USING ERRCODE = 'P0001';
   END IF;
-
-  v_ids := ARRAY(SELECT (e ->> 'id')::uuid FROM jsonb_array_elements(v_row.items) e ORDER BY 1);
-  v_projs := ARRAY(SELECT DISTINCT x FROM jsonb_array_elements(v_row.items) e,
-                     LATERAL unnest(ARRAY[(e ->> 'from_project')::uuid, (e ->> 'to_project')::uuid]) x);
-  v_fold := ARRAY(SELECT DISTINCT (e ->> 'from_folder')::uuid FROM jsonb_array_elements(v_row.items) e WHERE e ->> 'from_folder' IS NOT NULL);
-  PERFORM public._moth_lock_moves(v_projs, v_fold, v_ids);
 
   -- The read gate before any position is compared, so an undo says nothing of a project the
   -- caller has lost (SEC-MV-12). A trashed file is allowed through, to read as changed.
@@ -709,6 +750,7 @@ BEGIN
       'back', jsonb_build_object(
         'links', it -> 'from_links',
         'core', it -> 'was_core_definer',
+        'thumb', it -> 'from_thumb',
         -- The exact place it left, when it was on the server then too.
         'share_path', CASE WHEN it ->> 'from_provider' = 'network_share' THEN substr(it ->> 'from_path', 5) END));
   END LOOP;
@@ -770,7 +812,8 @@ BEGIN
   END IF;
   v_links := public._moth_links_alive(v_from -> 'from_links', o.project_id);
   SELECT fo.id INTO v_fold FROM public.folders fo
-   WHERE fo.id = (v_from ->> 'from_folder')::uuid AND fo.project_id = o.project_id;
+   WHERE fo.id = (v_from ->> 'from_folder')::uuid AND fo.project_id = o.project_id
+   FOR KEY SHARE;
 
   v_item := jsonb_build_object(
     'id', f.id, 'how', CASE WHEN o.op = 'adopt' THEN 'copy_up' ELSE 'share_move' END,
@@ -783,12 +826,13 @@ BEGIN
     'from_provider', f.storage_provider::text, 'from_path', f.storage_path, 'from_thumb', f.thumbnail_url,
     'to_provider', v_from ->> 'from_provider', 'to_path', v_from ->> 'from_path', 'to_thumb', v_from ->> 'from_thumb');
 
-  -- A journal row outlives its 30 days only while something needs it; this one may be gone.
+  -- The move's journal row may be gone by now (its 30 days); the operation holds what this needs.
   INSERT INTO public.file_moves (workspace_id, items, undo_of)
   VALUES (f.workspace_id, jsonb_build_array(v_item),
           (SELECT m.id FROM public.file_moves m WHERE m.id = (v_from ->> 'move_id')::uuid))
   RETURNING id INTO v_move;
   PERFORM set_config('wilson.file_move', v_move::text, true);
+  BEGIN
   UPDATE public.files x
      SET project_id = o.project_id,
          folder_id = v_fold,
@@ -804,16 +848,24 @@ BEGIN
          level_id = (v_links ->> 'level_id')::uuid,
          experience_id = (v_links ->> 'experience_id')::uuid
    WHERE x.id = f.id;
+  EXCEPTION WHEN foreign_key_violation THEN
+    -- A link or the folder deleted between the read and the write. Settling again finds it gone.
+    RAISE EXCEPTION 'network_share: changed_since';
+  END;
   PERFORM set_config('wilson.file_move', '', true);
+  -- An undo the desktop could not make: the move it undid has not been undone after all, so that
+  -- can be tried again. If other files of the batch did go back, that answers changed_since.
+  UPDATE public.file_moves m SET undone_at = NULL
+   WHERE m.id = (SELECT u.undo_of FROM public.file_moves u WHERE u.id = (v_from ->> 'move_id')::uuid);
 END;
 $$;
 REVOKE ALL ON FUNCTION public._network_share_replay_origin(uuid) FROM PUBLIC, anon, authenticated;
 
--- Lifted from 0117 whole; the one change is the lock below.
+-- Lifted from 0117 whole; two changes, each marked 0118: the lock, and the arm for a move between projects.
 -- The desktop's report. For whoever began the operation while they can still write the row; after
 -- 24 hours, for anyone who could check the folder both locators sit in, so a laptop that never
--- comes back does not hold a file for ever (NS-D12). A cross-project operation stays with its
--- creator (the design's residual: if that laptop never returns, service_role settles it).
+-- comes back does not hold a file for ever (NS-D12). A move between projects stays with its creator
+-- for those 24 hours; after them whoever could check both folders may call it off (0118).
 CREATE OR REPLACE FUNCTION public.network_share_settle(
   p_op_ids  uuid[],
   p_outcome text,
@@ -840,12 +892,24 @@ BEGIN
 
   -- Who, before any lock. One sentence for all of it, and an operation already settled reads the
   -- same as one that was never there.
-  FOR r IN SELECT o.id, o.created_by, o.created_at, o.from_locator, o.to_locator, f.project_id AS file_project
+  FOR r IN SELECT o.id, o.created_by, o.created_at, o.op, o.project_id, o.dest_project_id, o.from_locator, o.to_locator, f.project_id AS file_project
              FROM public.network_share_ops o
              JOIN public.files f ON f.id = o.file_id
             WHERE o.id = ANY (v_ids) AND o.workspace_id = v_ws AND o.state = 'pending' LOOP
     v_n := v_n + 1;
     IF r.created_by = v_uid AND public._network_share_may_write(r.file_project) THEN
+      CONTINUE;
+    END IF;
+    -- 0118: a move between projects nobody settled, after the same 24 hours. Whoever could check both
+    -- folders may say it did not happen, and only that: only its own computer can say it did. It
+    -- needs a person, because the journal row of the way back names who.
+    IF p_outcome = 'not_moved'
+       AND r.op IN ('move', 'adopt')
+       AND r.dest_project_id IS NOT NULL
+       AND r.project_id IS DISTINCT FROM r.dest_project_id
+       AND r.created_at < now() - interval '24 hours'
+       AND public._network_share_may_check(r.project_id)
+       AND public._network_share_may_check(r.dest_project_id) THEN
       CONTINUE;
     END IF;
     v_lf := lower(public.network_share_space_folder(r.file_project));
@@ -930,11 +994,51 @@ $$;
 REVOKE ALL ON FUNCTION public.network_share_settle(uuid[], text, jsonb) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.network_share_settle(uuid[], text, jsonb) TO authenticated;
 
+-- What has stood unsettled between two projects for 24 hours, for whoever could check both folders:
+-- the operations table has no client grant, so without this the arm above could be used only by
+-- someone already holding an operation's id.
+CREATE OR REPLACE FUNCTION public.network_share_stale_moves()
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+SET row_security = off
+AS $$
+DECLARE
+  v_ws  uuid := public.current_workspace_id();
+  v_out jsonb;
+BEGIN
+  IF auth.uid() IS NULL OR v_ws IS NULL OR NOT COALESCE(public.has_active_membership(v_ws), false) THEN
+    RAISE EXCEPTION 'network_share: not allowed' USING ERRCODE = '42501';
+  END IF;
+  SELECT COALESCE(jsonb_agg(jsonb_build_object('op_id', x.id, 'file_id', x.file_id, 'op', x.op, 'from', x.from_locator, 'to', x.to_locator)), '[]'::jsonb)
+    INTO v_out
+    FROM (SELECT o.id, o.file_id, o.op, o.from_locator, o.to_locator
+            FROM public.network_share_ops o
+           WHERE o.workspace_id = v_ws
+             AND o.state = 'pending'
+             AND o.op IN ('move', 'adopt')
+             AND o.dest_project_id IS NOT NULL
+             AND o.project_id IS DISTINCT FROM o.dest_project_id
+             AND o.created_at < now() - interval '24 hours'
+             AND public._network_share_may_check(o.project_id)
+             AND public._network_share_may_check(o.dest_project_id)
+           ORDER BY o.created_at, o.id
+           LIMIT 500) x;
+  RETURN v_out;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.network_share_stale_moves() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.network_share_stale_moves() TO authenticated;
+
 -- §5 Moth's trash ----------------------------------------------------------------------------
 -- 1 to 500 ids, every one judged by the one exclusion before any is touched, so a batch with one
 -- invoice in it trashes nothing, for an admin too. Office-server rows go first and together:
 -- their RPC takes the advisory locks before its row locks, and no row is held here when it does.
 -- Then the rest through soft_delete_row or restore_soft_deleted, with fn_trash_authz unchanged.
+-- Those rows are locked and asked about again first: a move may be holding one, and without the
+-- lock the rights would be read from the project it is leaving and the trash land in the next.
 -- A row already where it was asked to go adds nothing. Any refusal rolls the whole batch back.
 CREATE OR REPLACE FUNCTION public._moth_trash_batch(p_ids uuid[], p_restore boolean)
 RETURNS jsonb
@@ -981,7 +1085,11 @@ BEGIN
       v_ops := CASE WHEN p_restore THEN public.network_share_restore(v_share) ELSE public.network_share_trash(v_share) END;
       v_done := jsonb_array_length(v_ops);
     END IF;
+    PERFORM 1 FROM public.files f WHERE f.id = ANY (v_rest) ORDER BY f.id FOR UPDATE;
     FOREACH v_id IN ARRAY v_rest LOOP
+      IF NOT public._moth_target_eligible('file', v_id, true) THEN
+        RAISE EXCEPTION 'moth_trash:not_found' USING ERRCODE = 'P0001';
+      END IF;
       v_hit := CASE WHEN p_restore THEN public.restore_soft_deleted('files', v_id) ELSE public.soft_delete_row('files', v_id) END;
       IF v_hit THEN
         v_done := v_done + 1;
@@ -1071,6 +1179,10 @@ BEGIN
        AND f.deleted_at IS NOT NULL
        AND f.deleted_at > now() - interval '30 days'
        AND (p_before IS NULL OR f.deleted_at < p_before)
+       -- What the gate below refuses anyway, dropped here because it asks row by row.
+       AND p.deleted_at IS NULL
+       AND (p.personal_owner_id IS NULL OR p.personal_owner_id = auth.uid())
+       AND NOT COALESCE(f.is_financial, false)
      ORDER BY f.deleted_at DESC, f.id DESC
   LOOP
     EXIT WHEN v_n >= v_limit AND r.deleted_at IS DISTINCT FROM v_last;
@@ -1099,11 +1211,11 @@ GRANT EXECUTE ON FUNCTION public.moth_trash_index(integer, timestamptz) TO authe
 
 -- §6 COMMENTs --------------------------------------------------------------------------------
 COMMENT ON FUNCTION public.fn_moth_apply_moves(jsonb, uuid, boolean) IS
-  'The one way a file changes project or folder: every check, then the journal, the marker and one UPDATE per file. Closed to clients; moth_move_items and moth_undo_move call it.';
+  'Every move and undo a client asks for: every check, then the journal, the marker and one UPDATE per file. Closed to clients; moth_move_items and moth_undo_move call it. A settle''s way back has its own path, _network_share_replay_origin, and a walk''s rename can refile a row.';
 COMMENT ON FUNCTION public.moth_move_items(uuid[], uuid, uuid, boolean, jsonb) IS
   'Move 1 to 500 files to a project and folder. The plan says how each goes and writes nothing; the commit takes any fresh copies the plan asked for and judges everything again. Errors are moth_move:<code>.';
 COMMENT ON FUNCTION public.moth_undo_move(uuid, boolean) IS
-  'Undo the caller''s own move while each file sits where it left it. Links come back where their row still exists. Redo is this on the undo''s id. Errors are moth_move:<code>.';
+  'Undo the caller''s own move while each file sits where it left it. Links come back where their row still exists; links_not_restored and pictures_not_restored say what did not. Redo is this on the undo''s id. Errors are moth_move:<code>.';
 COMMENT ON FUNCTION public._moth_dest_eligible(uuid, uuid) IS
   'A move''s destination: an eligible project, and a folder of that project that is not locked. Closed to clients.';
 COMMENT ON FUNCTION public._moth_lock_moves(uuid[], uuid[], uuid[]) IS
@@ -1116,6 +1228,8 @@ COMMENT ON FUNCTION public._moth_share_back(uuid, uuid, text, jsonb, boolean) IS
   'An office-server file''s way back to the exact place it left, journalled as a pending move. Closed to clients.';
 COMMENT ON FUNCTION public._network_share_replay_origin(uuid) IS
   'A move or an adopt the desktop could not make: the row goes back as the operation''s journal says, under a move journal row of its own. Called only from network_share_settle.';
+COMMENT ON FUNCTION public.network_share_stale_moves() IS
+  'Moves between projects unsettled for 24 hours, for whoever could check both folders, who may settle them not_moved. Up to 500, oldest first.';
 COMMENT ON FUNCTION public._moth_trash_batch(uuid[], boolean) IS
   'Trash or restore 1 to 500 files whole or not at all: the one exclusion first, then the existing paths. Closed to clients.';
 COMMENT ON FUNCTION public.moth_trash_files(uuid[]) IS
@@ -1156,20 +1270,51 @@ BEGIN
     RAISE EXCEPTION '0118 post-condition: the advisory locks must come before any file row lock';
   END IF;
 
+  -- The order of the locks, which one transaction cannot probe. A check before its lock is a check
+  -- of a row that can still change.
+  IF position('FOR SHARE' IN v_body) = 0
+     OR position('_network_share_lock_projects' IN v_body) > position('FOR SHARE' IN v_body)
+     OR position('FOR SHARE' IN v_body) > position('FOR UPDATE' IN v_body) THEN
+    RAISE EXCEPTION '0118 post-condition: _moth_lock_moves must take the advisory locks, then the shared rows, then the files';
+  END IF;
+  SELECT regexp_replace(prosrc, '--[^\n]*', '', 'g') INTO v_body
+    FROM pg_proc WHERE oid = 'public.fn_moth_apply_moves(jsonb,uuid,boolean)'::regprocedure;
+  IF position('_moth_lock_moves' IN v_body) > position('_moth_target_eligible' IN v_body)
+     OR position('_moth_lock_moves' IN v_body) > position('moth_can_write_target' IN v_body)
+     OR position('_moth_lock_moves' IN v_body) > position('moth_move:plan_changed' IN v_body)
+     OR position('_moth_dest_eligible' IN substr(v_body, position('_moth_lock_moves' IN v_body))) = 0 THEN
+    RAISE EXCEPTION '0118 post-condition: fn_moth_apply_moves must take its locks before it asks again';
+  END IF;
+  SELECT regexp_replace(prosrc, '--[^\n]*', '', 'g') INTO v_body
+    FROM pg_proc WHERE oid = 'public.moth_undo_move(uuid,boolean)'::regprocedure;
+  IF position('_moth_lock_moves' IN v_body) = 0
+     OR position('_moth_lock_moves' IN v_body) > position('FOR UPDATE' IN v_body)
+     OR position('FOR UPDATE' IN v_body) > position('_moth_target_eligible' IN v_body)
+     OR position('_moth_target_eligible' IN v_body) > position('moth_move:changed_since' IN v_body) THEN
+    RAISE EXCEPTION '0118 post-condition: moth_undo_move must lock, then read the journal row, then the gate, then the positions';
+  END IF;
+  SELECT regexp_replace(prosrc, '--[^\n]*', '', 'g') INTO v_body
+    FROM pg_proc WHERE oid = 'public._moth_trash_batch(uuid[],boolean)'::regprocedure;
+  IF position('FOR UPDATE' IN v_body) = 0 OR position('FOR UPDATE' IN v_body) > position('soft_delete_row' IN v_body) THEN
+    RAISE EXCEPTION '0118 post-condition: _moth_trash_batch must lock its rows before it trashes them';
+  END IF;
+
   -- 0117's stub is gone, and the settle locks both ends of a move before any row.
   SELECT regexp_replace(prosrc, '--[^\n]*', '', 'g') INTO v_body
     FROM pg_proc WHERE oid = 'public._network_share_replay_origin(uuid)'::regprocedure;
   IF position('moves_not_ready' IN v_body) > 0
      OR position('set_config(''wilson.file_move''' IN v_body) = 0
      OR position('INSERT INTO public.file_moves' IN v_body) = 0
+     OR position('undone_at' IN v_body) = 0
      OR position('_network_share_move_core' IN v_body) > 0
      OR position('_network_share_adopt_core' IN v_body) > 0 THEN
     RAISE EXCEPTION '0118 post-condition: _network_share_replay_origin is not its own journalled path';
   END IF;
   SELECT regexp_replace(prosrc, '--[^\n]*', '', 'g') INTO v_body
     FROM pg_proc WHERE oid = 'public.network_share_settle(uuid[],text,jsonb)'::regprocedure;
-  IF position('o.dest_project_id' IN v_body) = 0 THEN
-    RAISE EXCEPTION '0118 post-condition: network_share_settle does not lock both ends of a move';
+  IF position('o.dest_project_id' IN v_body) = 0
+     OR position('_network_share_lock_projects' IN v_body) > position('FOR UPDATE' IN v_body) THEN
+    RAISE EXCEPTION '0118 post-condition: network_share_settle does not lock both ends of a move before any row';
   END IF;
 
   -- Every definer a client calls opens with the membership guard (SEC-MV-05).
@@ -1179,7 +1324,8 @@ BEGIN
       ('public.moth_undo_move(uuid,boolean)'),
       ('public.moth_trash_files(uuid[])'),
       ('public.moth_restore_files(uuid[])'),
-      ('public.moth_trash_index(integer,timestamp with time zone)')
+      ('public.moth_trash_index(integer,timestamp with time zone)'),
+      ('public.network_share_stale_moves()')
     ) AS t(sig)
   LOOP
     SELECT regexp_replace(prosrc, '--[^\n]*', '', 'g') INTO v_body FROM pg_proc WHERE oid = v_fn.sig::regprocedure;

@@ -12,7 +12,7 @@
 
 BEGIN;
 
-SELECT plan(161);
+SELECT plan(243);
 
 SELECT * FROM tests.rls_setup();
 
@@ -77,6 +77,19 @@ $f$;
 CREATE FUNCTION public.t119_m(p_ids uuid[], p_dest uuid, p_folder uuid DEFAULT NULL, p_plan boolean DEFAULT false, p_bodies jsonb DEFAULT NULL)
 RETURNS jsonb LANGUAGE sql AS $f$ SELECT public.moth_move_items(p_ids, p_dest, p_folder, p_plan, p_bodies) $f$;
 
+-- A refusal's DETAIL, which is the sentence a person reads.
+CREATE FUNCTION public.t119_detail(p_sql text) RETURNS text LANGUAGE plpgsql AS $f$
+DECLARE
+  d text;
+BEGIN
+  EXECUTE p_sql;
+  RETURN 'no refusal';
+EXCEPTION WHEN raise_exception THEN
+  GET STACKED DIAGNOSTICS d = PG_EXCEPTION_DETAIL;
+  RETURN d;
+END;
+$f$;
+
 CREATE TEMP TABLE t119_ret (k text PRIMARY KEY, v jsonb) ON COMMIT DROP;
 GRANT ALL ON t119_ret TO authenticated;
 CREATE FUNCTION public.t119_v(p_key text) RETURNS jsonb LANGUAGE sql STABLE AS $f$ SELECT v FROM t119_ret WHERE k = p_key $f$;
@@ -120,12 +133,16 @@ INSERT INTO public.phases (id, project_id, name) VALUES ('11900000-0000-0000-000
 INSERT INTO public.assets (id, project_id, workspace_id, name) VALUES ('11900000-0000-0000-0000-0000000000a2', 'aaaa1190-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111', 'Asset');
 INSERT INTO public.tasks (id, project_id, workspace_id, title) VALUES ('11900000-0000-0000-0000-0000000000a3', 'aaaa1190-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111', 'Task');
 INSERT INTO public.scenes (id, project_id, workspace_id) VALUES ('11900000-0000-0000-0000-0000000000a4', 'aaaa1190-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111');
+INSERT INTO public.shots (id, project_id, scene_id, name, shot_number) VALUES ('11900000-0000-0000-0000-0000000000a5', 'aaaa1190-0000-0000-0000-00000000000a', '11900000-0000-0000-0000-0000000000a4', 'SH1', 1);
+INSERT INTO public.levels (id, project_id, name) VALUES ('11900000-0000-0000-0000-0000000000a6', 'aaaa1190-0000-0000-0000-00000000000a', 'L1');
+INSERT INTO public.experiences (id, project_id, name) VALUES ('11900000-0000-0000-0000-0000000000a7', 'aaaa1190-0000-0000-0000-00000000000a', 'X1');
 
 SELECT public.t119_file('11900000-0000-0000-0000-000000000101', 'aaaa1190-0000-0000-0000-00000000000a', 'one.mov');
 SELECT public.t119_file('11900000-0000-0000-0000-000000000102', 'aaaa1190-0000-0000-0000-00000000000a', 'two.mov');
 SELECT public.t119_file('11900000-0000-0000-0000-000000000103', 'aaaa1190-0000-0000-0000-00000000000a', 'three.mov');
 UPDATE public.files SET phase_id = '11900000-0000-0000-0000-0000000000a1', asset_id = '11900000-0000-0000-0000-0000000000a2',
                         task_id = '11900000-0000-0000-0000-0000000000a3', scene_id = '11900000-0000-0000-0000-0000000000a4',
+                        shot_id = '11900000-0000-0000-0000-0000000000a5', level_id = '11900000-0000-0000-0000-0000000000a6', experience_id = '11900000-0000-0000-0000-0000000000a7',
                         folder_id = '11900000-0000-0000-0000-0000000000f1', is_core_definer = true
  WHERE id = '11900000-0000-0000-0000-000000000101';
 
@@ -147,6 +164,7 @@ SELECT public.t119_file('11900000-0000-0000-0000-000000000116', 'aaaa1190-0000-0
 SELECT is(has_function_privilege('anon', 'public.moth_move_items(uuid[],uuid,uuid,boolean,jsonb)', 'EXECUTE'), false, 'anon cannot move');
 SELECT is(has_function_privilege('anon', 'public.moth_undo_move(uuid,boolean)', 'EXECUTE'), false, 'nor undo');
 SELECT is(has_function_privilege('authenticated', 'public.moth_move_items(uuid[],uuid,uuid,boolean,jsonb)', 'EXECUTE'), true, 'CONTROL: a signed-in person may ask');
+SELECT is(has_function_privilege('anon', 'public.network_share_stale_moves()', 'EXECUTE'), false, 'anon cannot list a stale move');
 SELECT is((SELECT array_agg(x) FROM unnest(ARRAY[
     'public.fn_moth_apply_moves(jsonb,uuid,boolean)', 'public._moth_dest_eligible(uuid,uuid)', 'public._moth_lock_moves(uuid[],uuid[],uuid[])',
     'public._moth_key_leaf(text)', 'public._moth_links_alive(jsonb,uuid)', 'public._moth_share_back(uuid,uuid,text,jsonb,boolean)',
@@ -158,10 +176,12 @@ SET LOCAL ROLE authenticated;
 SELECT public.t119_as('ffffffff-ffff-ffff-ffff-ffffffffffff', 'user');
 SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000102'::uuid], 'aaaa1190-0000-0000-0000-00000000000b') $$, 'P0001', 'moth_move:not_a_workspace_member', 'someone no longer active is refused first');
 SELECT throws_ok($$ SELECT public.moth_undo_move('11900000-0000-0000-0000-00000000dead') $$, 'P0001', 'moth_move:not_a_workspace_member', 'and at undo');
+SELECT throws_ok($$ SELECT public.network_share_stale_moves() $$, '42501', 'network_share: not allowed', 'nor list a stale move');
 SELECT public.t119_c();
 SELECT throws_ok($$ SELECT public.t119_m('{}'::uuid[], 'aaaa1190-0000-0000-0000-00000000000b') $$, 'P0001', 'moth_move:empty', 'no files');
 SELECT throws_ok($$ SELECT public.t119_m(ARRAY[NULL::uuid], 'aaaa1190-0000-0000-0000-00000000000b') $$, 'P0001', 'moth_move:empty', 'only a NULL');
 SELECT throws_ok($$ SELECT public.t119_m((SELECT array_agg(gen_random_uuid()) FROM generate_series(1, 501)), 'aaaa1190-0000-0000-0000-00000000000b') $$, 'P0001', 'moth_move:too_many', 'over 500');
+SELECT throws_ok($$ SELECT public.t119_m((SELECT array_agg(gen_random_uuid()) FROM generate_series(1, 500)), 'aaaa1190-0000-0000-0000-00000000000b') $$, 'P0001', 'moth_move:not_found', 'and exactly 500 goes on to be judged');
 
 
 -- ── B. What reads as not there, in one sentence ─────────────────────────────
@@ -193,7 +213,7 @@ SELECT public.t119_v();
 SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000102'::uuid, '11900000-0000-0000-0000-000000000116'::uuid], 'aaaa1190-0000-0000-0000-00000000000b') $$, 'P0001', 'moth_move:not_found', 'a hidden file is hidden whatever else the caller may not do');
 RESET ROLE;
 SELECT is((SELECT count(*)::int FROM public.files WHERE id IN ('11900000-0000-0000-0000-000000000102', '11900000-0000-0000-0000-000000000103') AND project_id = 'aaaa1190-0000-0000-0000-00000000000a'), 2, 'and nothing moved');
-SELECT is((SELECT count(*)::int FROM public.file_moves), 0, 'and no journal row');
+SELECT is((SELECT count(*)::int FROM public.file_moves WHERE workspace_id = '11111111-1111-1111-1111-111111111111'), 0, 'and no journal row');
 SET LOCAL ROLE authenticated;
 
 
@@ -210,12 +230,12 @@ SELECT is(public.t119_v('p1') -> 'items' -> 0 ->> 'how', 'metadata', 'the plan s
 SELECT is(public.t119_v('p1') -> 'items' -> 0 -> 'to_path', NULL::jsonb, 'and hands out no key it does not need to');
 RESET ROLE;
 SELECT is((SELECT project_id FROM public.files WHERE id = '11900000-0000-0000-0000-000000000101'), 'aaaa1190-0000-0000-0000-00000000000a'::uuid, 'the plan writes nothing');
-SELECT is((SELECT count(*)::int FROM public.file_moves), 0, 'not even a journal row');
+SELECT is((SELECT count(*)::int FROM public.file_moves WHERE workspace_id = '11111111-1111-1111-1111-111111111111'), 0, 'not even a journal row');
 SET LOCAL ROLE authenticated;
 
 INSERT INTO t119_ret SELECT 'm1', public.t119_m(ARRAY['11900000-0000-0000-0000-000000000101'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', '11900000-0000-0000-0000-0000000000f9');
 SELECT is((public.t119_v('m1') ->> 'moved')::int, 1, 'the commit says how many');
-SELECT is((public.t119_v('m1') ->> 'links_cleared')::int, 4, 'and how many links went');
+SELECT is((public.t119_v('m1') ->> 'links_cleared')::int, 7, 'and how many links went');
 SELECT is(public.t119_v('m1') -> 'ops', '[]'::jsonb, 'and leaves the desktop nothing to do');
 SELECT is(current_setting('wilson.file_move', true), '', 'the marker is empty after the call');
 RESET ROLE;
@@ -226,7 +246,7 @@ SELECT is((SELECT is_core_definer FROM public.files WHERE id = '11900000-0000-00
 SELECT is((SELECT storage_path FROM public.files WHERE id = '11900000-0000-0000-0000-000000000101'),
   'projects/aaaa1190-0000-0000-0000-00000000000a/files/11900000-0000-0000-0000-000000000101/one.mov', 'the body stays where it is');
 SELECT is((SELECT count(*)::int FROM public.storage_gc_queue WHERE file_id = '11900000-0000-0000-0000-000000000101'), 0, 'and nothing is queued');
-SELECT is((SELECT count(*)::int FROM public.file_moves), 1, 'one journal row');
+SELECT is((SELECT count(*)::int FROM public.file_moves WHERE workspace_id = '11111111-1111-1111-1111-111111111111'), 1, 'one journal row');
 SELECT is((SELECT row(actor_user_id, created_by, txid = txid_current(), undo_of IS NULL, undone_at IS NULL)::text FROM public.file_moves WHERE id = public.t119_move_id('m1')),
   '(cccccccc-cccc-cccc-cccc-cccccccccccc,cccccccc-cccc-cccc-cccc-cccccccccccc,t,t,t)', 'naming who, in this transaction');
 SELECT is((SELECT array_agg(k ORDER BY k) FROM public.file_moves m, jsonb_array_elements(m.items) e, jsonb_object_keys(e) k WHERE m.id = public.t119_move_id('m1')),
@@ -238,6 +258,7 @@ SELECT is((SELECT count(*)::int FROM public.file_events WHERE file_id = '1190000
 SELECT is((SELECT count(*)::int FROM public.file_events e WHERE e.file_id = '11900000-0000-0000-0000-000000000101' AND e.project_id = 'aaaa1190-0000-0000-0000-00000000000b' AND row_to_json(e)::text LIKE '%aaaa1190-0000-0000-0000-00000000000a%'), 0, 'and nothing on the new side names the old project');
 SELECT is((SELECT count(*)::int FROM public.file_events WHERE file_id = '11900000-0000-0000-0000-000000000101' AND (event = 'moved' OR (event = 'refiled' AND details ->> 'to_folder_id' = '11900000-0000-0000-0000-0000000000f9'))), 0, 'no moved or refiled row with it');
 SELECT is((SELECT count(*)::int FROM public.edit_history WHERE entity_type = 'files' AND entity_id = '11900000-0000-0000-0000-000000000101' AND diff ? 'project_id' AND actor_user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'), 1, 'edit history names the caller');
+SELECT is((SELECT project_id FROM public.edit_history WHERE entity_type = 'files' AND entity_id = '11900000-0000-0000-0000-000000000101' AND diff ? 'project_id'), NULL::uuid, 'and belongs to neither project, so neither side reads the other''s id');
 SET LOCAL ROLE authenticated;
 
 
@@ -254,7 +275,7 @@ RESET ROLE;
 SELECT is((SELECT row(folder_id, task_id)::text FROM public.files WHERE id = '11900000-0000-0000-0000-000000000103'),
   '(11900000-0000-0000-0000-0000000000f2,11900000-0000-0000-0000-0000000000a3)', 'the folder changes and the link stays');
 SELECT is((SELECT details ->> 'to_folder_id' FROM public.file_events WHERE file_id = '11900000-0000-0000-0000-000000000103' AND event = 'refiled'), '11900000-0000-0000-0000-0000000000f2', 'refiled, saying where');
-SELECT is((SELECT count(*)::int FROM public.file_moves), 2, 'the commit with nothing to do wrote no journal row');
+SELECT is((SELECT count(*)::int FROM public.file_moves WHERE workspace_id = '11111111-1111-1111-1111-111111111111'), 2, 'the commit with nothing to do wrote no journal row');
 SET LOCAL ROLE authenticated;
 -- To no folder at all: the guard lets a NULL through without the journal, and this still writes it.
 INSERT INTO t119_ret SELECT 'm3b', public.t119_m(ARRAY['11900000-0000-0000-0000-000000000103'::uuid], 'aaaa1190-0000-0000-0000-00000000000a');
@@ -311,21 +332,39 @@ SELECT ok(public.t119_v('p6') -> 'items' -> 0 ->> 'to_path' ~ '^projects/aaaa119
   'the server mints the key, under the destination, with a safe name');
 SELECT is(public.t119_v('p6') -> 'items' -> 0 ->> 'to_thumb', (public.t119_v('p6') -> 'items' -> 0 ->> 'to_path') || '.jpg', 'and the picture beside it');
 SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000301'::uuid], 'aaaa1190-0000-0000-0000-00000000000b') $$, 'P0001', 'moth_move:needs_copy', 'the commit wants it');
+SELECT is(public.t119_detail($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000301'::uuid], 'aaaa1190-0000-0000-0000-00000000000b') $$), 'This file has to be copied to the new project first.', 'and says so in a sentence');
+RESET ROLE;
+INSERT INTO storage.objects (bucket_id, name, owner_id) VALUES
+  ('rabbit-files', 'projects/aaaa1190-0000-0000-0000-00000000000b/files/11900000-0000-0000-0000-000000000302/1700000000000-private_name.mov', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'),
+  ('rabbit-files', 'projects/aaaa1190-0000-0000-0000-00000000000b/files/11900000-0000-0000-0000-000000000301/1700000000000-other.mov', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'),
+  ('rabbit-files', 'projects/aaaa1190-0000-0000-0000-00000000000b/files/11900000-0000-0000-0000-000000000301/soon-private_name.mov', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee');
+SET LOCAL ROLE authenticated;
 SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000301'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('file_id', '11900000-0000-0000-0000-000000000301', 'path', 'projects/aaaa1190-0000-0000-0000-00000000000a/files/11900000-0000-0000-0000-000000000301/1700000000000-private_name.mov'))) $$, 'P0001', 'moth_move:copy_refused', 'a key under another project');
 SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000301'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('file_id', '11900000-0000-0000-0000-000000000301', 'path', 'projects/aaaa1190-0000-0000-0000-00000000000b/files/11900000-0000-0000-0000-000000000302/1700000000000-private_name.mov'))) $$, 'P0001', 'moth_move:copy_refused', 'a key for another file');
-SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000301'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('file_id', '11900000-0000-0000-0000-000000000301', 'path', 'projects/aaaa1190-0000-0000-0000-00000000000b/files/11900000-0000-0000-0000-000000000301/1700000000000-other.mov'))) $$, 'P0001', 'moth_move:copy_refused', 'a key with another name');
+SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000301'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('file_id', '11900000-0000-0000-0000-000000000301', 'path', 'projects/aaaa1190-0000-0000-0000-00000000000b/files/11900000-0000-0000-0000-000000000301/1700000000000-other.mov'))) $$, 'P0001', 'moth_move:plan_changed', 'a key with another name: renamed since the plan, so it is planned again');
 SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000301'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('file_id', '11900000-0000-0000-0000-000000000301', 'path', 'projects/aaaa1190-0000-0000-0000-00000000000b/files/11900000-0000-0000-0000-000000000301/soon-private_name.mov'))) $$, 'P0001', 'moth_move:copy_refused', 'a key with no time in it');
 SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000301'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('file_id', '11900000-0000-0000-0000-000000000301', 'path', public.t119_v('p6') -> 'items' -> 0 ->> 'to_path'))) $$, 'P0001', 'moth_move:copy_refused', 'the right key with no copy there yet');
+SELECT is(public.t119_detail($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000301'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('file_id', '11900000-0000-0000-0000-000000000301', 'path', public.t119_v('p6') -> 'items' -> 0 ->> 'to_path'))) $$), 'The new copy is not one this project can use.', 'in a sentence');
 RESET ROLE;
 INSERT INTO storage.objects (bucket_id, name, owner_id) SELECT 'rabbit-files', public.t119_v('p6') -> 'items' -> 0 ->> 'to_path', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
 SET LOCAL ROLE authenticated;
 SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000301'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('file_id', '11900000-0000-0000-0000-000000000301', 'path', public.t119_v('p6') -> 'items' -> 0 ->> 'to_path', 'thumbnail', 'elsewhere.jpg'))) $$, 'P0001', 'moth_move:copy_refused', 'a picture that is not the copy''s');
+RESET ROLE;
+UPDATE public.files SET name = 'renamed since.mov' WHERE id = '11900000-0000-0000-0000-000000000301';
+SET LOCAL ROLE authenticated;
+SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000301'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('file_id', '11900000-0000-0000-0000-000000000301', 'path', public.t119_v('p6') -> 'items' -> 0 ->> 'to_path'))) $$, 'P0001', 'moth_move:plan_changed', 'a file renamed while its copy was made is planned again');
+RESET ROLE;
+UPDATE public.files SET name = 'private name.mov' WHERE id = '11900000-0000-0000-0000-000000000301';
+SET LOCAL ROLE authenticated;
 INSERT INTO t119_ret SELECT 'm6', public.t119_m(ARRAY['11900000-0000-0000-0000-000000000301'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('file_id', '11900000-0000-0000-0000-000000000301', 'path', public.t119_v('p6') -> 'items' -> 0 ->> 'to_path', 'thumbnail', public.t119_v('p6') -> 'items' -> 0 ->> 'to_thumb')));
 RESET ROLE;
 SELECT is((SELECT row(project_id::text, storage_path = public.t119_v('p6') -> 'items' -> 0 ->> 'to_path', thumbnail_url = public.t119_v('p6') -> 'items' -> 0 ->> 'to_thumb')::text FROM public.files WHERE id = '11900000-0000-0000-0000-000000000301'),
   '(aaaa1190-0000-0000-0000-00000000000b,t,t)', 'the row takes the new key and picture with the project, in one update');
 SELECT is((SELECT array_agg(kind || ':' || bucket_id ORDER BY kind) FROM public.storage_gc_queue WHERE file_id = '11900000-0000-0000-0000-000000000301' AND reason = 'file-purged' AND status = 'pending'),
   ARRAY['body:rabbit-files', 'thumbnail:rabbit-thumbnails'], 'and the old copy and picture are queued');
+SELECT is((SELECT count(*)::int FROM public.file_events e WHERE e.file_id = '11900000-0000-0000-0000-000000000301' AND e.project_id = 'aaaa1190-0000-0000-0000-00000000000b' AND row_to_json(e)::text LIKE '%aaaa1190-0000-0000-0000-00000000000c%'), 0, 'nothing on the new side names the private project it came from');
+SELECT is((SELECT count(*)::int FROM public.file_events e WHERE e.file_id = '11900000-0000-0000-0000-000000000301' AND e.project_id = 'aaaa1190-0000-0000-0000-00000000000b' AND e.event = 'moved_in'), 1, 'CONTROL: and it does hear the file arrive');
+SELECT is((SELECT count(*)::int FROM public.edit_history h WHERE h.entity_type = 'files' AND h.entity_id = '11900000-0000-0000-0000-000000000301' AND h.project_id = 'aaaa1190-0000-0000-0000-00000000000b'), 0, 'and no history row of the move is the new project''s to read');
 
 
 -- ── H. A body on one computer ───────────────────────────────────────────────
@@ -338,6 +377,7 @@ SELECT public.t119_c();
 INSERT INTO t119_ret SELECT 'p7', public.t119_m(ARRAY['11900000-0000-0000-0000-000000000401'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, true);
 SELECT is(public.t119_v('p7') -> 'items' -> 0 ->> 'how', 'copy_up', 'a shared project takes a copy up');
 SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000401'::uuid], 'aaaa1190-0000-0000-0000-00000000000b') $$, 'P0001', 'moth_move:needs_desktop', 'only the computer that holds it can make one');
+SELECT is(public.t119_detail($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000401'::uuid], 'aaaa1190-0000-0000-0000-00000000000b') $$), 'Move it from the computer it was added on.', 'and says which');
 RESET ROLE;
 INSERT INTO storage.objects (bucket_id, name, owner_id) SELECT 'rabbit-files', public.t119_v('p7') -> 'items' -> 0 ->> 'to_path', 'cccccccc-cccc-cccc-cccc-cccccccccccc';
 SET LOCAL ROLE authenticated;
@@ -355,6 +395,7 @@ INSERT INTO t119_ret SELECT 'm8', public.t119_m(ARRAY['11900000-0000-0000-0000-0
 SELECT is(public.t119_v('m8') ->> 'moved', '1', 'and so does the caller''s own space');
 -- Its key now names a private space, so it cannot go back by association.
 SELECT throws_ok($$ SELECT public.moth_undo_move(public.t119_move_id('m8')) $$, 'P0001', 'moth_move:needs_copy', 'the way back would need a fresh copy, so it says move it back with Move to');
+SELECT is(public.t119_detail($$ SELECT public.moth_undo_move(public.t119_move_id('m8')) $$), 'Move it back with Move to.', 'in those words');
 
 
 -- ── I. Undo and redo ────────────────────────────────────────────────────────
@@ -372,9 +413,12 @@ SELECT is((SELECT undone_at FROM public.file_moves WHERE id = public.t119_move_i
 SET LOCAL ROLE authenticated;
 INSERT INTO t119_ret SELECT 'u1', public.moth_undo_move(public.t119_move_id('m1'));
 RESET ROLE;
-SELECT is((SELECT row(project_id, folder_id, phase_id, asset_id, task_id, scene_id, is_core_definer)::text FROM public.files WHERE id = '11900000-0000-0000-0000-000000000101'),
-  '(aaaa1190-0000-0000-0000-00000000000a,11900000-0000-0000-0000-0000000000f1,11900000-0000-0000-0000-0000000000a1,11900000-0000-0000-0000-0000000000a2,11900000-0000-0000-0000-0000000000a3,11900000-0000-0000-0000-0000000000a4,t)',
+SELECT is((SELECT row(project_id, folder_id, phase_id, asset_id, task_id, scene_id, shot_id, level_id, experience_id, is_core_definer)::text FROM public.files WHERE id = '11900000-0000-0000-0000-000000000101'),
+  '(aaaa1190-0000-0000-0000-00000000000a,11900000-0000-0000-0000-0000000000f1,11900000-0000-0000-0000-0000000000a1,11900000-0000-0000-0000-0000000000a2,11900000-0000-0000-0000-0000000000a3,11900000-0000-0000-0000-0000000000a4,11900000-0000-0000-0000-0000000000a5,11900000-0000-0000-0000-0000000000a6,11900000-0000-0000-0000-0000000000a7,t)',
   'undo restores the project, the folder, every link and the flag');
+SELECT is((public.t119_v('u1') ->> 'links_not_restored')::int, 0, 'and says nothing was left behind');
+SELECT is((public.t119_v('u1') ->> 'pictures_not_restored')::int, 0, 'no picture either');
+SELECT is(public.t119_v('m1') -> 'links_not_restored', NULL::jsonb, 'which only an undo says');
 SELECT ok((SELECT undone_at IS NOT NULL FROM public.file_moves WHERE id = public.t119_move_id('m1')), 'the journal row is marked');
 SELECT is((SELECT undo_of FROM public.file_moves WHERE id = public.t119_move_id('u1')), public.t119_move_id('m1'), 'and the new one says what it undoes');
 SET LOCAL ROLE authenticated;
@@ -408,10 +452,14 @@ RESET ROLE;
 SELECT public.t119_a();
 DELETE FROM public.tasks WHERE id = '11900000-0000-0000-0000-0000000000a3';
 DELETE FROM public.folders WHERE id = '11900000-0000-0000-0000-0000000000f4';
+-- A link it made at the destination since.
+INSERT INTO public.assets (id, project_id, workspace_id, name) VALUES ('11900000-0000-0000-0000-0000000000a8', 'aaaa1190-0000-0000-0000-00000000000b', '11111111-1111-1111-1111-111111111111', 'Asset there');
+UPDATE public.files SET asset_id = '11900000-0000-0000-0000-0000000000a8' WHERE id = '11900000-0000-0000-0000-000000000501';
 SET LOCAL ROLE authenticated;
 SELECT public.t119_c();
 INSERT INTO t119_ret SELECT 'u9', public.moth_undo_move(public.t119_move_id('m9'));
-SELECT is((public.t119_v('u9') ->> 'links_cleared')::int, 0, 'an undo clears nothing the row still had');
+SELECT is((public.t119_v('u9') ->> 'links_cleared')::int, 1, 'an undo counts the link it clears at the destination');
+SELECT is((public.t119_v('u9') ->> 'links_not_restored')::int, 1, 'and says how many of the old ones it could not bring back');
 RESET ROLE;
 SELECT is((SELECT row(folder_id, task_id, phase_id)::text FROM public.files WHERE id = '11900000-0000-0000-0000-000000000501'),
   '(,,11900000-0000-0000-0000-0000000000a1)', 'a folder and a task deleted since stay gone, and the phase comes back');
@@ -427,6 +475,144 @@ SET LOCAL ROLE authenticated;
 SELECT public.t119_c();
 SELECT throws_ok($$ SELECT public.moth_undo_move(public.t119_move_id('m10')) $$, 'P0001', 'moth_move:not_found', 'a project gone since reads as not there');
 RESET ROLE;
+
+
+-- ── K. More than one file, and what an undo asks ────────────────────────────
+SELECT public.t119_a();
+INSERT INTO public.projects (id, workspace_id, title, created_by, is_private, personal_owner_id) VALUES
+  ('aaaa1190-0000-0000-0000-00000000000f', '11111111-1111-1111-1111-111111111111', 'Third', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', false, NULL),
+  ('aaaa1190-0000-0000-0000-000000000010', '11111111-1111-1111-1111-111111111111', 'Soon gone', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', false, NULL),
+  ('aaaa1190-0000-0000-0000-000000000021', '11111111-1111-1111-1111-111111111111', 'Staffed without C', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', false, NULL);
+INSERT INTO public.project_members (project_id, user_id, workspace_id, project_role) VALUES
+  ('aaaa1190-0000-0000-0000-00000000000f', 'cccccccc-cccc-cccc-cccc-cccccccccccc', '11111111-1111-1111-1111-111111111111', 'member'),
+  ('aaaa1190-0000-0000-0000-00000000000f', 'abababab-abab-abab-abab-abababababab', '11111111-1111-1111-1111-111111111111', 'manager'),
+  ('aaaa1190-0000-0000-0000-000000000010', 'cccccccc-cccc-cccc-cccc-cccccccccccc', '11111111-1111-1111-1111-111111111111', 'member'),
+  ('aaaa1190-0000-0000-0000-000000000021', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', '11111111-1111-1111-1111-111111111111', 'member')
+ON CONFLICT DO NOTHING;
+SELECT public.t119_file('11900000-0000-0000-0000-000000000801', 'aaaa1190-0000-0000-0000-00000000000a', 'many-a.mov', '11900000-0000-0000-0000-0000000000f2');
+SELECT public.t119_file('11900000-0000-0000-0000-000000000802', 'aaaa1190-0000-0000-0000-00000000000b', 'many-b.mov');
+UPDATE public.files SET phase_id = '11900000-0000-0000-0000-0000000000a1' WHERE id = '11900000-0000-0000-0000-000000000801';
+SET LOCAL ROLE authenticated;
+SELECT public.t119_c();
+INSERT INTO t119_ret SELECT 'mm', public.t119_m(ARRAY['11900000-0000-0000-0000-000000000801'::uuid, '11900000-0000-0000-0000-000000000802'::uuid, '11900000-0000-0000-0000-000000000801'::uuid], 'aaaa1190-0000-0000-0000-00000000000f');
+SELECT is((public.t119_v('mm') ->> 'moved')::int, 2, 'two files from two projects, a repeated id moving once');
+SELECT is((public.t119_v('mm') ->> 'links_cleared')::int, 1, 'the links counted across the batch');
+RESET ROLE;
+SELECT is((SELECT count(*)::int FROM public.files WHERE id IN ('11900000-0000-0000-0000-000000000801', '11900000-0000-0000-0000-000000000802') AND project_id = 'aaaa1190-0000-0000-0000-00000000000f'), 2, 'both rows moved');
+SELECT is((SELECT jsonb_array_length(items) FROM public.file_moves WHERE id = public.t119_move_id('mm')), 2, 'under one journal row holding both');
+SET LOCAL ROLE authenticated;
+INSERT INTO t119_ret SELECT 'um', public.moth_undo_move(public.t119_move_id('mm'));
+SELECT is((public.t119_v('um') ->> 'moved')::int, 2, 'the undo moves both');
+RESET ROLE;
+SELECT is((SELECT row(project_id, folder_id, phase_id)::text FROM public.files WHERE id = '11900000-0000-0000-0000-000000000801'), '(aaaa1190-0000-0000-0000-00000000000a,11900000-0000-0000-0000-0000000000f2,11900000-0000-0000-0000-0000000000a1)', 'each back where it was');
+SELECT is((SELECT project_id FROM public.files WHERE id = '11900000-0000-0000-0000-000000000802'), 'aaaa1190-0000-0000-0000-00000000000b'::uuid, 'from its own project');
+
+-- The gate comes before the positions: each file has moved on as well, so a position test run
+-- first would say changed_since, and so say where the file is.
+SELECT public.t119_file('11900000-0000-0000-0000-000000000811', 'aaaa1190-0000-0000-0000-000000000010', 'gate-project.mov');
+SELECT public.t119_file('11900000-0000-0000-0000-000000000812', 'aaaa1190-0000-0000-0000-00000000000a', 'gate-file.mov');
+SET LOCAL ROLE authenticated;
+INSERT INTO t119_ret SELECT 'mg1', public.t119_m(ARRAY['11900000-0000-0000-0000-000000000811'::uuid], 'aaaa1190-0000-0000-0000-00000000000b');
+INSERT INTO t119_ret SELECT 'mg2', public.t119_m(ARRAY['11900000-0000-0000-0000-000000000812'::uuid], 'aaaa1190-0000-0000-0000-00000000000b');
+SELECT lives_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000811'::uuid, '11900000-0000-0000-0000-000000000812'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', '11900000-0000-0000-0000-0000000000f9') $$, 'both refiled since');
+RESET ROLE;
+SELECT public.t119_a();
+UPDATE public.projects SET deleted_at = now() WHERE id = 'aaaa1190-0000-0000-0000-000000000010';
+UPDATE public.files SET is_financial = true WHERE id = '11900000-0000-0000-0000-000000000812';
+SET LOCAL ROLE authenticated;
+SELECT public.t119_c();
+SELECT throws_ok($$ SELECT public.moth_undo_move(public.t119_move_id('mg1')) $$, 'P0001', 'moth_move:not_found', 'a project gone since reads as not there, not as changed');
+SELECT throws_ok($$ SELECT public.moth_undo_move(public.t119_move_id('mg2')) $$, 'P0001', 'moth_move:not_found', 'and a file that is an invoice since');
+RESET ROLE;
+
+-- Each way a file can have changed since.
+SELECT public.t119_file('11900000-0000-0000-0000-000000000821', 'aaaa1190-0000-0000-0000-00000000000a', 'arm-project.mov');
+SELECT public.t119_file('11900000-0000-0000-0000-000000000822', 'aaaa1190-0000-0000-0000-00000000000a', 'arm-path.mov');
+SELECT public.t119_file('11900000-0000-0000-0000-000000000823', 'aaaa1190-0000-0000-0000-00000000000a', 'arm-provider.mov');
+SET LOCAL ROLE authenticated;
+INSERT INTO t119_ret SELECT 'ma1', public.t119_m(ARRAY['11900000-0000-0000-0000-000000000821'::uuid], 'aaaa1190-0000-0000-0000-00000000000b');
+INSERT INTO t119_ret SELECT 'ma2', public.t119_m(ARRAY['11900000-0000-0000-0000-000000000822'::uuid], 'aaaa1190-0000-0000-0000-00000000000b');
+INSERT INTO t119_ret SELECT 'ma3', public.t119_m(ARRAY['11900000-0000-0000-0000-000000000823'::uuid], 'aaaa1190-0000-0000-0000-00000000000b');
+SELECT lives_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000821'::uuid], 'aaaa1190-0000-0000-0000-00000000000f') $$, 'moved on to a third project, no folder at either end');
+RESET ROLE;
+UPDATE public.files SET storage_path = storage_path || '.kept' WHERE id = '11900000-0000-0000-0000-000000000822';
+UPDATE public.files SET storage_provider = 'local_server' WHERE id = '11900000-0000-0000-0000-000000000823';
+SET LOCAL ROLE authenticated;
+SELECT throws_ok($$ SELECT public.moth_undo_move(public.t119_move_id('ma1')) $$, 'P0001', 'moth_move:changed_since', 'another project since');
+SELECT throws_ok($$ SELECT public.moth_undo_move(public.t119_move_id('ma2')) $$, 'P0001', 'moth_move:changed_since', 'another key since');
+SELECT throws_ok($$ SELECT public.moth_undo_move(public.t119_move_id('ma3')) $$, 'P0001', 'moth_move:changed_since', 'another provider since');
+RESET ROLE;
+
+-- A picture, by association.
+SELECT public.t119_file('11900000-0000-0000-0000-000000000831', 'aaaa1190-0000-0000-0000-00000000000a', 'pic-legacy.mov');
+UPDATE public.files SET thumbnail_url = 'projects/aaaa1190-0000-0000-0000-00000000000a/thumbs/legacy.jpg' WHERE id = '11900000-0000-0000-0000-000000000831';
+SELECT public.t119_file('11900000-0000-0000-0000-000000000832', 'aaaa1190-0000-0000-0000-00000000000a', 'pic-blank.mov');
+UPDATE public.files SET thumbnail_url = ' ' WHERE id = '11900000-0000-0000-0000-000000000832';
+SET LOCAL ROLE authenticated;
+INSERT INTO t119_ret SELECT 'mp', public.t119_m(ARRAY['11900000-0000-0000-0000-000000000831'::uuid, '11900000-0000-0000-0000-000000000832'::uuid], 'aaaa1190-0000-0000-0000-00000000000b');
+RESET ROLE;
+SELECT is((SELECT thumbnail_url FROM public.files WHERE id = '11900000-0000-0000-0000-000000000831'), NULL::text, 'a legacy picture does not follow the file');
+SELECT is((SELECT array_agg(kind || ':' || bucket_id) FROM public.storage_gc_queue WHERE file_id = '11900000-0000-0000-0000-000000000831' AND reason = 'file-purged' AND status = 'pending'), ARRAY['thumbnail:rabbit-thumbnails'], 'it is queued');
+SELECT is((SELECT thumbnail_url FROM public.files WHERE id = '11900000-0000-0000-0000-000000000832'), NULL::text, 'a blank one is cleared');
+SELECT is((SELECT count(*)::int FROM public.storage_gc_queue WHERE file_id = '11900000-0000-0000-0000-000000000832'), 0, 'and queues nothing');
+SET LOCAL ROLE authenticated;
+INSERT INTO t119_ret SELECT 'up', public.moth_undo_move(public.t119_move_id('mp'));
+SELECT is((public.t119_v('up') ->> 'pictures_not_restored')::int, 1, 'an undo says it could not bring the picture back');
+RESET ROLE;
+
+-- Within a project the flag stays, both ways.
+SELECT public.t119_file('11900000-0000-0000-0000-000000000841', 'aaaa1190-0000-0000-0000-00000000000a', 'core.mov');
+UPDATE public.files SET is_core_definer = true WHERE id = '11900000-0000-0000-0000-000000000841';
+SET LOCAL ROLE authenticated;
+INSERT INTO t119_ret SELECT 'mcw', public.t119_m(ARRAY['11900000-0000-0000-0000-000000000841'::uuid], 'aaaa1190-0000-0000-0000-00000000000a', '11900000-0000-0000-0000-0000000000f2');
+RESET ROLE;
+SELECT is((SELECT is_core_definer FROM public.files WHERE id = '11900000-0000-0000-0000-000000000841'), true, 'refiling a core file keeps its flag');
+SET LOCAL ROLE authenticated;
+INSERT INTO t119_ret SELECT 'ucw', public.moth_undo_move(public.t119_move_id('mcw'));
+RESET ROLE;
+SELECT is((SELECT row(folder_id, is_core_definer)::text FROM public.files WHERE id = '11900000-0000-0000-0000-000000000841'), '(,t)', 'and so does its undo');
+
+-- The other seats.
+SELECT public.t119_file('11900000-0000-0000-0000-000000000851', 'aaaa1190-0000-0000-0000-00000000000f', 'seat-manager.mov');
+SELECT public.t119_file('11900000-0000-0000-0000-000000000852', 'aaaa1190-0000-0000-0000-000000000021', 'seat-off.mov');
+SELECT public.t119_as('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'admin', '22222222-2222-2222-2222-222222222222');
+INSERT INTO public.projects (id, workspace_id, title, created_by, is_private, personal_owner_id) VALUES
+  ('aaaa1190-0000-0000-0000-000000000022', '22222222-2222-2222-2222-222222222222', 'Theirs', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', false, NULL);
+SET LOCAL ROLE authenticated;
+SELECT public.t119_d();
+SELECT is(public.t119_m(ARRAY['11900000-0000-0000-0000-000000000102'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, true) -> 'items' -> 0 ->> 'how', 'metadata', 'a workspace manager may move a file');
+SELECT public.t119_v();
+SELECT is(public.t119_m(ARRAY['11900000-0000-0000-0000-000000000851'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, true) -> 'items' -> 0 ->> 'how', 'metadata', 'and a manager of its project');
+SELECT public.t119_c();
+SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000852'::uuid], 'aaaa1190-0000-0000-0000-00000000000b') $$, 'P0001', 'moth_move:not_allowed_source', 'and a member off a staffed project may not');
+SELECT public.t119_as('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'admin', '22222222-2222-2222-2222-222222222222');
+SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000102'::uuid], 'aaaa1190-0000-0000-0000-000000000022') $$, 'P0001', 'moth_move:not_found', 'another company''s admin, to a project of its own');
+RESET ROLE;
+
+-- A company on its own bucket: nothing can look for an object there, so nothing is taken on trust.
+SELECT public.t119_a();
+SELECT public.t119_file('11900000-0000-0000-0000-000000000871', 'aaaa1190-0000-0000-0000-00000000000c', 'in-bucket.mov');
+SELECT public.t119_local('11900000-0000-0000-0000-000000000872', 'aaaa1190-0000-0000-0000-00000000000a', 'bucket-local.mov');
+SELECT public.t119_file('11900000-0000-0000-0000-000000000873', 'aaaa1190-0000-0000-0000-00000000000a', 'bucket-assoc.mov');
+INSERT INTO public.workspace_storage (workspace_id, mode, provider, provider_config)
+VALUES ('11111111-1111-1111-1111-111111111111', 'byos', 's3', '{"region":"r","bucket":"b","accessKeyId":"A"}'::jsonb);
+SET LOCAL ROLE authenticated;
+SELECT public.t119_e();
+SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000871'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, true) $$, 'P0001', 'moth_move:s3_moves_off', 'a re-home into the bucket is not planned');
+SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000871'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('file_id', '11900000-0000-0000-0000-000000000871', 'path', 'projects/aaaa1190-0000-0000-0000-00000000000b/files/11900000-0000-0000-0000-000000000871/1700000000000-in-bucket.mov'))) $$, 'P0001', 'moth_move:s3_moves_off', 'nor taken on the caller''s word');
+SELECT public.t119_c();
+SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000872'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, true) $$, 'P0001', 'moth_move:s3_moves_off', 'nor a copy up');
+SELECT is(public.t119_m(ARRAY['11900000-0000-0000-0000-000000000873'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, true) -> 'items' -> 0 ->> 'how', 'metadata', 'CONTROL: a move by association needs no new copy, in any company');
+RESET ROLE;
+SELECT is((SELECT row(project_id, storage_provider)::text FROM public.files WHERE id = '11900000-0000-0000-0000-000000000871'), '(aaaa1190-0000-0000-0000-00000000000c,supabase)', 'and the file stays as it was');
+SELECT is((SELECT count(*)::int FROM public.storage_gc_queue WHERE file_id = '11900000-0000-0000-0000-000000000871'), 0, 'its only body not queued');
+-- Back on Petal with a bucket remembered: Petal's storage, where the object can be looked for.
+UPDATE public.workspace_storage SET mode = 'central' WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
+SET LOCAL ROLE authenticated;
+SELECT public.t119_e();
+SELECT is(public.t119_m(ARRAY['11900000-0000-0000-0000-000000000871'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, true) -> 'items' -> 0 ->> 'to_provider', 'supabase', 'a company back on Petal re-homes to Petal');
+RESET ROLE;
+DELETE FROM public.workspace_storage WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
 
 
 -- ── J. The office server ────────────────────────────────────────────────────
@@ -583,6 +769,128 @@ SET LOCAL ROLE authenticated;
 SELECT public.t119_e();
 SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000703'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, true) $$, 'P0001', 'moth_move:copy_refused', 'a re-home has nowhere to go on an office server');
 RESET ROLE;
+
+-- Two operations settled together, both going back.
+SELECT public.t119_share('11900000-0000-0000-0000-0000000006a1', 'aaaa1190-0000-0000-0000-000000000011', 'Salt-Hours/pair-1.mov');
+SELECT public.t119_share('11900000-0000-0000-0000-0000000006a2', 'aaaa1190-0000-0000-0000-000000000011', 'Salt-Hours/pair-2.mov');
+SET LOCAL ROLE authenticated;
+SELECT public.t119_c();
+INSERT INTO t119_ret SELECT 'p2', public.t119_m(ARRAY['11900000-0000-0000-0000-0000000006a1'::uuid, '11900000-0000-0000-0000-0000000006a2'::uuid], 'aaaa1190-0000-0000-0000-000000000012');
+SELECT is(jsonb_array_length(public.t119_v('p2') -> 'ops'), 2, 'two files, two renames for the desktop');
+SELECT lives_ok($$ SELECT public.network_share_settle(ARRAY[(public.t119_v('p2') -> 'ops' -> 0 ->> 'op_id')::uuid, (public.t119_v('p2') -> 'ops' -> 1 ->> 'op_id')::uuid], 'not_moved') $$, 'neither happened');
+RESET ROLE;
+SELECT is((SELECT count(*)::int FROM public.files WHERE id IN ('11900000-0000-0000-0000-0000000006a1', '11900000-0000-0000-0000-0000000006a2') AND project_id = 'aaaa1190-0000-0000-0000-000000000011' AND storage_path LIKE 'nas:Salt-Hours/pair-%'), 2, 'and both rows are back');
+
+-- An undo the desktop could not make can be tried again.
+SELECT public.t119_share('11900000-0000-0000-0000-0000000006b1', 'aaaa1190-0000-0000-0000-000000000011', 'Salt-Hours/retry.mov');
+SET LOCAL ROLE authenticated;
+INSERT INTO t119_ret SELECT 'rt', public.t119_m(ARRAY['11900000-0000-0000-0000-0000000006b1'::uuid], 'aaaa1190-0000-0000-0000-000000000012');
+SELECT lives_ok($$ SELECT public.network_share_settle(ARRAY[public.t119_op('rt')], 'done') $$, 'the move happened');
+INSERT INTO t119_ret SELECT 'rtu', public.moth_undo_move(public.t119_move_id('rt'));
+SELECT lives_ok($$ SELECT public.network_share_settle(ARRAY[public.t119_op('rtu')], 'not_moved') $$, 'and its undo could not');
+RESET ROLE;
+SELECT is((SELECT undone_at FROM public.file_moves WHERE id = public.t119_move_id('rt')), NULL::timestamptz, 'so the move does not read as undone');
+SELECT is((SELECT row(project_id, storage_path)::text FROM public.files WHERE id = '11900000-0000-0000-0000-0000000006b1'), '(aaaa1190-0000-0000-0000-000000000012,nas:Moon-Film/retry.mov)', 'and the row is where the file is');
+SET LOCAL ROLE authenticated;
+INSERT INTO t119_ret SELECT 'rtv', public.moth_undo_move(public.t119_move_id('rt'));
+SELECT is(public.t119_v('rtv') -> 'ops' -> 0 ->> 'to', 'Salt-Hours/retry.mov', 'it can be tried again');
+SELECT lives_ok($$ SELECT public.network_share_settle(ARRAY[public.t119_op('rtv')], 'done') $$, 'and this time it works');
+RESET ROLE;
+SELECT ok((SELECT undone_at IS NOT NULL FROM public.file_moves WHERE id = public.t119_move_id('rt')), 'and the move reads as undone');
+
+-- A batch half of which went back cannot be undone whole.
+SELECT public.t119_share('11900000-0000-0000-0000-0000000006c1', 'aaaa1190-0000-0000-0000-000000000011', 'Salt-Hours/half-1.mov');
+SELECT public.t119_share('11900000-0000-0000-0000-0000000006c2', 'aaaa1190-0000-0000-0000-000000000011', 'Salt-Hours/half-2.mov');
+SET LOCAL ROLE authenticated;
+INSERT INTO t119_ret SELECT 'hb', public.t119_m(ARRAY['11900000-0000-0000-0000-0000000006c1'::uuid, '11900000-0000-0000-0000-0000000006c2'::uuid], 'aaaa1190-0000-0000-0000-000000000012');
+SELECT lives_ok($$ SELECT public.network_share_settle(ARRAY[(public.t119_v('hb') -> 'ops' -> 0 ->> 'op_id')::uuid, (public.t119_v('hb') -> 'ops' -> 1 ->> 'op_id')::uuid], 'done') $$, 'both moved');
+INSERT INTO t119_ret SELECT 'hbu', public.moth_undo_move(public.t119_move_id('hb'));
+SELECT lives_ok($$ SELECT public.network_share_settle(ARRAY[(public.t119_v('hbu') -> 'ops' -> 0 ->> 'op_id')::uuid], 'done') $$, 'one went back');
+SELECT lives_ok($$ SELECT public.network_share_settle(ARRAY[(public.t119_v('hbu') -> 'ops' -> 1 ->> 'op_id')::uuid], 'not_moved') $$, 'one could not');
+SELECT throws_ok($$ SELECT public.moth_undo_move(public.t119_move_id('hb')) $$, 'P0001', 'moth_move:changed_since', 'and the whole cannot be undone: the file that went back is not where the move left it');
+RESET ROLE;
+
+-- A way back whose folder and link have gone lands without them.
+SELECT public.t119_a();
+INSERT INTO public.folders (id, project_id, parent_id, kind, slug, path) VALUES ('11900000-0000-0000-0000-0000000000d5', 'aaaa1190-0000-0000-0000-000000000011', '11900000-0000-0000-0000-0000000000d0', 'category', 'gone', 'gone');
+INSERT INTO public.tasks (id, project_id, workspace_id, title) VALUES ('11900000-0000-0000-0000-0000000000d6', 'aaaa1190-0000-0000-0000-000000000011', '11111111-1111-1111-1111-111111111111', 'Going');
+SELECT public.t119_share('11900000-0000-0000-0000-0000000006d1', 'aaaa1190-0000-0000-0000-000000000011', 'Salt-Hours/gone/wb.mov');
+UPDATE public.files SET folder_id = '11900000-0000-0000-0000-0000000000d5', task_id = '11900000-0000-0000-0000-0000000000d6' WHERE id = '11900000-0000-0000-0000-0000000006d1';
+SET LOCAL ROLE authenticated;
+SELECT public.t119_c();
+INSERT INTO t119_ret SELECT 'wb', public.t119_m(ARRAY['11900000-0000-0000-0000-0000000006d1'::uuid], 'aaaa1190-0000-0000-0000-000000000012');
+RESET ROLE;
+SELECT public.t119_a();
+DELETE FROM public.tasks WHERE id = '11900000-0000-0000-0000-0000000000d6';
+DELETE FROM public.folders WHERE id = '11900000-0000-0000-0000-0000000000d5';
+SET LOCAL ROLE authenticated;
+SELECT public.t119_c();
+SELECT lives_ok($$ SELECT public.network_share_settle(ARRAY[public.t119_op('wb')], 'not_moved') $$, 'a way back with its folder and link gone still settles');
+RESET ROLE;
+SELECT is((SELECT row(project_id, folder_id, task_id, storage_path)::text FROM public.files WHERE id = '11900000-0000-0000-0000-0000000006d1'), '(aaaa1190-0000-0000-0000-000000000011,,,nas:Salt-Hours/gone/wb.mov)', 'and lands without them');
+
+-- An undo's own refusals on the server.
+SELECT public.t119_share('11900000-0000-0000-0000-0000000006e1', 'aaaa1190-0000-0000-0000-000000000011', 'Salt-Hours/refuse.mov');
+SET LOCAL ROLE authenticated;
+INSERT INTO t119_ret SELECT 'rf', public.t119_m(ARRAY['11900000-0000-0000-0000-0000000006e1'::uuid], 'aaaa1190-0000-0000-0000-000000000012');
+SELECT lives_ok($$ SELECT public.network_share_settle(ARRAY[public.t119_op('rf')], 'done') $$, 'moved and settled');
+RESET ROLE;
+SELECT public.t119_a();
+UPDATE public.projects SET folder_root = public.t119_root() || chr(92) || 'Elsewhere' WHERE id = 'aaaa1190-0000-0000-0000-000000000011';
+SET LOCAL ROLE authenticated;
+SELECT public.t119_c();
+SELECT throws_ok($$ SELECT public.moth_undo_move(public.t119_move_id('rf')) $$, 'P0001', 'moth_move:no_folder', 'the place it left is no longer in its project''s folder');
+RESET ROLE;
+SELECT public.t119_a();
+UPDATE public.projects SET folder_root = public.t119_root() || chr(92) || 'Salt-Hours' WHERE id = 'aaaa1190-0000-0000-0000-000000000011';
+UPDATE public.workspace_storage SET mode = 'central' WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
+SET LOCAL ROLE authenticated;
+SELECT public.t119_c();
+SELECT throws_ok($$ SELECT public.moth_undo_move(public.t119_move_id('rf')) $$, 'P0001', 'moth_move:drive_changed', 'a company no longer on the server');
+RESET ROLE;
+UPDATE public.workspace_storage SET mode = 'byos' WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
+-- A place an operation is leaving, its row already gone from there.
+SELECT public.t119_share('11900000-0000-0000-0000-0000000006f1', 'aaaa1190-0000-0000-0000-000000000011', 'Salt-Hours/held.mov');
+SET LOCAL ROLE authenticated;
+INSERT INTO t119_ret SELECT 'hd', public.t119_m(ARRAY['11900000-0000-0000-0000-0000000006f1'::uuid], 'aaaa1190-0000-0000-0000-000000000012');
+SELECT lives_ok($$ SELECT public.network_share_settle(ARRAY[public.t119_op('hd')], 'done') $$, 'moved, so the place is free');
+RESET ROLE;
+SELECT public.t119_share('11900000-0000-0000-0000-0000000006f2', 'aaaa1190-0000-0000-0000-000000000011', 'Salt-Hours/held.mov');
+SET LOCAL ROLE authenticated;
+INSERT INTO t119_ret SELECT 'hd2', public.t119_m(ARRAY['11900000-0000-0000-0000-0000000006f2'::uuid], 'aaaa1190-0000-0000-0000-000000000012', '11900000-0000-0000-0000-0000000000d3');
+SELECT throws_ok($$ SELECT public.moth_undo_move(public.t119_move_id('hd')) $$, 'P0001', 'moth_move:name_taken', 'an undo onto a place another file is still leaving');
+RESET ROLE;
+
+-- After 24 hours, whoever could check both folders may call off a move between projects.
+SELECT public.t119_share('11900000-0000-0000-0000-0000000006a9', 'aaaa1190-0000-0000-0000-000000000011', 'Salt-Hours/stale.mov');
+INSERT INTO public.project_members (project_id, user_id, workspace_id, project_role) VALUES
+  ('aaaa1190-0000-0000-0000-000000000011', 'abababab-abab-abab-abab-abababababab', '11111111-1111-1111-1111-111111111111', 'manager') ON CONFLICT DO NOTHING;
+SET LOCAL ROLE authenticated;
+SELECT public.t119_c();
+INSERT INTO t119_ret SELECT 'st', public.t119_m(ARRAY['11900000-0000-0000-0000-0000000006a9'::uuid], 'aaaa1190-0000-0000-0000-000000000012');
+SELECT public.t119_a();
+SELECT throws_ok($$ SELECT public.network_share_settle(ARRAY[public.t119_op('st')], 'not_moved') $$, '42501', 'network_share: not allowed', 'before 24 hours not even an admin');
+SELECT is((SELECT count(*)::int FROM jsonb_array_elements(public.network_share_stale_moves()) e WHERE e ->> 'op_id' = public.t119_op('st')::text), 0, 'and it is not listed yet');
+RESET ROLE;
+UPDATE public.network_share_ops SET created_at = now() - interval '25 hours' WHERE id = public.t119_op('st');
+SET LOCAL ROLE authenticated;
+SELECT public.t119_a();
+SELECT throws_ok($$ SELECT public.network_share_settle(ARRAY[public.t119_op('st')], 'done') $$, '42501', 'network_share: not allowed', 'only its own computer can say it moved');
+SELECT is((SELECT e ->> 'to' FROM jsonb_array_elements(public.network_share_stale_moves()) e WHERE e ->> 'op_id' = public.t119_op('st')::text), 'Moon-Film/stale.mov', 'an admin can find it, and where it was going');
+SELECT public.t119_v();
+SELECT throws_ok($$ SELECT public.network_share_settle(ARRAY[public.t119_op('st')], 'not_moved') $$, '42501', 'network_share: not allowed', 'a manager of one end cannot call it off');
+SELECT is((SELECT count(*)::int FROM jsonb_array_elements(public.network_share_stale_moves()) e WHERE e ->> 'op_id' = public.t119_op('st')::text), 0, 'nor see it');
+SELECT public.t119_e();
+SELECT throws_ok($$ SELECT public.network_share_settle(ARRAY[public.t119_op('st')], 'not_moved') $$, '42501', 'network_share: not allowed', 'nor someone on neither');
+SELECT public.t119_as('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'admin', '22222222-2222-2222-2222-222222222222');
+SELECT throws_ok($$ SELECT public.network_share_settle(ARRAY[public.t119_op('st')], 'not_moved') $$, '42501', 'network_share: not allowed', 'nor another company''s admin');
+SELECT is(public.network_share_stale_moves(), '[]'::jsonb, 'whose list does not hold it');
+SELECT public.t119_a();
+SELECT lives_ok($$ SELECT public.network_share_settle(ARRAY[public.t119_op('st')], 'not_moved') $$, 'an admin calls it off');
+RESET ROLE;
+SELECT is((SELECT row(project_id, storage_path)::text FROM public.files WHERE id = '11900000-0000-0000-0000-0000000006a9'), '(aaaa1190-0000-0000-0000-000000000011,nas:Salt-Hours/stale.mov)', 'the row is back where the file is');
+SELECT is((SELECT state FROM public.network_share_ops WHERE id = public.t119_op('st')), 'reverted', 'the operation is closed');
+SELECT is((SELECT actor_user_id FROM public.file_moves WHERE undo_of = public.t119_move_id('st')), 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, 'and the way back names who called it off');
 
 SELECT * FROM finish();
 ROLLBACK;
