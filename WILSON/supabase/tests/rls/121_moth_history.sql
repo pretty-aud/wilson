@@ -12,7 +12,7 @@
 
 BEGIN;
 
-SELECT plan(165);
+SELECT plan(248);
 
 SELECT * FROM tests.rls_setup();
 
@@ -75,6 +75,21 @@ CREATE FUNCTION public.t121_read(p_id uuid, p_scope uuid DEFAULT NULL) RETURNS i
   SELECT count(*)::int FROM public.moth_history_read(p_scope) r WHERE r.entity_id = p_id;
 $f$;
 GRANT EXECUTE ON FUNCTION public.t121_read(uuid, uuid) TO authenticated;
+CREATE FUNCTION public.t121_walk(p_scope uuid) RETURNS uuid[] LANGUAGE plpgsql AS $f$
+DECLARE
+  v_out uuid[] := '{}';
+  v_key uuid;
+  v_i   integer := 0;
+BEGIN
+  LOOP
+    v_key := (SELECT x.row_key FROM public.moth_history_read(p_scope, NULL, v_key, 1) x);
+    EXIT WHEN v_key IS NULL OR v_i > 500;
+    v_out := v_out || v_key;
+    v_i := v_i + 1;
+  END LOOP;
+  RETURN v_out;
+END;
+$f$;
 
 SELECT public.t121_a();
 INSERT INTO public.projects (id, workspace_id, title, created_by, is_private, personal_owner_id) VALUES
@@ -112,6 +127,23 @@ SELECT is((SELECT array_agg(DISTINCT c.relname::text ORDER BY c.relname::text) F
   ARRAY['assets', 'experiences', 'files', 'folders', 'levels', 'phases', 'projects', 'scenes', 'shots', 'task_items', 'tasks'], 'on the eleven tables');
 SELECT ok((SELECT pg_get_triggerdef(t.oid) LIKE '%share_missing_since%' AND pg_get_triggerdef(t.oid) LIKE '%is_financial%' AND pg_get_triggerdef(t.oid) LIKE '%storage_path%' FROM pg_trigger t WHERE t.tgname = 'trg_files_moth_history_upd'), 'the files list holds what classification needs');
 SELECT is((SELECT count(*)::int FROM pg_proc WHERE prosrc LIKE '%moth_history%' AND proname IN ('fn_realtime_broadcast', 'fn_workspace_realtime_broadcast')), 0, 'it is on no realtime topic');
+-- A column gone from a list silently corrupts every rebuild before it, so each is named here too.
+SELECT is((SELECT array_agg(x.tbl || ':' || x.c ORDER BY x.tbl, x.c) FROM (VALUES
+  ('projects', 'title status project_type is_private personal_owner_id deleted_at'),
+  ('phases', 'name status parent_phase_id sort_order deleted_at'),
+  ('assets', 'name type type_label status phase_id sort_order scene_ids shot_ids level_ids experience_ids deleted_at'),
+  ('tasks', 'title status phase_id asset_id scene_id shot_id project_id deleted_at'),
+  ('files', 'name project_id folder_id kind mime_type size_bytes document_kind tags is_core_definer phase_id asset_id task_id scene_id shot_id level_id experience_id deleted_at is_financial storage_path share_missing_since'),
+  ('folders', 'project_id parent_id slug label kind entity_type sort_order path asset_id scene_id shot_id level_id experience_id'),
+  ('scenes', 'name scene_number status sort_order'),
+  ('shots', 'name shot_number scene_id status sort_order'),
+  ('levels', 'name status sort_order'),
+  ('experiences', 'name status sort_order'),
+  ('task_items', 'task_id entity_type entity_id position')
+  ) AS w(tbl, cols), LATERAL (SELECT w.tbl, c FROM unnest(string_to_array(w.cols, ' ')) c) x
+   WHERE NOT EXISTS (SELECT 1 FROM pg_trigger t WHERE t.tgrelid = ('public.' || x.tbl)::regclass AND t.tgname = 'trg_' || x.tbl || '_moth_history_upd'
+                      AND pg_get_triggerdef(t.oid) LIKE '%old.' || CASE WHEN x.c = 'position' THEN '"position"' ELSE x.c END || ' IS DISTINCT FROM new.%')), NULL::text[], 'every pinned column is in its table''s list');
+SELECT is((SELECT count(*)::int FROM pg_proc p, unnest(p.proconfig) c WHERE p.oid IN ('public.fn_moth_history_capture()'::regprocedure, 'public.moth_history_read(uuid,timestamp with time zone,uuid,integer)'::regprocedure, 'public.moth_history_window(uuid)'::regprocedure, 'public._moth_history_folder_locked(uuid,jsonb)'::regprocedure) AND c LIKE 'search_path=%'), 4, 'each definer pins its search_path');
 
 
 -- ── B. What a file writes ───────────────────────────────────────────────────
@@ -146,9 +178,22 @@ SELECT lives_ok($$ SELECT public.moth_move_items(ARRAY['12100000-0000-0000-0000-
 RESET ROLE;
 SELECT is(public.t121_n('files', '12100000-0000-0000-0000-000000000102', 'move'), 1, 'writes one move');
 SELECT is(public.t121_n('files', '12100000-0000-0000-0000-000000000102'), 2, 'and nothing else');
+SELECT is((public.t121_last('files', '12100000-0000-0000-0000-000000000102')).state ->> 'name', 'two.mov', 'with its metadata');
 SELECT is((public.t121_last('files', '12100000-0000-0000-0000-000000000102')).prior_project_id, 'aaaa1210-0000-0000-0000-00000000000a'::uuid, 'from');
 SELECT is((public.t121_last('files', '12100000-0000-0000-0000-000000000102')).state_project_id, 'aaaa1210-0000-0000-0000-00000000000b'::uuid, 'to');
 SELECT is((public.t121_last('files', '12100000-0000-0000-0000-000000000102')).actor_user_id, 'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid, 'by the person who moved it');
+
+-- An undo is one move, and a new key on the same row is none.
+SELECT public.t121_file('12100000-0000-0000-0000-000000000107', 'aaaa1210-0000-0000-0000-00000000000a', 'undo.mov');
+SET LOCAL ROLE authenticated;
+SELECT public.t121_c();
+CREATE TEMP TABLE t121_ret (k text PRIMARY KEY, v jsonb) ON COMMIT DROP;
+GRANT ALL ON t121_ret TO authenticated;
+INSERT INTO t121_ret SELECT 'm', public.moth_move_items(ARRAY['12100000-0000-0000-0000-000000000107'::uuid], 'aaaa1210-0000-0000-0000-00000000000b');
+SELECT lives_ok($$ SELECT public.moth_undo_move((SELECT (v ->> 'move_id')::uuid FROM t121_ret WHERE k = 'm')) $$, 'and undone');
+RESET ROLE;
+SELECT is(public.t121_n('files', '12100000-0000-0000-0000-000000000107', 'move'), 2, 'one move each way');
+SELECT is(public.t121_n('files', '12100000-0000-0000-0000-000000000107'), 3, 'and nothing else');
 
 -- Through the trash paths.
 SET LOCAL ROLE authenticated;
@@ -196,6 +241,52 @@ DELETE FROM public.phases WHERE id = '12100000-0000-0000-0000-0000000000a1';
 SELECT is(public.t121_n('phases', '12100000-0000-0000-0000-0000000000a1', 'delete'), 1, 'and its delete');
 SELECT is((public.t121_last('phases', '12100000-0000-0000-0000-0000000000a1')).state, NULL::jsonb, 'with nothing after it');
 
+-- Every table, each way, and no restart mark for any of it.
+INSERT INTO public.scenes (id, project_id, workspace_id, name, scene_number) VALUES ('12100000-0000-0000-0000-0000000000b1', 'aaaa1210-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111', 'Scene', 1);
+INSERT INTO public.shots (id, project_id, scene_id, name, shot_number) VALUES ('12100000-0000-0000-0000-0000000000b2', 'aaaa1210-0000-0000-0000-00000000000a', '12100000-0000-0000-0000-0000000000b1', 'Shot', 1), ('12100000-0000-0000-0000-0000000000b9', 'aaaa1210-0000-0000-0000-00000000000a', NULL, 'Loose', 2);
+INSERT INTO public.levels (id, project_id, name) VALUES ('12100000-0000-0000-0000-0000000000b3', 'aaaa1210-0000-0000-0000-00000000000a', 'Level');
+INSERT INTO public.experiences (id, project_id, name) VALUES ('12100000-0000-0000-0000-0000000000b4', 'aaaa1210-0000-0000-0000-00000000000a', 'Experience');
+INSERT INTO public.phases (id, project_id, name) VALUES ('12100000-0000-0000-0000-0000000000b5', 'aaaa1210-0000-0000-0000-00000000000a', 'Parent phase'), ('12100000-0000-0000-0000-0000000000b6', 'aaaa1210-0000-0000-0000-00000000000a', 'Child phase');
+INSERT INTO public.assets (id, project_id, workspace_id, name) VALUES ('12100000-0000-0000-0000-0000000000b7', 'aaaa1210-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111', 'Asset 2');
+INSERT INTO public.tasks (id, project_id, workspace_id, title) VALUES ('12100000-0000-0000-0000-0000000000b8', 'aaaa1210-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111', 'Task 2');
+SELECT is((SELECT array_agg(h.entity_type ORDER BY h.entity_type) FROM public.moth_history h WHERE h.entity_id IN ('12100000-0000-0000-0000-0000000000b1', '12100000-0000-0000-0000-0000000000b2', '12100000-0000-0000-0000-0000000000b3', '12100000-0000-0000-0000-0000000000b4') AND h.action = 'create'), ARRAY['experiences', 'levels', 'scenes', 'shots'], 'the four quieter tables write a create');
+SELECT is((public.t121_last('scenes', '12100000-0000-0000-0000-0000000000b1')).state, '{"name": "Scene", "number": 1}'::jsonb - 'x' || (public.t121_last('scenes', '12100000-0000-0000-0000-0000000000b1')).state - 'name' - 'number' || '{"name": "Scene", "number": 1}'::jsonb, 'a scene''s name and number');
+SELECT is((public.t121_last('scenes', '12100000-0000-0000-0000-0000000000b1')).state ->> 'number', '1', 'its number under that name');
+SELECT is((public.t121_last('shots', '12100000-0000-0000-0000-0000000000b2')).state ->> 'scene_id', '12100000-0000-0000-0000-0000000000b1', 'a shot''s scene');
+SELECT is((public.t121_last('shots', '12100000-0000-0000-0000-0000000000b2')).state ->> 'number', '1', 'and number');
+UPDATE public.scenes SET status = 'approved' WHERE id = '12100000-0000-0000-0000-0000000000b1';
+SELECT is((public.t121_last('scenes', '12100000-0000-0000-0000-0000000000b1')).action, 'update', 'a status change alone speaks');
+SELECT is((public.t121_last('scenes', '12100000-0000-0000-0000-0000000000b1')).state ->> 'status', 'approved', 'saying so');
+UPDATE public.shots SET scene_id = NULL WHERE id = '12100000-0000-0000-0000-0000000000b2';
+SELECT is((public.t121_last('shots', '12100000-0000-0000-0000-0000000000b2')).action, 'move', 'a shot off its scene is a move');
+UPDATE public.levels SET name = 'Level 2' WHERE id = '12100000-0000-0000-0000-0000000000b3';
+SELECT is((public.t121_last('levels', '12100000-0000-0000-0000-0000000000b3')).state ->> 'name', 'Level 2', 'a level renamed');
+UPDATE public.experiences SET sort_order = 7 WHERE id = '12100000-0000-0000-0000-0000000000b4';
+SELECT is((public.t121_last('experiences', '12100000-0000-0000-0000-0000000000b4')).state ->> 'sort_order', '7', 'an experience reordered');
+UPDATE public.phases SET parent_phase_id = '12100000-0000-0000-0000-0000000000b5' WHERE id = '12100000-0000-0000-0000-0000000000b6';
+SELECT is((public.t121_last('phases', '12100000-0000-0000-0000-0000000000b6')).action, 'move', 'a phase under a parent is a move');
+UPDATE public.phases SET status = 'done' WHERE id = '12100000-0000-0000-0000-0000000000b5';
+SELECT is((public.t121_last('phases', '12100000-0000-0000-0000-0000000000b5')).state ->> 'status', 'done', 'a phase''s status alone');
+UPDATE public.assets SET phase_id = '12100000-0000-0000-0000-0000000000b5' WHERE id = '12100000-0000-0000-0000-0000000000b7';
+SELECT is((public.t121_last('assets', '12100000-0000-0000-0000-0000000000b7')).action, 'move', 'an asset under a phase is a move');
+UPDATE public.tasks SET phase_id = '12100000-0000-0000-0000-0000000000b5' WHERE id = '12100000-0000-0000-0000-0000000000b8';
+SELECT is((public.t121_last('tasks', '12100000-0000-0000-0000-0000000000b8')).action, 'move', 'and a task');
+UPDATE public.tasks SET status = 'in_progress' WHERE id = '12100000-0000-0000-0000-0000000000b8';
+SELECT is((public.t121_last('tasks', '12100000-0000-0000-0000-0000000000b8')).state ->> 'status', 'in_progress', 'a task''s status alone');
+UPDATE public.assets SET deleted_at = now() WHERE id = '12100000-0000-0000-0000-0000000000b7';
+SELECT is((public.t121_last('assets', '12100000-0000-0000-0000-0000000000b7')).action, 'trash', 'an asset trashed');
+UPDATE public.assets SET deleted_at = NULL WHERE id = '12100000-0000-0000-0000-0000000000b7';
+SELECT is((public.t121_last('assets', '12100000-0000-0000-0000-0000000000b7')).action, 'restore', 'and restored');
+UPDATE public.tasks SET deleted_at = now() WHERE id = '12100000-0000-0000-0000-0000000000b8';
+SELECT is((public.t121_last('tasks', '12100000-0000-0000-0000-0000000000b8')).action, 'trash', 'a task trashed');
+UPDATE public.phases SET deleted_at = now() WHERE id = '12100000-0000-0000-0000-0000000000b6';
+SELECT is((public.t121_last('phases', '12100000-0000-0000-0000-0000000000b6')).action, 'trash', 'a phase trashed');
+UPDATE public.projects SET deleted_at = now() WHERE id = 'aaaa1210-0000-0000-0000-000000000011';
+SELECT is((public.t121_last('projects', 'aaaa1210-0000-0000-0000-000000000011')).action, 'trash', 'a project trashed');
+DELETE FROM public.levels WHERE id = '12100000-0000-0000-0000-0000000000b3';
+SELECT is((public.t121_last('levels', '12100000-0000-0000-0000-0000000000b3')).action, 'delete', 'a level deleted');
+SELECT is((SELECT count(*)::int FROM public.moth_history h WHERE h.workspace_id = '11111111-1111-1111-1111-111111111111' AND h.mark_kind = 'capture_failed'), 0, 'and not one restart mark among any of it');
+
 -- A folder carries its name, by its label.
 UPDATE public.folders SET label = 'The Rushes' WHERE id = '12100000-0000-0000-0000-0000000000f1';
 SELECT is((public.t121_last('folders', '12100000-0000-0000-0000-0000000000f1')).prior ->> 'name', 'rushes', 'a folder''s name before its label');
@@ -226,6 +317,15 @@ SELECT is(public.moth_history_project('files', '{"storage_path":"x","thumbnail_u
 SELECT is(public.moth_history_project('projects', '{"title":"t","budget_total":5,"folder_root":"r","client_name":"c","description":"d"}'::jsonb), '{"title":"t"}'::jsonb, 'no money, no folder');
 SELECT is(public.moth_history_project('folders', '{"slug":"s","path":"p/q"}'::jsonb), '{"name":"s","slug":"s"}'::jsonb, 'a folder with no label is named by its slug, and its path stays out');
 SELECT is(public.moth_history_project('files', NULL), NULL::jsonb, 'nothing makes nothing');
+CREATE TEMP TABLE t121_wide ON COMMIT DROP AS
+  SELECT n, public.moth_history_project('assets', v) AS p FROM (VALUES
+    ('control', jsonb_build_object('name', repeat(chr(1), 300), 'type_label', repeat(chr(1), 300), 'status', repeat(chr(1), 300), 'scene_ids', (SELECT jsonb_agg(gen_random_uuid()) FROM generate_series(1, 9)))),
+    ('wide', jsonb_build_object('name', repeat(chr(26085), 300), 'scene_ids', (SELECT jsonb_agg(gen_random_uuid()) FROM generate_series(1, 20)), 'shot_ids', (SELECT jsonb_agg(gen_random_uuid()) FROM generate_series(1, 20)), 'level_ids', (SELECT jsonb_agg(gen_random_uuid()) FROM generate_series(1, 20)), 'experience_ids', (SELECT jsonb_agg(gen_random_uuid()) FROM generate_series(1, 20)))),
+    ('tags', jsonb_build_object('name', 'x', 'type_label', repeat('y', 300), 'scene_ids', (SELECT jsonb_agg(repeat('z', 200)) FROM generate_series(1, 200))))
+  ) AS t(n, v);
+SELECT is((SELECT array_agg(n ORDER BY n) FROM t121_wide WHERE public.moth_history_projection_ok(p)), ARRAY['control', 'tags', 'wide'], 'whatever goes in, what comes out fits: text that takes six octets a character, wide characters, long array items');
+SELECT is((SELECT count(*)::int FROM t121_wide WHERE p -> 'truncated' = 'true'::jsonb), 3, 'each marked cut');
+SELECT is(public.moth_history_projection_ok(jsonb_build_object('name', 'x', 'title', repeat('t', 300), 'slug', repeat('t', 300), 'scene_ids', (SELECT jsonb_agg(repeat('z', 200)) FROM generate_series(1, 20)))), false, 'and the check does refuse past 4,096 octets');
 SELECT throws_ok($$ SELECT public.moth_history_project('notes', '{}'::jsonb) $$, 'P0001', 'moth_history_project: no map for notes', 'a table with no map is refused, not guessed at');
 
 
@@ -245,6 +345,42 @@ SET LOCAL ROLE authenticated;
 SELECT public.t121_a();
 SELECT throws_ok($$ UPDATE public.folders SET path = 'FILES', slug = 'files' WHERE id = '12100000-0000-0000-0000-0000000000f3' $$, '42501', NULL, 'and the lock cannot be renamed away, even by an admin');
 RESET ROLE;
+
+-- A side locked only before the change.
+DELETE FROM public.files WHERE id = '12100000-0000-0000-0000-000000000201';
+SELECT is(public.t121_n('files', '12100000-0000-0000-0000-000000000201'), 0, 'deleting a file under INVOICES writes nothing');
+SELECT public.t121_file('12100000-0000-0000-0000-000000000206', 'aaaa1210-0000-0000-0000-00000000000a', 'leaving-money.pdf', '12100000-0000-0000-0000-0000000000f3');
+UPDATE public.files SET folder_id = '12100000-0000-0000-0000-0000000000f1' WHERE id = '12100000-0000-0000-0000-000000000206';
+SELECT is(public.t121_n('files', '12100000-0000-0000-0000-000000000206'), 0, 'nor does moving one out of it, whose name it would give away');
+-- A folder that has rows, then is locked.
+INSERT INTO public.folders (id, project_id, parent_id, kind, slug, path) VALUES ('12100000-0000-0000-0000-0000000000f6', 'aaaa1210-0000-0000-0000-00000000000a', '12100000-0000-0000-0000-0000000000f0', 'category', 'open', 'open');
+UPDATE public.folders SET label = 'Open Name' WHERE id = '12100000-0000-0000-0000-0000000000f6';
+SELECT is(public.t121_n('folders', '12100000-0000-0000-0000-0000000000f6'), 2, 'a folder has two rows');
+UPDATE public.folders SET path = 'INVOICES/open' WHERE id = '12100000-0000-0000-0000-0000000000f6';
+SELECT is((SELECT count(*)::int FROM public.moth_history h WHERE h.entity_id = '12100000-0000-0000-0000-0000000000f6' AND h.locked AND h.prior IS NULL AND h.state IS NULL), 2, 'put under money, both go blank');
+DELETE FROM public.folders WHERE id = '12100000-0000-0000-0000-0000000000f6';
+SET LOCAL ROLE authenticated;
+SELECT public.t121_a();
+SELECT is(public.t121_read('12100000-0000-0000-0000-0000000000f6'), 0, 'and stay unread once it has gone');
+RESET ROLE;
+-- A category called invoices whose path says otherwise, and what is under it.
+INSERT INTO public.folders (id, project_id, parent_id, kind, slug, path) VALUES ('12100000-0000-0000-0000-0000000000f7', 'aaaa1210-0000-0000-0000-00000000000a', '12100000-0000-0000-0000-0000000000f0', 'category', 'invoices', 'Receipts-old');
+SELECT is(public.t121_n('folders', '12100000-0000-0000-0000-0000000000f7'), 0, 'a money slug under a root writes nothing, whatever its path says');
+INSERT INTO public.folders (id, project_id, parent_id, kind, slug, path) VALUES ('12100000-0000-0000-0000-0000000000f8', 'aaaa1210-0000-0000-0000-00000000000a', '12100000-0000-0000-0000-0000000000f7', 'custom', 'y', 'Receipts-old/y');
+SELECT is(public.t121_n('folders', '12100000-0000-0000-0000-0000000000f8'), 0, 'nor a folder under it');
+UPDATE public.folders SET label = 'Named' WHERE id = '12100000-0000-0000-0000-0000000000f8';
+SELECT is(public.t121_n('folders', '12100000-0000-0000-0000-0000000000f8'), 0, 'nor a rename of it');
+DELETE FROM public.folders WHERE id = '12100000-0000-0000-0000-0000000000f8';
+SELECT is(public.t121_n('folders', '12100000-0000-0000-0000-0000000000f8'), 0, 'nor its delete');
+-- A planted id equal to the company's: redaction still works, and leaves the marks alone.
+INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, mark_kind) VALUES ('11111111-1111-1111-1111-111111111111', 'files', '11111111-1111-1111-1111-111111111111', 'mark_recording', 'suspended');
+SELECT public.t121_file('11111111-1111-1111-1111-111111111111', 'aaaa1210-0000-0000-0000-00000000000a', 'same-id.mov');
+SELECT is((SELECT count(*)::int FROM public.moth_history h WHERE h.entity_id = '11111111-1111-1111-1111-111111111111' AND h.entity_type = 'files' AND h.action = 'create'), 1, 'a file with its company''s id is recorded');
+UPDATE public.files SET is_financial = true WHERE id = '11111111-1111-1111-1111-111111111111';
+SELECT is((SELECT count(*)::int FROM public.moth_history h WHERE h.entity_id = '11111111-1111-1111-1111-111111111111' AND h.entity_type = 'files' AND h.action = 'create' AND h.locked), 1, 'and redacted, because the mark sharing its id is not touched');
+SELECT is((SELECT count(*)::int FROM public.moth_history h WHERE h.entity_id = '11111111-1111-1111-1111-111111111111' AND h.entity_type = 'files' AND h.action = 'mark_recording' AND NOT h.locked), 1, 'which still stands');
+DELETE FROM public.files WHERE id = '11111111-1111-1111-1111-111111111111';
+DELETE FROM public.moth_history WHERE entity_id = '11111111-1111-1111-1111-111111111111' AND mark_kind = 'suspended';
 
 -- A file that becomes money loses its history for good.
 SELECT public.t121_file('12100000-0000-0000-0000-000000000204', 'aaaa1210-0000-0000-0000-00000000000a', 'becomes.pdf');
@@ -305,6 +441,18 @@ SELECT throws_ok($$ INSERT INTO public.moth_history (workspace_id, entity_type, 
   '23514', 'new row for relation "moth_history" violates check constraint "moth_history_e_locked_chk"', 'a locked row that says anything');
 SELECT throws_ok($$ INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, state) VALUES ('11111111-1111-1111-1111-111111111111', 'files', gen_random_uuid(), 'update', '{"storage_path":"x"}') $$,
   '23514', 'new row for relation "moth_history" violates check constraint "moth_history_f_projection_chk"', 'a locator');
+SELECT throws_ok($$ INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, prior_class) VALUES ('11111111-1111-1111-1111-111111111111', 'files', gen_random_uuid(), 'update', 'personal') $$, '23514', 'new row for relation "moth_history" violates check constraint "moth_history_c_class_chk"', 'the prior side too');
+SELECT throws_ok($$ INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, prior_class, prior_owner_id) VALUES ('11111111-1111-1111-1111-111111111111', 'files', gen_random_uuid(), 'update', 'shared', gen_random_uuid()) $$, '23514', 'new row for relation "moth_history" violates check constraint "moth_history_c_class_chk"', 'shared with an owner, before');
+SELECT throws_ok($$ INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, state_class) VALUES ('11111111-1111-1111-1111-111111111111', 'files', gen_random_uuid(), 'update', 'public') $$, '23514', 'new row for relation "moth_history" violates check constraint "moth_history_c_class_chk"', 'a class that is none');
+SELECT throws_ok($$ INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, prior_project_id) VALUES ('11111111-1111-1111-1111-111111111111', 'files', gen_random_uuid(), 'create', gen_random_uuid()) $$, '23514', 'new row for relation "moth_history" violates check constraint "moth_history_d_shape_chk"', 'a create from a project');
+SELECT throws_ok($$ INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, state_project_id) VALUES ('11111111-1111-1111-1111-111111111111', 'files', gen_random_uuid(), 'delete', gen_random_uuid()) $$, '23514', 'new row for relation "moth_history" violates check constraint "moth_history_d_shape_chk"', 'a delete into a project');
+SELECT throws_ok($$ INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, mark_kind, state) VALUES ('11111111-1111-1111-1111-111111111111', 'files', gen_random_uuid(), 'mark_recording', 'baseline', '{"name":"x"}') $$, '23514', 'new row for relation "moth_history" violates check constraint "moth_history_d_shape_chk"', 'a mark that says something');
+SELECT throws_ok($$ INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, mark_kind, actor_user_id) VALUES ('11111111-1111-1111-1111-111111111111', 'files', gen_random_uuid(), 'mark_recording', 'baseline', gen_random_uuid()) $$, '23514', 'new row for relation "moth_history" violates check constraint "moth_history_d_shape_chk"', 'a mark with an actor');
+SELECT throws_ok($$ INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, mark_kind, prior_project_id) VALUES ('11111111-1111-1111-1111-111111111111', 'files', gen_random_uuid(), 'mark_recording', 'suspended', gen_random_uuid()) $$, '23514', 'new row for relation "moth_history" violates check constraint "moth_history_d_shape_chk"', 'a suspension scoped to a project');
+SELECT throws_ok($$ INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, locked, prior) VALUES ('11111111-1111-1111-1111-111111111111', 'files', gen_random_uuid(), 'update', true, '{"name":"x"}') $$, '23514', 'new row for relation "moth_history" violates check constraint "moth_history_e_locked_chk"', 'a locked row with a before');
+SELECT throws_ok($$ INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, prior) VALUES ('11111111-1111-1111-1111-111111111111', 'files', gen_random_uuid(), 'update', '{"storage_path":"x"}') $$, '23514', 'new row for relation "moth_history" violates check constraint "moth_history_f_projection_chk"', 'a locator before');
+SELECT lives_ok($$ INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, mark_kind, state_project_id) VALUES ('11111111-1111-1111-1111-111111111111', 'files', '11111111-1111-1111-1111-111111111111', 'mark_recording', 'capture_failed', 'aaaa1210-0000-0000-0000-00000000000a') $$, 'CONTROL: a restart may name its project');
+DELETE FROM public.moth_history WHERE workspace_id = '11111111-1111-1111-1111-111111111111' AND mark_kind = 'capture_failed';
 SELECT is(public.moth_history_projection_ok(NULL), false, 'the check is never NULL');
 SELECT is(public.moth_history_projection_ok('[]'::jsonb), false, 'an array is not a projection');
 SELECT is(public.moth_history_projection_ok(jsonb_build_object('name', repeat('x', 301))), false, 'nor a name over 300');
@@ -360,12 +508,36 @@ SELECT is((SELECT array_agg(x.action ORDER BY x.observed_at DESC, x.row_key) FIL
 SELECT is((SELECT count(*)::int FROM public.moth_history_read('aaaa1210-0000-0000-0000-00000000000b', NULL, NULL, 2) x), 2, 'a limit is kept');
 SELECT is((SELECT count(*)::int FROM public.moth_history_read('aaaa1210-0000-0000-0000-00000000000b', NULL, NULL, 0) x), 1, 'a limit under 1 reads as 1');
 SELECT is((SELECT count(*)::int FROM public.moth_history_read('aaaa1210-0000-0000-0000-00000000000b', now() + interval '1 hour') x), 0, 'a since in the future reads nothing');
+SELECT is((SELECT count(*)::int FROM public.moth_history_read('aaaa1210-0000-0000-0000-00000000000b', now() - interval '200 days') x WHERE x.observed_at < now() - interval '90 days'), 0, 'a since older than 90 days reads as 90');
+RESET ROLE;
+-- A read of a row that shows both sides, by value.
+SELECT public.t121_file('12100000-0000-0000-0000-000000000304', 'aaaa1210-0000-0000-0000-00000000000a', 'both.mov');
+SELECT public.t121_as('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'user');
+UPDATE public.files SET project_id = 'aaaa1210-0000-0000-0000-00000000000b' WHERE id = '12100000-0000-0000-0000-000000000304';
+SELECT public.t121_a();
+SET LOCAL ROLE authenticated;
+SELECT public.t121_c();
+SELECT is((SELECT row(x.action, x.prior_project_id, x.state_project_id, x.prior ->> 'name', x.state ->> 'name', x.actor_user_id)::text FROM public.moth_history_read() x WHERE x.entity_id = '12100000-0000-0000-0000-000000000304' AND x.action = 'moved'),
+  '(moved,aaaa1210-0000-0000-0000-00000000000a,aaaa1210-0000-0000-0000-00000000000b,both.mov,both.mov,eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee)', 'each column of a move, by value');
+SELECT is((SELECT array_agg(x.action) FROM public.moth_history_read('aaaa1210-0000-0000-0000-00000000000a') x WHERE x.entity_id = '12100000-0000-0000-0000-000000000304'), ARRAY['moved', 'added'], 'a source project still reads a file that left it, newest first');
+RESET ROLE;
+-- Each kind of thing, read back; a thing whose row has gone; a project before its trash.
+SET LOCAL ROLE authenticated;
+SELECT public.t121_c();
+SELECT is((SELECT array_agg(DISTINCT x.entity_type ORDER BY x.entity_type) FROM public.moth_history_read('aaaa1210-0000-0000-0000-00000000000a') x WHERE x.entity_type <> 'projects'), ARRAY['assets', 'experiences', 'files', 'folders', 'levels', 'phases', 'scenes', 'shots', 'task_items', 'tasks'], 'a member reads every kind of thing in a project');
+SELECT is(public.t121_read('aaaa1210-0000-0000-0000-00000000000a') >= 1, true, 'the project itself');
+SELECT is((SELECT array_agg(DISTINCT x.action) FROM public.moth_history_read('aaaa1210-0000-0000-0000-00000000000a') x WHERE x.entity_id = '12100000-0000-0000-0000-0000000000b3' AND x.action = 'removed'), ARRAY['removed'], 'a level deleted reads as removed');
+SELECT is((SELECT count(*)::int FROM public.moth_history_read('aaaa1210-0000-0000-0000-00000000000a') x WHERE x.entity_id = '12100000-0000-0000-0000-0000000000b3' AND x.action = 'removed' AND x.state IS NULL AND x.state_project_id IS NULL AND x.prior ->> 'name' = 'Level 2'), 1, 'with what it was, and nothing after');
+SELECT is((SELECT count(*)::int FROM public.moth_history_read('aaaa1210-0000-0000-0000-00000000000a') x WHERE x.entity_id = '12100000-0000-0000-0000-0000000000a1' AND x.action = 'removed'), 1, 'a phase deleted too');
 RESET ROLE;
 -- Pages are by row, strictly older, however many share a moment.
 SELECT is((SELECT count(*)::int FROM (SELECT DISTINCT observed_at FROM public.moth_history WHERE entity_id = '12100000-0000-0000-0000-000000000303') t), 1, 'CONTROL: these rows share one moment, as a transaction''s do');
 SET LOCAL ROLE authenticated;
 SELECT public.t121_c();
-CREATE TEMP TABLE t121_page ON COMMIT DROP AS SELECT x.row_key FROM public.moth_history_read(NULL, NULL, NULL, 5000) x WHERE x.entity_id = '12100000-0000-0000-0000-000000000303';
+CREATE TEMP TABLE t121_page ON COMMIT DROP AS SELECT row_number() OVER () AS n, x.row_key FROM public.moth_history_read('aaaa1210-0000-0000-0000-00000000000b', NULL, NULL, 5000) x;
+GRANT ALL ON t121_page TO authenticated;
+SELECT ok((SELECT count(*) FROM t121_page) > 5, 'CONTROL: this page has rows that share one moment');
+SELECT is(public.t121_walk('aaaa1210-0000-0000-0000-00000000000b'), (SELECT array_agg(row_key ORDER BY n) FROM t121_page), 'walked one row at a time, it is the same rows in the same order');
 SELECT is((SELECT count(*)::int FROM public.moth_history_read(NULL, NULL, (SELECT r.row_key FROM public.moth_history_read(NULL, NULL, NULL, 1) r LIMIT 1), 5000) x
             WHERE x.row_key = (SELECT r.row_key FROM public.moth_history_read(NULL, NULL, NULL, 1) r LIMIT 1)), 0, 'the next page does not repeat its last row');
 RESET ROLE;
@@ -399,6 +571,31 @@ SELECT is(public.t121_read('12100000-0000-0000-0000-000000000402'), 0, 'a file g
 SELECT public.t121_e();
 SELECT is(public.t121_read('12100000-0000-0000-0000-000000000402'), 2, 'its creator sees both rows');
 RESET ROLE;
+-- Shared, then closed: who passes the gate only for one side reads that side.
+SELECT public.t121_a();
+INSERT INTO public.projects (id, workspace_id, title, created_by, is_private) VALUES
+  ('aaaa1210-0000-0000-0000-000000000014', '11111111-1111-1111-1111-111111111111', 'Soon Closed', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', false);
+SELECT public.t121_file('12100000-0000-0000-0000-000000000403', 'aaaa1210-0000-0000-0000-000000000014', 'closing.mov');
+UPDATE public.files SET project_id = 'aaaa1210-0000-0000-0000-00000000000b' WHERE id = '12100000-0000-0000-0000-000000000403';
+UPDATE public.projects SET is_private = true WHERE id = 'aaaa1210-0000-0000-0000-000000000014';
+SET LOCAL ROLE authenticated;
+SELECT public.t121_c();
+SELECT is((SELECT array_agg(x.action) FROM public.moth_history_read() x WHERE x.entity_id = '12100000-0000-0000-0000-000000000403'), ARRAY['added'], 'its old project closed since: a member of the new one sees it added');
+SELECT is((SELECT row(x.prior, x.prior_project_id)::text FROM public.moth_history_read() x WHERE x.entity_id = '12100000-0000-0000-0000-000000000403'), '(,)', 'with nothing of the old one');
+SELECT public.t121_e();
+SELECT is((SELECT count(*)::int FROM public.moth_history_read() x WHERE x.entity_id = '12100000-0000-0000-0000-000000000403' AND x.action = 'moved'), 1, 'CONTROL: its creator reads the move');
+RESET ROLE;
+-- Through a private project and out: each half shows the side a member can see.
+SELECT public.t121_a();
+SELECT public.t121_file('12100000-0000-0000-0000-000000000404', 'aaaa1210-0000-0000-0000-00000000000a', 'through.mov');
+UPDATE public.files SET project_id = 'aaaa1210-0000-0000-0000-00000000000d' WHERE id = '12100000-0000-0000-0000-000000000404';
+UPDATE public.files SET project_id = 'aaaa1210-0000-0000-0000-00000000000b' WHERE id = '12100000-0000-0000-0000-000000000404';
+SET LOCAL ROLE authenticated;
+SELECT public.t121_c();
+SELECT is((SELECT count(*)::int FROM public.moth_history_read() x WHERE x.entity_id = '12100000-0000-0000-0000-000000000404' AND x.action = 'removed' AND x.state IS NULL AND x.state_project_id IS NULL AND x.prior_project_id = 'aaaa1210-0000-0000-0000-00000000000a'), 1, 'going in reads as removed, with no word of where');
+SELECT is((SELECT count(*)::int FROM public.moth_history_read() x WHERE x.entity_id = '12100000-0000-0000-0000-000000000404' AND x.action = 'added' AND x.prior IS NULL AND x.prior_project_id IS NULL AND x.state_project_id = 'aaaa1210-0000-0000-0000-00000000000b' AND x.state ->> 'name' = 'through.mov'), 1, 'coming out reads as added, with no word of where');
+RESET ROLE;
+
 -- A trashed project hides its history, and a deleted one is left to its sides.
 SELECT public.t121_a();
 INSERT INTO public.projects (id, workspace_id, title, created_by, is_private) VALUES
@@ -407,6 +604,10 @@ UPDATE public.projects SET deleted_at = now() WHERE id = 'aaaa1210-0000-0000-000
 SET LOCAL ROLE authenticated;
 SELECT public.t121_a();
 SELECT is(public.t121_read('aaaa1210-0000-0000-0000-000000000013'), 0, 'a trashed project hides its history, for an admin too');
+RESET ROLE;
+UPDATE public.projects SET deleted_at = NULL WHERE id = 'aaaa1210-0000-0000-0000-000000000013';
+SET LOCAL ROLE authenticated;
+SELECT is(public.t121_read('aaaa1210-0000-0000-0000-000000000013') >= 2, true, 'CONTROL: restored, it reads again');
 RESET ROLE;
 
 
@@ -458,6 +659,32 @@ SELECT is((SELECT w.recording_since FROM public.moth_history_window() w WHERE w.
 SELECT is((SELECT w.recording_since FROM public.moth_history_window() w WHERE w.entity_type = 'folders' AND w.project_id IS NULL), now() - interval '10 days', 'and the rest of the company''s do not');
 SELECT is((SELECT count(*)::int FROM public.moth_history_window('aaaa1210-0000-0000-0000-00000000000b') w WHERE w.project_id IS NOT NULL), 0, 'nor another project''s window');
 RESET ROLE;
+-- Each side of a mark asks, for itself.
+INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, mark_kind, prior_project_id, prior_class, prior_owner_id) VALUES
+  ('11111111-1111-1111-1111-111111111111', 'levels', '11111111-1111-1111-1111-111111111111', 'mark_recording', 'capture_failed', 'aaaa1210-0000-0000-0000-00000000000b', 'shared', NULL),
+  ('11111111-1111-1111-1111-111111111111', 'experiences', '11111111-1111-1111-1111-111111111111', 'mark_recording', 'capture_failed', 'aaaa1210-0000-0000-0000-00000000000b', 'private', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee');
+INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, mark_kind, state_project_id, state_class, observed_at) VALUES
+  ('11111111-1111-1111-1111-111111111111', 'shots', '11111111-1111-1111-1111-111111111111', 'mark_recording', 'capture_failed', 'aaaa1210-0000-0000-0000-00000000000b', 'shared', now() - interval '120 days');
+INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, mark_kind, state_project_id, state_class, state_owner_id) VALUES
+  ('11111111-1111-1111-1111-111111111111', 'scenes', '11111111-1111-1111-1111-111111111111', 'mark_recording', 'capture_failed', 'aaaa1210-0000-0000-0000-00000000000d', 'shared', NULL);
+SET LOCAL ROLE authenticated;
+SELECT public.t121_c();
+SELECT is((SELECT count(*)::int FROM public.moth_history_window() w WHERE w.entity_type = 'levels' AND w.project_id = 'aaaa1210-0000-0000-0000-00000000000b'), 1, 'a restart on the side it left shows too');
+SELECT is((SELECT count(*)::int FROM public.moth_history_window() w WHERE w.entity_type = 'experiences' AND w.project_id = 'aaaa1210-0000-0000-0000-00000000000b'), 0, 'one from when that project was private does not, to a member');
+SELECT is((SELECT count(*)::int FROM public.moth_history_window() w WHERE w.entity_type = 'shots' AND w.project_id = 'aaaa1210-0000-0000-0000-00000000000b'), 0, 'one older than the type''s start adds nothing');
+SELECT is((SELECT count(*)::int FROM public.moth_history_window() w WHERE w.entity_type = 'scenes' AND w.project_id = 'aaaa1210-0000-0000-0000-00000000000d'), 0, 'one on a project they cannot see now does not');
+SELECT public.t121_e();
+SELECT is((SELECT count(*)::int FROM public.moth_history_window() w WHERE w.entity_type = 'experiences' AND w.project_id = 'aaaa1210-0000-0000-0000-00000000000b'), 1, 'CONTROL: its creator sees it');
+SELECT is((SELECT count(*)::int FROM public.moth_history_window() w WHERE w.entity_type = 'scenes' AND w.project_id = 'aaaa1210-0000-0000-0000-00000000000d'), 1, 'and hers');
+RESET ROLE;
+-- A mark that fails too: the write still goes on.
+ALTER TABLE public.moth_history DROP CONSTRAINT moth_history_a_action_chk;
+ALTER TABLE public.moth_history ADD CONSTRAINT moth_history_a_action_chk CHECK (action IN ('create', 'update', 'move', 'trash', 'restore', 'delete')) NOT VALID;
+SELECT lives_ok($$ INSERT INTO public.folders (id, project_id, parent_id, kind, slug, path) VALUES ('12100000-0000-0000-0000-0000000000f9', 'aaaa1210-0000-0000-0000-00000000000a', '12100000-0000-0000-0000-0000000000f0', 'category', 'failing-twice', 'failing-twice') $$, 'with its capture and its mark both refused, a folder still goes in');
+SELECT is((SELECT count(*)::int FROM public.folders WHERE id = '12100000-0000-0000-0000-0000000000f9'), 1, 'it is there');
+ALTER TABLE public.moth_history DROP CONSTRAINT moth_history_a_action_chk;
+ALTER TABLE public.moth_history ADD CONSTRAINT moth_history_a_action_chk CHECK (action IN ('create', 'update', 'move', 'trash', 'restore', 'delete', 'mark_recording'));
+
 -- Inside someone's personal space: invisible to anyone else.
 SELECT lives_ok($$ INSERT INTO public.folders (id, project_id, parent_id, kind, slug, path) VALUES
   ('12100000-0000-0000-0000-0000000000c1', 'aaaa1210-0000-0000-0000-0000000000c0', NULL, 'root', 'mine', '') $$, 'another fails in a personal space');
@@ -477,18 +704,18 @@ ALTER TABLE public.moth_history ADD CONSTRAINT moth_history_b_entity_chk
 
 -- ── I. The purge ────────────────────────────────────────────────────────────
 INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, observed_at, state_project_id, state_class, state) VALUES
-  ('11111111-1111-1111-1111-111111111111', 'files', '12100000-0000-0000-0000-000000000501', 'update', now() - interval '91 days', 'aaaa1210-0000-0000-0000-00000000000a', 'shared', '{"name":"old"}'),
-  ('11111111-1111-1111-1111-111111111111', 'files', '12100000-0000-0000-0000-000000000502', 'update', now() - interval '89 days', 'aaaa1210-0000-0000-0000-00000000000a', 'shared', '{"name":"kept"}');
+  ('11111111-1111-1111-1111-111111111111', 'files', '12100000-0000-0000-0000-000000000501', 'update', now() - interval '90 days 1 hour', 'aaaa1210-0000-0000-0000-00000000000a', 'shared', '{"name":"old"}'),
+  ('11111111-1111-1111-1111-111111111111', 'files', '12100000-0000-0000-0000-000000000502', 'update', now() - interval '89 days 23 hours', 'aaaa1210-0000-0000-0000-00000000000a', 'shared', '{"name":"kept"}');
 SET LOCAL ROLE authenticated;
 SELECT public.t121_c();
 SELECT is(public.t121_read('12100000-0000-0000-0000-000000000501'), 0, 'older than 90 days reads as nothing even before the purge');
-SELECT is(public.t121_read('12100000-0000-0000-0000-000000000502'), 1, 'CONTROL: 89 days does');
+SELECT is(public.t121_read('12100000-0000-0000-0000-000000000502'), 1, 'CONTROL: just inside them does');
 SELECT throws_ok($$ SELECT public.purge_moth_history() $$, '42501', NULL, 'a client cannot purge');
 RESET ROLE;
 SELECT throws_ok($$ SELECT public.purge_moth_history(interval '23 hours') $$, 'P0001', 'purge_moth_history: a retention under one day is refused', 'a retention under a day is refused');
 SELECT is((SELECT public.purge_moth_history() >= 1), true, 'the purge says what it took');
-SELECT is(public.t121_n('files', '12100000-0000-0000-0000-000000000501'), 0, '91 days is gone');
-SELECT is(public.t121_n('files', '12100000-0000-0000-0000-000000000502'), 1, '89 days is kept');
+SELECT is(public.t121_n('files', '12100000-0000-0000-0000-000000000501'), 0, 'just over 90 days is gone');
+SELECT is(public.t121_n('files', '12100000-0000-0000-0000-000000000502'), 1, 'just under is kept');
 
 
 -- ── J. A company going away ─────────────────────────────────────────────────
@@ -497,7 +724,18 @@ INSERT INTO public.projects (id, workspace_id, title, created_by, is_private) VA
   ('aaaa1210-0000-0000-0000-000000000033', '33333333-1210-3333-3333-333333333333', 'Doomed', NULL, false);
 INSERT INTO public.files (id, project_id, name, storage_provider, storage_path) VALUES
   ('12100000-0000-0000-0000-000000000601', 'aaaa1210-0000-0000-0000-000000000033', 'doomed.mov', 'local_server', 'projects/aaaa1210-0000-0000-0000-000000000033/files/12100000-0000-0000-0000-000000000601/doomed.mov');
-SELECT is((SELECT count(*)::int FROM public.moth_history WHERE workspace_id = '33333333-1210-3333-3333-333333333333'), 2, 'a company with a project and a file has two rows');
+INSERT INTO public.phases (id, project_id, name) VALUES ('12100000-0000-0000-0000-0000000000c1', 'aaaa1210-0000-0000-0000-000000000033', 'Doomed phase');
+SELECT is((SELECT count(*)::int FROM public.moth_history WHERE workspace_id = '33333333-1210-3333-3333-333333333333'), 3, 'a company with a project, a file and a phase has three rows, under claims naming another company');
+SELECT is(public.t121_n('phases', '12100000-0000-0000-0000-0000000000c1', 'create'), 1, 'a phase finds its own company, whoever is asking');
+SELECT is((public.t121_last('phases', '12100000-0000-0000-0000-0000000000c1')).workspace_id, '33333333-1210-3333-3333-333333333333'::uuid, 'not the caller''s');
+-- Claims that do not even parse: nothing here may read them.
+INSERT INTO public.projects (id, workspace_id, title, created_by, is_private) VALUES ('aaaa1210-0000-0000-0000-000000000034', '33333333-1210-3333-3333-333333333333', 'Doomed Too', NULL, false);
+INSERT INTO public.phases (id, project_id, name) VALUES ('12100000-0000-0000-0000-0000000000c2', 'aaaa1210-0000-0000-0000-000000000034', 'Its phase');
+SELECT set_config('request.jwt.claims', '', true);
+SELECT lives_ok($$ DELETE FROM public.projects WHERE id = 'aaaa1210-0000-0000-0000-000000000034' $$, 'deleting a project with a phase, with no claims to read');
+SELECT is(public.t121_n('phases', '12100000-0000-0000-0000-0000000000c2', 'delete'), 0, 'a child of a project that has gone writes no row: nobody could read it');
+SELECT is(public.t121_n('projects', 'aaaa1210-0000-0000-0000-000000000034', 'delete'), 1, 'the project''s own delete does');
+SELECT public.t121_a();
 SELECT lives_ok($$ DELETE FROM public.workspaces WHERE id = '33333333-1210-3333-3333-333333333333' $$, 'deleting the company still works');
 SELECT is((SELECT count(*)::int FROM public.moth_history WHERE workspace_id = '33333333-1210-3333-3333-333333333333'), 0, 'and leaves no rows');
 SELECT is((SELECT count(*)::int FROM public.moth_history WHERE entity_id = '12100000-0000-0000-0000-000000000601'), 0, 'not one, under any company');

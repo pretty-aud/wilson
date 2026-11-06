@@ -12,7 +12,7 @@
 
 BEGIN;
 
-SELECT plan(269);
+SELECT plan(272);
 
 SELECT * FROM tests.rls_setup();
 
@@ -958,6 +958,9 @@ SET LOCAL ROLE authenticated;
 SELECT public.t119_c();
 INSERT INTO t119_ret SELECT 'cl', public.t119_m(ARRAY['11900000-0000-0000-0000-0000000006a6'::uuid], 'aaaa1190-0000-0000-0000-000000000012');
 SELECT is(current_setting('wilson.network_share_asked', true), '', 'a move leaves no word that the folders were asked');
+SELECT is(public.t119_m(ARRAY['11900000-0000-0000-0000-0000000006a7'::uuid], 'aaaa1190-0000-0000-0000-000000000012', NULL, true) -> 'items' -> 0 ->> 'how', 'share_move', 'CONTROL: a plan asks them too');
+SELECT is(current_setting('wilson.network_share_asked', true), '', 'and leaves no word either');
+SELECT is((SELECT count(*)::int FROM pg_proc WHERE oid = 'public._moth_share_folders_asked(uuid,uuid[])'::regprocedure AND prosrc LIKE '%wilson.network_share_asked'', v_done, true)%'), 1, 'the word lasts its transaction and no longer: a pooled connection keeps nothing');
 SELECT lives_ok($$ SELECT public.network_share_settle(ARRAY[public.t119_op('cl')], 'done') $$, 'moved');
 RESET ROLE;
 SELECT public.t119_a();

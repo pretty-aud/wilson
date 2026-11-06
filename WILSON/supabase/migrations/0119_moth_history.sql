@@ -22,8 +22,9 @@
 -- row of that entity. That is the one change ever made to a row here but the purge.
 --
 -- CREATE TRIGGER takes SHARE ROW EXCLUSIVE on eleven hot tables, so every write to them waits
--- while this runs: refuse rather than queue behind a long reader. A refusal is safe; run it
--- again. Off-hours on staging and production. Suite 121_moth_history.sql.
+-- while this runs. It waits itself behind any open writer, and later writes queue behind that
+-- wait: the 15 s below refuses rather than let them pile up. A refusal is safe; run it again.
+-- Off-hours on staging and production. Suite 121_moth_history.sql.
 -- =============================================================================
 
 SET LOCAL lock_timeout = '15s';
@@ -56,7 +57,7 @@ BEGIN
   END IF;
   IF to_regprocedure('public.fn_moth_history_capture()') IS NOT NULL THEN
     SELECT md5(replace(prosrc, chr(13), '')) INTO v_md5 FROM pg_proc WHERE oid = 'public.fn_moth_history_capture()'::regprocedure;
-    IF v_md5 IS DISTINCT FROM '9c5a20a60b2325250b9754623f7f92bc' THEN
+    IF v_md5 IS DISTINCT FROM '5b3806806f9250f63a8391f3a6558178' THEN
       RAISE EXCEPTION '0119 refused: fn_moth_history_capture is not this file''s (md5 %)', v_md5;
     END IF;
   END IF;
@@ -71,6 +72,7 @@ BEGIN
      OR to_regprocedure('public.moth_can_read_target(text,uuid)') IS NULL
      OR to_regprocedure('public.moth_file_row_locked(uuid,uuid,uuid,boolean,text,text[],uuid)') IS NULL
      OR to_regprocedure('public.moth_folder_path_locked(text)') IS NULL
+     OR to_regprocedure('public.moth_folder_chain_locked(uuid,uuid)') IS NULL
      OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.folders'::regclass AND tgname = 'trg_folders_lock_guard') THEN
     RAISE EXCEPTION '0119 refused: 0111''s read path and the folder lock guard must be applied first';
   END IF;
@@ -105,6 +107,7 @@ BEGIN
     SELECT * FROM (VALUES
       ('public.moth_file_row_locked(uuid,uuid,uuid,boolean,text,text[],uuid)', '4d9e1e0a6fed7a545d2429b6c1351711'),
       ('public.moth_folder_path_locked(text)', '7238efa894891148f86bd1df907dac7f'),
+      ('public.moth_folder_chain_locked(uuid,uuid)', '811ca340322f7ea6eda3db8e7a7a7c9b'),
       ('public._moth_target_eligible(text,uuid,boolean)', '06ce9d801842872e467b9dcc119cb063')
     ) AS t(sig, was)
   LOOP
@@ -116,15 +119,17 @@ BEGIN
 END $$;
 
 -- §2 first, because the table's CHECK calls it --------------------------------------------------
--- What may be stored. Never NULL: a CHECK treats NULL as a pass.
+-- What may be stored. Never NULL: a CHECK treats NULL as a pass. plpgsql, because this runs in a
+-- CHECK on every captured row and a SQL function with a SET is planned afresh each time (0111's trap).
 CREATE OR REPLACE FUNCTION public.moth_history_projection_ok(p jsonb)
 RETURNS boolean
-LANGUAGE sql
+LANGUAGE plpgsql
 IMMUTABLE
 PARALLEL SAFE
 SET search_path = public, pg_temp
 AS $$
-  SELECT CASE
+BEGIN
+  RETURN CASE
     WHEN p IS NULL OR jsonb_typeof(p) <> 'object' THEN false
     WHEN octet_length(p::text) > 4096 THEN false
     ELSE NOT EXISTS (
@@ -142,12 +147,14 @@ AS $$
                   ELSE false END
     )
   END;
+END;
 $$;
 REVOKE ALL ON FUNCTION public.moth_history_projection_ok(jsonb) FROM PUBLIC, anon, authenticated;
 
 -- A row's metadata, by a map per table. Bounds its own output, so the CHECK refuses only what this
--- cannot emit: text to 300 characters, arrays to 200, and if four arrays of ids still pass the
--- 4,096 octets the CHECK allows, arrays to 20. truncated says it cut.
+-- cannot emit: text to 300 characters, arrays to 200. Then, while it would pass the 4,096 octets the
+-- CHECK allows (four arrays of ids do; so does text that takes six octets a character), it cuts
+-- harder, down to a row that says only that it was cut. truncated says so.
 CREATE OR REPLACE FUNCTION public.moth_history_project(p_table text, p_row jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -159,6 +166,7 @@ DECLARE
   v_out jsonb := '{}'::jsonb;
   e     record;
   v     jsonb;
+  n     integer;
   v_cut boolean := false;
 BEGIN
   IF p_row IS NULL THEN
@@ -201,15 +209,19 @@ BEGIN
     END IF;
     v_out := v_out || jsonb_build_object(e.key, v);
   END LOOP;
-  IF octet_length(v_out::text) > 4000 THEN
-    -- A CASE, not an AND: a filter's order is the planner's, and the length of a scalar raises.
-    FOR e IN SELECT x.key, x.value FROM jsonb_each(v_out) x
-              WHERE CASE WHEN jsonb_typeof(x.value) = 'array' THEN jsonb_array_length(x.value) > 20 ELSE false END LOOP
-      v_out := v_out || jsonb_build_object(e.key,
-        (SELECT jsonb_agg(a.x ORDER BY a.o) FROM jsonb_array_elements(e.value) WITH ORDINALITY a(x, o) WHERE a.o <= 20));
-      v_cut := true;
+  -- Each pass cuts harder, and the last leaves nothing that can be too long.
+  FOREACH n IN ARRAY ARRAY[20, 5, 0] LOOP
+    EXIT WHEN octet_length(v_out::text) <= 4000;
+    v_cut := true;
+    FOR e IN SELECT x.key, x.value FROM jsonb_each(v_out) x LOOP
+      IF jsonb_typeof(e.value) = 'array' AND jsonb_array_length(e.value) > n THEN
+        v_out := CASE WHEN n = 0 THEN v_out - e.key ELSE v_out || jsonb_build_object(e.key,
+          (SELECT jsonb_agg(a.x ORDER BY a.o) FROM jsonb_array_elements(e.value) WITH ORDINALITY a(x, o) WHERE a.o <= n)) END;
+      ELSIF jsonb_typeof(e.value) = 'string' AND n < 20 AND length(e.value #>> '{}') > GREATEST(n * 8, 8) THEN
+        v_out := v_out || jsonb_build_object(e.key, left(e.value #>> '{}', GREATEST(n * 8, 8)));
+      END IF;
     END LOOP;
-  END IF;
+  END LOOP;
   IF v_cut THEN
     v_out := v_out || '{"truncated": true}'::jsonb;
   END IF;
@@ -273,6 +285,8 @@ CREATE INDEX IF NOT EXISTS moth_history_prior_project_idx ON public.moth_history
 CREATE INDEX IF NOT EXISTS moth_history_entity_idx ON public.moth_history (workspace_id, entity_type, entity_id);
 CREATE INDEX IF NOT EXISTS moth_history_entity_locked_idx ON public.moth_history (workspace_id, entity_type, entity_id) WHERE locked;
 CREATE INDEX IF NOT EXISTS moth_history_observed_idx ON public.moth_history (observed_at);
+-- The window asks for a dozen marks among everything else.
+CREATE INDEX IF NOT EXISTS moth_history_marks_idx ON public.moth_history (workspace_id, entity_type, observed_at DESC) WHERE action = 'mark_recording';
 
 ALTER TABLE public.moth_history ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.moth_history FROM PUBLIC, anon, authenticated;
@@ -329,6 +343,36 @@ END;
 $$;
 REVOKE ALL ON FUNCTION public._moth_history_audience(text, jsonb, uuid) FROM PUBLIC, anon, authenticated;
 
+-- A folder side is locked the way moth_folder_chain_locked says, from the row's image, because a
+-- deleted row can no longer be walked from: its own path, its own money slug under a root, or any
+-- folder above it. Asking the path alone recorded the children of a renamed money category, and
+-- once deleted they read as nothing's.
+CREATE OR REPLACE FUNCTION public._moth_history_folder_locked(p_ws uuid, p_image jsonb)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+SET row_security = off
+AS $$
+DECLARE
+  v_parent uuid := (p_image ->> 'parent_id')::uuid;
+BEGIN
+  IF p_image IS NULL OR p_image ->> 'kind' = 'root' THEN
+    RETURN false;
+  END IF;
+  IF COALESCE(public.moth_folder_path_locked(p_image ->> 'path'), false) THEN
+    RETURN true;
+  END IF;
+  IF COALESCE(public.rabbit_money_segment(p_image ->> 'slug'), false)
+     AND EXISTS (SELECT 1 FROM public.folders r WHERE r.id = v_parent AND r.kind = 'root') THEN
+    RETURN true;
+  END IF;
+  RETURN COALESCE(public.moth_folder_chain_locked(p_ws, v_parent), false);
+END;
+$$;
+REVOKE ALL ON FUNCTION public._moth_history_folder_locked(uuid, jsonb) FROM PUBLIC, anon, authenticated;
+
 -- A failed capture never fails the person's write. It leaves a mark, scoped to the sides of the row
 -- that failed, saying the record for this type and project is reliable only from here (H4).
 CREATE OR REPLACE FUNCTION public.fn_moth_history_capture()
@@ -371,13 +415,16 @@ BEGIN
     v_sp := (v_new ->> 'project_id')::uuid;
   END IF;
 
-  -- The way 0012 resolves it: phases have no workspace of their own.
+  -- A child of a project that has gone: nobody can ever read a row about it, because a side needs
+  -- its project to pass the gate, so writing one is only cost (a purge of 50,000 files). And it would
+  -- need a company from the caller's claims, which may name another or not parse at all.
+  IF TG_OP = 'DELETE' AND v_t <> 'projects' AND NOT EXISTS (SELECT 1 FROM public.projects p WHERE p.id = v_pp) THEN
+    RETURN NULL;
+  END IF;
+  -- Phases have no workspace of their own. Never the caller's: a row belongs to its project's company.
   v_ws := (COALESCE(v_new, v_old) ->> 'workspace_id')::uuid;
   IF v_ws IS NULL THEN
     SELECT p.workspace_id INTO v_ws FROM public.projects p WHERE p.id = COALESCE(v_sp, v_pp);
-  END IF;
-  IF v_ws IS NULL THEN
-    v_ws := public.current_workspace_id();
   END IF;
   -- A company being deleted: its rows go with it, and nothing is left to record against.
   IF v_ws IS NULL OR NOT EXISTS (SELECT 1 FROM public.workspaces w WHERE w.id = v_ws) THEN
@@ -402,13 +449,13 @@ BEGIN
           (v_new ->> 'folder_id')::uuid), false);
       END IF;
     ELSIF v_t = 'folders' THEN
-      v_locked := (v_old IS NOT NULL AND COALESCE(public.moth_folder_path_locked(v_old ->> 'path'), false))
-               OR (v_new IS NOT NULL AND COALESCE(public.moth_folder_path_locked(v_new ->> 'path'), false));
+      v_locked := public._moth_history_folder_locked(v_ws, v_old) OR public._moth_history_folder_locked(v_ws, v_new);
     END IF;
     IF v_locked THEN
       UPDATE public.moth_history h
          SET prior = NULL, state = NULL, locked = true
-       WHERE h.workspace_id = v_ws AND h.entity_type = v_t AND h.entity_id = v_id AND NOT h.locked;
+       WHERE h.workspace_id = v_ws AND h.entity_type = v_t AND h.entity_id = v_id AND NOT h.locked
+         AND h.action <> 'mark_recording';
       RETURN NULL;
     END IF;
 
@@ -615,7 +662,9 @@ $$;
 REVOKE ALL ON FUNCTION public._moth_history_entity_visible(uuid, text, uuid) FROM PUBLIC, anon, authenticated;
 
 -- Newest first. A side shows only to someone in its audience as it was then who also passes Moth's
--- gate now. No id from the table's own sequence, no count, and one refusal for every cause.
+-- gate now. No id from the table's own sequence, no count, and one refusal for every cause. A batch
+-- at a time, stopping when it has enough: gating all 90 days first would put one office-server walk
+-- past the 8 s for every read in the company, however few rows were asked for.
 CREATE OR REPLACE FUNCTION public.moth_history_read(
   p_scope_project uuid DEFAULT NULL,
   p_since         timestamptz DEFAULT NULL,
@@ -639,6 +688,9 @@ DECLARE
   v_since    timestamptz := GREATEST(COALESCE(p_since, '-infinity'::timestamptz), now() - interval '90 days');
   v_after_at timestamptz;
   v_after_id bigint;
+  v_batch    CONSTANT integer := 2000;
+  v_ids      bigint[];
+  v_got      integer;
 BEGIN
   IF v_uid IS NULL OR v_ws IS NULL OR NOT COALESCE(public.has_active_membership(v_ws), false) THEN
     RAISE EXCEPTION 'that history is not available' USING ERRCODE = '42501';
@@ -653,16 +705,23 @@ BEGIN
     END IF;
   END IF;
 
-  RETURN QUERY
-  WITH cand AS MATERIALIZED (
-    SELECT h.*
+  LOOP
+  v_ids := ARRAY(
+    SELECT h.id
       FROM public.moth_history h
      WHERE h.workspace_id = v_ws
        AND h.action <> 'mark_recording'
        AND NOT h.locked
        AND h.observed_at >= v_since
-       AND (p_after IS NULL OR (h.observed_at, h.id) < (v_after_at, v_after_id))
+       AND (v_after_id IS NULL OR (h.observed_at, h.id) < (v_after_at, v_after_id))
        AND (p_scope_project IS NULL OR h.prior_project_id = p_scope_project OR h.state_project_id = p_scope_project)
+     ORDER BY h.observed_at DESC, h.id DESC
+     LIMIT v_batch);
+  EXIT WHEN cardinality(v_ids) = 0;
+
+  RETURN QUERY
+  WITH cand AS MATERIALIZED (
+    SELECT h.* FROM public.moth_history h WHERE h.id = ANY (v_ids)
   ), proj AS MATERIALIZED (
     SELECT x.p, COALESCE(public._moth_target_eligible('project', x.p, false), false) AS ok
       FROM (SELECT c.prior_project_id AS p FROM cand c WHERE c.prior_project_id IS NOT NULL
@@ -704,6 +763,12 @@ BEGIN
    WHERE s.prior_ok OR s.state_ok
    ORDER BY s.observed_at DESC, s.id DESC
    LIMIT v_limit;
+  GET DIAGNOSTICS v_got = ROW_COUNT;
+  v_limit := v_limit - v_got;
+  EXIT WHEN v_limit <= 0 OR cardinality(v_ids) < v_batch;
+  v_after_id := v_ids[v_batch];
+  SELECT h.observed_at INTO v_after_at FROM public.moth_history h WHERE h.id = v_after_id;
+  END LOOP;
 END;
 $$;
 REVOKE ALL ON FUNCTION public.moth_history_read(uuid, timestamptz, uuid, integer) FROM PUBLIC, anon;
@@ -821,6 +886,8 @@ COMMENT ON FUNCTION public.moth_history_project(text, jsonb) IS
   'A row''s metadata by a map per table. Never a locator, a description, a money column or a person''s id. Bounds its own output. Closed to clients.';
 COMMENT ON FUNCTION public.moth_history_projection_ok(jsonb) IS
   'The table''s CHECK: an object of at most 4,096 octets, allowlisted keys, bounded scalars and arrays. Never NULL. Closed to clients.';
+COMMENT ON FUNCTION public._moth_history_folder_locked(uuid, jsonb) IS
+  'Whether a folder side is locked, from its image: its path, its money slug under a root, or a folder above it. Closed to clients.';
 COMMENT ON FUNCTION public._moth_history_audience(text, jsonb, uuid) IS
   'Who a side of a change is for: shared, private with its creator, or personal with its owner. Closed to clients.';
 COMMENT ON FUNCTION public._moth_history_entity_visible(uuid, text, uuid) IS
@@ -889,15 +956,16 @@ BEGIN
   END IF;
   -- Comments stripped: a comment naming a word is not the word.
   SELECT regexp_replace(prosrc, '--[^\n]*', '', 'g') INTO v_body FROM pg_proc WHERE oid = 'public.fn_moth_history_capture()'::regprocedure;
-  FOREACH v_word IN ARRAY ARRAY['moth_history_project(', 'moth_file_row_locked(', 'moth_folder_path_locked(', 'SET prior = NULL',
-                                'public.workspaces w WHERE w.id = v_ws', 'capture_failed'] LOOP
+  FOREACH v_word IN ARRAY ARRAY['moth_history_project(', 'moth_file_row_locked(', '_moth_history_folder_locked(', 'SET prior = NULL',
+                                'public.workspaces w WHERE w.id = v_ws', 'capture_failed', 'h.action <> ''mark_recording'''] LOOP
     IF position(v_word IN v_body) = 0 THEN
       RAISE EXCEPTION '0119 post-condition: fn_moth_history_capture lost %', v_word;
     END IF;
   END LOOP;
   -- It reads no marker: capture ignores who is writing (H10).
-  IF position('current_setting' IN v_body) > 0 OR position('wilson.' IN v_body) > 0 THEN
-    RAISE EXCEPTION '0119 post-condition: fn_moth_history_capture must ignore every marker';
+  IF position('current_setting' IN v_body) > 0 OR position('wilson.' IN v_body) > 0
+     OR position('current_workspace_id' IN v_body) > 0 THEN
+    RAISE EXCEPTION '0119 post-condition: fn_moth_history_capture must ignore every marker and the caller''s claims';
   END IF;
   IF pg_get_function_result('public.moth_history_read(uuid,timestamp with time zone,uuid,integer)'::regprocedure) ~* 'bigint'
      OR pg_get_function_result('public.moth_history_window(uuid)'::regprocedure) ~* 'bigint' THEN
@@ -910,6 +978,7 @@ BEGIN
       ('public.moth_history_window(uuid)', true),
       ('public.fn_moth_history_capture()', false),
       ('public._moth_history_audience(text,jsonb,uuid)', false),
+      ('public._moth_history_folder_locked(uuid,jsonb)', false),
       ('public._moth_history_entity_visible(uuid,text,uuid)', false),
       ('public.purge_moth_history(interval)', false)
     ) AS t(sig, open)
@@ -926,9 +995,11 @@ BEGIN
     RAISE EXCEPTION '0119 post-condition: a client may call the projector';
   END IF;
 
-  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron')
-     AND NOT EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'wilson-purge-moth-history') THEN
-    RAISE EXCEPTION '0119 post-condition: the purge job is not scheduled';
+  -- Nested: one expression is parsed whole, so cron.job would be read with no pg_cron to hold it.
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
+    IF NOT EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'wilson-purge-moth-history') THEN
+      RAISE EXCEPTION '0119 post-condition: the purge job is not scheduled';
+    END IF;
   END IF;
 
   RAISE NOTICE '0119 OK: moth_history is recording';
