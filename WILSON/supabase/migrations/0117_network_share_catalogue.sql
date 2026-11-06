@@ -101,7 +101,7 @@ BEGIN
   -- What is restated below is what it was lifted from, or this file's. The others are named
   -- because this file rests on what they do.
   SELECT md5(replace(prosrc, chr(13), '')) INTO v_md5 FROM pg_proc WHERE oid = 'public.purge_soft_deleted(interval)'::regprocedure;
-  IF v_md5 IS DISTINCT FROM 'a8dda2f3dc0b04eca7c216e6a4fcc8bf' AND v_md5 IS DISTINCT FROM 'f554aba88a2fbb933674b20ceb782486' THEN
+  IF v_md5 IS DISTINCT FROM 'a8dda2f3dc0b04eca7c216e6a4fcc8bf' AND v_md5 IS DISTINCT FROM '65f3322262d48afa923ccd5f40c69a4c' THEN
     RAISE EXCEPTION '0117 refused: purge_soft_deleted is neither 0067''s body nor this file''s (md5 %)', v_md5;
   END IF;
   SELECT md5(replace(prosrc, chr(13), '')) INTO v_md5 FROM pg_proc WHERE oid = 'public.fn_projects_owner_guard()'::regprocedure;
@@ -169,7 +169,7 @@ BEGIN
     AND p !~ '[. ](/|$)'
     -- A short name: Windows and Samba can answer to '_WILSO~1' for a longer folder, and every
     -- name test here would read it as some other folder. A real file called this is not listed.
-    AND p !~* '(^|/)[^./~]{1,6}~[0-9a-z]{1,3}([.][^./]{0,3})?(/|$)';
+    AND p !~ '(^|/)[^./~]{1,6}~[0-9a-zA-Z]{1,3}([.][^./]{0,3})?(/|$)';
 END;
 $$;
 
@@ -242,7 +242,7 @@ BEGIN
     RETURN NULL;
   END IF;
   RETURN v;
-EXCEPTION WHEN datetime_field_overflow OR invalid_datetime_format THEN
+EXCEPTION WHEN datetime_field_overflow OR invalid_datetime_format OR invalid_time_zone_displacement_value THEN
   RETURN NULL;
 END;
 $$;
@@ -964,7 +964,9 @@ GRANT EXECUTE ON FUNCTION public.purge_network_share_ops(interval) TO service_ro
 -- Restated from 0067, one arm. A trashed row whose operation has not settled stays past its 30
 -- days: its journal is the only record of where the file went, and a purge would certify a bin the
 -- file never reached, and the next walk would list the file again as new. It is purged the night
--- after the operation settles. Its grants and its nightly job stand.
+-- after the operation settles. A project in the bin holds for the same reason, because its purge
+-- would cascade to the row: nothing settles under a project in the bin, so it stays there until
+-- somebody restores it and the operation settles. Its grants and its nightly job stand.
 CREATE OR REPLACE FUNCTION public.purge_soft_deleted(
   p_retention INTERVAL DEFAULT INTERVAL '30 days'
 )
@@ -983,7 +985,13 @@ BEGIN
   FOREACH t IN ARRAY ARRAY['projects','assets','tasks','phases','files',
                            'comments','rate_cards','milestones']
   LOOP
-    IF t = 'files' THEN
+    IF t = 'projects' THEN
+      DELETE FROM public.projects p
+       WHERE p.deleted_at < now() - p_retention
+         AND NOT EXISTS (SELECT 1 FROM public.network_share_ops o
+                           JOIN public.files f ON f.id = o.file_id
+                          WHERE o.state = 'pending' AND (f.project_id = p.id OR o.project_id = p.id));
+    ELSIF t = 'files' THEN
       DELETE FROM public.files f
        WHERE f.deleted_at < now() - p_retention
          AND NOT EXISTS (SELECT 1 FROM public.network_share_ops o
@@ -1277,8 +1285,8 @@ BEGIN
       JOIN unnest(v_complete) c(dir) ON c.dir = u.dir
       LEFT JOIN unnest(v_seen) s(lp) ON s.lp = u.lp
       LEFT JOIN unnest(v_subkeys) k(key) ON k.key = u.next
-     WHERE (u.i = u.depth - 1 AND s.lp IS NULL)
-        OR (u.i < u.depth - 1 AND k.key IS NULL)
+     WHERE s.lp IS NULL
+       AND (u.i = u.depth - 1 OR k.key IS NULL)
   )
   SELECT COALESCE(array_agg(DISTINCT h.id), '{}'::uuid[]) INTO v_hit FROM hit h;
 
@@ -1290,15 +1298,21 @@ BEGIN
            lower(regexp_replace(f.storage_path, '^.*/', '')) AS leaf,
            f.size_bytes AS size,
            f.source_modified_at AS mtime
+      FROM unnest(v_hit) g(id)
+      JOIN public.files f ON f.id = g.id
+     WHERE f.source_modified_at IS NOT NULL
+    UNION ALL
+    -- Step (7) has cleared every marked row this call saw, an operation's aside.
+    SELECT f.id,
+           lower(regexp_replace(f.storage_path, '^.*/', '')),
+           f.size_bytes,
+           f.source_modified_at
       FROM public.files f
-      LEFT JOIN unnest(v_hit) g(id) ON g.id = f.id
-      LEFT JOIN unnest(v_seen) s(lp) ON 'nas:' || s.lp = lower(f.storage_path)
      WHERE f.project_id = p_project_id
        AND f.storage_provider = 'network_share'
        AND f.deleted_at IS NULL
+       AND f.share_missing_since IS NOT NULL
        AND f.source_modified_at IS NOT NULL
-       AND s.lp IS NULL
-       AND (g.id IS NOT NULL OR f.share_missing_since IS NOT NULL)
        AND NOT EXISTS (SELECT 1 FROM public.network_share_ops o WHERE o.file_id = f.id AND o.state = 'pending')
   ), free AS (
     SELECT e.loc,
@@ -1986,11 +2000,34 @@ SET search_path = public
 SET row_security = off
 AS $$
 DECLARE
-  v_out jsonb;
+  v_out     jsonb;
+  v_ws      uuid := public.current_workspace_id();
+  v_project uuid;
+  v_folder  text;
 BEGIN
   IF auth.uid() IS NULL THEN
     RAISE EXCEPTION 'network_share: not allowed' USING ERRCODE = '42501';
   END IF;
+  -- A desktop recovering from a crash renames what this returns, so it asks what the call that
+  -- journalled it asked: the server may have changed since, or the folder stopped being its own.
+  FOR v_project IN
+    SELECT DISTINCT f.project_id
+      FROM public.network_share_ops o
+      JOIN public.files f ON f.id = o.file_id
+     WHERE o.created_by = auth.uid()
+       AND o.state = 'pending'
+       AND o.workspace_id = v_ws
+       AND public._network_share_may_write(f.project_id)
+  LOOP
+    IF public._network_share_drive(v_ws) IS NULL THEN
+      RAISE EXCEPTION 'network_share: drive_changed';
+    END IF;
+    v_folder := public.network_share_space_folder(v_project);
+    IF v_folder IS NULL THEN
+      RAISE EXCEPTION 'network_share: no_folder';
+    END IF;
+    PERFORM public._network_share_assert_folder(v_ws, v_project, v_folder);
+  END LOOP;
   SELECT COALESCE(jsonb_agg(jsonb_build_object('op_id', x.id, 'op', x.op, 'from', x.from_locator, 'to', x.to_locator)), '[]'::jsonb)
     INTO v_out
     FROM (SELECT o.id, o.op, o.from_locator, o.to_locator
@@ -2190,7 +2227,7 @@ BEGIN
     END IF;
   END LOOP;
   IF (SELECT md5(replace(prosrc, chr(13), '')) FROM pg_proc WHERE oid = 'public.purge_soft_deleted(interval)'::regprocedure)
-     IS DISTINCT FROM 'f554aba88a2fbb933674b20ceb782486' THEN
+     IS DISTINCT FROM '65f3322262d48afa923ccd5f40c69a4c' THEN
     RAISE EXCEPTION '0117 post-condition: purge_soft_deleted is not this file''s body';
   END IF;
   IF (SELECT md5(replace(prosrc, chr(13), '')) FROM pg_proc WHERE oid = 'public.fn_projects_owner_guard()'::regprocedure)

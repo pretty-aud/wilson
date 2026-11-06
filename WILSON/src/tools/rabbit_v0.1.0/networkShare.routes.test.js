@@ -12,6 +12,7 @@ import fs from 'node:fs'
 import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
+import { Writable } from 'node:stream'
 import express from 'express'
 import cors from 'cors'
 
@@ -147,7 +148,8 @@ describe('checkShareLocator holds what network_share_locator_ok holds (0117)', (
   })
 
   it('refuses a short name, and not a tilde in an ordinary one', () => {
-    for (const p of ['_WILSO~1', 'P_DATA~1/rates.json', 'a/CLIP~12.MOV', 'a/take~a1/b.mov']) {
+    const smiles = String.fromCodePoint(0x1f600).repeat(4)
+    for (const p of ['_WILSO~1', 'P_DATA~1/rates.json', 'a/CLIP~12.MOV', 'a/take~a1/b.mov', `a/${smiles}~1.txt`]) {
       expect(checkShareLocator(p), p).toBe(false)
     }
     for (const p of ['a/shot~final/b.mov', 'a/~draft.mov', 'a/b~c~d.mov']) {
@@ -244,6 +246,51 @@ describe('POST /api/network-share/personal-space/files', () => {
     expect(res.status).toBe(500)
     expect(res.json.code).toBe('write_failed')
     expect(res.json.error).toContain('Nothing was kept')
+    expect(listing()).toEqual([])
+  })
+
+  it('answers when a write fails part way, on the connection still open', async () => {
+    await new Promise((resolve) => server.close(resolve))
+    const full = Object.assign(new Error('full'), { code: 'ENOSPC' })
+    await start({
+      createWriteStream: () => new Writable({ write(_chunk, _enc, cb) { cb(full) } }),
+    })
+    const res = await send()
+    expect(res.status).toBe(500)
+    expect(res.json.code).toBe('write_failed')
+  })
+
+  it('keeps nothing for somebody who has gone by the time the body is written', async () => {
+    let client
+    await new Promise((resolve) => server.close(resolve))
+    await start({
+      createWriteStream: (p, opts) => {
+        const real = fs.createWriteStream(p, opts)
+        const original = real._final
+        real._final = function final(cb) {
+          client.destroy()
+          setTimeout(() => (original ? original.call(this, cb) : cb()), 60)
+        }
+        return real
+      },
+    })
+    const res = await send({ onRequest: (r) => { client = r } }).catch(() => ({ status: 0 }))
+    expect(res.status).toBe(0)
+    await vi.waitFor(() => expect(listing()).toEqual([]), { timeout: 3000 })
+  })
+
+  it('removes the file when the folder turned out to lead elsewhere after the check', async () => {
+    await new Promise((resolve) => server.close(resolve))
+    const real = fs.promises.realpath
+    await start({
+      fsp: {
+        ...fs.promises,
+        realpath: (p) => (String(p).endsWith('clip.mov') ? Promise.resolve(path.join(os.tmpdir(), 'elsewhere', 'clip.mov')) : real(p)),
+      },
+    })
+    const res = await send()
+    expect(res.status).toBe(403)
+    expect(res.json.code).toBe('not_your_folder')
     expect(listing()).toEqual([])
   })
 

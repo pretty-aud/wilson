@@ -34,7 +34,7 @@
 
 BEGIN;
 
-SELECT plan(369);
+SELECT plan(382);
 
 SELECT * FROM tests.rls_setup();
 
@@ -1151,6 +1151,10 @@ SELECT is((SELECT share_missing_since FROM public.files WHERE id = '11800000-000
 SELECT ok((SELECT share_missing_since IS NOT NULL FROM public.files WHERE id = '11800000-0000-0000-0000-000000000906'::uuid), 'and its neighbour is');
 SELECT public.t118_repoint('aaaa1111-0000-0000-0000-000000011811', 'Round');
 UPDATE public.files SET share_missing_since = NULL WHERE project_id = 'aaaa1111-0000-0000-0000-000000011811';
+SET LOCAL ROLE authenticated;
+SELECT public.t118_c();
+SELECT public.network_share_settle(ARRAY[public.t118_op('m-r')], 'done');
+RESET ROLE;
 
 -- Renames: beside a trashed twin, across directories in one call, across a walk's calls, and two
 -- candidates for one row.
@@ -1387,6 +1391,61 @@ SELECT is((SELECT (v ->> 'newly_missing') || '/' || (v ->> 'more_missing') FROM 
 RESET ROLE;
 SELECT ok((SELECT last_checked_at IS NOT NULL AND complete AND dirs_checked = 1 AND missing_count = 1501 FROM public.network_share_checks WHERE project_id = 'aaaa1111-0000-0000-0000-000000011817'), 'and moves last checked, once');
 
+-- A left-behind sweep has the same cap, with no room when the rest of the call took it all. A send
+-- with more to do adds nothing, even a walk's first; the send that finishes starts the run afresh.
+SELECT public.t118_repoint('aaaa1111-0000-0000-0000-000000011817', 'Round5');
+UPDATE public.files SET share_missing_since = NULL WHERE project_id = 'aaaa1111-0000-0000-0000-000000011817';
+INSERT INTO public.files (project_id, name, storage_provider, storage_path, size_bytes)
+SELECT 'aaaa1111-0000-0000-0000-000000011817', 'g' || g, 'network_share', 'nas:Round5/big2/g' || g || '.mov', 1 FROM generate_series(1, 1500) g;
+SET LOCAL ROLE authenticated;
+SELECT public.t118_walk('aaaa1111-0000-0000-0000-000000011817', 'Round5', '[]'::jsonb, false, true);
+INSERT INTO t118_ret SELECT 'm-s3', public.t118_walk('aaaa1111-0000-0000-0000-000000011817', 'Round5', jsonb_build_array(public.t118_dir('Round5/big2', true, '{}', '[]')), true, true);
+SELECT is((SELECT (v ->> 'newly_missing') || '/' || (v ->> 'more_missing') FROM t118_ret WHERE k = 'm-s3'), '1500/true', 'with the cap spent on what has gone, the left-behind rows wait and it says so');
+RESET ROLE;
+SELECT ok((SELECT run_open FROM public.network_share_checks WHERE project_id = 'aaaa1111-0000-0000-0000-000000011817'), 'a first call with more to do leaves the run as it was');
+SET LOCAL ROLE authenticated;
+INSERT INTO t118_ret SELECT 'm-s4', public.t118_walk('aaaa1111-0000-0000-0000-000000011817', 'Round5', jsonb_build_array(public.t118_dir('Round5/big2', true, '{}', '[]')), true, true);
+SELECT is((SELECT (v ->> 'newly_missing') || '/' || (v ->> 'more_missing') FROM t118_ret WHERE k = 'm-s4'), '1500/true', 'the left-behind sweep has the cap too');
+INSERT INTO t118_ret SELECT 'm-s5', public.t118_walk('aaaa1111-0000-0000-0000-000000011817', 'Round5', jsonb_build_array(public.t118_dir('Round5/big2', true, '{}', '[]')), true, true);
+SELECT is((SELECT (v ->> 'newly_missing') || '/' || (v ->> 'more_missing') FROM t118_ret WHERE k = 'm-s5'), '1/false', 'and the last send finishes it');
+RESET ROLE;
+SELECT ok((SELECT complete AND NOT run_open AND dirs_checked = 1 AND missing_count = 3001 FROM public.network_share_checks WHERE project_id = 'aaaa1111-0000-0000-0000-000000011817'), 'and the run is that send''s alone');
+
+-- A desktop recovering from a crash asks the same questions before it renames anything.
+INSERT INTO public.network_share_ops (id, workspace_id, file_id, project_id, op, from_locator, to_locator, created_by) VALUES
+  ('11800000-0000-0000-0000-00000000a903', '11111111-1111-1111-1111-111111111111', '11800000-0000-0000-0000-000000000903'::uuid, 'aaaa1111-0000-0000-0000-000000011814', 'trash',
+   'Tree/k.mov', 'Tree/.wilson-bin/11800000-0000-0000-0000-000000000903/k.mov', 'cccccccc-cccc-cccc-cccc-cccccccccccc');
+SELECT public.t118_repoint('aaaa1111-0000-0000-0000-000000011815', 'Tree/Branch');
+SET LOCAL ROLE authenticated;
+SELECT public.t118_c();
+SELECT throws_ok($$ SELECT public.network_share_pending_mine() $$, 'P0001', 'network_share: folder_shared', 'pending_mine refuses while the folder is not its own');
+RESET ROLE;
+UPDATE public.workspace_storage SET mode = 'central' WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
+SET LOCAL ROLE authenticated;
+SELECT throws_ok($$ SELECT public.network_share_pending_mine() $$, 'P0001', 'network_share: drive_changed', 'or the company has left its server');
+RESET ROLE;
+UPDATE public.workspace_storage SET mode = 'byos' WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
+SELECT public.t118_repoint('aaaa1111-0000-0000-0000-000000011815', 'Branch-Free');
+SET LOCAL ROLE authenticated;
+SELECT is((SELECT count(*)::int FROM jsonb_array_elements(public.network_share_pending_mine()) e WHERE e ->> 'op_id' = '11800000-0000-0000-0000-00000000a903'), 1, 'and returns it once the folders are apart');
+RESET ROLE;
+DELETE FROM public.network_share_ops WHERE id = '11800000-0000-0000-0000-00000000a903';
+
+-- A purge holds a project in the bin the same way, because its purge would cascade to the row.
+SELECT public.t118_row('11800000-0000-0000-0000-000000000951'::uuid, 'aaaa1111-0000-0000-0000-000000011816', 'Claimer/pg.mov');
+INSERT INTO public.network_share_ops (id, workspace_id, file_id, project_id, op, from_locator, to_locator, created_by) VALUES
+  ('11800000-0000-0000-0000-00000000a951', '11111111-1111-1111-1111-111111111111', '11800000-0000-0000-0000-000000000951'::uuid, 'aaaa1111-0000-0000-0000-000000011816', 'trash',
+   'Claimer/pg.mov', 'Claimer/.wilson-bin/11800000-0000-0000-0000-000000000951/pg.mov', 'cccccccc-cccc-cccc-cccc-cccccccccccc');
+ALTER TABLE public.projects DISABLE TRIGGER USER;
+UPDATE public.projects SET deleted_at = now() - interval '31 days' WHERE id = 'aaaa1111-0000-0000-0000-000000011816';
+ALTER TABLE public.projects ENABLE TRIGGER USER;
+SELECT public.purge_soft_deleted();
+SELECT is((SELECT count(*)::int FROM public.projects WHERE id = 'aaaa1111-0000-0000-0000-000000011816'), 1, 'a project in the bin stays while a file in it has an unsettled operation');
+SELECT is((SELECT state FROM public.network_share_ops WHERE id = '11800000-0000-0000-0000-00000000a951'), 'pending', 'and so does the journal');
+UPDATE public.network_share_ops SET state = 'done', settled_at = now() WHERE id = '11800000-0000-0000-0000-00000000a951';
+SELECT public.purge_soft_deleted();
+SELECT is((SELECT count(*)::int FROM public.projects WHERE id = 'aaaa1111-0000-0000-0000-000000011816'), 0, 'and goes at the purge after it settles');
+
 -- A purge holds a row whose operation has not settled, and takes it the night after.
 SELECT public.t118_row('11800000-0000-0000-0000-000000000950'::uuid, 'aaaa1111-0000-0000-0000-000000011811', 'Round/pg.mov');
 SET LOCAL ROLE authenticated;
@@ -1409,6 +1468,8 @@ SELECT is(public.network_share_locator_ok(repeat(chr(27721), 700)), false, 'a pa
 SELECT is(public.network_share_locator_ok('P_DATA~1/rates.json'), false, 'a short name for a folder');
 SELECT is(public.network_share_locator_ok('Salt-Hours/CLIP~12.MOV'), false, 'or for a file');
 SELECT is(public.network_share_locator_ok('Salt-Hours/shot~final/a.mov'), true, 'a tilde in an ordinary name is fine');
+SELECT is(public.network_share_locator_ok('a/' || repeat(chr(128512), 4) || '~1.txt'), false, 'a short name is counted in characters, as the desktop counts it');
+SELECT is(public._network_share_mtime('2026-01-01T00:00:00+99:00'), NULL, 'a time zone no file has is no time at all, not an error');
 
 
 -- ── L. The row cap ───────────────────────────────────────────────────────────

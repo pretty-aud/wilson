@@ -37,7 +37,6 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { pipeline } = require('stream/promises');
 const { isSameOriginRequest } = require('./fileReads.cjs');
 const { makeContainment } = require('./pathContainment.cjs');
 
@@ -67,7 +66,7 @@ const REFUSED_CHARS = /[\\:*?"<>|\u0001-\u001f\u007f-\u009f\u061c\u200b-\u200f\u
 
 // A short name: Windows and Samba can answer to '_WILSO~1' for a longer folder, and every
 // name test would read it as some other folder. network_share_path_shape_ok's.
-const SHORT_NAME = /(^|\/)[^./~]{1,6}~[0-9a-z]{1,3}([.][^./]{0,3})?(\/|$)/i;
+const SHORT_NAME = /(^|\/)[^./~]{1,6}~[0-9a-zA-Z]{1,3}([.][^./]{0,3})?(\/|$)/u;
 
 // Device names Windows opens as devices, with or without an extension. A walk could not
 // find a file called this; the add route must not make one.
@@ -99,6 +98,28 @@ function numberedName(name, n) {
   const dot = name.lastIndexOf('.');
   if (dot <= 0) return `${name} (${n})`;
   return `${name.slice(0, dot)} (${n})${name.slice(dot)}`;
+}
+
+// The body into the temp file, closed before this settles. Not stream.pipeline: when a write
+// fails it destroys the request, and with it the socket the answer has to go back on. The stall
+// watch stops when the body has all arrived, because from then on Node would close the socket
+// without telling the request.
+function writeBody(req, out, stallMs) {
+  return new Promise((resolve, reject) => {
+    let failure = null;
+    const fail = (err) => {
+      if (!failure) failure = err || new Error('aborted');
+      req.unpipe(out);
+      out.destroy();
+    };
+    out.on('error', fail);
+    req.on('error', fail);
+    req.on('close', () => { if (!req.complete) fail(new Error('aborted')); });
+    out.on('close', () => { if (failure) reject(failure); else resolve(); });
+    req.setTimeout(stallMs, () => req.destroy(new Error('stalled')));
+    req.once('end', () => req.setTimeout(0));
+    req.pipe(out);
+  });
 }
 
 function refuse(res, status, code, error) {
@@ -224,9 +245,10 @@ function mountNetworkShare(expressApp, {
 
       tmp = pathImpl.join(dir, `.wilson-upload-${crypto.randomUUID()}.tmp`);
       const out = createWriteStream(tmp, { flags: 'wx' });
-      req.setTimeout(stallMs, () => req.destroy(new Error('stalled')));
-      await pipeline(req, out);
-      req.setTimeout(0);
+      await writeBody(req, out, stallMs);
+      // Whoever sent it has gone, so nobody will be told where it landed. A retry would make a
+      // second copy.
+      if (req.socket?.destroyed) throw new Error('the connection has gone');
       if (out.bytesWritten !== sizeBytes) {
         const clean = await removeQuietly(tmp);
         tmp = null;
