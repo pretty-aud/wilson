@@ -244,9 +244,9 @@ No automated test covers the two-factor path end to end: re-run the first three 
   **Add references** and **Choose file** on one line, which Tab reaches in that order; **Core files only** off, *Core files come from a
   project: choose one.* `[BLOCKING]`
 - **Choose a project** → **Add references** (*From <project>, and your notes*) → an item, a file and a note → **Done** → listed in
-  one list under both, with any upload after them; the meter *Less than 1% of what D.O.G. can read for one deck (an estimate)* (or *About
+  one list under both, with any upload after them; the meter *Less than 1% of what D.O.G. can read for one deck* (or *About
   N% …*); two or more give **Remove all references**, with Undo. `[BLOCKING]`
-- A 110-page PDF uploaded: the meter *About 34% of what D.O.G. can read for one deck (an estimate)*, no warning on its tile; a PDF of
+- A 110-page PDF uploaded: the meter *About 34% of what D.O.G. can read for one deck*, no warning on its tile; a PDF of
   more than 600 pages: *N pages: the AI may refuse a PDF over 600* on its tile, the bar a warning only. `[NOTE]`
 - From the keyboard: an upload's × with a reference listed goes to the next upload's ×, else the upload before it, else **Choose file**; **Remove all
   references** leaves focus on **Add references**, Shift+Tab reaches **Dismiss** and **Undo**. `[BLOCKING]`

@@ -657,6 +657,10 @@ export function sendsInline(fileData, limit) {
 // an estimate. It still warns and never blocks (her Q8, "Meter, then warn"). A
 // 110-page PDF read 495,000 against 200,000, 248%; now 330,000 against 983,616,
 // 34%. Nothing in WILSON trims, samples or refuses a file for this number.
+//
+// DG8 (2026-11-06). Her words, verbatim: "sorry dont say that its an estimate". So
+// the bar's sentence, card 1's header and the hover no longer say it. Nothing
+// here changed: the same page figure, the same limit, the same percent.
 
 /** The bar's ceiling for a model with no recorded limit (DG1's figure). */
 export const REFERENCE_TOKEN_LIMIT = 200000;
@@ -680,8 +684,9 @@ export const IMAGE_TOKEN_ESTIMATE = 4000;
  * eight full decks of 230,850 to 247,693 input tokens, about 2,100 a page all in
  * for a 110-page text PDF. DG1's 4,500 was a dense page, more than twice that
  * measurement. So the top of the documented text range: about 1.4 times what a
- * text page measured, and an estimate that can run low on a PDF of dense or
- * picture-heavy pages (OUTSTANDING DG7-01); the bar says "an estimate" for this.
+ * text page measured, and a figure that can run low on a PDF of dense or
+ * picture-heavy pages (OUTSTANDING DG7-01), which the bar does not say (DG8, at
+ * the "Size: the meter" comment).
  */
 export const PDF_PAGE_TOKENS = 3000;
 /**

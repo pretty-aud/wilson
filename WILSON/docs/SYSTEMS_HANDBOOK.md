@@ -3984,8 +3984,9 @@ percent); dense or picture-heavy pages can cost up to 7,784 (OUTSTANDING DG7-01)
 `modeTokens` counts what the chosen mode sends: the deck's text and the project's words
 in both, each mode's system prompt and fixed words (`FULL_DECK_FIXED_TOKENS`,
 `SINGLE_PAGE_FIXED_TOKENS`, measured from the source by a test), the page request only
-for a single page. `meterSentence` and `referencesCount` say *(an estimate)* and, past
-the limit, the number; the bar, the window's footer and the header ask the same limit.
+for a single page. `meterSentence` and `referencesCount` give the number past the limit
+and, by her ruling of 2026-11-06 (DG8), do not say it is an estimate; the bar, the
+window's footer and the header ask the same limit.
 `pdfPageLimit` is the provider's 600 pages a request, 100 under a 1M window; a chosen
 file's tile, the window's rows and now an upload's tile show `sizeWarning` (not a
 video upload's, which is placed whatever its size). It warns and never blocks (her Q8);
@@ -6854,7 +6855,8 @@ side by side)**
 
 **D.O.G.'s reading meter (DG7, 2026-11-05; §13.1)**
 
-- **It is an estimate, and can read low.** A PDF page counts 3,000 tokens; a dense or
+- **The number is an estimate and can read low; by her ruling of 2026-11-06 (*"sorry dont say that its an estimate"*,
+  DG8) the bar, its hover and card 1's header do not say so.** A PDF page counts 3,000 tokens; a dense or
   picture-heavy page can cost up to 7,784 by the provider's numbers (DG7-01), a page cap
   counts a whole request (DG7-02), text counts 4 characters a token where the newer
   ratio is 2.5 (DG7-04). It warns and never blocks, so a request past the model's window
