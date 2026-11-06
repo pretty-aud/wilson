@@ -28,7 +28,8 @@ function setup({ walks = [{ dirs: [dir('Salt')], bin: [], stopped_at: null }], a
 describe('a space\'s folder', () => {
   it('a personal space, a placed folder, and one that is not under the drive', () => {
     expect(spaceFolderOf({ personal_owner_id: 'u1' }, '//s/d')).toBe('_WILSON_PERSONAL/u1')
-    expect(spaceFolderOf({ folder_root: String.raw`\\s\d\Salt\In` }, String.raw`\\s\d`)).toBe('Salt/In')
+    const windows = (p) => p.replaceAll('/', String.fromCharCode(92))
+    expect(spaceFolderOf({ folder_root: windows('//s/d/Salt/In') }, windows('//s/d'))).toBe('Salt/In')
     expect(spaceFolderOf({ folder_root: '//other/d/Salt' }, '//s/d')).toBeNull()
     expect(spaceFolderOf({ folder_root: '//s/d' }, '//s/d')).toBeNull()
     expect(spaceFolderOf({}, '//s/d')).toBeNull()
