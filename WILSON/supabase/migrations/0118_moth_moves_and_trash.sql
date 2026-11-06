@@ -10,7 +10,8 @@
 -- writes the journal (0113), and changes each row in one UPDATE under a marker bound
 -- to that journal row. Nothing else admits a change of a file's project (0114's guard).
 --
---   §1  Helpers, closed to clients: the destination's test, the order of the locks,
+--   §1  _network_share_assert_folder, lifted from 0117, answers once per project in a move.
+--       Helpers, closed to clients: the destination's test, the order of the locks,
 --       what a key's last part may say, which links still have somewhere to point,
 --       and an office-server file's way back to the exact place it came from.
 --   §2  fn_moth_apply_moves, the core: every check before any write. Closed to clients.
@@ -108,6 +109,7 @@ BEGIN
       ('public.fn_checked_move_admits(uuid,uuid,uuid,text,text)', '84634c663e58fe02b4a981e04f168722', NULL),
       ('public._network_share_lock_projects(uuid[])', '9cf2f1f4f6aab6519d848f66fbebedb2', NULL),
       ('rabbit_private.file_key_admissible(text,text,uuid,uuid,uuid,boolean)', 'c2307ece6296a6fd6643606b4801b74e', NULL),
+      ('public._network_share_assert_folder(uuid,uuid,text)', 'b7b9bfb626ff3e7d1141b3ce9a21e8e5', '2614188c39f6720c9d0715af004cdc5a'),
       ('public._network_share_target(uuid,uuid,uuid,text,uuid)', '29b78dcb712422327aacb2eaf7c5bbaa', NULL),
       ('public._network_share_move_core(uuid,uuid,uuid,jsonb,boolean)', 'a445156e8bcb7fecbd973110e6b5d05d', NULL),
       ('public._network_share_adopt_core(uuid,uuid,uuid,jsonb,boolean)', '982c2e07510d0880a439bcf17b7e528f', NULL),
@@ -123,6 +125,68 @@ BEGIN
 END $$;
 
 -- §1 Helpers --------------------------------------------------------------------------------
+-- Lifted from 0117 whole; the one change is marked 0118.
+CREATE OR REPLACE FUNCTION public._network_share_assert_folder(p_ws uuid, p_project uuid, p_folder text)
+RETURNS void
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+SET row_security = off
+AS $$
+DECLARE
+  v_owner uuid;
+BEGIN
+  -- 0118: a move asks once per project (_moth_share_folders_asked), not once per file.
+  IF position(p_project::text IN COALESCE(current_setting('wilson.network_share_asked', true), '')) > 0 THEN
+    RETURN;
+  END IF;
+  SELECT p.personal_owner_id INTO v_owner FROM public.projects p WHERE p.id = p_project;
+  IF EXISTS (SELECT 1 FROM public.network_share_claims(p_ws) c WHERE NOT c.placed) THEN
+    RAISE EXCEPTION 'network_share: folders_unplaced';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.network_share_claims(p_ws) c
+              WHERE c.project_id IS DISTINCT FROM p_project
+                AND public._network_share_overlaps(c.prefix, p_folder)
+                AND NOT (v_owner IS NOT NULL AND c.project_id IS NULL)) THEN
+    RAISE EXCEPTION 'network_share: folder_shared';
+  END IF;
+END;
+$$;
+REVOKE ALL ON FUNCTION public._network_share_assert_folder(uuid, uuid, text) FROM PUBLIC, anon, authenticated;
+
+-- The folder claims scale with the company's projects, and each core asks them per file: 500 files
+-- with 200 projects took 9.2 s on dev, over authenticated's 8. So a move asks once per project, and
+-- says so for the rest of its call. Refusals speak as they would have, from the cores: no server,
+-- or no folder, is left for them to name.
+CREATE OR REPLACE FUNCTION public._moth_share_folders_asked(p_ws uuid, p_projects uuid[])
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+SET row_security = off
+AS $$
+DECLARE
+  v_done   text := COALESCE(current_setting('wilson.network_share_asked', true), '');
+  v        uuid;
+  v_folder text;
+BEGIN
+  IF public._network_share_drive(p_ws) IS NULL THEN
+    RETURN;
+  END IF;
+  FOREACH v IN ARRAY p_projects LOOP
+    CONTINUE WHEN position(v::text IN v_done) > 0;
+    v_folder := public.network_share_space_folder(v);
+    IF v_folder IS NOT NULL THEN
+      PERFORM public._network_share_assert_folder(p_ws, v, v_folder);
+      v_done := v_done || ' ' || v::text;
+    END IF;
+  END LOOP;
+  PERFORM set_config('wilson.network_share_asked', v_done, true);
+END;
+$$;
+REVOKE ALL ON FUNCTION public._moth_share_folders_asked(uuid, uuid[]) FROM PUBLIC, anon, authenticated;
+
 -- A destination: its project, and a folder that is that project's and not a locked one. Missing
 -- and hidden read the same to every caller (SEC-MV-12).
 CREATE OR REPLACE FUNCTION public._moth_dest_eligible(p_project uuid, p_folder uuid)
@@ -422,6 +486,7 @@ BEGIN
 
         IF f.storage_provider::text = 'network_share' THEN
           v_how := 'share_move';
+          PERFORM public._moth_share_folders_asked(v_ws, ARRAY[f.project_id, v_to_project]);
           IF q -> 'back' ->> 'share_path' IS NOT NULL THEN
             v_r := public._moth_share_back(v_id, v_to_project, q -> 'back' ->> 'share_path', v_origin, NOT v_plan);
           ELSE
@@ -482,6 +547,7 @@ BEGIN
                 RAISE EXCEPTION 'moth_move:copy_refused' USING ERRCODE = 'P0001',
                   DETAIL = 'A file moves onto your office server from the desktop app.';
               END IF;
+              PERFORM public._moth_share_folders_asked(v_ws, ARRAY[v_to_project]);
               v_r := public._network_share_adopt_core(v_id, v_to_project, v_to_folder, v_origin, NOT v_plan);
               v_to_prov := 'network_share';
               v_to_path := 'nas:' || (v_r ->> 'to');
@@ -564,6 +630,7 @@ BEGIN
         END IF;
       END IF;
     END LOOP;
+    PERFORM set_config('wilson.network_share_asked', '', true);
 
     IF v_plan THEN
       RETURN jsonb_build_object('items', v_plan_items);
@@ -1221,6 +1288,8 @@ COMMENT ON FUNCTION public.moth_undo_move(uuid, boolean) IS
   'Undo the caller''s own move while each file sits where it left it. Links come back where their row still exists; links_not_restored and pictures_not_restored say what did not. Redo is this on the undo''s id. Errors are moth_move:<code>.';
 COMMENT ON FUNCTION public._moth_dest_eligible(uuid, uuid) IS
   'A move''s destination: an eligible project, and a folder of that project that is not locked. Closed to clients.';
+COMMENT ON FUNCTION public._moth_share_folders_asked(uuid, uuid[]) IS
+  'Asks the office-server folder claims once per project for a move, and says so for the rest of its call. Closed to clients.';
 COMMENT ON FUNCTION public._moth_lock_moves(uuid[], uuid[], uuid[]) IS
   'The one order of a move''s locks: the projects'' advisory locks, then project, folder and file rows, each by id. Closed to clients.';
 COMMENT ON FUNCTION public._moth_key_leaf(text) IS
@@ -1255,7 +1324,8 @@ BEGIN
   FOREACH v_word IN ARRAY ARRAY['has_active_membership', '_moth_target_eligible', 'moth_can_write_target',
                                 '_moth_lock_moves', 'set_config(''wilson.file_move''', 'ingestion_chunks',
                                 'asset_versions', 'files_body_follow', 'files_body_retire',
-                                '_network_share_move_core', '_network_share_adopt_core'] LOOP
+                                '_network_share_move_core', '_network_share_adopt_core',
+                                '_moth_share_folders_asked', 'set_config(''wilson.network_share_asked'', '''''] LOOP
     IF position(v_word IN v_body) = 0 THEN
       RAISE EXCEPTION '0118 post-condition: fn_moth_apply_moves lost %', v_word;
     END IF;
@@ -1311,6 +1381,14 @@ BEGIN
     RAISE EXCEPTION '0118 post-condition: _moth_trash_batch must lock its rows and ask again before it trashes them';
   END IF;
 
+  SELECT regexp_replace(prosrc, '--[^\n]*', '', 'g') INTO v_body
+    FROM pg_proc WHERE oid = 'public._network_share_assert_folder(uuid,uuid,text)'::regprocedure;
+  IF position('wilson.network_share_asked' IN v_body) = 0
+     OR position('folders_unplaced' IN v_body) = 0
+     OR position('folder_shared' IN v_body) = 0 THEN
+    RAISE EXCEPTION '0118 post-condition: _network_share_assert_folder is not what 0117 left with one early answer';
+  END IF;
+
   -- 0117's stub is gone, and the settle locks both ends of a move before any row.
   SELECT regexp_replace(prosrc, '--[^\n]*', '', 'g') INTO v_body
     FROM pg_proc WHERE oid = 'public._network_share_replay_origin(uuid)'::regprocedure;
@@ -1359,6 +1437,7 @@ BEGIN
       ('public.fn_moth_apply_moves(jsonb,uuid,boolean)'),
       ('public._moth_dest_eligible(uuid,uuid)'),
       ('public._moth_lock_moves(uuid[],uuid[],uuid[])'),
+      ('public._moth_share_folders_asked(uuid,uuid[])'),
       ('public._moth_key_leaf(text)'),
       ('public._moth_links_alive(jsonb,uuid)'),
       ('public._moth_share_back(uuid,uuid,text,jsonb,boolean)'),

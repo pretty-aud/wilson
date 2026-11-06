@@ -12,7 +12,7 @@
 
 BEGIN;
 
-SELECT plan(256);
+SELECT plan(261);
 
 SELECT * FROM tests.rls_setup();
 
@@ -167,7 +167,7 @@ SELECT is(has_function_privilege('authenticated', 'public.moth_move_items(uuid[]
 SELECT is(has_function_privilege('anon', 'public.network_share_stale_moves()', 'EXECUTE'), false, 'anon cannot list a stale move');
 SELECT is((SELECT array_agg(x) FROM unnest(ARRAY[
     'public.fn_moth_apply_moves(jsonb,uuid,boolean)', 'public._moth_dest_eligible(uuid,uuid)', 'public._moth_lock_moves(uuid[],uuid[],uuid[])',
-    'public._moth_key_leaf(text)', 'public._moth_links_alive(jsonb,uuid)', 'public._moth_share_back(uuid,uuid,text,jsonb,boolean)',
+    'public._moth_share_folders_asked(uuid,uuid[])', 'public._moth_key_leaf(text)', 'public._moth_links_alive(jsonb,uuid)', 'public._moth_share_back(uuid,uuid,text,jsonb,boolean)',
     'public._network_share_replay_origin(uuid)']) x
    WHERE has_function_privilege('authenticated', x::regprocedure, 'EXECUTE') OR has_function_privilege('anon', x::regprocedure, 'EXECUTE')), NULL::text[],
   'the core and its helpers are closed to every client');
@@ -913,6 +913,28 @@ SELECT public.t119_a();
 SELECT is((SELECT count(*)::int FROM jsonb_array_elements(public.network_share_stale_moves()) e WHERE e ->> 'op_id' = public.t119_op('st')::text), 0, 'and it is off the list');
 RESET ROLE;
 SELECT is((SELECT actor_user_id FROM public.file_moves WHERE undo_of = public.t119_move_id('st')), 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, 'and the way back names who called it off');
+
+-- The folder claims, asked once per project in a move, still refuse, both ways.
+SELECT public.t119_share('11900000-0000-0000-0000-0000000006a6', 'aaaa1190-0000-0000-0000-000000000011', 'Salt-Hours/claims-1.mov');
+SELECT public.t119_share('11900000-0000-0000-0000-0000000006a7', 'aaaa1190-0000-0000-0000-000000000011', 'Salt-Hours/claims-2.mov');
+SET LOCAL ROLE authenticated;
+SELECT public.t119_c();
+INSERT INTO t119_ret SELECT 'cl', public.t119_m(ARRAY['11900000-0000-0000-0000-0000000006a6'::uuid], 'aaaa1190-0000-0000-0000-000000000012');
+SELECT is(current_setting('wilson.network_share_asked', true), '', 'a move leaves no word that the folders were asked');
+SELECT lives_ok($$ SELECT public.network_share_settle(ARRAY[public.t119_op('cl')], 'done') $$, 'moved');
+RESET ROLE;
+SELECT public.t119_a();
+INSERT INTO public.projects (id, workspace_id, title, created_by, is_private, folder_root) VALUES
+  ('aaaa1190-0000-0000-0000-000000000014', '11111111-1111-1111-1111-111111111111', 'Inside', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', false, public.t119_root() || chr(92) || 'Moon-Film' || chr(92) || 'inside');
+SET LOCAL ROLE authenticated;
+SELECT public.t119_c();
+SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-0000000006a7'::uuid], 'aaaa1190-0000-0000-0000-000000000012') $$, 'P0001', 'moth_move:folder_shared', 'a destination whose folder another project is inside');
+SELECT throws_ok($$ SELECT public.moth_undo_move(public.t119_move_id('cl')) $$, 'P0001', 'moth_move:folder_shared', 'and an undo from it');
+RESET ROLE;
+SELECT public.t119_a();
+UPDATE public.projects SET folder_root = public.t119_root() || chr(92) || 'Inside' WHERE id = 'aaaa1190-0000-0000-0000-000000000014';
+SELECT is((SELECT array_agg(proname::text ORDER BY proname COLLATE "C") FROM pg_proc WHERE prosrc LIKE '%wilson.network_share_asked%' AND pronamespace = 'public'::regnamespace),
+  ARRAY['_moth_share_folders_asked', '_network_share_assert_folder', 'fn_moth_apply_moves'], 'and only these three know the word');
 
 -- Someone else calling off a stale undo leaves it for its mover to try again.
 SELECT public.t119_share('11900000-0000-0000-0000-0000000006a8', 'aaaa1190-0000-0000-0000-000000000011', 'Salt-Hours/stale-undo.mov');
