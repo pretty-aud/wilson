@@ -12,7 +12,7 @@
 
 BEGIN;
 
-SELECT plan(261);
+SELECT plan(269);
 
 SELECT * FROM tests.rls_setup();
 
@@ -572,6 +572,28 @@ INSERT INTO t119_ret SELECT 'ucw', public.moth_undo_move(public.t119_move_id('mc
 RESET ROLE;
 SELECT is((SELECT row(folder_id, is_core_definer)::text FROM public.files WHERE id = '11900000-0000-0000-0000-000000000841'), '(,t)', 'and so does its undo');
 
+-- A link whose row has since gone to another project does not come back.
+SELECT public.t119_a();
+INSERT INTO public.tasks (id, project_id, workspace_id, title) VALUES ('11900000-0000-0000-0000-0000000000a9', 'aaaa1190-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111', 'Wandering');
+SELECT public.t119_file('11900000-0000-0000-0000-000000000881', 'aaaa1190-0000-0000-0000-00000000000a', 'wander.mov');
+UPDATE public.files SET task_id = '11900000-0000-0000-0000-0000000000a9' WHERE id = '11900000-0000-0000-0000-000000000881';
+SET LOCAL ROLE authenticated;
+SELECT public.t119_c();
+INSERT INTO t119_ret SELECT 'mw', public.t119_m(ARRAY['11900000-0000-0000-0000-000000000881'::uuid], 'aaaa1190-0000-0000-0000-00000000000b');
+RESET ROLE;
+SELECT public.t119_a();
+UPDATE public.tasks SET project_id = 'aaaa1190-0000-0000-0000-00000000000f' WHERE id = '11900000-0000-0000-0000-0000000000a9';
+SET LOCAL ROLE authenticated;
+SELECT public.t119_c();
+INSERT INTO t119_ret SELECT 'uw', public.moth_undo_move(public.t119_move_id('mw'));
+SELECT is((public.t119_v('uw') ->> 'links_not_restored')::int, 1, 'a link whose row went to another project is said to be lost');
+RESET ROLE;
+SELECT is((SELECT row(project_id, task_id)::text FROM public.files WHERE id = '11900000-0000-0000-0000-000000000881'), '(aaaa1190-0000-0000-0000-00000000000a,)', 'and the row is back without it');
+
+-- The name part of a key.
+SELECT is(public._moth_key_leaf(''), 'file', 'a name with nothing in it still makes a key');
+SELECT is(public._moth_key_leaf('a b/c.mov'), 'a_b_c.mov', 'and what a key cannot hold is replaced');
+
 -- The other seats.
 SELECT public.t119_file('11900000-0000-0000-0000-000000000851', 'aaaa1190-0000-0000-0000-00000000000f', 'seat-manager.mov');
 SELECT public.t119_file('11900000-0000-0000-0000-000000000852', 'aaaa1190-0000-0000-0000-000000000021', 'seat-off.mov');
@@ -731,6 +753,20 @@ RESET ROLE;
 UPDATE public.files SET storage_path = 'nas:Moon-Film/drifted.mov' WHERE id = '11900000-0000-0000-0000-000000000609';
 SET LOCAL ROLE authenticated;
 SELECT throws_ok($$ SELECT public.network_share_settle(ARRAY[public.t119_op('sd')], 'not_moved') $$, 'P0001', 'network_share: changed_since', 'a row moved some other way stays put');
+RESET ROLE;
+
+-- Each other way a row can have changed by hand.
+SELECT public.t119_share('11900000-0000-0000-0000-0000000006b2', 'aaaa1190-0000-0000-0000-000000000011', 'Salt-Hours/drift-project.mov');
+SELECT public.t119_share('11900000-0000-0000-0000-0000000006b3', 'aaaa1190-0000-0000-0000-000000000011', 'Salt-Hours/drift-trash.mov');
+SET LOCAL ROLE authenticated;
+INSERT INTO t119_ret SELECT 'dr1', public.t119_m(ARRAY['11900000-0000-0000-0000-0000000006b2'::uuid], 'aaaa1190-0000-0000-0000-000000000012');
+INSERT INTO t119_ret SELECT 'dr2', public.t119_m(ARRAY['11900000-0000-0000-0000-0000000006b3'::uuid], 'aaaa1190-0000-0000-0000-000000000012');
+RESET ROLE;
+UPDATE public.files SET project_id = 'aaaa1190-0000-0000-0000-000000000011' WHERE id = '11900000-0000-0000-0000-0000000006b2';
+UPDATE public.files SET deleted_at = now() WHERE id = '11900000-0000-0000-0000-0000000006b3';
+SET LOCAL ROLE authenticated;
+SELECT throws_ok($$ SELECT public.network_share_settle(ARRAY[public.t119_op('dr1')], 'not_moved') $$, 'P0001', 'network_share: changed_since', 'a row in another project than its operation put it stays put');
+SELECT throws_ok($$ SELECT public.network_share_settle(ARRAY[public.t119_op('dr2')], 'not_moved') $$, 'P0001', 'network_share: changed_since', 'and a trashed one');
 RESET ROLE;
 
 -- Within a project on the server: only the folder, and the desktop has nothing to do.
@@ -912,6 +948,7 @@ SET LOCAL ROLE authenticated;
 SELECT public.t119_a();
 SELECT is((SELECT count(*)::int FROM jsonb_array_elements(public.network_share_stale_moves()) e WHERE e ->> 'op_id' = public.t119_op('st')::text), 0, 'and it is off the list');
 RESET ROLE;
+SELECT ok((SELECT undone_at IS NOT NULL FROM public.file_moves WHERE id = public.t119_move_id('mm')), 'another move stays undone: a way back reopens only its own');
 SELECT is((SELECT actor_user_id FROM public.file_moves WHERE undo_of = public.t119_move_id('st')), 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, 'and the way back names who called it off');
 
 -- The folder claims, asked once per project in a move, still refuse, both ways.
@@ -933,6 +970,20 @@ SELECT throws_ok($$ SELECT public.moth_undo_move(public.t119_move_id('cl')) $$, 
 RESET ROLE;
 SELECT public.t119_a();
 UPDATE public.projects SET folder_root = public.t119_root() || chr(92) || 'Inside' WHERE id = 'aaaa1190-0000-0000-0000-000000000014';
+-- A batch's second source is asked as well as its first.
+INSERT INTO public.projects (id, workspace_id, title, created_by, is_private, folder_root) VALUES
+  ('aaaa1190-0000-0000-0000-000000000015', '11111111-1111-1111-1111-111111111111', 'Second Source', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', false, public.t119_root() || chr(92) || 'Second-Source'),
+  ('aaaa1190-0000-0000-0000-000000000016', '11111111-1111-1111-1111-111111111111', 'Inside It', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', false, public.t119_root() || chr(92) || 'Second-Source' || chr(92) || 'inside');
+INSERT INTO public.project_members (project_id, user_id, workspace_id, project_role) VALUES
+  ('aaaa1190-0000-0000-0000-000000000015', 'cccccccc-cccc-cccc-cccc-cccccccccccc', '11111111-1111-1111-1111-111111111111', 'member') ON CONFLICT DO NOTHING;
+SELECT public.t119_share('11900000-0000-0000-0000-0000000006b5', 'aaaa1190-0000-0000-0000-000000000011', 'Salt-Hours/first-source.mov');
+SELECT public.t119_share('11900000-0000-0000-0000-0000000006b6', 'aaaa1190-0000-0000-0000-000000000015', 'Second-Source/second-source.mov');
+SET LOCAL ROLE authenticated;
+SELECT public.t119_c();
+SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-0000000006b5'::uuid, '11900000-0000-0000-0000-0000000006b6'::uuid], 'aaaa1190-0000-0000-0000-000000000012') $$, 'P0001', 'moth_move:folder_shared', 'the second source of a batch is asked too');
+RESET ROLE;
+SELECT public.t119_a();
+UPDATE public.projects SET folder_root = public.t119_root() || chr(92) || 'Inside-It' WHERE id = 'aaaa1190-0000-0000-0000-000000000016';
 SELECT is((SELECT array_agg(proname::text ORDER BY proname COLLATE "C") FROM pg_proc WHERE prosrc LIKE '%wilson.network_share_asked%' AND pronamespace = 'public'::regnamespace),
   ARRAY['_moth_share_folders_asked', '_network_share_assert_folder', 'fn_moth_apply_moves'], 'and only these three know the word');
 

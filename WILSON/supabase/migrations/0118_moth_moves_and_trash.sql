@@ -1325,6 +1325,7 @@ BEGIN
                                 '_moth_lock_moves', 'set_config(''wilson.file_move''', 'ingestion_chunks',
                                 'asset_versions', 'files_body_follow', 'files_body_retire',
                                 '_network_share_move_core', '_network_share_adopt_core',
+                                'ARRAY[f.project_id, v_to_project]', 'ARRAY[v_to_project]',
                                 '_moth_share_folders_asked', 'set_config(''wilson.network_share_asked'', '''''] LOOP
     IF position(v_word IN v_body) = 0 THEN
       RAISE EXCEPTION '0118 post-condition: fn_moth_apply_moves lost %', v_word;
@@ -1397,6 +1398,7 @@ BEGIN
      OR position('INSERT INTO public.file_moves' IN v_body) = 0
      OR position('undone_at' IN v_body) = 0
      OR position('FOR KEY SHARE' IN v_body) = 0
+     OR position('x.id = o.file_id FOR UPDATE' IN v_body) = 0
      OR position('foreign_key_violation' IN v_body) = 0
      OR position('_network_share_move_core' IN v_body) > 0
      OR position('_network_share_adopt_core' IN v_body) > 0 THEN

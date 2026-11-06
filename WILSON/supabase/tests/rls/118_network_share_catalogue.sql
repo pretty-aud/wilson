@@ -35,7 +35,7 @@
 
 BEGIN;
 
-SELECT plan(401);
+SELECT plan(402);
 
 SELECT * FROM tests.rls_setup();
 
@@ -1210,6 +1210,7 @@ INSERT INTO public.network_share_ops (id, workspace_id, file_id, project_id, des
 SET LOCAL ROLE authenticated;
 SELECT public.t118_a();
 SELECT throws_ok($$ SELECT public.network_share_settle(ARRAY['11800000-0000-0000-0000-00000000a920'::uuid], 'done') $$, '42501', 'network_share: not allowed', 'a check seat cannot settle somebody''s adopt, however old');
+SELECT throws_ok($$ SELECT public.network_share_settle(ARRAY['11800000-0000-0000-0000-00000000a920'::uuid], 'not_moved') $$, '42501', 'network_share: not allowed', 'nor call off one within a project: the arm for a move between projects is for that alone');
 SELECT throws_ok($$ SELECT public.network_share_settle(ARRAY['11800000-0000-0000-0000-00000000a921'::uuid], 'not_moved') $$, 'P0001', 'network_share: changed_since', 'a seat on both ends may call off a move between projects since 0118, and a row not where its operation put it stays put');
 SELECT throws_ok($$ SELECT public.network_share_settle(ARRAY['11800000-0000-0000-0000-00000000a922'::uuid], 'done') $$, '42501', 'network_share: not allowed', 'nor one with the row at its destination');
 INSERT INTO t118_ret SELECT 'm-st', public.t118_apply('aaaa1111-0000-0000-0000-000000011811', 'Round', '[]'::jsonb, '[]'::jsonb, false);
