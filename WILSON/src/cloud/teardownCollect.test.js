@@ -16,6 +16,7 @@ import {
   collectBlobPaths, collectAvatarPaths, listFolder,
   BUCKET, THUMBNAIL_BUCKET, AVATAR_BUCKET, PAGE, LIST_PAGE, AVATAR_MAX, BIN_POSTERS_MAX,
 } from '../../supabase/functions/_shared/teardownCollect.ts'
+import { reservedProjectObjectPaths } from '../../supabase/functions/_shared/reservedObjects.ts'
 
 const WS = '11111111-1111-1111-1111-111111111111'
 const P1 = 'aaaa1111-0000-0000-0000-000000000001'
@@ -184,7 +185,34 @@ describe('a moved file keeps its key (MO1, 0115)', () => {
     expect(out.rejected.sort()).toEqual([key(OTHER), `${key(OTHER)}.jpg`])
   })
 
-  it('a read that fails leaves the key refused', async () => {
+  it('🚨 a purged project\'s manifest and rates go with the company: nothing else can reach them once the rows are gone', async () => {
+    const gone = '11111111-1111-4111-8111-111111111111'
+    const elsewhere = '33333333-3333-4333-8333-333333333333'
+    const { ctx } = fakeClient({
+      projects: [{ id: P1, workspace_id: WS }, { id: elsewhere, workspace_id: 'w2' }],
+      events: [
+        { project_id: gone, workspace_id: WS },
+        { project_id: gone, workspace_id: WS },
+        { project_id: P1, workspace_id: WS },
+        { project_id: elsewhere, workspace_id: WS },
+      ],
+    })
+    const out = await collectBlobPaths(ctx, WS)
+    for (const p of reservedProjectObjectPaths(gone)) expect(out.reserved.filter((x) => x === p).length).toBe(1)
+    for (const p of reservedProjectObjectPaths(P1)) expect(out.reserved).toContain(p)
+    for (const p of reservedProjectObjectPaths(elsewhere)) expect(out.reserved).not.toContain(p)
+  })
+  it('🚨 a read of what a company\'s events tie to it that fails refuses the teardown', async () => {
+    const { ctx } = fakeClient({ projects: [{ id: P1, workspace_id: WS }] })
+    const realFrom = ctx.admin.from
+    ctx.admin.from = (table) => {
+      const b = realFrom(table)
+      if (table === 'file_events') b.then = (resolve) => resolve({ data: null, error: { message: 'down' } })
+      return b
+    }
+    await expect(collectBlobPaths(ctx, WS)).rejects.toThrow('down')
+  })
+  it('🚨 a read that fails refuses the teardown: after the cascade nothing can derive the set again', async () => {
     const { ctx } = fakeClient({ projects: [{ id: P1, workspace_id: WS }], files: [row(OTHER)], events: [{ project_id: OTHER, workspace_id: WS }] })
     const realFrom = ctx.admin.from
     ctx.admin.from = (table) => {
@@ -192,9 +220,7 @@ describe('a moved file keeps its key (MO1, 0115)', () => {
       if (table === 'file_events') b.maybeSingle = async () => ({ data: null, error: { message: 'down' } })
       return b
     }
-    const out = await collectBlobPaths(ctx, WS)
-    expect(out.paths).toEqual([])
-    expect(out.rejected).toContain(key(OTHER))
+    await expect(collectBlobPaths(ctx, WS)).rejects.toThrow('down')
   })
 })
 

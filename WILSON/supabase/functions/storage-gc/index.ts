@@ -307,8 +307,11 @@ Deno.serve(async (req) => {
       // previews while certifying them disposed. A missing column here is a
       // silent data-loss bug, not a missing field.
       .select('id, bucket_id, object_path, provider, kind')
-      .eq('status', 'pending')
+      // A row that failed goes again, after what has never been tried. The admin is told to fix the secret
+      // and run cleanup again, and 0115 keeps a failed row's key claimed until it is really gone.
+      .in('status', ['pending', 'failed'])
       .eq('workspace_id', ctx.workspaceId)
+      .order('status', { ascending: false })
       .order('id', { ascending: true })
       .limit(500)
     if (qErr) throw new Error(`queue read: ${qErr.message}`)
