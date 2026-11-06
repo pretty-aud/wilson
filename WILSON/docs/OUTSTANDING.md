@@ -1340,6 +1340,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul DG8 (2026-11-06; `po/dg8-limit-bar-words` into `feat/post-overhaul-edit-versioning`) — her words, verbatim *"sorry dont say that its an estimate"*: the limit bar's sentence, card 1's header and the hover no longer say it, by the brief's table; *About* and *about* stay; the meter's arithmetic unchanged; one new group of tests over every word and attribute of the bar and the header in each state; walkthrough 94 corrected in place. | DG7-01 restated: the number can still read low, and the bar does not say it is an estimate; recorded, not fixed. DG8-01. | nothing: DG7-01 stays open. Comment markers: 4 → 4. |
 | Post-overhaul DG7 (2026-11-05; `po/dg7-refs-uploads-side-by-side` into `feat/post-overhaul-edit-versioning`) — her ask, verbatim *"lets have references and the uploads be side by side in the card. this makes the card shorter and fills in the negative space a bit. when doing this, the uploads and references selected/uploaded files should show up on the list together showing what its reading."*, and on the limit bar *"Fix it in the D.O.G. session (Recommended)"*: card 1's References and Uploads two columns (416px to the 576px measure, 24 apart, no query), the first controls on one line, one list of every tile with the contract line and the meter under *The deck reads* (the brief's words, her Q1); `focusAfterRemove` by a tile's kind; card 1 40 to 227px shorter at 1280 to 2560 in every state measured but folded (34, unchanged), 20 to 36 taller only where the columns stack with little listed (DG7-07); the meter: the model's input limit in the registry from the provider's documentation (Sonnet 5, 1,000,000, less the 16,384 reserved), a PDF page at 3,000, *(an estimate)* in its words and the number past the limit, the page cap 600 or 100 by the model and on an upload's tile, the count by mode; a 110-page text PDF 248 percent → 34; Help's step 1 in the card's order; two review rounds on Opus; 76 plants each red; no migration, no SQL, no Edge Function | DG7-01 to DG7-08 | DG6-03, MTR-01, MTR-02, MTR-03. Comment markers: 4 → 4. |
 | Post-overhaul SB1 (2026-11-01, night 10; `po/sb1-resizable-sidebars` into `feat/post-overhaul-edit-versioning`) — her ask of 2026-11-01, verbatim *"this divider line from the courses sidebar and the overall otter window should be expanding by grabbing and putting the line to the desired width of the courses sidebar. lets do the same with the sidebar in the dog tool"*: one handle on the kit Panel (`resizable`, `storageKey`, `minWidth`, `maxWidth`, `minBeside`): an 8px strip over the 1px hairline (24 for a finger) that takes no layout width, the line as drawn at rest and a 2px band of the signal on hover, a drag and focus, `role="separator"` with its values, the arrows ±8 and ±40, Home and End, a double-click back to the token, Escape abandoning a drag, the width remembered per device only while it differs from the token and drawn narrower where the row cannot hold it; O.T.T.E.R.'s courses 180 to 480 with 720 kept beside (304 at 1024), D.O.G.'s pages 160 to 480 with 560 kept (464 at 1024); the collapse, its rail and Ctrl/Cmd+\ unchanged, a reopened column at its width; measured at 1280, 1440, 1920 and 2560 (and 1024) before and after, the line and the column beside pixel-identical at rest; C4's preview pin passes at the default; 55 new tests, 50 red on the source before, 112 plants each killed; one design round and two review rounds on Opus (round 1's corrections: the band not drawn in forced colours, a press that changes nothing writes nothing, a window narrowed mid-drag holds the drag, a finger's 8px slop; round 2's: a moved drag owns the width while it lives, the forced-colours ring and the memory's clearing pinned, the Panel measured against its own row in both tools) (Fable's allowance spent until 2026-11-04); no migration, no SQL | SB1-01 to SB1-04 (the design round's three WCAG items: no single-pointer way to set a width, an 8px strip for a mouse, the hairline's 1.48:1 at rest; and the pet over the lesson's *Next* when the courses column is wide at 1280) | nothing |
 | AT1 (2026-11-01, night 10 of `docs/sessions/PLAN_TO_1_0.md`; `po/at1-admin-terminal-fit` into `feat/post-overhaul-edit-versioning`) — her ask of 2026-11-01, verbatim in the brief (*"make it wider there is a lot empty space to the sides … the member details should fit and static not able to scroll … the pop up card asking to confirm should be in the center of the overall admin terminal not inside of the column"*): measured first at four sizes (margins 24/100/340/660; the panel 678 px of real content in 512 and 34 px sideways; every confirm 239 wide in the panel, the panel resting at `translateX(0)`, its transform the containing block); one design round on Opus (design-direction, laws-of-ux); the page edge to edge (the registry entry takes no measure), the panel 560 in two columns, no scroll from 1280x720, a compact roster beside it under 860, the confirms beside the panel and the panel at `transform: none`; no kit change; review round 1 on Opus (1 High, measured: one Escape closed the confirm and the panel, older than AT1, fixed; 1 Medium; 3 Low; 4 Notes), round 2 on Opus (1 Medium, measured: from 1160 to ~1265 the roster's search ran under the status chips, round 1's breakpoint move having opened it; the search to 120 and 80, the two columns from 1220; 4 Low, the layout effect untested, three numbers; 3 Notes); 26 plants each red; no migration, no SQL | AT1-01 to AT1-08 | — . Comment markers: 4 → 4. |
@@ -4188,7 +4189,8 @@ DG7's brief carries it as its item 5.
   deck that reads whole.~~ CLOSED by DG7 (`3dfe6831`, `5606e628`): the limit is the
   model's, from the provider's documentation, in the registry
   (`MODEL_INPUT_LIMITS`); less the 16,384 reserved, 983,616 on Sonnet 5; a PDF
-  page 3,000; *(an estimate)* in the sentence and the number past the limit. A
+  page 3,000; the number past the limit, and *(an estimate)* in the sentence until
+  her ruling of 2026-11-06 took it out (DG8). A
   110-page text PDF reads 330,000, 34 percent.** MEASURED (read; staging's `app_events`, tool `dog`,
   read-only): the bar is an estimate that warns and never blocks (her Q8 of
   2026-10-16, *"Meter, then warn"*; `meterState`, `meterSentence`). It counts
@@ -4243,7 +4245,9 @@ with its measurement, none fixed (plan §5, rule 7). Walkthrough 94 names them.
   newest models: up to 7,784 a page against the bar's 3,000 (text PDFs measured about
   2,100 all in). A 222-page PDF at 4,500 a page costs about 999,000 and reads 68
   percent; at the ceiling 130 pages pass 1,000,000 and read about 40. Input past the
-  window is a 400 from the provider. Fix shape: the provider's token counting for a
+  window is a 400 from the provider. The number can still read low, and by her ruling of
+  2026-11-06 (*"sorry dont say that its an estimate"*, DG8) the bar does not say it is an estimate: recorded, not fixed.
+  Fix shape: the provider's token counting for a
   real number, or the bytes per page as a density guess. Owner: any D.O.G. session
   the controller names.
 - **DG7-02 · The page cap counts the whole request; a tile's warning speaks for its
@@ -4283,15 +4287,16 @@ with its measurement, none fixed (plan §5, rule 7). Walkthrough 94 names them.
   nothing chosen), with little listed: +19.6 with nothing chosen, +27.6 with a project,
   +35.6 with a project and one upload, +23.6 with 20 uploads; with six references and
   two uploads 67px shorter. The new title and its 8px gap are the cost: 27.6. With the
-  columns side by side every state measured is shorter. Would settle it: her Q1 (no
-  title). Owner: Audrey.
+  columns side by side every state measured is shorter. Settled 2026-11-06: asked
+  Q1, she kept the title (*"Keep The deck reads (Recommended)"*), so the extra
+  height where the columns stack stays. Nothing to do.
 - **DG7-08 · Small things seen, older or taste, recorded.** READ, not measured:
   Preview's `disabled={gone}` should drop focus to `<body>` if a list lands while it
   holds focus, as Chromium did for the Core box (DG4). MEASURED: the kit's IconButton
   describes itself with its own name (*Preview X* twice). At 326 pages the bar says
-  *About 100%* and is not past; at 327 *Past … (about 100%, an estimate)*; both true by
+  *About 100%* and is not past; at 327 *Past … (about 100%)*; both true by
   rounding. Past the limit the header drops *N PDFs not counted*, so its percent is a
-  floor; `previewSubtitle` says *about N tokens*, not *an estimate*. After a model is
+  floor; `previewSubtitle` says *about N tokens*, as the hover now does. After a model is
   changed the bar follows at its next render. READ: `coreLine`'s comment still says
   the dropdown is *in the project column beside it*. MEASURED by DG7's round 2: a
   double click on Undo lands its second click on Add references, which moves up under
@@ -4349,3 +4354,18 @@ adds this section, each after reading the code. What is left, none fixed:
   older than DG7). The session row's *40 to 227px shorter* takes its lower
   bound from a state the walkthrough's table does not show: 20 uploads, 816 to
   775.2, measured by DG7's second review round and not measured again.
+
+## DG8 (2026-11-06; the limit bar's words) — recorded
+
+- **DG8-01 · What DG8's check does not walk, and two small things read.** MEASURED by
+  DG8's round 1: its check renders the bar and the header, not the Add references
+  window's own footer words or the contract line, so the word planted in either (a
+  footer `title`, a contract-line `title`) leaves `ReferencesCard.test.jsx` green. Neither
+  holds the word today (walked in Chromium, with all 8 rail panes and all 14 Help pages; that
+  walk's output was not saved, and a source search by the controller's second look agrees);
+  a preview's body in the fixtures shows only an error, so its words are clean by a
+  source search only. The Rate Card's hidden text *for estimating* is in the page's DOM on
+  `/dog`, out of the accessibility tree and not D.O.G.'s. READ: older comments still
+  hold a first name, in a public repository: `referenceModel.js` 2 lines, `ReferencesCard.jsx` 7,
+  `ReferencesCard.test.jsx` 5, `enterKey.render.test.jsx` 11; DG8 added none. Owner: any
+  D.O.G. session the controller names.
