@@ -1886,8 +1886,8 @@ DROP FUNCTION public.t115_journal_move(jsonb, text);
 SELECT is((SELECT array_agg(p.proname::text ORDER BY p.proname) FROM pg_proc p
             WHERE p.pronamespace NOT IN ('pg_catalog'::regnamespace, 'information_schema'::regnamespace)
               AND p.prosrc LIKE '%wilson.file_move%'),
-  ARRAY['fn_checked_move_admits'],
-  'wilson.file_move is named by fn_checked_move_admits and nothing else');
+  ARRAY['_network_share_replay_origin', 'fn_checked_move_admits', 'fn_moth_apply_moves'],
+  'wilson.file_move is named by fn_checked_move_admits and the two that write the journal, and nothing else');
 SELECT is((SELECT array_agg(p.proname::text ORDER BY p.proname) FROM pg_proc p
             WHERE p.pronamespace NOT IN ('pg_catalog'::regnamespace, 'information_schema'::regnamespace)
               AND p.prosrc LIKE '%wilson.body_rekey%'),

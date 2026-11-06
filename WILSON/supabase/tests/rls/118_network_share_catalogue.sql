@@ -858,7 +858,7 @@ SELECT throws_ok($$ SELECT public._network_share_move_core('11800000-0000-0000-0
 SELECT throws_ok($$ SELECT public._network_share_move_core('11800000-0000-0000-0000-000000000405', 'aaaa1111-0000-0000-0000-000000011807', NULL, '{}'::jsonb) $$, 'P0001', 'network_share: no_folder', 'a trashed destination');
 SELECT throws_ok($$ SELECT public._network_share_move_core('11800000-0000-0000-0000-000000000309', 'aaaa1111-0000-0000-0000-000000011806', NULL, '{}'::jsonb) $$, '42501', 'network_share: not allowed', 'a row that is gone');
 SET LOCAL ROLE authenticated;
-SELECT throws_ok($$ SELECT public.network_share_settle(ARRAY[(SELECT (v ->> 'op_id')::uuid FROM t118_ret WHERE k = 'm1')], 'not_moved') $$, 'P0001', 'network_share: moves_not_ready', 'a move''s way back is 0118''s, under the journal: refused until then');
+SELECT throws_ok($$ SELECT public.network_share_settle(ARRAY[(SELECT (v ->> 'op_id')::uuid FROM t118_ret WHERE k = 'm1')], 'not_moved') $$, 'P0001', 'network_share: changed_since', 'a way back for a row its operation has not moved stays put (0118 has its real body)');
 SELECT lives_ok($$ SELECT public.network_share_settle(ARRAY[(SELECT (v ->> 'op_id')::uuid FROM t118_ret WHERE k = 'm1')], 'done') $$, 'its done is here');
 RESET ROLE;
 
