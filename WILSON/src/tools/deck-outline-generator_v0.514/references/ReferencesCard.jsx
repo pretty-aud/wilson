@@ -78,16 +78,17 @@ export const deckModel = () => resolveModel('dog.fullDeck', getModelSources()).m
 
 /**
  * The meter's sentence, for the bar and screen readers. DG7 (MTR-01; her answer
- * at the "Size: the meter" comment in referenceModel.js): it says it is an
- * estimate, in the words and not only in the hover, and past the limit it still
- * gives the number. As few of the words change as stay true; walkthrough 94 asks
- * her about them. It warns and never blocks (her Q8).
+ * at the "Size: the meter" comment in referenceModel.js): past the limit it still
+ * gives the number. DG8, her words of 2026-11-06, verbatim: "sorry dont say that
+ * its an estimate". So this sentence, the header's warning and the hover do not
+ * say it; About and about stay, and the number can still read low (OUTSTANDING
+ * DG7-01). It warns and never blocks (her Q8).
  */
 export function meterSentence(m, bytes = 0) {
   const pct = m.tokens > 0 && m.percent === 0 ? 'Less than 1%' : `About ${m.percent}%`;
   const head = m.over
-    ? `Past what D.O.G. can read for one deck (about ${m.percent}%, an estimate): generating may be slow, cost more, or fail.`
-    : `${pct} of what D.O.G. can read for one deck (an estimate)`;
+    ? `Past what D.O.G. can read for one deck (about ${m.percent}%): generating may be slow, cost more, or fail.`
+    : `${pct} of what D.O.G. can read for one deck`;
   const extra = [];
   if (m.uncounted) extra.push(`${m.uncounted} PDF${m.uncounted === 1 ? '' : 's'} not counted until read`);
   // What Generate will download, once it matters (review round 2, finding 3).
@@ -101,7 +102,7 @@ export function ReferencesMeter({ tokens, uncounted = 0, bytes = 0 }) {
   const sentence = meterSentence(m, bytes);
   return (
     <div className="dog-refs-meter" data-over={m.over}
-      title={`An estimate: about ${m.tokens.toLocaleString()} of ${m.limit.toLocaleString()} tokens`}>
+      title={`About ${m.tokens.toLocaleString()} of ${m.limit.toLocaleString()} tokens`}>
       <div className="dog-refs-meter-track" role="meter" aria-label="How much of what D.O.G. can read for one deck"
         aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(m.percent, 100)} aria-valuetext={sentence}>
         <span className="dog-refs-meter-fill" style={{ width: `${Math.min(100, m.percent)}%` }} />
@@ -245,7 +246,7 @@ function keyboardHeld(el) {
 export function referencesCount({ refs, uploads = 0, extraTokens = 0, extraUncounted = 0 }) {
   const count = uploads + refs.chosenList.length;
   const m = meterState(refs.chosenTokens + extraTokens, readingLimit(deckModel()), refs.chosenUncounted + extraUncounted);
-  const warn = m.over ? `over the limit, about ${m.percent}% (an estimate)` : m.uncounted ? `${m.uncounted} PDF${m.uncounted === 1 ? '' : 's'} not counted` : '';
+  const warn = m.over ? `over the limit, about ${m.percent}%` : m.uncounted ? `${m.uncounted} PDF${m.uncounted === 1 ? '' : 's'} not counted` : '';
   return { text: count ? `${count} chosen` : 'None chosen', warn };
 }
 

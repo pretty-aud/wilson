@@ -352,10 +352,10 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
     const v = render(<ReferencesCount refs={fakeRefs([ITEM], { chosenTokens: 250000 })} uploads={2} />)
     expect(v.container.querySelector('.dog-refs-count').textContent).toBe('3 chosen')
     cleanup()
-    // DG7: past the limit it still gives the number and says it is an estimate.
+    // DG7: past the limit it still gives the number.
     const past = render(<ReferencesCount refs={fakeRefs([ITEM], { chosenTokens: 1200000 })} uploads={2} />)
-    expect(past.container.querySelector('.dog-refs-count').textContent).toBe('3 chosen · over the limit, about 122% (an estimate)')
-    expect(past.container.querySelector('.dog-refs-head-warn').textContent).toBe(' · over the limit, about 122% (an estimate)')
+    expect(past.container.querySelector('.dog-refs-count').textContent).toBe('3 chosen · over the limit, about 122%')
+    expect(past.container.querySelector('.dog-refs-head-warn').textContent).toBe(' · over the limit, about 122%')
   })
 
   it('an upload\'s tile shows the size warning a chosen file\'s tile shows, from D.O.G.\'s count of its pages', () => {
@@ -478,10 +478,53 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
 })
 
 // =============================================================================
+// DG8, her words of 2026-11-06, verbatim: "sorry dont say that its an estimate".
+// Everything the bar and the header put on screen or hand to a screen reader, in
+// every state, so the word cannot come back unseen in any letter case.
+// =============================================================================
+describe('DG8: the limit bar does not say it is an estimate', () => {
+  /** An element's words and every attribute's value, its children's too. */
+  const said = (root) => [root, ...root.querySelectorAll('*')].flatMap((el) => [el.textContent, ...[...el.attributes].map((a) => a.value)]).join(' | ')
+  const WORD = /estimate/i
+  const STATES = [['under 1 percent', 100, 'Less than 1%'], ['under the limit', 330000, 'About 34%'], ['past it', 1200000, 'about 122%']]
+
+  it.each(STATES)('%s: not in the bar, its hover, what a screen reader hears, or the header', (_, tokens, number) => {
+    for (const uncounted of [0, 2]) {
+      const bar = render(<ReferencesMeter tokens={tokens} uncounted={uncounted} bytes={30 * 1024 * 1024} />).container
+      const head = render(<ReferencesCount refs={fakeRefs([ITEM], { chosenTokens: tokens, chosenUncounted: uncounted })} uploads={2} />).container
+      // Each really holds what it is checked for, so the check is not of nothing.
+      const track = bar.querySelector('[role="meter"]')
+      expect(bar.querySelector('.dog-refs-meter-words').textContent).toContain(number)
+      expect(track.getAttribute('aria-valuetext')).toContain(number)
+      expect(bar.querySelector('.dog-refs-meter').getAttribute('title')).toMatch(/^About [\d,]+ of 983,616 tokens$/)
+      expect(head.querySelector('.dog-refs-count').textContent).toContain('3 chosen')
+      expect(said(bar)).not.toMatch(WORD)
+      expect(said(head)).not.toMatch(WORD)
+      cleanup()
+    }
+  })
+
+  it('the header\'s warning is checked too: past the limit it says the percent, and only that', () => {
+    const head = render(<ReferencesCount refs={fakeRefs([ITEM], { chosenTokens: 1200000 })} uploads={0} />).container
+    expect(head.querySelector('.dog-refs-head-warn').textContent).toBe(' · over the limit, about 122%')
+    expect(said(head)).not.toMatch(WORD)
+  })
+
+  it('CONTROL: the walk finds the word in text, in an attribute and in any letter case', () => {
+    const planted = (html) => { const el = document.createElement('div'); el.innerHTML = html; return said(el) }
+    expect(planted('<p>About 34%, an estimate</p>')).toMatch(WORD)
+    expect(planted('<p><span>An Estimate: about 1</span></p>')).toMatch(WORD)
+    expect(planted('<p title="AN ESTIMATE">About 34%</p>')).toMatch(WORD)
+    expect(planted('<i aria-valuetext="estimated"></i>')).toMatch(WORD)
+    expect(planted('<p title="About 1 of 2 tokens">About 34%</p>')).not.toMatch(WORD)
+  })
+})
+
+// =============================================================================
 // DG7, the meter (2026-11-05; her words at the "Size: the meter" comment in
-// referenceModel.js; OUTSTANDING MTR-01): it says it is an estimate, in the
-// sentence and not only in the hover; past the limit it still gives the number;
-// its limit is the model a full deck resolves to, less the answer's reserve.
+// referenceModel.js; OUTSTANDING MTR-01): past the limit it still gives the
+// number; its limit is the model a full deck resolves to, less the answer's
+// reserve. DG8 took the word estimate out of it (its describe, below).
 // =============================================================================
 describe('DG7: the reading meter says what is true', () => {
   afterEach(() => { setModelSources({}) })
@@ -493,25 +536,25 @@ describe('DG7: the reading meter says what is true', () => {
     return { el, words: el.querySelector('.dog-refs-meter-words').textContent, hover: el.getAttribute('title'), over: el.getAttribute('data-over'), track: el.querySelector('[role="meter"]') }
   }
 
-  it('under the limit: today\'s words, and that it is an estimate', () => {
-    expect(words(330000)).toBe('About 34% of what D.O.G. can read for one deck (an estimate)')
-    expect(words(100)).toBe('Less than 1% of what D.O.G. can read for one deck (an estimate)')
-    expect(words(0)).toBe('About 0% of what D.O.G. can read for one deck (an estimate)')
+  it('under the limit: today\'s words', () => {
+    expect(words(330000)).toBe('About 34% of what D.O.G. can read for one deck')
+    expect(words(100)).toBe('Less than 1% of what D.O.G. can read for one deck')
+    expect(words(0)).toBe('About 0% of what D.O.G. can read for one deck')
   })
 
-  it('past the limit: today\'s words, the number, and that it is an estimate; it warns and does not block', () => {
-    expect(words(1200000)).toBe('Past what D.O.G. can read for one deck (about 122%, an estimate): generating may be slow, cost more, or fail.')
+  it('past the limit: today\'s words and the number; it warns and does not block', () => {
+    expect(words(1200000)).toBe('Past what D.O.G. can read for one deck (about 122%): generating may be slow, cost more, or fail.')
   })
 
   it('what it has not counted and what Generate downloads still follow, as they did', () => {
-    expect(words(330000, 2)).toBe('About 34% of what D.O.G. can read for one deck (an estimate) · 2 PDFs not counted until read')
-    expect(meterSentence(meterState(10, limit), 30 * 1024 * 1024)).toBe('Less than 1% of what D.O.G. can read for one deck (an estimate) · about 30 MB to download')
+    expect(words(330000, 2)).toBe('About 34% of what D.O.G. can read for one deck · 2 PDFs not counted until read')
+    expect(meterSentence(meterState(10, limit), 30 * 1024 * 1024)).toBe('Less than 1% of what D.O.G. can read for one deck · about 30 MB to download')
   })
 
   it('the bar measures against the model a full deck resolves to, less the answer\'s reserve: built in, Sonnet 5', () => {
     const m = meter({ tokens: 330000 })
-    expect(m.hover).toBe('An estimate: about 330,000 of 983,616 tokens')
-    expect(m.words).toBe('About 34% of what D.O.G. can read for one deck (an estimate)')
+    expect(m.hover).toBe('About 330,000 of 983,616 tokens')
+    expect(m.words).toBe('About 34% of what D.O.G. can read for one deck')
     expect(m.over).toBe('false')
     expect(m.track.getAttribute('aria-valuetext')).toBe(m.words)
     expect(m.track.getAttribute('aria-valuenow')).toBe('34')
@@ -519,26 +562,26 @@ describe('DG7: the reading meter says what is true', () => {
 
   it('a person, a company or the platform choosing another model moves the limit', () => {
     setModelSources({ user: { 'dog.fullDeck': 'claude-haiku-4-5-20251001' } })
-    expect(meter({ tokens: 330000 }).hover).toBe('An estimate: about 330,000 of 183,616 tokens')
+    expect(meter({ tokens: 330000 }).hover).toBe('About 330,000 of 183,616 tokens')
     cleanup()
     setModelSources({ workspace: { 'dog.fullDeck': 'claude-haiku-4-5-20251001' } })
     expect(meter({ tokens: 330000 }).over).toBe('true')
     cleanup()
     // Another function's choice is not the full deck's.
     setModelSources({ user: { 'dog.pageOutline': 'claude-haiku-4-5-20251001' } })
-    expect(meter({ tokens: 330000 }).hover).toBe('An estimate: about 330,000 of 983,616 tokens')
+    expect(meter({ tokens: 330000 }).hover).toBe('About 330,000 of 983,616 tokens')
   })
 
   it('a model with no recorded limit keeps 200,000', () => {
     setModelSources({ platform: { 'dog.fullDeck': 'claude-future-9' } })
-    expect(meter({ tokens: 150000 }).hover).toBe('An estimate: about 150,000 of 200,000 tokens')
+    expect(meter({ tokens: 150000 }).hover).toBe('About 150,000 of 200,000 tokens')
   })
 
   it('the header and the bar say one number: the same limit, the same model', () => {
     setModelSources({ user: { 'dog.fullDeck': 'claude-haiku-4-5-20251001' } })
     const v = render(<ReferencesCount refs={fakeRefs([ITEM], { chosenTokens: 330000 })} uploads={0} />)
-    expect(v.container.querySelector('.dog-refs-count').textContent).toBe('1 chosen · over the limit, about 180% (an estimate)')
-    expect(meter({ tokens: 330000 }).words).toBe('Past what D.O.G. can read for one deck (about 180%, an estimate): generating may be slow, cost more, or fail.')
+    expect(v.container.querySelector('.dog-refs-count').textContent).toBe('1 chosen · over the limit, about 180%')
+    expect(meter({ tokens: 330000 }).words).toBe('Past what D.O.G. can read for one deck (about 180%): generating may be slow, cost more, or fail.')
   })
 
   it('the page cap on a tile follows the model too: a 200k model warns from 101 pages', () => {
