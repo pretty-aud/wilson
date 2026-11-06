@@ -4283,8 +4283,9 @@ with its measurement, none fixed (plan §5, rule 7). Walkthrough 94 names them.
   nothing chosen), with little listed: +19.6 with nothing chosen, +27.6 with a project,
   +35.6 with a project and one upload, +23.6 with 20 uploads; with six references and
   two uploads 67px shorter. The new title and its 8px gap are the cost: 27.6. With the
-  columns side by side every state measured is shorter. Would settle it: her Q1 (no
-  title). Owner: Audrey.
+  columns side by side every state measured is shorter. Settled 2026-11-06: asked
+  Q1, she kept the title (*"Keep The deck reads (Recommended)"*), so the extra
+  height where the columns stack stays. Nothing to do.
 - **DG7-08 · Small things seen, older or taste, recorded.** READ, not measured:
   Preview's `disabled={gone}` should drop focus to `<body>` if a list lands while it
   holds focus, as Chromium did for the Core box (DG4). MEASURED: the kit's IconButton

@@ -148,6 +148,8 @@ In *94_dog_card_1 pictures*, beside this file, at 1280 × 800, 1440 × 900,
 
 ### Questions
 
+**Answered 2026-11-06, in the controller's chat, with five of these pictures:** Q1 *"Keep The deck reads (Recommended)"*; Q2 *"Keep the text width (Recommended)"*; Q3 *"Keep the lines (Recommended)"*. All three are what is built, so nothing changes.
+
 - **Q1. The title over the list, the line and the bar.** (a) *The deck reads*
   (recommended: it says what the list is and does not open with "What" a line
   above *What goes to the AI*). (b) No title (picture: `po-dg7-q1-no-title-…`; the
@@ -253,6 +255,8 @@ truly past the model's limit shows D.O.G.'s general *Error generating full deck
 outline. Please try again.*, not the reason.
 
 ### Question
+
+**Answered 2026-11-06:** first *"Keep as built (Recommended)"*; a minute later, *"sorry dont say that its an estimate and also for the buttons, lets make srue to have them be aligned on the placement with the other button"*; and of the buttons, asked which she meant, *"disregard i see buttons are aligned forget what i said"*. So the bar keeps its words but for *(an estimate)*, which goes everywhere it shows (the session DG8, brief `docs/sessions/briefs/po-dg8-limit-bar-words.md`). This page is corrected when DG8 lands.
 
 - **Q4. The bar's new words** (above). (a) As built (recommended: today's words,
   with *(an estimate)* added and the number past the limit). (b) The word first:
