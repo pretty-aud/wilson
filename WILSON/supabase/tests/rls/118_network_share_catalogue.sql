@@ -35,7 +35,7 @@
 
 BEGIN;
 
-SELECT plan(397);
+SELECT plan(401);
 
 SELECT * FROM tests.rls_setup();
 
@@ -1546,6 +1546,32 @@ SELECT throws_ok($$ SELECT public.network_share_restore(ARRAY['11800000-0000-000
 SELECT throws_ok($$ SELECT public.network_share_restore(ARRAY['11800000-0000-0000-0000-000000000b09'::uuid]) $$, 'P0001', 'network_share: no_folder',
   'and one whose bin is outside, with its home inside');
 RESET ROLE;
+
+
+-- Who deleted it, when someone else tried the restore. A restore empties deleted_by (0014's stamp
+-- trigger, suite 19), and a delete writes the caller where it finds it empty, so with one person
+-- doing all of it the trigger writes the same id the journal holds, and the journal's clause never
+-- shows. Two people tell them apart.
+SELECT public.t118_a();
+INSERT INTO public.project_members (project_id, user_id, workspace_id, project_role) VALUES
+  ('aaaa1111-0000-0000-0000-000000011820', 'cccccccc-cccc-cccc-cccc-cccccccccccc', '11111111-1111-1111-1111-111111111111', 'member'),
+  ('aaaa1111-0000-0000-0000-000000011820', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', '11111111-1111-1111-1111-111111111111', 'manager')
+ON CONFLICT DO NOTHING;
+SELECT public.t118_row('11800000-0000-0000-0000-000000000b0a'::uuid, 'aaaa1111-0000-0000-0000-000000011820', 'Plant/who.mov');
+SET LOCAL ROLE authenticated;
+SELECT public.t118_c();
+INSERT INTO t118_ret SELECT 'n-w1', public.network_share_trash(ARRAY['11800000-0000-0000-0000-000000000b0a'::uuid]);
+SELECT lives_ok($$ SELECT public.network_share_settle(ARRAY[public.t118_op('n-w1')], 'done') $$, 'one person deletes a file, and it reaches the bin');
+SELECT public.t118_e();
+INSERT INTO t118_ret SELECT 'n-w2', public.network_share_restore(ARRAY['11800000-0000-0000-0000-000000000b0a'::uuid]);
+RESET ROLE;
+SELECT is((SELECT deleted_by FROM public.files WHERE id = '11800000-0000-0000-0000-000000000b0a'), NULL::uuid,
+  'a restore empties who deleted it, so only the journal still holds it');
+SET LOCAL ROLE authenticated;
+SELECT lives_ok($$ SELECT public.network_share_settle(ARRAY[public.t118_op('n-w2')], 'not_moved') $$, 'another person restores it, and the rename back fails');
+RESET ROLE;
+SELECT is((SELECT deleted_by FROM public.files WHERE id = '11800000-0000-0000-0000-000000000b0a'), 'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid,
+  'the row goes back to the trash naming the first person, not the one who settled');
 
 
 -- ── L. The row cap ───────────────────────────────────────────────────────────
