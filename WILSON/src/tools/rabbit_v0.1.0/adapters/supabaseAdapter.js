@@ -88,6 +88,8 @@ import {
 import { createSupabaseStorageProvider } from '../storage/supabaseProvider';
 import { createS3StorageProvider } from '../storage/s3Provider';
 import { createLocalServerStorageProvider } from '../storage/localServerProvider';
+import { createNetworkShareStorageProvider } from '../storage/networkShareProvider';
+import { mothRefusal } from './mothErrors';
 import { describeSourceFile } from '../storage/mediaMetadata';
 import {
   generateThumbnail, thumbnailKeyFor, putThumbnailTo, removeThumbnailFrom,
@@ -234,6 +236,11 @@ registerStorageProvider(
 registerStorageProvider(
   FILE_PROVIDERS.LOCAL_SERVER,
   createLocalServerStorageProvider(),
+);
+// MO1 (NS-D13): a file on the company's office server, the same way: a sentence off the desktop.
+registerStorageProvider(
+  FILE_PROVIDERS.NETWORK_SHARE,
+  createNetworkShareStorageProvider(),
 );
 
 // ── Demo 2026-09-11: private projects — cloud rows, media on this computer ──
@@ -853,7 +860,7 @@ const FILE_COLUMNS = new Set([
 // MO1 (0114, MOTH §2.1): where a file is kept and filed, which a client's UPDATE
 // never changes (fn_files_body_guard). In FILE_COLUMNS all the same: an INSERT
 // writes every one. updateFile takes them out of its patch.
-const FILE_BODY_COLUMNS = ['project_id', 'workspace_id', 'storage_provider', 'storage_path', 'thumbnail_url', 'is_financial', 'folder_id'];
+const FILE_BODY_COLUMNS = ['project_id', 'workspace_id', 'storage_provider', 'storage_path', 'thumbnail_url', 'is_financial', 'folder_id', 'share_missing_since', 'share_bin_path'];
 
 // ── Phase 2 of the 2026-08-10 build pass (migration 0061) ───────────────
 // The LAST write path still on the raw `sanitize(dep, [])` denylist, and the
@@ -1878,6 +1885,15 @@ function unwrapPersonalRpc(result, fnName, absent = PERSONAL_SPACES_ABSENT) {
 }
 // MO1 (0111): the same, for Moth's three reads.
 const MOTH_ABSENT = 'this workspace\'s database does not have M.O.T.H. yet';
+// MO1 (0118): the same, with its refusals in words.
+function unwrapMoth(result, fnName) {
+  const refusal = mothRefusal(result?.error);
+  if (refusal) {
+    lastError = refusal.message;
+    throw refusal;
+  }
+  return unwrapPersonalRpc(result, fnName, MOTH_ABSENT);
+}
 
 // S3a review round 2 (R2-3, parity2#2): the unique indexes behind the
 // contract's collision rules answer 23505 with Postgres' own sentence —
@@ -6026,6 +6042,106 @@ export function supabaseAdapter() {
       return unwrapPersonalRpc(
         await client.rpc('moth_project_files', { p_project: projectId, p_after: after, p_limit: limit }),
         'moth_project_files', MOTH_ABSENT) || [];
+    },
+
+    // MO1 (0118, MOTH_DESIGN §1.9): moves. A plan writes nothing and says what each file needs:
+    // { items: [{ id, how, to_provider, to_path, to_thumb, from }] }. The commit takes the copies that
+    // plan asked for, and answers { move_id, moved, links_cleared, ops }.
+    async planFileMove(ids, destProject, destFolder = null) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('moth_move_items', {
+        p_file_ids: ids, p_dest_project: destProject, p_dest_folder: destFolder, p_plan_only: true,
+      }), 'moth_move_items');
+    },
+    async moveFiles(ids, destProject, destFolder = null, bodies = null) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('moth_move_items', {
+        p_file_ids: ids, p_dest_project: destProject, p_dest_folder: destFolder, p_plan_only: false, p_bodies: bodies,
+      }), 'moth_move_items');
+    },
+    async planUndoFileMove(moveId) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('moth_undo_move', { p_move_id: moveId, p_plan_only: true }), 'moth_undo_move');
+    },
+    // Redo is undoFileMove(<the undo's move_id>).
+    async undoFileMove(moveId) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('moth_undo_move', { p_move_id: moveId, p_plan_only: false }), 'moth_undo_move');
+    },
+    // The copy a rehome or a copy-up asks for, at the key the server minted: one call within Petal's
+    // storage, otherwise the bytes through this computer. A file on another computer cannot be read
+    // from here, and the local provider's sentence says so.
+    async copyBodyForMove(file, item) {
+      const client = await requireClient();
+      const from = file.storage_provider;
+      const to = item.to_provider;
+      if (from === FILE_PROVIDERS.SUPABASE && to === FILE_PROVIDERS.SUPABASE) {
+        unwrap(await client.storage.from(BUCKET_FILES).copy(file.storage_path, item.to_path));
+      } else {
+        const body = await getStorageProvider(from).get(file.storage_path);
+        await getStorageProvider(to).put(item.to_path, body, { contentType: file.mime_type || undefined });
+      }
+      return { file_id: file.id, path: item.to_path, thumbnail: null };
+    },
+    // Undoes a copy whose move the server then refused: the file is still where it was.
+    async removeMoveCopy(item) {
+      await getStorageProvider(item.to_provider).del(item.to_path).catch(() => {});
+    },
+
+    // MO1 (0118): the trash. { done, ops }, where ops are the renames an office-server file owes.
+    async trashFiles(ids) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('moth_trash_files', { p_ids: ids }), 'moth_trash_files');
+    },
+    async restoreFiles(ids) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('moth_restore_files', { p_ids: ids }), 'moth_restore_files');
+    },
+    // What may be seen of the trash, newest first: no locator columns, no counts.
+    async listTrashedFiles({ limit = 200, before = null } = {}) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('moth_trash_index', { p_limit: limit, p_before: before }), 'moth_trash_index') || [];
+    },
+
+    // Who is calling, for the desktop's add route, which asks the auth server (electron/authCheck.cjs).
+    async getAccessToken() {
+      const client = await requireClient();
+      const { data } = await client.auth.getSession();
+      return data?.session?.access_token ?? null;
+    },
+
+    // MO1 (0117, NS-D6, NS-D12): the office-server catalogue and its operations, as
+    // networkShareCatalogue.js asks. p_root is checked against the drive by the server.
+    async refreshNetworkShare({ projectId, root, folder, dirs, bin = [], final = true, stoppedAt = null, first = false }) {
+      const client = await requireClient();
+      return unwrapPersonalRpc(await client.rpc('network_share_catalogue_apply', {
+        p_project_id: projectId, p_root: root, p_folder: folder, p_dirs: dirs, p_bin: bin,
+        p_final: final, p_stopped_at: stoppedAt, p_first: first,
+      }), 'network_share_catalogue_apply', MOTH_ABSENT);
+    },
+    async getNetworkShareCheck(projectId) {
+      const client = await requireClient();
+      return unwrap(await client.from('network_share_checks').select('*').eq('project_id', projectId).maybeSingle());
+    },
+    async settleNetworkShareOps(opIds, outcome, facts = null) {
+      const client = await requireClient();
+      return unwrapPersonalRpc(await client.rpc('network_share_settle', { p_op_ids: opIds, p_outcome: outcome, p_facts: facts }),
+        'network_share_settle', MOTH_ABSENT);
+    },
+    async networkSharePending() {
+      const client = await requireClient();
+      return unwrapPersonalRpc(await client.rpc('network_share_pending_mine'), 'network_share_pending_mine', MOTH_ABSENT) || [];
+    },
+    // Moves left over a day ago that this person may call off, because only their computer could have moved them.
+    async networkShareStaleMoves() {
+      const client = await requireClient();
+      return unwrapPersonalRpc(await client.rpc('network_share_stale_moves'), 'network_share_stale_moves', MOTH_ABSENT) || [];
+    },
+    async networkShareRecordAdded({ projectId, root, folderId = null, entries }) {
+      const client = await requireClient();
+      return unwrapPersonalRpc(await client.rpc('network_share_record_added', {
+        p_project: projectId, p_root: root, p_folder_id: folderId, p_entries: entries,
+      }), 'network_share_record_added', MOTH_ABSENT);
     },
   };
 }

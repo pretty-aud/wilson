@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, useLayoutEffect, lazy, Suspense } from 'react'
 import { Menu } from 'lucide-react'
 import TitleBar from './components/TitleBar'
 import DevFixturesBadge from './dev/DevFixturesBadge'
@@ -52,6 +52,8 @@ import { usePermissions } from './permissions'
 import DeckOutlineGenerator from './tools/deck-outline-generator_v0.514'
 import Otter from './tools/otter_v0.3.1'
 import Rabbit from './tools/rabbit_v0.1.0'
+// MO1 (MOTH_DESIGN §1.10): a lazy chunk, loaded the first time the page is opened. Nothing else reaches it.
+const MothPage = lazy(() => import('./tools/moth_v0.1.0'))
 import PetCompanion from './components/PetCompanion'
 import { PET_BREEDS, pickRandomBreed } from './components/sprites/index'
 import {
@@ -358,6 +360,9 @@ export default function App() {
   // Deep links initialize the page from the URL on the web; Electron always
   // boots on home (URL_ROUTING_ENABLED false → pageFromLocation() = 'home').
   const [currentPage, setCurrentPage] = useState(() => pageFromLocation());
+  // Set once, on first entry, and never reset: the page keeps its state after that, as the others do.
+  const [mothEntered, setMothEntered] = useState(false);
+  useEffect(() => { if (currentPage === 'moth') setMothEntered(true); }, [currentPage]);
 
   // Transition: 'idle' -> 'compressing'(600ms) -> 'title-hold'(400ms) -> [swap] -> 'expanding'(600ms) -> 'idle'
   const [transitionState, setTransitionState] = useState('idle');
@@ -2627,6 +2632,13 @@ export default function App() {
           isActive={currentPage === 'rabbit'}
           currentPage={currentPage}
         />
+      </PageSurface>
+      <PageSurface id="moth" currentPage={currentPage} overflow="hidden">
+        {mothEntered && (
+          <Suspense fallback={<p>Opening M.O.T.H.…</p>}>
+            <MothPage isActive={currentPage === 'moth'} />
+          </Suspense>
+        )}
       </PageSurface>
       <PageSurface id="settings" currentPage={currentPage}>
         <SettingsPageWithAgent

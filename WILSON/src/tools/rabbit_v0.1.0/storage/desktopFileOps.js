@@ -1,0 +1,52 @@
+// desktopFileOps.js — MO1 (MOTH_DESIGN §1.9): thin calls to the desktop's own routes for a company's
+// office server and a retired local copy (electron/networkShareWalk.cjs, networkShareOps.cjs, networkShare.cjs,
+// localMedia.cjs). Off the desktop each says so, in the sentence a person can act on. An answer that is not
+// a success throws its sentence, with the route's code on the error.
+import { hasLocalServer } from '../../../lib/localData.js'
+import { localFetch } from '../../../lib/localServerFetch.js'
+
+export const DESKTOP_PREVIEW_SENTENCE = 'Preview available on the desktop app'
+export const DESKTOP_ACTION_SENTENCE = 'Do this from the WILSON desktop app'
+
+export function createDesktopFileOps({ available = hasLocalServer, fetchImpl = localFetch } = {}) {
+  const here = () => { if (!available()) throw new Error(DESKTOP_ACTION_SENTENCE) }
+  async function answered(res) {
+    const body = await res.json().catch(() => ({}))
+    if (res.ok) return body
+    const err = new Error(body.error || 'The desktop app could not do that.')
+    err.code = body.code ?? null
+    err.status = res.status
+    throw err
+  }
+  const post = async (route, body) => {
+    here()
+    return answered(await fetchImpl(route, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }))
+  }
+  return {
+    available,
+    // { dirs, bin, stopped_at, counts }: network_share_catalogue_apply's p_dirs and p_bin.
+    walkFolder: (folder, start = null) => post('/api/network-share/walk', { folder, start }),
+    // { results: [{ from, to, ok, code?, already? }] }, each pair for itself.
+    rename: (pairs) => post('/api/network-share/op', { pairs }),
+    // from: { picked: <path from rabbit:pick-files> } or { media_key }
+    put: (to, from) => post('/api/network-share/put', { to, from }),
+    purgeBin: (paths) => post('/api/network-share/purge', { paths }),
+    retireLocalMedia: (key, op) => post('/api/rabbit/local-media/retire', { key, op }),
+    // The bearer token is who is calling, as the route checks it with the auth server (authCheck.cjs).
+    async addToPersonalSpace({ root, folder, file, accessToken }) {
+      here()
+      const query = new URLSearchParams({ root, folder, name: file.name, sizeBytes: String(file.size) })
+      return answered(await fetchImpl(`/api/network-share/personal-space/files?${query}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream', Authorization: `Bearer ${accessToken}` },
+        body: file,
+      }))
+    },
+  }
+}
+
+export const desktopFileOps = createDesktopFileOps()

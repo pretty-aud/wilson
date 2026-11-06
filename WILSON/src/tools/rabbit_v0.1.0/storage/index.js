@@ -58,6 +58,9 @@ export const FILE_PROVIDERS = Object.freeze({
   GOOGLE_DRIVE: 'google_drive',
   LOCAL_SERVER: 'local_server',
   S3:           's3',   // 0051 adds the enum value alongside this entry.
+  // MO1 (0112): a file on a company's office server, catalogued and never uploaded (NS-D1). No new
+  // body is routed here by fileProviderFor: the desktop adds it, then tells the catalogue.
+  NETWORK_SHARE: 'network_share',
 })
 
 // Which store a NEW body goes to for a given workspace provider. S37 adds

@@ -592,6 +592,30 @@ export function localServerAdapter() {
       return `${BASE}/projects/${encodeURIComponent(file.project_id)}/files/${encodeURIComponent(file.id)}/download?download=1`;
     },
 
+    // MO1 (MOTH_DESIGN §1.8, §1.9): this computer's 30-day trash and moves (fileTrash.cjs, fileMoves.cjs). The
+    // routes need a project, which a cloud row carries and the local calls are told.
+    restoreFile: async (id, projectId) => jfetch(`${BASE}/projects/${projectId}/files/${id}/restore`, { method: 'POST' }),
+    restoreManagedFile: async (id, projectId) => jfetch(`${BASE}/projects/${projectId}/managed-files/${id}/restore`, { method: 'POST' }),
+    trashFiles: async (ids, projectId) => jfetch(`${BASE}/projects/${projectId}/files/trash`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
+    }),
+    restoreFiles: async (ids, projectId) => jfetch(`${BASE}/projects/${projectId}/files/restore`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
+    }),
+    listTrashedFiles: async ({ projectIds = [] } = {}) => {
+      const lists = await Promise.all(projectIds.map((id) => jfetch(`${BASE}/projects/${id}/trash`)));
+      return lists.flat().sort((a, b) => (a.deleted_at < b.deleted_at ? 1 : -1));
+    },
+    purgeExpiredTrash: async (projectId) => jfetch(`${BASE}/projects/${projectId}/trash/purge-expired`, { method: 'POST' }),
+    moveFilesInProject: async (ids, projectId, folderId = null) => jfetch(`${BASE}/projects/${projectId}/files/move`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, folder_id: folderId }),
+    }),
+    moveFilesBetweenProjects: async (ids, fromProject, toProject, toFolder = null) => jfetch(`${BASE}/files/move-between-projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids, from_project: fromProject, to_project: toProject, to_folder: toFolder }),
+    }),
+
     deleteFile: async (id, projectId) => jfetch(`${BASE}/projects/${projectId}/files/${id}`, { method: 'DELETE' }),
 
     // ── File lifecycle + storage relink (Session 14) ──────────

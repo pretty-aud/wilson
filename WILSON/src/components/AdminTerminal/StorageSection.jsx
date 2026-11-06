@@ -132,6 +132,15 @@ export default function StorageSection({ isActive, workspaceId }) {
   const [notice, setNotice] = useState(null)
 
   const [rootDraft, setRootDraft] = useState('')
+  // MO1 (MOTH §1.9): what a change of drive would leave pointing at the old one. An unknown count says nothing.
+  const [listedOnDrive, setListedOnDrive] = useState(0)
+  useEffect(() => {
+    let live = true
+    Promise.resolve().then(() => countFilesAtProvider('network_share'))
+      .then((n) => { if (live) setListedOnDrive(n || 0) })
+      .catch(() => {})
+    return () => { live = false }
+  }, [])
   const [refusal, setRefusal] = useState(null)
   const [probe, setProbe] = useState(null)
   const [probing, setProbing] = useState(false)
@@ -970,6 +979,12 @@ export default function StorageSection({ isActive, workspaceId }) {
             </div>
           )}
 
+          {listedOnDrive > 0 && (
+            <p className="text-dense mb-2" style={{ color: INK }} data-storage-listed>
+              {listedOnDrive} {listedOnDrive === 1 ? 'file is' : 'files are'} listed from this drive. Changing the drive leaves
+              them listed until someone checks the new one. The list shows what the person checking can open.
+            </p>
+          )}
           <div className="flex items-center gap-2 flex-wrap mb-2">
             <input
               type="text"

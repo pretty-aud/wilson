@@ -166,10 +166,9 @@ describe('limits', () => {
   })
   it('the deadline stops the walk with something to say', async () => {
     await new Promise((ok) => server.close(ok))
-    deadlineMs = 0
+    deadlineMs = -1000
     await start()
     put('Salt/a.mov')
-    await new Promise((ok) => setTimeout(ok, 5))
     expect((await walk({ folder: 'Salt' })).body.stopped_at).toBe('Salt')
   })
 })

@@ -107,6 +107,16 @@ const PAGE_LIST = [
     nav: 'primary',
   },
   {
+    // MO1 (MOTH_DESIGN §1.10). The expansion is PLAN_MOTH §1's.
+    id: 'moth',
+    title: 'M.O.T.H.',
+    subtitle: 'Mapping, Organization & Tagging Hub',
+    bars: bars(95, 8),
+    surface: 'dark',
+    chrome: 'tool',
+    nav: 'primary',
+  },
+  {
     // Lane C2 converted this page. Its inks moved onto `paper` in the same
     // commit as this line, which is the rule the comment above states.
     id: 'dashboard',

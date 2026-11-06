@@ -50,7 +50,7 @@ const VIEWPORTS = [700, 800, 845, 860, 900, 956, 982, 1034, 1076, 1200, 1330, 14
 // a deliberate change to this list too.
 const RESTING = {
   home: [268, 268],
-  dog: [95, 8], otter: [95, 8], rabbit: [95, 8],
+  dog: [95, 8], otter: [95, 8], rabbit: [95, 8], moth: [95, 8],
   // Q8(b), landed by each lane-C session for the pages it converted: the
   // resource-class rows go to 120/80, and Files takes the TOOL geometry
   // because it is a working page, not a reading one. UI overhaul D1b
@@ -161,7 +161,7 @@ describe('page bar geometry', () => {
   })
 
   it('keeps the tool pages\' 8px bottom bar at 8px on every real window size', () => {
-    for (const page of ['dog', 'otter', 'rabbit']) {
+    for (const page of ['dog', 'otter', 'rabbit', 'moth']) {
       for (const v of VIEWPORTS) {
         expect(resolveAt(PAGE_BARS[page].bottom, v), `${page} at ${v}px`).toBeCloseTo(8, 5)
       }

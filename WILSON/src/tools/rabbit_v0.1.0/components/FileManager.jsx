@@ -1297,7 +1297,11 @@ export default function FileManager({
           <p className="rb-fm-confirm">
             {managed
               ? `Delete "${displayName(deleteTarget)}"? This will move the file to trash.`
-              : `Delete "${displayName(deleteTarget)}"? It can be restored by an admin.`}
+              : deleteTarget.storage_provider === 'network_share'
+                ? `Delete "${displayName(deleteTarget)}"? It moves to the company server's bin for 30 days.`
+                : deleteTarget.storage_provider === 'local_server'
+                  ? `Delete "${displayName(deleteTarget)}"? It stays in this project's trash for 30 days.`
+                  : `Delete "${displayName(deleteTarget)}"? It can be restored by an admin.`}
           </p>
         </Dialog>,
         document.body,

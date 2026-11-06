@@ -150,6 +150,7 @@ import { useWorkspaceMembers } from '../TeamMembers/useWorkspaceMembers'
 import { personalSpaceLabel } from '../../cloud/personalSpace'
 import { canSeeProjectMoney, canSeeProjectLegal } from '../../permissions/projectRoleMatrix'
 import GatedAction from '../../permissions/GatedAction'
+import NetworkShareBanner from './NetworkShareBanner'
 import RelinkDialog from '../../tools/rabbit_v0.1.0/components/RelinkDialog'
 import FileAuditDrawer from '../../tools/rabbit_v0.1.0/components/FileAuditDrawer'
 import FileEditor from './FileEditor'
@@ -1180,6 +1181,16 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
         {recordError && <Banner tone="danger" data-personal-record-error>{recordError}</Banner>}
         {needsRecord && !recordError && <Banner tone="info" live={false} data-personal-read-only>{writeReason} {PERSONAL_OPEN_NOTED}</Banner>}
         {uploadError && <Banner tone="danger" data-upload-error>{uploadError}</Banner>}
+        {project && !noRoles && (
+          <NetworkShareBanner
+            adapter={getAdapter?.()}
+            project={project}
+            canCheck={isPersonalOwner || canOnProject({ appRole, projectRole: isOpenProject ? ctx?.myProjectRole ?? null : null, isStaffed: isOpenProject ? ctx?.projectIsStaffed : false, ready: perms?.ready, noRoles }, 'project.roster.manage')}
+            deniedReason={writeReason}
+            nameOf={(id) => wm.members?.find?.((m) => m.user_id === id)?.display_name ?? null}
+            onChanged={() => setReloads(n => n + 1)}
+          />
+        )}
         {/* E1: the missing-files notice and its Relink, moved with the census
             from the Control Panel — on the kit Banner now (it was a hand-drawn
             strip, OUTSTANDING's note). The action sits inside the notice

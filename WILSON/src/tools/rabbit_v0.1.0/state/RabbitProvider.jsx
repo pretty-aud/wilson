@@ -66,6 +66,7 @@ import { useTableViewsState, groupingsNaming, sweepGroupings, restoreGroupingsIn
 import { byMilestoneDate } from './milestoneOrder';
 import { buildRevertPlan } from '../components/editHistoryRevert';
 import { hasLocalServer, loadOtterSettings, saveOtterSettings } from '../../../lib/localData';
+import { createNetworkShareCatalogue } from './networkShareCatalogue';
 import { devFixtures } from '../../../dev/devFixtures';
 import { probeInBrowser } from '../bins/binProbeFallback';
 import { previewKindFor, needsBrowserProbe, rowsToReprobeAfterRelink } from '../bins/binMedia';
@@ -5494,10 +5495,49 @@ export function RabbitProvider({ children }) {
   // Session 27. `files` had upload and patch on the context but no delete and
   // no download, because the only consumer was a read-mostly table. FileManager
   // now serves this store too and needs the whole verb set.
-  const deleteFile = useCallback((fileId) => optimistic(
-    prev => ({ ...prev, files: prev.files.filter(f => f.id !== fileId) }),
-    () => adapterRef.current.deleteFile(fileId, activeProjectId),
-  ), [optimistic, activeProjectId]);
+  // MO1 (MOTH_DESIGN §1.9): another page moved or deleted files. The open project re-reads its list, so
+  // Files agrees and the file still opens.
+  const noteFilesChangedElsewhere = useCallback(async (projectIds = []) => {
+    if (!activeProjectId || !projectIds.includes(activeProjectId) || !adapterRef.current?.listFiles) return;
+    const asked = activeProjectId;
+    const files = await adapterRef.current.listFiles(asked);
+    if (activeProjectIdRef.current === asked) setBundle(prev => ({ ...prev, files: files || [] }));
+  }, [activeProjectId]);
+
+  // MO1: a file on the office server is deleted server first, then renamed into the bin (NS-D12).
+  const shareCatalogue = useCallback(() => createNetworkShareCatalogue({ adapter: adapterRef.current }), []);
+  const restoreFile = useCallback(async (row, projectId = activeProjectId) => {
+    if (row?.storage_provider === 'network_share') {
+      const answer = await adapterRef.current.restoreFiles([row.id], projectId);
+      await shareCatalogue().runNasOp(answer?.ops ?? [], { kind: 'restore' });
+    } else {
+      await adapterRef.current.restoreFile(row.id, projectId);
+    }
+    await noteFilesChangedElsewhere([projectId]);
+  }, [activeProjectId, noteFilesChangedElsewhere, shareCatalogue]);
+
+  const deleteFile = useCallback(async (fileId) => {
+    const projectId = activeProjectId;
+    const row = (bundleRef.current.files || []).find(f => f.id === fileId) || null;
+    const result = await optimistic(
+      prev => ({ ...prev, files: prev.files.filter(f => f.id !== fileId) }),
+      async () => {
+        if (row?.storage_provider !== 'network_share') return adapterRef.current.deleteFile(fileId, projectId);
+        const answer = await adapterRef.current.trashFiles([fileId], projectId);
+        return shareCatalogue().runNasOp(answer?.ops ?? [], { kind: 'trash' });
+      },
+    );
+    if (row) showUndoToast(`Deleted "${row.name || 'file'}"`, () => restoreFile(row, projectId));
+    return result;
+  }, [optimistic, activeProjectId, showUndoToast, restoreFile, shareCatalogue]);
+
+  // An operation left unfinished on this computer, at sign-in. Only the desktop has the files.
+  const adapterOnline = adapterStatus.online;
+  useEffect(() => {
+    const adapter = adapterRef.current;
+    if (!adapterOnline || !hasLocalServer() || typeof adapter?.networkSharePending !== 'function') return;
+    createNetworkShareCatalogue({ adapter }).settlePending().catch(() => {});
+  }, [adapterOnline, adapterMode]);
 
   // Returns a Blob. Not optimistic and not state — a read straight through to
   // the backend, which is the only one that can turn a storage_path into bytes.
@@ -5598,6 +5638,17 @@ export function RabbitProvider({ children }) {
     );
   }, [writeFileRow, activeProjectId]);
 
+  // MO1: the way back from a soft delete, which only marks the row.
+  const restoreManagedFile = useCallback(async (id, projectId = activeProjectId) => {
+    await adapterRef.current.restoreManagedFile(id, projectId);
+    if (activeProjectIdRef.current === projectId) {
+      setBundle(prev => ({
+        ...prev,
+        managedFiles: (prev.managedFiles || []).map(f => (f.id === id ? { ...f, deleted_at: null } : f)),
+      }));
+    }
+  }, [activeProjectId]);
+
   const deleteManagedFile = useCallback(async (id, hard = false) => {
     if (hard) {
       return optimistic(
@@ -5609,16 +5660,22 @@ export function RabbitProvider({ children }) {
       );
     }
     // Soft delete
-    return optimistic(
+    const projectId = activeProjectId;
+    const row = (bundleRef.current.managedFiles || []).find(f => f.id === id) || null;
+    const result = await optimistic(
       prev => ({
         ...prev,
         managedFiles: (prev.managedFiles || []).map(f =>
           f.id === id ? { ...f, deleted_at: new Date().toISOString() } : f
         ),
       }),
-      () => adapterRef.current.deleteManagedFile(id, activeProjectId, false),
+      () => adapterRef.current.deleteManagedFile(id, projectId, false),
     );
-  }, [optimistic, activeProjectId]);
+    if (row && typeof adapterRef.current?.restoreManagedFile === 'function') {
+      showUndoToast(`Deleted "${row.file_name || row.name || 'file'}"`, () => restoreManagedFile(id, projectId));
+    }
+    return result;
+  }, [optimistic, activeProjectId, showUndoToast, restoreManagedFile]);
 
   const refreshManagedFiles = useCallback(async () => {
     if (!adapterRef.current || !activeProjectId) return;
@@ -8948,6 +9005,7 @@ export function RabbitProvider({ children }) {
     uploadFile, markFileCoreDefiner, patchFile, deleteFile, downloadFile, thumbnailUrls, fileUrl,
     downloadUrl,
     addManagedFile, updateManagedFile, deleteManagedFile, refreshManagedFiles,
+    noteFilesChangedElsewhere, restoreFile, restoreManagedFile,
 
     // Session 27. WHICH file store this backend actually has.
     //
@@ -9083,6 +9141,7 @@ export function RabbitProvider({ children }) {
     uploadFile, markFileCoreDefiner, patchFile, deleteFile, downloadFile, thumbnailUrls, fileUrl,
     downloadUrl,
     addManagedFile, updateManagedFile, deleteManagedFile, refreshManagedFiles,
+    noteFilesChangedElsewhere, restoreFile, restoreManagedFile,
     binsInfo, refreshBins, addBin, updateBin, deleteBin, reorderBins,
     pickBinFiles, pickBinFolder, prepareBinFiles, addBinFiles, findDuplicateBinFiles,
     updateBinFile, bulkUpdateBinFiles, moveBinFiles, copyBinFiles, removeBinFiles, restoreBinFiles,
