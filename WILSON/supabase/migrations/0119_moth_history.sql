@@ -48,6 +48,7 @@ BEGIN
   LOCK TABLE public.levels IN SHARE ROW EXCLUSIVE MODE;
   LOCK TABLE public.experiences IN SHARE ROW EXCLUSIVE MODE;
   LOCK TABLE public.task_items IN SHARE ROW EXCLUSIVE MODE;
+  LOCK TABLE public.expenses IN SHARE ROW EXCLUSIVE MODE;
 
   -- A later migration may have restated what this file creates, and running this again would
   -- quietly undo it (0098's guard).
@@ -57,7 +58,7 @@ BEGIN
   END IF;
   IF to_regprocedure('public.fn_moth_history_capture()') IS NOT NULL THEN
     SELECT md5(replace(prosrc, chr(13), '')) INTO v_md5 FROM pg_proc WHERE oid = 'public.fn_moth_history_capture()'::regprocedure;
-    IF v_md5 IS DISTINCT FROM '5b3806806f9250f63a8391f3a6558178' THEN
+    IF v_md5 IS DISTINCT FROM '837ea748d9f13341311cd9ef826b8aa3' THEN
       RAISE EXCEPTION '0119 refused: fn_moth_history_capture is not this file''s (md5 %)', v_md5;
     END IF;
   END IF;
@@ -217,7 +218,7 @@ BEGIN
       IF jsonb_typeof(e.value) = 'array' AND jsonb_array_length(e.value) > n THEN
         v_out := CASE WHEN n = 0 THEN v_out - e.key ELSE v_out || jsonb_build_object(e.key,
           (SELECT jsonb_agg(a.x ORDER BY a.o) FROM jsonb_array_elements(e.value) WITH ORDINALITY a(x, o) WHERE a.o <= n)) END;
-      ELSIF jsonb_typeof(e.value) = 'string' AND n < 20 AND length(e.value #>> '{}') > GREATEST(n * 8, 8) THEN
+      ELSIF jsonb_typeof(e.value) = 'string' AND n < 20 AND e.key !~ '_id$' AND length(e.value #>> '{}') > GREATEST(n * 8, 8) THEN
         v_out := v_out || jsonb_build_object(e.key, left(e.value #>> '{}', GREATEST(n * 8, 8)));
       END IF;
     END LOOP;
@@ -344,9 +345,9 @@ $$;
 REVOKE ALL ON FUNCTION public._moth_history_audience(text, jsonb, uuid) FROM PUBLIC, anon, authenticated;
 
 -- A folder side is locked the way moth_folder_chain_locked says, from the row's image, because a
--- deleted row can no longer be walked from: its own path, its own money slug under a root, or any
--- folder above it. Asking the path alone recorded the children of a renamed money category, and
--- once deleted they read as nothing's.
+-- deleted row can no longer be walked from: its own path, its own money slug under a root, any folder
+-- above it, or the category its path begins with. Asking the path alone recorded the children of a
+-- renamed money category, and once deleted they read as nothing's.
 CREATE OR REPLACE FUNCTION public._moth_history_folder_locked(p_ws uuid, p_image jsonb)
 RETURNS boolean
 LANGUAGE plpgsql
@@ -368,7 +369,18 @@ BEGIN
      AND EXISTS (SELECT 1 FROM public.folders r WHERE r.id = v_parent AND r.kind = 'root') THEN
     RETURN true;
   END IF;
-  RETURN COALESCE(public.moth_folder_chain_locked(p_ws, v_parent), false);
+  IF COALESCE(public.moth_folder_chain_locked(p_ws, v_parent), false) THEN
+    RETURN true;
+  END IF;
+  -- Its parent may be gone already, in a cascade, so the walk finds nothing. The top of its path may
+  -- be a money category under a root that a renamed path no longer names.
+  RETURN EXISTS (
+    SELECT 1
+      FROM public.folders t
+      JOIN public.folders r ON r.id = t.parent_id AND r.kind = 'root'
+     WHERE t.project_id = (p_image ->> 'project_id')::uuid
+       AND t.path = split_part(COALESCE(p_image ->> 'path', ''), '/', 1)
+       AND COALESCE(public.rabbit_money_segment(t.slug), false));
 END;
 $$;
 REVOKE ALL ON FUNCTION public._moth_history_folder_locked(uuid, jsonb) FROM PUBLIC, anon, authenticated;
@@ -398,6 +410,7 @@ DECLARE
   v_state  jsonb;
   v_action text;
   v_locked boolean := false;
+  v_gone   boolean := false;
   v_keys   text[];
 BEGIN
   IF TG_OP <> 'INSERT' THEN
@@ -415,11 +428,15 @@ BEGIN
     v_sp := (v_new ->> 'project_id')::uuid;
   END IF;
 
-  -- A child of a project that has gone: nobody can ever read a row about it, because a side needs
-  -- its project to pass the gate, so writing one is only cost (a purge of 50,000 files). And it would
-  -- need a company from the caller's claims, which may name another or not parse at all.
+  -- A child of a project that has gone: nobody can ever read a new row about it, because a side needs
+  -- its project to pass the gate, so writing one is only cost (a purge of 50,000 files). And a phase
+  -- would need a company from the caller's claims, which may name another or not parse at all. A file
+  -- or a folder still goes through the lock below: it may have older rows on a side in another project.
   IF TG_OP = 'DELETE' AND v_t <> 'projects' AND NOT EXISTS (SELECT 1 FROM public.projects p WHERE p.id = v_pp) THEN
-    RETURN NULL;
+    IF v_t NOT IN ('files', 'folders') THEN
+      RETURN NULL;
+    END IF;
+    v_gone := true;
   END IF;
   -- Phases have no workspace of their own. Never the caller's: a row belongs to its project's company.
   v_ws := (COALESCE(v_new, v_old) ->> 'workspace_id')::uuid;
@@ -458,6 +475,9 @@ BEGIN
          AND h.action <> 'mark_recording';
       RETURN NULL;
     END IF;
+    IF v_gone THEN
+      RETURN NULL;
+    END IF;
 
     v_prior := public.moth_history_project(v_t, v_old);
     v_state := public.moth_history_project(v_t, v_new);
@@ -484,6 +504,7 @@ BEGIN
     -- come here with nothing to say. Only an update: a trash, a restore and a move always speak.
     IF v_action = 'update'
        AND v_prior IS NOT DISTINCT FROM v_state
+       AND NOT COALESCE(v_state ? 'truncated', false)
        AND v_pp IS NOT DISTINCT FROM v_sp
        AND v_pc IS NOT DISTINCT FROM v_sc
        AND v_po IS NOT DISTINCT FROM v_so THEN
@@ -607,6 +628,38 @@ CREATE OR REPLACE TRIGGER trg_task_items_moth_history_upd
   FOR EACH ROW
   WHEN (ROW(OLD.task_id, OLD.entity_type, OLD.entity_id, OLD."position") IS DISTINCT FROM ROW(NEW.task_id, NEW.entity_type, NEW.entity_id, NEW."position"))
   EXECUTE FUNCTION public.fn_moth_history_capture();
+-- A file becomes a receipt by an expense naming it, with no write to the file (0076). So the redaction
+-- runs here, when that happens: at the file's own delete it can be too late, because a project's purge
+-- takes its expenses first, and older rows on a side in another project would then still read.
+CREATE OR REPLACE FUNCTION public.fn_moth_history_redact_receipts()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+SET row_security = off
+AS $$
+BEGIN
+  IF COALESCE(cardinality(NEW.file_ids), 0) > 0 THEN
+    BEGIN
+      UPDATE public.moth_history h
+         SET prior = NULL, state = NULL, locked = true
+       WHERE h.workspace_id = NEW.workspace_id
+         AND h.entity_type = 'files'
+         AND h.entity_id = ANY (NEW.file_ids)
+         AND NOT h.locked
+         AND h.action <> 'mark_recording';
+    EXCEPTION WHEN OTHERS THEN
+      RAISE WARNING 'moth_history could not redact a receipt: %', SQLERRM;
+    END;
+  END IF;
+  RETURN NULL;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.fn_moth_history_redact_receipts() FROM PUBLIC, anon, authenticated;
+CREATE OR REPLACE TRIGGER trg_expenses_moth_history_redact
+  AFTER INSERT OR UPDATE OF file_ids ON public.expenses
+  FOR EACH ROW EXECUTE FUNCTION public.fn_moth_history_redact_receipts();
+
 -- §4 When recording began ------------------------------------------------------------------------
 -- One mark per company and type. A company made later starts at its created_at, which the window asks.
 INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, mark_kind)
@@ -882,6 +935,8 @@ COMMENT ON TABLE public.moth_history IS
   'What changed, for Moth to rebuild the past from: metadata only, 90 days. Written by capture, redacted on lock, read through two definers that ask two audiences, then and now. On no realtime topic and in no takeout.';
 COMMENT ON FUNCTION public.fn_moth_history_capture() IS
   'Writes one moth_history row per structural change on eleven tables, whoever made it. A locked side writes nothing and redacts the entity. A failure leaves a restart mark and never fails the write.';
+COMMENT ON FUNCTION public.fn_moth_history_redact_receipts() IS
+  'A file an expense names is money from then on, with no write to the file, so its history goes blank then.';
 COMMENT ON FUNCTION public.moth_history_project(text, jsonb) IS
   'A row''s metadata by a map per table. Never a locator, a description, a money column or a person''s id. Bounds its own output. Closed to clients.';
 COMMENT ON FUNCTION public.moth_history_projection_ok(jsonb) IS
@@ -951,6 +1006,9 @@ BEGIN
     END IF;
   END LOOP;
 
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.expenses'::regclass AND tgname = 'trg_expenses_moth_history_redact') THEN
+    RAISE EXCEPTION '0119 post-condition: an expense naming a file does not redact it';
+  END IF;
   IF public.moth_history_projection_ok('{"storage_path":"x"}'::jsonb) OR NOT public.moth_history_projection_ok('{"name":"x"}'::jsonb) THEN
     RAISE EXCEPTION '0119 post-condition: moth_history_projection_ok is not the allowlist';
   END IF;
@@ -979,6 +1037,7 @@ BEGIN
       ('public.fn_moth_history_capture()', false),
       ('public._moth_history_audience(text,jsonb,uuid)', false),
       ('public._moth_history_folder_locked(uuid,jsonb)', false),
+      ('public.fn_moth_history_redact_receipts()', false),
       ('public._moth_history_entity_visible(uuid,text,uuid)', false),
       ('public.purge_moth_history(interval)', false)
     ) AS t(sig, open)
