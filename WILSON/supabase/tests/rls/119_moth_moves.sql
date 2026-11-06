@@ -12,7 +12,7 @@
 
 BEGIN;
 
-SELECT plan(258);
+SELECT plan(256);
 
 SELECT * FROM tests.rls_setup();
 
@@ -934,10 +934,10 @@ SELECT is(public.moth_undo_move(public.t119_move_id('su2')) -> 'ops' -> 0 ->> 't
 RESET ROLE;
 
 -- An adopt between projects is called off the same way.
-SELECT public.t119_local('11900000-0000-0000-0000-000000000703', 'aaaa1190-0000-0000-0000-000000000011', 'stale-adopt.mov');
+SELECT public.t119_local('11900000-0000-0000-0000-000000000704', 'aaaa1190-0000-0000-0000-000000000011', 'stale-adopt.mov');
 SET LOCAL ROLE authenticated;
 SELECT public.t119_c();
-INSERT INTO t119_ret SELECT 'sa', public.t119_m(ARRAY['11900000-0000-0000-0000-000000000703'::uuid], 'aaaa1190-0000-0000-0000-000000000012');
+INSERT INTO t119_ret SELECT 'sa', public.t119_m(ARRAY['11900000-0000-0000-0000-000000000704'::uuid], 'aaaa1190-0000-0000-0000-000000000012');
 RESET ROLE;
 UPDATE public.network_share_ops SET created_at = now() - interval '25 hours' WHERE id = public.t119_op('sa');
 SET LOCAL ROLE authenticated;
@@ -945,7 +945,7 @@ SELECT public.t119_a();
 SELECT is((SELECT e ->> 'op' FROM jsonb_array_elements(public.network_share_stale_moves()) e WHERE e ->> 'op_id' = public.t119_op('sa')::text), 'adopt', 'a stale adopt is listed');
 SELECT lives_ok($$ SELECT public.network_share_settle(ARRAY[public.t119_op('sa')], 'not_moved') $$, 'and can be called off');
 RESET ROLE;
-SELECT is((SELECT row(storage_provider, project_id)::text FROM public.files WHERE id = '11900000-0000-0000-0000-000000000703'), '(local_server,aaaa1190-0000-0000-0000-000000000011)', 'the row is back on its computer');
+SELECT is((SELECT row(storage_provider, project_id)::text FROM public.files WHERE id = '11900000-0000-0000-0000-000000000704'), '(local_server,aaaa1190-0000-0000-0000-000000000011)', 'the row is back on its computer');
 
 SELECT * FROM finish();
 ROLLBACK;
