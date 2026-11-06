@@ -293,3 +293,27 @@ describe('supportsPersonalSpaces', () => {
     expect(await again.supabaseAdapter().supportsPersonalSpaces()).toBe(false)
   })
 })
+
+describe('MO1 (MOTH §1.10): what the signed-out desktop tells the Moth page', () => {
+  it('names a project\'s expense files, its money folders and its folder rows', async () => {
+    const { localServerAdapter } = await import('./localServerAdapter')
+    const local = localServerAdapter()
+    const bundle = {
+      project: { folder_slug: 'salt' },
+      expenses: [{ file_ids: ['r1', 'r2'] }, { file_ids: null }, {}],
+      folders: [{ id: 'f' }],
+    }
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(bundle), { status: 200, headers: { 'content-type': 'application/json' } })))
+    try {
+      bundle.files = [{ id: 'a', storage_path: 'a.mov' }, { id: 'i', storage_path: 'INVOICES/i.pdf' }, { id: 'l', storage_path: 'legal/l.pdf' }, { id: 'd', storage_path: 'rushes/LEGAL/d.mov' }]
+      expect((await local.listMothFiles('p1')).map((f) => f.id)).toEqual(['a', 'd'])
+      expect(await local.mothHiddenFacts('p1')).toEqual({
+        expenseFileIds: ['r1', 'r2'],
+        localMoneyDirs: ['salt_RECEIPTS&INVOICES', 'salt_CREWINVOICES', 'salt_TALENTINVOICES'],
+        folders: [{ id: 'f' }],
+      })
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+})

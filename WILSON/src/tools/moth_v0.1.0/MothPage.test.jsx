@@ -82,6 +82,26 @@ describe('the files', () => {
     expect(screen.queryByText('a.mov')).toBeNull()
     expect(adapter.listMothFiles).toHaveBeenCalledTimes(1)
   })
+  it('🚨 on the signed-out desktop, a receipt by its expense, a money folder and a folder\'s chain are hidden too', async () => {
+    adapter.mothHiddenFacts = vi.fn(async () => ({
+      expenseFileIds: ['r'],
+      localMoneyDirs: ['salt_RECEIPTS&INVOICES'],
+      folders: [{ id: 'm', slug: 'invoices', path: 'INVOICES' }, { id: 'k', parent_id: 'm', slug: 'x', path: 'INVOICES/x' }],
+    }))
+    adapter.listMothFiles = vi.fn(async () => [
+      file('a'), file('r'), file('d', { storage_path: 'salt_RECEIPTS&INVOICES/d.pdf' }), file('c', { folder_id: 'k' }),
+    ])
+    render(<MothPage />)
+    await openProject()
+    for (const name of ['r.mov', 'd.mov', 'c.mov']) expect(screen.queryByText(name)).toBeNull()
+  })
+  it('🚨 facts that cannot be read show nothing, not everything', async () => {
+    adapter.mothHiddenFacts = vi.fn(async () => { throw new Error('The bundle could not be read.') })
+    render(<MothPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Project p1' }))
+    expect(await screen.findByText('The bundle could not be read.')).toBeTruthy()
+    expect(screen.queryByText('a.mov')).toBeNull()
+  })
   it('follows pages by the last id, with no total', async () => {
     const page = Array.from({ length: 500 }, (_, i) => file(`f${i}`))
     adapter.listMothFiles = vi.fn(async (_p, after) => (after ? [file('last')] : page))

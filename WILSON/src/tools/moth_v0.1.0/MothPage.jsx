@@ -114,8 +114,11 @@ export default function MothPage({ isActive = true }) {
   const gate = access(open)
 
   const readPage = useCallback(async (projectId, after) => {
+    // The signed-out desktop has no server to have removed money and Legal, so the second look is the only
+    // one, and it is told what a row cannot say. A failure to read that shows nothing, not everything.
+    const known = adapter.mothHiddenFacts ? await adapter.mothHiddenFacts(projectId) : {}
     const rows = await adapter.listMothFiles(projectId, after, PAGE)
-    return { rows: (rows || []).filter((row) => !mothFileHidden(row)), full: (rows || []).length === PAGE, last: rows?.[rows.length - 1]?.id ?? null }
+    return { rows: (rows || []).filter((row) => !mothFileHidden(row, known)), full: (rows || []).length === PAGE, last: rows?.[rows.length - 1]?.id ?? null }
   }, [adapter])
 
   const afterRef = useRef(null)

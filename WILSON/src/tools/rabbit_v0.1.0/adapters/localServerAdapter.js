@@ -17,7 +17,7 @@ import { describeSourceFile } from '../storage/mediaMetadata';
 
 import { byMilestoneDate } from '../state/milestoneOrder';
 import { splitSetAside } from '../state/setAside';
-import { moneyFolderChainLocked } from '../storage/index.js';
+import { moneyFolderChainLocked, MONEY_SEGMENTS } from '../storage/index.js';
 
 // B3 (Track B): every request below goes to the desktop loopback server, which
 // refuses /api without the per-launch token. localFetch attaches the header;
@@ -252,6 +252,17 @@ export function localServerAdapter() {
     // file (an asset's, a shot's) is an ordinary files row in the cloud, so it is
     // listed here too, marked: it has no folder and does not move between
     // projects (§1.3 I-6).
+    // What mothFileHidden cannot read from a row. There is no server here to have removed money and Legal
+    // first, so these are the only way the page knows a receipt by its expense, or a folder by its chain.
+    async mothHiddenFacts(projectId) {
+      const bundle = await mothBundle(projectId);
+      const slug = bundle?.project?.folder_slug || bundle?.project?.slug || null;
+      return {
+        expenseFileIds: (bundle?.expenses || []).flatMap(e => (Array.isArray(e.file_ids) ? e.file_ids : [])),
+        localMoneyDirs: slug ? [`${slug}_RECEIPTS&INVOICES`, `${slug}_CREWINVOICES`, `${slug}_TALENTINVOICES`] : [],
+        folders: bundle?.folders || [],
+      };
+    },
     async listMothFiles(projectId, after = null, limit = 500) {
       const bundle = await mothBundle(projectId);
       const rows = [
@@ -264,8 +275,10 @@ export function localServerAdapter() {
           uploaded_at: m.uploaded_at ?? null, updated_at: m.updated_at ?? null, managed: true,
         })),
       ];
+      // A desktop key's first segment is what isMoneyKey's third is in the cloud (fileTrash.cjs's rule).
+      const moneyKey = (f) => MONEY_SEGMENTS.includes(String(f.storage_path ?? '').split('/')[0].toUpperCase());
       return rows
-        .filter(f => !f.deleted_at && (after == null || String(f.id) > String(after)))
+        .filter(f => !f.deleted_at && !moneyKey(f) && (after == null || String(f.id) > String(after)))
         .sort((a, b) => (String(a.id) < String(b.id) ? -1 : 1))
         .slice(0, Math.min(Math.max(Number(limit) || 500, 1), 1000));
     },
