@@ -182,7 +182,7 @@ function chunkByEncodedLength(paths: string[]): string[][] {
 async function referencedPaths(ctx: AdminContext, paths: string[]): Promise<Set<string>> {
   const out = new Set<string>()
   for (const chunk of chunkByEncodedLength(paths)) {
-    const { data, error } = await ctx.admin.from('files').select('storage_path').in('storage_path', chunk)
+    const { data, error } = await ctx.admin.from('files').select('storage_path').in('storage_provider', ['supabase', 's3', 'local_server']).in('storage_path', chunk)
     if (error) throw new Error(`files read failed (referenced paths): ${error.message}`)
     for (const r of data ?? []) out.add(r.storage_path as string)
   }
@@ -191,11 +191,12 @@ async function referencedPaths(ctx: AdminContext, paths: string[]): Promise<Set<
 
 // S4c: does any files row (live OR trashed — the admin client sees both)
 // name the other shape of a shot object's key? One query per unreferenced
-// object OLD ENOUGH TO DELETE only, within the object's own project (the
-// files_project index does the work; storage_path has none), so a clean
-// bucket costs nothing extra. A failed read throws: it is not "no twin".
-async function rowNamesTwin(ctx: AdminContext, projectId: string, pattern: string): Promise<boolean> {
-  const { data, error } = await ctx.admin.from('files').select('id').eq('project_id', projectId).like('storage_path', pattern).limit(1)
+// object OLD ENOUGH TO DELETE only, so a clean bucket costs nothing extra. In
+// any project: a moved file keeps its key (MO1, 0115), so the key's project is
+// no longer where its row is. Only a provider that keeps a body by key: an
+// office server's locator names no object. A failed read throws: it is not "no twin".
+async function rowNamesTwin(ctx: AdminContext, pattern: string): Promise<boolean> {
+  const { data, error } = await ctx.admin.from('files').select('id').in('storage_provider', ['supabase', 's3', 'local_server']).like('storage_path', pattern).limit(1)
   if (error) throw new Error(`files read failed (twin key): ${error.message}`)
   return (data ?? []).length > 0
 }
@@ -532,7 +533,7 @@ Deno.serve(async (req) => {
         if (twin) {
           let named = false
           try {
-            named = await rowNamesTwin(ctx, projectId, twin)
+            named = await rowNamesTwin(ctx, twin)
           } catch (err) {
             counts.scan_failed++
             console.error(`[storage-gc] orphan scan stopped for project ${projectId}: ${(err as Error).message}`)

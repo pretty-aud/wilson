@@ -191,9 +191,16 @@ export async function collectBlobPaths(
     return seg.length >= 3 && seg[0] === 'projects' && projectIds.has(seg[1])
   }
 
+  // Keys this workspace's rows name under a project it does not own now, for the tenancy
+  // question below: a moved file keeps its key, and that project may since have been purged.
+  const otherBodies = new Set<string>()
+  const otherThumbs = new Set<string>()
   const take = (p: unknown) => {
     if (owned(p)) paths.add(p as string)
-    else if (typeof p === 'string' && p.length > 0) rejected.add(p)
+    else if (typeof p === 'string' && p.length > 0) {
+      rejected.add(p)
+      otherBodies.add(p)
+    }
   }
 
   for (let from = 0; ; from += PAGE) {
@@ -235,7 +242,10 @@ export async function collectBlobPaths(
   // beneath it is how the next session confidently reverts a fix.
   const takeThumb = (p: unknown) => {
     if (owned(p)) thumbs.add(p as string)
-    else if (typeof p === 'string' && p.length > 0) rejected.add(p)
+    else if (typeof p === 'string' && p.length > 0) {
+      rejected.add(p)
+      otherThumbs.add(p)
+    }
   }
 
   // 🚨 S44: EXCLUDE s3, AND ONLY s3. S39 deliberately did NOT filter by provider
@@ -317,6 +327,33 @@ export async function collectBlobPaths(
       }
     }
     await walkPosters(`projects/${projectId}/bin_files`, 1)
+  }
+
+  // MO1 (0115): a key under a project that no longer exists is still ours when file_events ties
+  // that id to this workspace, the same proof the drain asks. A project that exists is someone
+  // else's, or ours and already above, so a key under another workspace stays refused. A failed
+  // read leaves the key refused: this deletes with service role.
+  const prefixOf = (p: string): string | null => {
+    const seg = p.split('/')
+    return seg.length >= 3 && seg[0] === 'projects' && seg[1] ? seg[1] : null
+  }
+  const ours = new Set<string>()
+  for (const prefix of new Set([...otherBodies, ...otherThumbs].map(prefixOf).filter((x): x is string => x !== null))) {
+    try {
+      const { data: live, error: liveErr } = await ctx.admin.from('projects').select('id').eq('id', prefix).maybeSingle()
+      if (liveErr || live) continue
+      const { data: seen, error: seenErr } = await ctx.admin
+        .from('file_events').select('workspace_id').eq('project_id', prefix).eq('workspace_id', workspaceId).limit(1).maybeSingle()
+      if (!seenErr && seen) ours.add(prefix)
+    } catch { /* refused */ }
+  }
+  for (const p of otherBodies) {
+    const prefix = prefixOf(p)
+    if (prefix && ours.has(prefix)) { paths.add(p); rejected.delete(p) }
+  }
+  for (const p of otherThumbs) {
+    const prefix = prefixOf(p)
+    if (prefix && ours.has(prefix)) { thumbs.add(p); rejected.delete(p) }
   }
 
   // The row-less objects, built from the project ids this workspace provably
