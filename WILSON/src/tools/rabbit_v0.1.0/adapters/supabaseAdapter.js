@@ -6075,11 +6075,30 @@ export function supabaseAdapter() {
         const body = await getStorageProvider(from).get(file.storage_path);
         await getStorageProvider(to).put(item.to_path, body, { contentType: file.mime_type || undefined });
       }
-      return { file_id: file.id, path: item.to_path, thumbnail: null };
+      // Its picture too, at the key the plan minted beside the body. A picture is not worth refusing a
+      // move over: if it will not copy, the row goes without one, and the file is what was asked for.
+      let thumbnail = null;
+      if (item.to_thumb && file.thumbnail_url) {
+        try {
+          const pictures = client.storage.from(THUMBNAIL_BUCKET);
+          if (from === FILE_PROVIDERS.LOCAL_SERVER) {
+            const picture = await getStorageProvider(from).get(file.thumbnail_url);
+            unwrap(await pictures.upload(item.to_thumb, picture, { contentType: 'image/jpeg' }));
+          } else {
+            unwrap(await pictures.copy(file.thumbnail_url, item.to_thumb));
+          }
+          thumbnail = item.to_thumb;
+        } catch { /* said above */ }
+      }
+      return { file_id: file.id, path: item.to_path, thumbnail };
     },
     // Undoes a copy whose move the server then refused: the file is still where it was.
     async removeMoveCopy(item) {
       await getStorageProvider(item.to_provider).del(item.to_path).catch(() => {});
+      if (item.to_thumb) {
+        const client = await requireClient();
+        await client.storage.from(THUMBNAIL_BUCKET).remove([item.to_thumb]).catch(() => {});
+      }
     },
 
     // MO1 (0118): the trash. { done, ops }, where ops are the renames an office-server file owes.

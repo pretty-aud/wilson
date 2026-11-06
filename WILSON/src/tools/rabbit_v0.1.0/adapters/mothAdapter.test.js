@@ -12,6 +12,7 @@ let adapter
 let rpcs
 let answer
 let copied
+let pictureRefused
 
 function fake() {
   return {
@@ -28,7 +29,7 @@ function fake() {
       from: (bucket) => ({
         copy: async (from, to) => {
           copied.push({ bucket, from, to })
-          return { data: {}, error: null }
+          return bucket === pictureRefused ? { data: null, error: { message: 'no' } } : { data: {}, error: null }
         },
       }),
     },
@@ -44,6 +45,7 @@ beforeEach(async () => {
   vi.resetModules()
   rpcs = []
   copied = []
+  pictureRefused = null
   answer = { data: { ok: true }, error: null }
   mod = await import('./supabaseAdapter')
   mod.resetSupabaseAdapter()
@@ -81,6 +83,20 @@ describe('moves', () => {
       { id: 'a', how: 'rehome', to_provider: 'supabase', to_path: 'new/a.mov' },
     )
     expect(copied).toEqual([{ bucket: 'rabbit-files', from: 'old/a.mov', to: 'new/a.mov' }])
+    expect(out).toEqual({ file_id: 'a', path: 'new/a.mov', thumbnail: null })
+  })
+  const WITH_PICTURE = [
+    { id: 'a', storage_path: 'old/a.mov', storage_provider: 'supabase', thumbnail_url: 'old/a.jpg' },
+    { id: 'a', how: 'rehome', to_provider: 'supabase', to_path: 'new/a.mov', to_thumb: 'new/a.mov.jpg' },
+  ]
+  it('🚨 its picture goes with it, or the moved file would lose it', async () => {
+    const out = await adapter.copyBodyForMove(...WITH_PICTURE)
+    expect(copied[1]).toEqual({ bucket: 'rabbit-thumbnails', from: 'old/a.jpg', to: 'new/a.mov.jpg' })
+    expect(out.thumbnail).toBe('new/a.mov.jpg')
+  })
+  it('a picture that will not copy does not stop the move', async () => {
+    pictureRefused = 'rabbit-thumbnails'
+    const out = await adapter.copyBodyForMove(...WITH_PICTURE)
     expect(out).toEqual({ file_id: 'a', path: 'new/a.mov', thumbnail: null })
   })
 })
