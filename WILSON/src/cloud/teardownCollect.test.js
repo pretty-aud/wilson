@@ -29,8 +29,8 @@ const OTHER = 'bbbb2222-0000-0000-0000-000000000001' // another workspace's proj
  * listing answers `tree[bucket][prefix]`, a listing error where the tree says
  * `error`.
  */
-function fakeClient({ projects = [], files = [], queue = [], tree = {} } = {}) {
-  const tables = { projects, files, storage_gc_queue: queue }
+function fakeClient({ projects = [], files = [], queue = [], tree = {}, events = [] } = {}) {
+  const tables = { projects, files, storage_gc_queue: queue, file_events: events }
   const listCalls = []
   const from = (table) => {
     const filters = []
@@ -44,6 +44,8 @@ function fakeClient({ projects = [], files = [], queue = [], tree = {} } = {}) {
       in: (k, vs) => { filters.push((r) => vs.includes(r[k])); return b },
       order: () => b,
       range: (a, z) => { range = [a, z]; return b },
+      limit: () => b,
+      maybeSingle: async () => ({ data: (tables[table] || []).find((r) => filters.every((f) => f(r))) ?? null, error: null }),
       then: (resolve) => {
         const rows = (tables[table] || []).filter((r) => filters.every((f) => f(r)))
         if (count) return resolve({ count: rows.length, error: null })
@@ -140,6 +142,59 @@ describe('the bin clips\' posters at teardown (TPN-CONT-018)', () => {
     expect(out.binPostersTruncated).toBe(true)
     expect(out.thumbs).toHaveLength(2)
     expect(BIN_POSTERS_MAX).toBe(20000)
+  })
+})
+
+describe('a moved file keeps its key (MO1, 0115)', () => {
+  const key = (p) => `projects/${p}/files/m/1-m.mov`
+  const row = (p) => ({ workspace_id: WS, storage_provider: 'supabase', storage_path: key(p), thumbnail_url: `${key(p)}.jpg` })
+
+  it('a key under a project that has gone is ours when file_events ties that id to this workspace', async () => {
+    const { ctx } = fakeClient({
+      projects: [{ id: P1, workspace_id: WS }],
+      files: [row(OTHER)],
+      events: [{ project_id: OTHER, workspace_id: WS }],
+    })
+    const out = await collectBlobPaths(ctx, WS)
+    expect(out.paths).toEqual([key(OTHER)])
+    expect(out.thumbs).toEqual([`${key(OTHER)}.jpg`])
+    expect(out.rejected).toEqual([])
+  })
+
+  it('🚨 a key under a project that exists stays refused, whatever the events say: this deletes with service role', async () => {
+    const { ctx } = fakeClient({
+      projects: [{ id: P1, workspace_id: WS }, { id: OTHER, workspace_id: 'another-workspace' }],
+      files: [row(OTHER)],
+      events: [{ project_id: OTHER, workspace_id: WS }],
+    })
+    const out = await collectBlobPaths(ctx, WS)
+    expect(out.paths).toEqual([])
+    expect(out.thumbs).toEqual([])
+    expect(out.rejected.sort()).toEqual([key(OTHER), `${key(OTHER)}.jpg`])
+  })
+
+  it('a key under a gone project with no event for this workspace stays refused', async () => {
+    const { ctx } = fakeClient({
+      projects: [{ id: P1, workspace_id: WS }],
+      files: [row(OTHER)],
+      events: [{ project_id: OTHER, workspace_id: 'another-workspace' }],
+    })
+    const out = await collectBlobPaths(ctx, WS)
+    expect(out.paths).toEqual([])
+    expect(out.rejected.sort()).toEqual([key(OTHER), `${key(OTHER)}.jpg`])
+  })
+
+  it('a read that fails leaves the key refused', async () => {
+    const { ctx } = fakeClient({ projects: [{ id: P1, workspace_id: WS }], files: [row(OTHER)], events: [{ project_id: OTHER, workspace_id: WS }] })
+    const realFrom = ctx.admin.from
+    ctx.admin.from = (table) => {
+      const b = realFrom(table)
+      if (table === 'file_events') b.maybeSingle = async () => ({ data: null, error: { message: 'down' } })
+      return b
+    }
+    const out = await collectBlobPaths(ctx, WS)
+    expect(out.paths).toEqual([])
+    expect(out.rejected).toContain(key(OTHER))
   })
 })
 
