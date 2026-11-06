@@ -425,6 +425,8 @@ const fake = vi.hoisted(() => {
       from(bucket = 'rabbit-files') {
         const inBucket = () => state.objects.filter(o => o.bucket === bucket)
         return {
+          // A HEAD, which row security answers as a list does: `unlisted` reads as not there.
+          exists: async (key) => ({ data: inBucket().some(o => o.name === key && !o.unlisted), error: null }),
           list: async (dir = '', opts = {}) => {
             const prefix = dir ? `${dir}/` : ''
             // MO1 (0115, SB-20): `unlisted`, an object list() hides from this person.
@@ -3312,7 +3314,7 @@ describe('MO1 (0114): a receipt whose rekey_file_body did not take goes back whe
     fake.state.afterRekey = () => { moved = true }
     fake.client.storage.from = (bucket) => {
       const real = realFrom(bucket)
-      return { ...real, list: async (...args) => (moved ? { data: null, error: { message: 'bucket unavailable' } } : real.list(...args)) }
+      return { ...real, exists: async (...args) => { if (moved) throw new Error('bucket unavailable'); return real.exists(...args) } }
     }
     try {
       const unlisted = await run()

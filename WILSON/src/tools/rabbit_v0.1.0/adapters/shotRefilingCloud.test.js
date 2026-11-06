@@ -169,6 +169,14 @@ function makeClient({ tables, objects, failMove = () => null, failUpdate = () =>
   }
   const storage = {
     from: (bucket) => ({
+      // A HEAD: storage-js answers false on a 400 or a 404, and throws on anything else.
+      exists: async (key) => {
+        const dir = key.slice(0, key.lastIndexOf('/'))
+        log.push(['list', bucket, dir, key.slice(dir.length + 1)])
+        const refused = failList(bucket, dir)
+        if (refused) throw new Error(refused)
+        return { data: (objects[bucket] || new Set()).has(key), error: null }
+      },
       list: async (dir, opts) => {
         log.push(['list', bucket, dir, opts?.search])
         const refused = failList(bucket, dir)
@@ -664,7 +672,7 @@ describe('refileShotFolders: when something goes wrong, the rows stay true', () 
     const client = makeClient({ tables, objects, failList: (bucket) => (bucket === 'rabbit-thumbnails' ? 'bucket unavailable' : null) })
     const res = await run(client)
     expect(res.left.map(l => l.name)).toEqual(['The-Door'])
-    expect(res.left[0].reason).toContain('storage list failed: bucket unavailable')
+    expect(res.left[0].reason).toContain('bucket unavailable')
     const f1 = tables.files.find(f => f.id === 'f1')
     expect([f1.storage_path, f1.thumbnail_url]).toEqual([`projects/${PID}/shots/sh1/1-plate.exr`, `projects/${PID}/shots/sh1/1-plate.exr.jpg`])
     expect(client.log.some(e => e[0] === 'move' && e[2].includes('/sh1/'))).toBe(false)

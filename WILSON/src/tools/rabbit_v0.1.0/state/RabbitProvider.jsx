@@ -5531,6 +5531,12 @@ export function RabbitProvider({ children }) {
     return result;
   }, [optimistic, activeProjectId, showUndoToast, restoreFile, shareCatalogue]);
 
+  // A desktop project's trash: what has been kept its 30 days goes when the project opens (fileTrash.cjs).
+  useEffect(() => {
+    if (!activeProjectId || adapterMode !== 'local_server') return;
+    Promise.resolve().then(() => adapterRef.current?.purgeExpiredTrash?.(activeProjectId)).catch(() => {});
+  }, [activeProjectId, adapterMode]);
+
   // An operation left unfinished on this computer, at sign-in. Only the desktop has the files.
   const adapterOnline = adapterStatus.online;
   useEffect(() => {

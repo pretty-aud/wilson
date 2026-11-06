@@ -1516,16 +1516,10 @@ function filesUnderPrefix(client, projectId, prefix) {
     .order('id'));
 }
 
+// One HEAD, not a list: see supabaseProvider.js's exists.
 async function objectExistsIn(bucket, key) {
-  const slash = key.lastIndexOf('/');
-  const dir = slash === -1 ? '' : key.slice(0, slash);
-  const leaf = slash === -1 ? key : key.slice(slash + 1);
-  const { data, error } = await bucket.list(dir, { search: leaf, limit: 100 });
-  if (error) throw new Error(`storage list failed: ${error.message}`);
-  // `search` is a substring match: the leaf itself, not a neighbour that
-  // contains it (round 1's mutant: `length > 0` saw “plate.exr.bak” as the
-  // plate).
-  return (data || []).some(o => o.name === leaf);
+  const { data } = await bucket.exists(key);
+  return data === true;
 }
 
 /** The store an object lives in: a bucket, or this computer's media root. */

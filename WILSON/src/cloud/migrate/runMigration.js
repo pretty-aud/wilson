@@ -2630,12 +2630,8 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
   // Cleanup would do. A thrown Error marked `stranded` is one whose copy is not where
   // its row says, or whose row has gone from view: its sentence says where it is, it is
   // not said to be "still open", and it is counted apart (RECEIPTS_STRANDED).
-  const existsAt = async (bucket, key) => {
-    const slash = key.lastIndexOf('/')
-    const { data, error } = await bucket.list(key.slice(0, slash), { search: key.slice(slash + 1), limit: 100 })
-    if (error) throw new Error(error.message)
-    return (data || []).some(o => o?.name === key.slice(slash + 1))
-  }
+  // One HEAD, not a list: a list reads the whole bucket (supabaseProvider.js's exists says why).
+  const existsAt = async (bucket, key) => (await bucket.exists(key)).data === true
   // An object moved back and seen there, as the adapter's moveObjectVerified does
   // it. Each failure says where the object is, for the sentence it goes into.
   const moveBackVerified = async (bucket, at, back) => {

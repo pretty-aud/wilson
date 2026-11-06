@@ -168,9 +168,10 @@ describe('page bar geometry', () => {
     }
   })
 
-  // Home's six page selections measure 444px in the running app (button stack
-  // only); the content wrapper adds 3vh top and bottom.
-  it('leaves room for all six of Home\'s page selections on a 14-inch Mac', () => {
+  // Home's seven page selections measure 408px in the running app (button stack
+  // only, 2026-11-06, with M.O.T.H. among them); the budget stays at the 444 it
+  // was set to. The content wrapper adds 3vh top and bottom.
+  it('leaves room for all seven of Home\'s page selections on a 14-inch Mac', () => {
     const HOME_STACK_PX = 444
     for (const v of [845, 860, 900, 956, 982]) {
       const content = v - resolveAt(PAGE_BARS.home.top, v) - resolveAt(PAGE_BARS.home.bottom, v)
@@ -323,7 +324,7 @@ describe('page bar geometry', () => {
         .toBeLessThanOrEqual(resolveAt(PAGE_BARS.home.top, 1440))
     })
 
-    it('a reserve too small for Home\'s six selections', () => {
+    it('a reserve too small for Home\'s seven selections', () => {
       const stingy = 'min(268px, max(120.60px, (100vh - 200px) * 0.5))'
       const content = 900 - 2 * resolveAt(stingy, 900)
       expect(content).toBeLessThan(444 + 0.06 * 900)

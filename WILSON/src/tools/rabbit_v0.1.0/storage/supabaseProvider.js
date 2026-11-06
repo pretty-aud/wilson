@@ -155,18 +155,13 @@ export function createSupabaseStorageProvider(requireClient) {
       if (error) throw new Error(`[supabase] storage delete failed: ${error.message}`)
     },
 
-    // Supabase Storage has no HEAD, so this lists the key's own directory and
-    // looks for the leaf. Scoped with `search` so a busy project folder does
-    // not page — and the 100-object default limit cannot produce a false
-    // "missing" for an exact-name search.
+    // One HEAD. A list reads the whole bucket, every company's, because its filter runs after row
+    // security: 3,761 ms at 3,000 objects (0115's measurement), against one index probe here. It answers
+    // false on a 400 or a 404 and throws on anything else.
     async exists(key) {
       const b = await bucket()
-      const slash = key.lastIndexOf('/')
-      const dir = slash === -1 ? '' : key.slice(0, slash)
-      const leaf = slash === -1 ? key : key.slice(slash + 1)
-      const { data, error } = await b.list(dir, { search: leaf, limit: 100 })
-      if (error) throw new Error(`[supabase] storage list failed: ${error.message}`)
-      return (data || []).some(o => o.name === leaf)
+      const { data } = await b.exists(key)
+      return data === true
     },
 
     // ── Session 40: a URL a <video> can stream from ─────────────────────────
