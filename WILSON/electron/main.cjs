@@ -2676,6 +2676,10 @@ function startLocalServer(distPath) {
       res.json(project);
     });
 
+    // MO1: clearing a project's files folder moves where its files live, as a relink does (fileTrash.cjs).
+    require('./fileTrash.cjs').mountFilesDirGuard(expressApp, {
+      fs, path, readRabbitBundle, resolveFileBaseDir, resolveContainedFilePath,
+    });
     expressApp.patch('/api/rabbit/projects/:id', (req, res) => {
       const bundle = readRabbitBundle(req.params.id);
       if (!bundle) return rabbitNotFound(res);
@@ -3887,14 +3891,30 @@ function startLocalServer(distPath) {
     require('./fileTrash.cjs').mountFileTrash(expressApp, {
       fs, path, readRabbitBundle, writeRabbitBundle, rabbitNotFound, rabbitRemoveFrom,
       resolveFileBaseDir, resolveContainedFilePath, rabbitLogFileEvent,
+      // Everywhere a body of this project can sit: a row's base can change once its body has left.
+      allFileBases: (bundle, projectId) => [
+        resolveProjectFilesDir(bundle, projectId),
+        resolveProjectInvoicesDir(bundle, projectId),
+        ...legalFiling.legalDirs(bundle, projectId),
+      ],
     });
 
     // MO1: moves on one computer, journalled, finished at start-up if a crash left one (her answer 2).
+    // Not waited on: a big copy runs in a worker, and the window should not wait for it.
     require('./fileMoves.cjs').mountFileMoves(expressApp, {
       fs, path, readRabbitBundle, writeRabbitBundle, rabbitNotFound, rabbitRemoveFrom,
       resolveFileBaseDir, resolveContainedFilePath, rabbitLogFileEvent, writeJsonAtomic,
       movesDir: () => path.join(getRabbitDataDir(), 'moves'),
-    }).recoverMoves();
+      // resolveProjectFilesDir falls back to the internal folder when a recorded one is away, which is
+      // right for a read and wrong for a move: the bodies would land where the row will not look.
+      projectFolderAway: (bundle) => {
+        const filesDir = bundle.project?.files_dir;
+        if (filesDir && !fs.existsSync(filesDir)) return true;
+        const root = bundle.project?.folder_root;
+        return Boolean(root && storedRootUsable(root) && !fs.existsSync(root));
+      },
+      log: (line) => console.warn(line),
+    }).recoverMoves().catch(() => {});
 
     // ── Files: lifecycle events + storage relink (Session 14) ──
     // The read side of bundle.fileEvents — the audit drawer's local twin of
@@ -5334,12 +5354,24 @@ function archiveLocalRabbitData(rabbitDir, fs, path, writeJsonAtomic) {
   const archivePath = path.join(archivesDir, `rabbit-data-${ts}.json`);
   writeJsonAtomic(archivePath, snapshot, { fs, durable: true });
 
+  // MO1: a delete's 30 days outlast the clear, and the migration carried only live rows. Each project's
+  // trash folder goes beside the archive, whose JSON holds their rows, so nothing promised is destroyed.
+  let deletedFilesKept = 0;
+  for (const bundle of snapshot.projects) {
+    const trash = path.join(projectsDir, String(bundle.project?.id ?? ''), 'files', '.trash');
+    if (!bundle.project?.id || !fs.existsSync(trash)) continue;
+    const keptDir = path.join(archivesDir, `rabbit-data-${ts}-trash`);
+    fs.mkdirSync(keptDir, { recursive: true });
+    fs.renameSync(trash, path.join(keptDir, String(bundle.project.id)));
+    deletedFilesKept += Array.isArray(bundle.trashedFiles) ? bundle.trashedFiles.length : 0;
+  }
+
   // Clear live stores. Binary files are already uploaded to Supabase Storage.
   fs.rmSync(projectsDir, { recursive: true, force: true });
   fs.rmSync(thumbsDir,   { recursive: true, force: true });
   for (const store of stores) fs.rmSync(path.join(rabbitDir, store), { recursive: true, force: true });
 
-  return { ok: true, archivePath, projectCount: snapshot.projects.length, storeCounts };
+  return { ok: true, archivePath, projectCount: snapshot.projects.length, storeCounts, deletedFilesKept };
 }
 ipcMain.handle('rabbit:archive-local-data', () => {
   try {

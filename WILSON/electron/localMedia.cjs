@@ -145,6 +145,8 @@ function paramKey(req) {
 const RETIRED_DIR = '.trash';
 const RETIRED_KEEP_MS = 30 * 24 * 60 * 60 * 1000;
 const OP_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+// <stamp>-<op>-<leaf>, and nothing a path could read as a step: no slash of either kind, no colon, no leading dot.
+const RETIRED_NAME = /^[0-9]+-[0-9a-f-]{36}-[^\\/:]+$/;
 
 function mountLocalMedia(expressApp, {
   getRoot,
@@ -227,6 +229,12 @@ function mountLocalMedia(expressApp, {
   // goes first, so a crash between the two is finished at the next start.
   const retireJournal = (op) => path.join(movesDir(), `retire-${op}.json`);
   function finishRetire(root, journal) {
+    // A journal may come from a folder someone handed over: its name must be a bare name, or a rename
+    // here could put any file anywhere the person can write.
+    if (journal?.kind !== 'retire' || !OP_ID.test(String(journal.op)) || !RETIRED_NAME.test(String(journal.trash_name))
+        || journal.trash_name !== path.basename(journal.trash_name)) {
+      throw new Error('this is not a journal of a retire');
+    }
     const from = locateKey(root, journal.key);
     if (from && fs.existsSync(from.diskPath)) {
       const trash = path.join(root, RETIRED_DIR);
@@ -250,7 +258,7 @@ function mountLocalMedia(expressApp, {
     const journal = { kind: 'retire', op, key: found.key, trash_name: `${now()}-${op}-${path.basename(found.diskPath)}` };
     try {
       fs.mkdirSync(movesDir(), { recursive: true });
-      writeJsonAtomic(retireJournal(op), journal);
+      writeJsonAtomic(retireJournal(op), journal, { fs, durable: true });
       finishRetire(root, journal);
       return res.json({ retired: true });
     } catch (err) {
@@ -270,7 +278,9 @@ function mountLocalMedia(expressApp, {
       for (const name of fs.readdirSync(movesDir())) {
         if (!name.startsWith('retire-') || !name.endsWith('.json')) continue;
         try {
-          finishRetire(root, JSON.parse(fs.readFileSync(path.join(movesDir(), name), 'utf8')));
+          const journal = JSON.parse(fs.readFileSync(path.join(movesDir(), name), 'utf8'));
+          if (name !== `retire-${journal?.op}.json`) throw new Error('this journal is named for something else');
+          finishRetire(root, journal);
           recovered += 1;
         } catch {
           left += 1;

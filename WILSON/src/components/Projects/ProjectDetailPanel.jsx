@@ -320,7 +320,7 @@ export default function ProjectDetailPanel({
               + (deletesAreSoft === true
                 ? ' Deleting moves a file to the trash and keeps it for 30 days; it holds storage until then.'
                 : deletesAreSoft === false
-                  ? ' Deleting removes the file from this computer immediately — there is no trash in Local Server mode.'
+                  ? ' Deleting moves the file to this project\'s trash on this computer. It stays there, and holds its space, for 30 days after the project next opens.'
                   : '')
             }
             actions={fileCount > 0 ? (

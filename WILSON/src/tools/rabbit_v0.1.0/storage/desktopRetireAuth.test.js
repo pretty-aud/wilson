@@ -76,6 +76,28 @@ describe('retiring a local original', () => {
     expect(fs.existsSync(disk())).toBe(false)
     expect(fs.readdirSync(moves)).toEqual([])
   })
+  it('🚨 a journal in a folder someone handed over cannot move a file anywhere', () => {
+    fs.mkdirSync(moves, { recursive: true })
+    const back = String.fromCharCode(92)
+    const hostile = [
+      { kind: 'retire', op: OP, key: KEY, trash_name: `..${back}..${back}..${back}planted.exe` },
+      { kind: 'retire', op: OP, key: KEY, trash_name: '../../../planted.exe' },
+      { kind: 'retire', op: OP, key: KEY, trash_name: `${clock}-${OP}-../planted.exe` },
+      { kind: 'retire', op: OP, key: KEY, trash_name: `${clock}-${OP}-C:${back}planted.exe` },
+      { kind: 'other', op: OP, key: KEY, trash_name: `${clock}-${OP}-clip.mov` },
+      { kind: 'retire', op: 'nope', key: KEY, trash_name: `${clock}-${OP}-clip.mov` },
+    ]
+    for (const journal of hostile) {
+      fs.writeFileSync(path.join(moves, `retire-${OP}.json`), JSON.stringify(journal))
+      expect(api.recoverRetires()).toMatchObject({ recovered: 0, left: 1 })
+      expect(fs.existsSync(disk())).toBe(true)
+    }
+    // Named for another operation than the one it says.
+    fs.unlinkSync(path.join(moves, `retire-${OP}.json`))
+    fs.writeFileSync(path.join(moves, 'retire-other.json'), JSON.stringify({ kind: 'retire', op: OP, key: KEY, trash_name: `${clock}-${OP}-clip.mov` }))
+    expect(api.recoverRetires()).toMatchObject({ recovered: 0, left: 1 })
+    expect(fs.existsSync(disk())).toBe(true)
+  })
   it('after 30 days the kept copy goes, and not before', async () => {
     await retire({ key: KEY, op: OP })
     clock += 30 * DAY - 1000

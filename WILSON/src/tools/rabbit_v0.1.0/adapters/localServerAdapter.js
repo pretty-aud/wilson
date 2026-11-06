@@ -31,6 +31,16 @@ import { compareViewRows, compareGroupingRows } from '../state/tableViewsModel.j
 
 const BASE = '/api/rabbit';
 
+// A route's sentence as a person reads it: the '[localServer]' prefix is for a log.
+const plainly = (call) => async (...args) => {
+  try {
+    return await call(...args);
+  } catch (err) {
+    err.message = String(err?.message ?? err).replace(/^\[localServer\] /, '');
+    throw err;
+  }
+};
+
 let lastError  = null;
 let lastSyncAt = null;
 
@@ -607,27 +617,30 @@ export function localServerAdapter() {
 
     // MO1 (MOTH_DESIGN §1.8, §1.9): this computer's 30-day trash and moves (fileTrash.cjs, fileMoves.cjs). The
     // routes need a project, which a cloud row carries and the local calls are told.
-    restoreFile: async (id, projectId) => jfetch(`${BASE}/projects/${projectId}/files/${id}/restore`, { method: 'POST' }),
+    restoreFile: plainly((id, projectId) => jfetch(`${BASE}/projects/${projectId}/files/${id}/restore`, { method: 'POST' })),
     restoreManagedFile: async (id, projectId) => jfetch(`${BASE}/projects/${projectId}/managed-files/${id}/restore`, { method: 'POST' }),
-    trashFiles: async (ids, projectId) => jfetch(`${BASE}/projects/${projectId}/files/trash`, {
+    trashFiles: plainly((ids, projectId) => jfetch(`${BASE}/projects/${projectId}/files/trash`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
-    }),
-    restoreFiles: async (ids, projectId) => jfetch(`${BASE}/projects/${projectId}/files/restore`, {
+    })),
+    restoreFiles: plainly((ids, projectId) => jfetch(`${BASE}/projects/${projectId}/files/restore`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
-    }),
+    })),
     listTrashedFiles: async ({ projectIds = [] } = {}) => {
       const lists = await Promise.all(projectIds.map((id) => jfetch(`${BASE}/projects/${id}/trash`)));
       return lists.flat().sort((a, b) => (a.deleted_at < b.deleted_at ? 1 : -1));
     },
     purgeExpiredTrash: async (projectId) => jfetch(`${BASE}/projects/${projectId}/trash/purge-expired`, { method: 'POST' }),
-    moveFilesInProject: async (ids, projectId, folderId = null) => jfetch(`${BASE}/projects/${projectId}/files/move`, {
+    moveFilesInProject: plainly((ids, projectId, folderId = null) => jfetch(`${BASE}/projects/${projectId}/files/move`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, folder_id: folderId }),
-    }),
-    moveFilesBetweenProjects: async (ids, fromProject, toProject, toFolder = null) => jfetch(`${BASE}/files/move-between-projects`, {
+    })),
+    // `back` is what an earlier move's answer said its rows left behind (`before`): a way back returns it.
+    moveFilesBetweenProjects: plainly((ids, fromProject, toProject, toFolder = null, { back = null } = {}) => jfetch(`${BASE}/files/move-between-projects`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids, from_project: fromProject, to_project: toProject, to_folder: toFolder }),
-    }),
+      body: JSON.stringify({ ids, from_project: fromProject, to_project: toProject, to_folder: toFolder, back }),
+    })),
+    // A move a crash or an unplugged drive left unfinished: which projects and how many files.
+    listPendingMoves: async () => (await jfetch(`${BASE}/files/pending-moves`))?.moves ?? [],
 
     deleteFile: async (id, projectId) => jfetch(`${BASE}/projects/${projectId}/files/${id}`, { method: 'DELETE' }),
 

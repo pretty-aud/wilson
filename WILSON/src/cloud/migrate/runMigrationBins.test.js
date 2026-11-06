@@ -4618,6 +4618,29 @@ describe('M3: the rate cards and the templates — who may, whose a card is', ()
   })
 })
 
+describe('MO1: a delete\'s 30 days outlast Archive and clear', () => {
+  it('🚨 a project\'s trash folder goes beside the archive, and the answer counts what was kept', async () => {
+    const fs = await import('node:fs')
+    const path = await import('node:path')
+    const os = await import('node:os')
+    // eslint-disable-next-line no-new-func
+    const archive = new Function(`${liftFunction(MAIN_CJS, 'archiveLocalRabbitData')}\nreturn archiveLocalRabbitData`)()
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rabbit-archive-trash-'))
+    const write = (rel, data) => { const p = path.join(dir, rel); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, data) }
+    write('projects/p1/project.json', JSON.stringify({ project: { id: 'p1' }, trashedFiles: [{ row: { id: 'a' }, trash_name: 'a-a.mov', moved: true }] }))
+    write('projects/p1/files/.trash/a-a.mov', 'abc')
+    const { createRequire } = await import('node:module')
+    const { writeJsonAtomic } = createRequire(import.meta.url)('../../../electron/jsonFile.cjs')
+    const out = archive(dir, fs, path, writeJsonAtomic)
+    expect(out.ok).toBe(true)
+    expect(out.deletedFilesKept).toBe(1)
+    expect(fs.existsSync(path.join(dir, 'projects'))).toBe(false)
+    const kept = fs.readdirSync(path.join(dir, 'archives')).find((n) => n.endsWith('-trash'))
+    expect(fs.readFileSync(path.join(dir, 'archives', kept, 'p1', 'a-a.mov'), 'utf8')).toBe('abc')
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+})
+
 describe('M3: the archive keeps its promise (electron/main.cjs, archiveLocalRabbitData)', () => {
   it('archives the projects, the thumbnails, the three workspace stores and the workspace records into one file, then clears them all', async () => {
     const fs = await import('node:fs')
