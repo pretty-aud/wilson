@@ -168,7 +168,7 @@ starts in the app (`startSignedDownload` → `wilson:download-url` →
 keeps its plain link).
 **Every channel the preload bridges answers WILSON's page only** (D3,
 2026-10-29; `electron/ipcGate.cjs`, `docs/design/RECONNECT_DESIGN.md` §14),
-the second lock behind the window's: the 50 channels are registered through
+the second lock behind the window's: the 51 channels are registered through
 one gate (`ipcMain` in `main.cjs` is the gate; the updater is handed it),
 which asks D1's rule first — the main window's own `webContents`, its top
 frame, this launch's origin — and answers any other sender `null` at once,
@@ -938,6 +938,21 @@ Capture triggers share one contract: a catch-all `EXCEPTION WHEN OTHERS →
 RAISE WARNING`. **An audit failure must never abort the write it audits** —
 including a workspace CASCADE.
 
+**The office server's catalogue (MO1, migration 0117).** Two more tables under RLS.
+`network_share_checks` is one row per space, "last checked": a client reads it through the
+project hop and writes nothing. `network_share_ops` is the journal of what the desktop owes
+the real files: no policies and no client grants, read only through
+`network_share_pending_mine`. Every write comes through a DEFINER function
+(`network_share_catalogue_apply`, `network_share_record_added`, `network_share_trash`,
+`network_share_restore`, `network_share_settle`), and each sets `wilson.network_share_writer`
+for the writes it makes: `'check:' || project` for a walk, `'op:' || file` around an op. A
+client's own hard delete of such a row meets `fn_files_network_share_delete_guard`. A folder
+overlapping another project's or space's is refused by `fn_projects_owner_guard` and by
+`_network_share_assert_folder`, and only where the company is on an office server, because
+nothing reads a claim anywhere else. `authenticated`'s 8 s `statement_timeout` shapes the
+calls: a client sends at most about 1,000 entries, and a sweep marks at most 1,500 rows
+missing a call and says `more_missing`.
+
 ### 4.5 Realtime
 
 WILSON uses **broadcast-from-database**, never `postgres_changes`.
@@ -1027,6 +1042,12 @@ client always fires a debounced refetch — including the first join — to clos
 the missed-events window.
 
 **Yjs is used in exactly one place**: note bodies (§13.4). Nowhere else.
+
+**A catalogue check broadcasts once, not per row (MO1, migration 0117).** A walk of 5,000
+files writes 5,000 file rows and sends no per-row events (0116's early return for a check's
+writes). `fn_network_share_checks_broadcast` sends one thin message on `project_topic`, with
+the project's id and nothing else, and only when `last_checked_at` moves: a walk's final call.
+A failed send never fails the write, and a missed one reads true at the next load.
 
 ### 4.6 Edge Functions
 
@@ -1976,6 +1997,14 @@ cloud may still carry `provider = 'network'` and a `root_path`, which is
 0048's **retyping rule** — the NAS is remembered, and inert, until byos is
 re-selected.
 
+**`network_share` is a provider too, and holds no body (MO1, migration 0117).** A row with
+`storage_provider = 'network_share'` holds a locator: `nas:` and a path relative to the
+company's drive, with forward slashes. Three CHECKs keep the provider and the namespace
+together, so `nas:` means this provider and no other. The file itself stays on the company's
+server and never reaches the cloud; the desktop is its file manager (§12.7). It applies only
+where `workspace_storage` is `byos`, `network`, `unc` (`_network_share_drive`), and the drive
+path has to agree at every call: a walk from a desktop on another drive reads `drive_changed`.
+
 ### 12.1a Adding a storage provider
 
 A provider is **FIVE functions, never an adapter fork**:
@@ -2189,6 +2218,11 @@ caller by caller, and suite 95 pins the policy whole.
 local twin, `bundle.fileEvents`, trims to 2000 events by dropping everything
 *except* `purged` rows — the deletion record is the one entry that must outlive
 churn.
+
+**A check's rows write `catalogued` (MO1, migrations 0116 and 0117).** Rows written under
+`'check:' || project` log `catalogued`, not `uploaded`, because nobody uploaded anything: the
+walk found a file that was already there. An add through the desktop's route, under
+`'op:' || id`, stays `uploaded`. A walk that finds 5,000 files writes 5,000 of them, one each.
 
 ### 12.4 Blob garbage collection
 
@@ -2497,6 +2531,23 @@ build is for review, light edits and anywhere-access; professional formats
 and very large files want the desktop app, which talks to the drive
 directly. A customer sizing hardware should plan on the desktop app for
 every seat that touches media.
+
+**The desktop is the office server's file manager (MO1, migration 0117).** Her answer: *it
+acts like a file manager*. Moving a row moves the real file, deleting moves it into a bin
+folder on the server (`.wilson-bin`), and restore brings it back. Each call writes the row
+first, journals an op, and leaves the desktop to move the file and settle: `done`, or
+`not_moved`, which puts the row back. An op pending over 24 hours can be settled by anyone who
+may check that space and has the folder. **`_WILSON_PERSONAL/<uid>` is a person's space on the
+server**, so her answer *Yes, say so* holds: a personal space in an office-server company keeps
+its files there, in a folder the person is told about. The route is
+`POST /api/network-share/personal-space/files` in `electron/networkShare.cjs`: gated, same
+origin, the launch token, an exclusive create so it never overwrites, an exact on-disk check
+that no link leads out of the drive, a stalled upload ended after 2 minutes, and a plain
+sentence when something was left behind. `server.requestTimeout` is 0, because Node's 300 s
+would cut a large copy. **A walk is several calls.** `p_first` opens a run, only the final
+call moves *last checked*, and a file or folder renamed on the server keeps its id, because
+`gone` is read from the rows the call hit plus the rows already marked missing. Keep that join
+narrow: reading every row against the seen set took the same 5,000 from 645 ms to 5.8 s.
 
 ### 12.7a The bucket — S3-compatible storage (S37)
 
@@ -3567,6 +3618,15 @@ re-lists through the adapter and hands back a blob URL, the twin of
 `InvoiceAttachment.handleOpen`. A money file's only surface is the record it
 hangs off — that is the design, and it is now true of receipts as well as
 invoices.
+
+**The office server's walk never lists money or Legal (MO1, migration 0117).**
+`network_share_locator_ok` refuses a money or Legal segment at any depth, `_DATABASES` (it
+holds money JSON from `mirrorProjectDatabases`) and the `_Receipts&Invoices` family.
+`electron/networkShare.cjs` carries the same lists as `SHARE_REFUSED_EXACT` and
+`SHARE_REFUSED_SUFFIX`, and a test holds the two equal. A short name (`ABCDEF~1`) is refused
+too, or the drive could answer to one for a money folder under a name no test would read. A
+project's folder inside the drive under such a name is refused by the owner guard; a stored one
+reads `no_folder` for its own project and stops nobody else.
 
 ### 12.10 The quota exemption is bounded by size (Track C, migration 0078)
 
@@ -5379,6 +5439,14 @@ Everything below is *known*, not discovered by a reader. The live list is
 human actions live in `docs/OWED_AUDREY.md`; **everything currently broken and
 unfixed is `docs/OUTSTANDING.md`** (S19), which is the one to read at the start
 of a session — this section is limits by design, that file is faults.
+
+**The office server (MO1, 0117)**
+
+- **A directory over one call** reads complete only once catalogued whole. A directory over 5,000 files never reads complete, and the client must say so.
+- **A row its folder has left** cannot be trashed, restored or moved, and the folder cannot be taken by another project until it leaves. The way out is pointing the project back.
+- **A rename across calls can attach an id to a copy**, when a file of the same name, size and time is met before the original's directory has been read. The rows stay true to the files.
+- **A script on WILSON's own page can name another person's id on the add route.** Foreign pages, frames, windows and origins are closed, and a wrong drive is refused. Owed before the walk ships: the id from a verified bearer token.
+- **A real file with a short-name shape (`ABCDEF~1`) is not listed.** Neither is one over 2,000 bytes of path.
 
 **Storage (MO1, 0115)**
 
