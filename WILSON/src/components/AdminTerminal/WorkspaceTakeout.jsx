@@ -9,6 +9,8 @@
 // 2026-07-30 — the brief's three APP tiers).
 //
 // DELIBERATE EXCLUSIONS, stated in the UI and in the archive's manifest:
+//   - moth_history (MO1, 0119): no client can read it, by design, and it holds
+//     personal-space metadata that a company takeout must not sweep in.
 //   - O.T.T.E.R. content (locked #20): personal courses are private even
 //     from admins (0022) — a company takeout that swept them in would be
 //     an admin backdoor. The per-user /api/export-all stays for one's own.
