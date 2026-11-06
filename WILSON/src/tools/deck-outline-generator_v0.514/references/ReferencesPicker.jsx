@@ -21,9 +21,9 @@ import { Dialog, Button, IconButton, Badge, EmptyState, Spinner, StatusDot } fro
 import {
   UNREADABLE_REASON, KIND_LABEL_PLURAL, shownKinds, childFolders, filesInFolder, fileKeysUnderFolder,
   tickState, folderTrail, filesOfItem, coreFileKeys, fileKeysAddedBetween,
-  noteKeysDatedBetween, localDay, sizeWarning,
+  noteKeysDatedBetween, localDay, sizeWarning, pdfPageLimit,
 } from './referenceModel';
-import { KIND_GLYPH, fileGlyph, ReferencesMeter, PreviewBody, previewSubtitle } from './ReferencesCard';
+import { KIND_GLYPH, fileGlyph, ReferencesMeter, PreviewBody, previewSubtitle, deckModel } from './ReferencesCard';
 
 /** Rows drawn per list before "type to narrow" (Hick; a huge project stays usable). */
 const ROW_CAP = 200;
@@ -128,7 +128,7 @@ export default function ReferencesPicker({ refs, projectTitle, extraTokens = 0, 
   const q = query.trim().toLowerCase();
   const isChosen = (key) => chosen.has(key);
   const flip = (key) => refs.toggle(key);
-  const warnOf = (f) => sizeWarning(f.dogType, f.size, refs.pdfPages?.get(f.id) || null);
+  const warnOf = (f) => sizeWarning(f.dogType, f.size, refs.pdfPages?.get(f.id) || null, pdfPageLimit(deckModel()));
 
   const openPreview = async (entry) => {
     setPreview({ key: entry.key, title: entry.name, busy: true, data: null, error: '' });

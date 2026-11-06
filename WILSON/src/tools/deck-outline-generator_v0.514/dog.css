@@ -124,14 +124,23 @@
      fields and groups wear (Similarity: two looks for two jobs); the orange
      stays the step titles'. Sections are 32px apart, twice the 16 between a
      section's parts, so the titles divide them with no rule (Proximity).
-     Text and single controls keep DG4's 576px measure; the lists of rows
-     use the width in shelves (below), each row at least 416px, so a row's
+     Text and single controls keep DG4's 576px measure; the list of tiles
+     uses the width in shelves (below), each tile at least 416px, so a tile's
      Preview and Remove stay one reach from its name (Fitts). Her answer of
      2026-10-31 to the one question left: on a very wide window a section
-     holding one control ends where the control ends ("Keep it"). */
+     holding one control ends where the control ends ("Keep it").
+     DG7, Audrey, 2026-11-05, verbatim: "lets have references and the uploads
+     be side by side in the card. this makes the card shorter and fills in the
+     negative space a bit. when doing this, the uploads and references
+     selected/uploaded files should show up on the list together showing what
+     its reading." So under Project, References and Uploads are two columns,
+     and one list under both holds every tile; those words amend, for these
+     two sections only, her "One column always", "Keep it" and "below the
+     references should be the upload option". Project, then what the deck
+     reads, stay one under the other, and no control stretches. */
   .dog-card-project { --dog-measure: 576px; }
   .dog-card-project > .dog-card-body > * + *,
-  .dog-refs > .dog-sec + .dog-sec { margin-top: 32px; }
+  .dog-refs > * + * { margin-top: 32px; }
   .dog-sec > * + * { margin-top: 16px; }
   .dog-sec-title {
     margin: 0;
@@ -150,14 +159,21 @@
   .dog-project-pair { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 24px; }
   .dog-project-field { flex: 0 1 var(--dog-measure); min-width: 0; }
   .dog-card-project .dog-project-details { flex: 0 1 var(--dog-measure); min-width: 0; margin-top: 0; }
-  /* References and Uploads: the rows in shelves, as many 416px-or-wider
-     columns as the section holds, read left to right then down (the DOM's
-     order, so Tab follows the eye). `auto-fill`, so one row keeps a row's
+  /* References and Uploads, side by side: an equal share of the row, each at
+     least 416px and at most the measure, 24px apart, as the project pair; a
+     card too narrow for two wraps them, 32px apart. The wrap is the row's own
+     laid-out width, never a query. */
+  .dog-refs-pair { display: flex; flex-wrap: wrap; gap: 32px 24px; }
+  .dog-refs-pair > .dog-sec { flex: 1 1 416px; min-width: 0; max-width: var(--dog-measure); }
+  /* The one list: the tiles in shelves, as many 416px-or-wider columns as the
+     card holds, read left to right then down (the DOM's order, so Tab follows
+     the eye). The gap is the columns', so at 1280 and 1440 the second tile
+     starts under the Uploads column. `auto-fill`, so one tile keeps a tile's
      width; `min(100%, …)`, so a narrow card never scrolls sideways. */
   .dog-card-project .dog-refs-rows {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(min(100%, 416px), 1fr));
-    column-gap: 32px;
+    column-gap: 24px;
   }
   /* In a tile a row's status (a PDF over the provider's page cap, a
      reference no longer there, a video placed only) takes its own line under
@@ -169,16 +185,24 @@
      a status makes one tile of a shelf row taller, its neighbours' names
      stay on the same line as its name, not centred lower (review round 2,
      finding 1, MEASURED: 12 to 25px apart without it). The status starts
-     under the name: the glyph and the row's 8px gap in. */
-  .dog-card-project .dog-refs-row { flex-wrap: wrap; row-gap: 0; align-content: flex-start; }
+     under the name: the glyph and the row's 8px gap in. `position`: a tile's
+     hidden word (`sr-only`, absolute) stays in the tile and scrolls with it
+     (DG7 review round 1, MEASURED: without it the word's box is the app's
+     unscrolled frame, whose overflow grew 197px with 24 tiles at 1280x720, and
+     a move to the word scrolled the whole column out of place). */
+  .dog-card-project .dog-refs-row { position: relative; flex-wrap: wrap; row-gap: 0; align-content: flex-start; }
   .dog-card-project .dog-refs-row > :is(.dog-refs-warn, .dog-refs-gone, .dog-refs-sub) {
     order: 1;
     flex-basis: 100%;
     padding: 0 0 8px calc(var(--icon-sm) + 8px);
   }
-  /* A control's own sentence, and a list's own button, 8px under it. */
-  .dog-sec > .dog-refs-core-said,
-  .dog-refs-uploads > .dog-refs-rows + .dog-upload,
+  /* A control's own sentences, 8px under it and under each other, so each
+     column reads title, control, words (Similarity); a flex item keeps its last
+     child's margin, so the notes' own goes. */
+  .dog-sec-refs > .dog-details-note,
+  .dog-refs-uploads > .dog-refs-upload-error { margin-bottom: 0; }
+  .dog-sec-refs > .dog-details-note,
+  .dog-refs-uploads > .dog-sec-desc,
   .dog-refs-uploads > .dog-refs-upload-error,
   .dog-sec-foot > .dog-refs-meter { margin-top: 8px; }
 
@@ -613,31 +637,40 @@
   /* Folded, the header still says when the meter needs a look. */
   .dog-refs-head-warn { color: var(--color-warning); }
   /* DG4 (Audrey, 2026-10-28, note 5: one card, its layout by the laws of
-     UX). Card 1 is one column at the measure of its own text. Its longest
-     line, the contract line, measured 571.28px in Chromium at 1280, 1440
-     and 2560 (the Caption step in Geist), so the column is 576px, the next
+     UX). The card's text keeps to the measure of its own longest line, the
+     contract line, which measured 571.28px in Chromium at 1280, 1440
+     and 2560 (the Caption step in Geist), so the measure is 576px, the next
      8px step: no house measure is within a few pixels of it (66ch is 700px
      at the meter's 16px, 45ch 477px, the reading width 720px). The
-     dropdown, Choose file, the meter and Add references share the card's
-     left edge, and the meter ends where the words above it end.
+     dropdown, the meter and Add references share the card's left edge
+     (Choose file too until DG7, which set it beside Add references), and the
+     meter ends where the words above it end.
      DG6's follow-up: the measure is `--dog-measure` on `.dog-card-project`
      (CARD 1's SECTIONS, above; DG5 had declared it on `.dog-inputs`, DG4
      `--dog-refs-measure` on this card). The text, the project field and
-     description and the meter keep to it; the rows run in shelves of 416px
-     or more, so a row's Preview and Remove stay one reach from its name at
-     any width (Fitts). */
+     description, the columns of References and Uploads and the meter keep to
+     it; the tiles run in shelves of 416px or more, so a tile's Preview and
+     Remove stay one reach from its name at any width (Fitts). */
   /* Add references and Core files only side by side, the two ways to say
      what the deck reads (proximity), one short reach apart (Fitts). The
-     sentence under them is the checkbox's: 8px (CARD 1's SECTIONS). */
-  .dog-refs-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+     sentences under them are 8px (CARD 1's SECTIONS). DG7: 8px apart, the
+     project row's gap (MEASURED: at 16px the row needs 486px, and the column
+     at a 1280 window is 482, so Remove all references took a line alone). */
+  .dog-refs-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
   .dog-refs-more {
     padding: 8px;
     font-size: var(--text-caption);
     line-height: var(--text-caption--line-height);
     color: var(--color-ink-3);
   }
-  .dog-refs-notice { display: flex; align-items: baseline; gap: 8px; margin-bottom: 0; }
+  /* DG7: it lives in a column of 416px or more now, and can name a project, so
+     it is one run of words that wraps, Undo and Dismiss in it (review round 1,
+     MEASURED: as a flex row a 71-character title ran 168px into the Uploads
+     column; round 2, MEASURED: as a wrapping flex row a medium one left Dismiss
+     alone on a line). */
+  .dog-refs-notice { overflow-wrap: anywhere; }
   .dog-refs-dismiss {
+    margin-left: 8px;
     padding: 0;
     border: 0;
     background: transparent;
@@ -647,9 +680,6 @@
     cursor: pointer;
   }
   .dog-refs-group-label { display: block; margin-bottom: 4px; }
-  /* DG2: Choose file at the foot of the uploads, under its rows, and an
-     upload's refusal under it (review round 1, finding 2): 8px each, in
-     CARD 1's SECTIONS since DG6's follow-up. */
   .dog-refs-rows,
   .dog-refs-pick-list,
   .dog-refs-pick-nested,
