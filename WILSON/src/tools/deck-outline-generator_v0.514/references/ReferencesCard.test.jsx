@@ -487,7 +487,7 @@ describe('DG8: the limit bar does not say it is an estimate', () => {
   /** An element's words and every attribute's value, its children's too. */
   const said = (root) => [root, ...root.querySelectorAll('*')].flatMap((el) => [el.textContent, ...[...el.attributes].map((a) => a.value)]).join(' | ')
   const WORD = /estimat/i
-  const STATES = [['nothing chosen', 0, 'About 0%'], ['under 1 percent', 100, 'Less than 1%'], ['under the limit', 330000, 'About 34%'], ['past it', 1200000, 'about 122%']]
+  const STATES = [['zero tokens', 0, 'About 0%'], ['under 1 percent', 100, 'Less than 1%'], ['under the limit', 330000, 'About 34%'], ['past it', 1200000, 'about 122%']]
 
   it.each(STATES)('%s: not in the bar, its hover, what a screen reader hears, or the header', (_, tokens, number) => {
     for (const [uncounted, bytes] of [0, 1, 2].flatMap((n) => [[n, 0], [n, 30 * 1024 * 1024]])) {
@@ -508,6 +508,12 @@ describe('DG8: the limit bar does not say it is an estimate', () => {
   it('the header\'s warning is checked too: past the limit it says the percent, and only that', () => {
     const head = render(<ReferencesCount refs={fakeRefs([ITEM], { chosenTokens: 1200000 })} uploads={0} />).container
     expect(head.querySelector('.dog-refs-head-warn').textContent).toBe(' · over the limit, about 122%')
+    expect(said(head)).not.toMatch(WORD)
+  })
+
+  it('the header with nothing chosen is checked too', () => {
+    const head = render(<ReferencesCount refs={fakeRefs([])} uploads={0} />).container
+    expect(head.querySelector('.dog-refs-count').textContent).toBe('None chosen')
     expect(said(head)).not.toMatch(WORD)
   })
 

@@ -141,7 +141,7 @@ In *94_dog_card_1 pictures*, beside this file, at 1280 × 800, 1440 × 900,
   line left Dismiss alone on a line (fixed), more ways round the tests (closed),
   and several numbers in these notes (corrected).
 - Recorded for you, not changed, on the project's open list: the line *What goes
-  to the AI…* has its title now if you keep it; Project still shows three lines of
+  to the AI…* has its title now; Project still shows three lines of
   words before its dropdown; References still has no sentence under its title (and
   now neither has Uploads, by design: both open with their button). A quick double
   click on Undo lands its second click on Add references, which moves up under the
@@ -262,8 +262,8 @@ documentation by a reviewer and a checker. No AI call was made, and neither the
 server's AI function nor its list of models was touched.
 
 DG8 added one group of tests: they read every word and label the bar and the header
-show or hand a screen reader, with nothing chosen, under 1 percent, under the limit and
-past it, for the word in any letter case. 15 deliberate breakages, each red.
+show or hand a screen reader, under 1 percent, under the limit and past it, for the
+word *estimate* in any letter case. 16 deliberate breakages, each red.
 
 **Recorded, not changed**, on the project's open list: the page cap counts a whole
 request, so two 400-page PDFs warn nowhere; the 32 MB PDF warning looks out of date

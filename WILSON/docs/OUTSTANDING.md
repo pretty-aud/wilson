@@ -4364,6 +4364,7 @@ adds this section, each after reading the code. What is left, none fixed:
   holds the word today (walked in Chromium, with all 8 rail panes and all 14 Help pages);
   a preview's body in the fixtures shows only an error, so its words are clean by a
   source search only. The Rate Card's hidden text *for estimating* is in the page's DOM on
-  `/dog`, out of the accessibility tree and not D.O.G.'s. READ: `referenceModel.js`
-  still has a first name in two older comments, in a public repository. Owner: any
+  `/dog`, out of the accessibility tree and not D.O.G.'s. READ: older comments still
+  hold a first name, in a public repository: `referenceModel.js` 2 lines, `ReferencesCard.jsx` 7,
+  `ReferencesCard.test.jsx` 5, `enterKey.render.test.jsx` 11; DG8 added none. Owner: any
   D.O.G. session the controller names.
