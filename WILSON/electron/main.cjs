@@ -3844,36 +3844,10 @@ function startLocalServer(distPath) {
       checkFileTags, checkLegalPatch, checkManagedLegal,
     });
 
-    expressApp.delete('/api/rabbit/projects/:projectId/files/:id', (req, res) => {
-      const bundle = readRabbitBundle(req.params.projectId);
-      if (!bundle) return rabbitNotFound(res);
-      const file = bundle.files.find(f => f.id === req.params.id);
-      if (file) {
-        const diskPath = resolveContainedFilePath(
-          resolveFileBaseDir(bundle, req.params.projectId, file), file.storage_path);
-        // blob_removed keeps the certificate honest: a certificate must
-        // not assert a disposal that never happened (uncontained legacy
-        // path, or the body was already gone).
-        let blobRemoved = false;
-        if (diskPath && fs.existsSync(diskPath)) {
-          fs.unlinkSync(diskPath);
-          blobRemoved = true;
-        }
-        // Local delete is permanent (no local trash) — certificate it.
-        rabbitLogFileEvent(bundle, {
-          file_id:          file.id,
-          project_id:       req.params.projectId,
-          file_name:        file.name,
-          storage_provider: file.storage_provider,
-          event:            'purged',
-          old_path:         file.storage_path,
-          size_bytes:       file.size_bytes ?? null,
-          blob_removed:     blobRemoved,
-        });
-      }
-      rabbitRemoveFrom(bundle.files, req.params.id);
-      writeRabbitBundle(req.params.projectId, bundle);
-      res.json({ ok: true });
+    // MO1: a delete goes to a 30-day trash now, not straight to an unlink (MOTH_DESIGN §1.8).
+    require('./fileTrash.cjs').mountFileTrash(expressApp, {
+      fs, path, readRabbitBundle, writeRabbitBundle, rabbitNotFound, rabbitRemoveFrom,
+      resolveFileBaseDir, resolveContainedFilePath, rabbitLogFileEvent,
     });
 
     // ── Files: lifecycle events + storage relink (Session 14) ──
