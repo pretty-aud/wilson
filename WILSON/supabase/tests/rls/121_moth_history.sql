@@ -12,7 +12,7 @@
 
 BEGIN;
 
-SELECT plan(285);
+SELECT plan(290);
 
 SELECT * FROM tests.rls_setup();
 
@@ -401,6 +401,20 @@ UPDATE public.folders SET label = 'Named' WHERE id = '12100000-0000-0000-0000-00
 SELECT is(public.t121_n('folders', '12100000-0000-0000-0000-0000000000f8'), 0, 'nor a rename of it');
 DELETE FROM public.folders WHERE id = '12100000-0000-0000-0000-0000000000f8';
 SELECT is(public.t121_n('folders', '12100000-0000-0000-0000-0000000000f8'), 0, 'nor its delete');
+DELETE FROM public.folders WHERE id = '12100000-0000-0000-0000-0000000000f7';
+SELECT is(public.t121_n('folders', '12100000-0000-0000-0000-0000000000f7'), 0, 'nor the delete of the category itself, with no row left to walk from');
+-- A path alone says money, with no such category in the project.
+INSERT INTO public.folders (id, project_id, parent_id, kind, slug, path) VALUES ('12100000-0000-0000-0000-0000000000c6', 'aaaa1210-0000-0000-0000-00000000000a', '12100000-0000-0000-0000-0000000000f0', 'category', 'plainly', 'LEGAL/plainly');
+SELECT is(public.t121_n('folders', '12100000-0000-0000-0000-0000000000c6'), 0, 'a path that begins with a money word writes nothing, whatever its slug');
+-- A parent alone says money, with a path that does not.
+INSERT INTO public.folders (id, project_id, parent_id, kind, slug, path) VALUES ('12100000-0000-0000-0000-0000000000c7', 'aaaa1210-0000-0000-0000-00000000000a', '12100000-0000-0000-0000-0000000000f3', 'custom', 'z', 'elsewhere/z');
+SELECT is(public.t121_n('folders', '12100000-0000-0000-0000-0000000000c7'), 0, 'a parent under money writes nothing, whatever the path says');
+-- A mark sharing a file's id, and the receipts' redaction.
+SELECT public.t121_file('12100000-0000-0000-0000-000000000209', 'aaaa1210-0000-0000-0000-00000000000a', 'mark-id.pdf');
+INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, mark_kind) VALUES ('11111111-1111-1111-1111-111111111111', 'files', '12100000-0000-0000-0000-000000000209', 'mark_recording', 'suspended');
+INSERT INTO public.expenses (id, workspace_id, project_id, file_ids) VALUES ('12100000-0000-0000-0000-0000000000e3', '11111111-1111-1111-1111-111111111111', 'aaaa1210-0000-0000-0000-00000000000a', ARRAY['12100000-0000-0000-0000-000000000209'::uuid]);
+SELECT is((SELECT count(*)::int FROM public.moth_history h WHERE h.entity_id = '12100000-0000-0000-0000-000000000209' AND h.action = 'create' AND h.locked), 1, 'naming a file redacts it, with a mark sharing its id left standing');
+DELETE FROM public.moth_history WHERE entity_id = '12100000-0000-0000-0000-000000000209' AND mark_kind = 'suspended';
 -- Below a money category, with the folder between deleted: the cascade finds no walk, and its path still says.
 INSERT INTO public.folders (id, project_id, parent_id, kind, slug, path) VALUES ('12100000-0000-0000-0000-0000000000c3', 'aaaa1210-0000-0000-0000-00000000000a', '12100000-0000-0000-0000-0000000000f0', 'category', 'invoices', 'Receipts-y');
 INSERT INTO public.folders (id, project_id, parent_id, kind, slug, path) VALUES ('12100000-0000-0000-0000-0000000000c4', 'aaaa1210-0000-0000-0000-00000000000a', '12100000-0000-0000-0000-0000000000c3', 'custom', 'c', 'Receipts-y/c');
@@ -465,6 +479,7 @@ INSERT INTO public.expenses (id, workspace_id, project_id, file_ids) VALUES
 SELECT is(public.t121_n('files', '12100000-0000-0000-0000-000000000205', 'create'), 1, 'a file an expense has named since, with no write to the file');
 SELECT is((public.t121_last('files', '12100000-0000-0000-0000-000000000205')).locked, true, 'is blanked by the expense');
 UPDATE public.expenses SET file_ids = ARRAY['12100000-0000-0000-0000-000000000208'::uuid, '12100000-0000-0000-0000-000000000205'::uuid] WHERE id = '12100000-0000-0000-0000-0000000000e1';
+SELECT is((public.t121_last('files', '12100000-0000-0000-0000-000000000208')).locked, true, 'and one added to it later, at once');
 SET LOCAL ROLE authenticated;
 SELECT public.t121_a();
 SELECT is(public.t121_read('12100000-0000-0000-0000-000000000205'), 0, 'and an admin reads none of it');

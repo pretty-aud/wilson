@@ -1006,6 +1006,12 @@ BEGIN
     END IF;
   END LOOP;
 
+  -- Every company, every type: the window's start depends on it.
+  IF EXISTS (SELECT 1 FROM public.workspaces w
+              WHERE (SELECT count(DISTINCT m.entity_type) FROM public.moth_history m
+                      WHERE m.workspace_id = w.id AND m.action = 'mark_recording' AND m.mark_kind = 'baseline') < 11) THEN
+    RAISE EXCEPTION '0119 post-condition: a company has no recording mark for some type';
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.expenses'::regclass AND tgname = 'trg_expenses_moth_history_redact') THEN
     RAISE EXCEPTION '0119 post-condition: an expense naming a file does not redact it';
   END IF;
