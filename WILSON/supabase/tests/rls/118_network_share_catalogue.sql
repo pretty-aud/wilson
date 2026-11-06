@@ -18,6 +18,7 @@
 --   K  who may call what, and who names the marker
 --   M  what the first review found: gates, a row its folder has left, nested folders, a split
 --      walk, a capped sweep, a rename across calls, a held purge, and the sentence of each refusal
+--   N  what the planted breakages found: each clause here came out with every probe above green
 --   L  the row cap (last: it drops the CHECKs and triggers inside this transaction)
 --
 -- user_a is the admin (rls_setup); user_b the other company's admin; user_c a plain user
@@ -34,7 +35,7 @@
 
 BEGIN;
 
-SELECT plan(382);
+SELECT plan(397);
 
 SELECT * FROM tests.rls_setup();
 
@@ -1472,8 +1473,85 @@ SELECT is(public.network_share_locator_ok('a/' || repeat(chr(128512), 4) || '~1.
 SELECT is(public._network_share_mtime('2026-01-01T00:00:00+99:00'), NULL, 'a time zone no file has is no time at all, not an error');
 
 
+-- ── N. What the planted breakages found ─────────────────────────────────────
+-- Each clause below once came out with every probe above still green.
+ALTER TABLE public.projects DISABLE TRIGGER USER;
+INSERT INTO public.projects (id, workspace_id, title, created_by, is_private, folder_root, deleted_at) VALUES
+  ('aaaa1111-0000-0000-0000-000000011820', '11111111-1111-1111-1111-111111111111', 'Plant', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', false, public.t118_folder('Plant'), NULL),
+  ('aaaa1111-0000-0000-0000-000000011821', '11111111-1111-1111-1111-111111111111', 'Plant two', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', false, public.t118_folder('Plant2'), NULL);
+ALTER TABLE public.projects ENABLE TRIGGER USER;
+
+-- A folder beside the drive, whose name only starts with the drive's, is not inside it. One letter
+-- more would read as a bad locator anyway, so the probe needs two.
+SELECT is(public._network_share_inside(public.t118_root(), public.t118_root() || 'ish' || chr(92) || 'Job'), NULL::text,
+  'a folder beside the drive, its name longer, is not inside it');
+SELECT is(public._network_share_placed(public.t118_root(), public.t118_root() || 'ish' || chr(92) || 'Job'), NULL::text,
+  'and so it is not placed');
+
+-- A row another project left in this folder: the walk skips its name, and the index never hears of it.
+SELECT public.t118_row('11800000-0000-0000-0000-000000000b01'::uuid, 'aaaa1111-0000-0000-0000-000000011821', 'Plant/theirs.mov');
+-- The same name and time at another size is another file, and a true rename is not also marked gone.
+SELECT public.t118_row('11800000-0000-0000-0000-000000000b02'::uuid, 'aaaa1111-0000-0000-0000-000000011820', 'Plant/gone/s.mov', 5);
+SELECT public.t118_a();
+SET LOCAL ROLE authenticated;
+SELECT is((SELECT public.t118_apply('aaaa1111-0000-0000-0000-000000011820', 'Plant', jsonb_build_array(public.t118_dir('Plant', false, '{}', '[["theirs.mov","1"]]')), '[]'::jsonb, false) ->> 'added'), '0',
+  'a name another project''s live row holds is skipped');
+SELECT is((SELECT (v ->> 'renamed') || '/' || (v ->> 'added')
+             FROM public.t118_apply('aaaa1111-0000-0000-0000-000000011820', 'Plant', jsonb_build_array(public.t118_dir('Plant/gone', true, '{}', '[]'),
+                                                                       public.t118_dir('Plant/new', true, '{}', '[["s.mov","6"]]')), '[]'::jsonb, false) v), '0/1',
+  'the same name and time at another size is not a rename');
+RESET ROLE;
+SELECT ok((SELECT share_missing_since IS NOT NULL AND storage_path = 'nas:Plant/gone/s.mov' FROM public.files WHERE id = '11800000-0000-0000-0000-000000000b02'), 'and the old row reads missing where it was');
+SELECT public.t118_row('11800000-0000-0000-0000-000000000b03'::uuid, 'aaaa1111-0000-0000-0000-000000011820', 'Plant/gone2/m.mov', 7);
+SET LOCAL ROLE authenticated;
+SELECT is((SELECT public.t118_apply('aaaa1111-0000-0000-0000-000000011820', 'Plant', jsonb_build_array(public.t118_dir('Plant/gone2', true, '{}', '[]'),
+                                                                       public.t118_dir('Plant/new2', true, '{}', '[["m.mov","7"]]')), '[]'::jsonb, false) ->> 'renamed'), '1',
+  'a true rename');
+RESET ROLE;
+SELECT ok((SELECT share_missing_since IS NULL AND storage_path = 'nas:Plant/new2/m.mov' FROM public.files WHERE id = '11800000-0000-0000-0000-000000000b03'), 'is not marked missing as well');
+
+-- purge_ok asks for a purge's own certificate, and for the row to be gone.
+INSERT INTO public.file_events (workspace_id, project_id, file_id, storage_provider, event) VALUES
+  ('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000011820', '11800000-0000-0000-0000-000000000b04', 'network_share', 'uploaded'),
+  ('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000011820', '11800000-0000-0000-0000-000000000b05', 'network_share', 'purged');
+SELECT public.t118_row('11800000-0000-0000-0000-000000000b05'::uuid, 'aaaa1111-0000-0000-0000-000000011820', 'Plant/live.mov');
+SET LOCAL ROLE authenticated;
+SELECT is((SELECT public.t118_apply('aaaa1111-0000-0000-0000-000000011820', 'Plant', '[]'::jsonb, '["11800000-0000-0000-0000-000000000b04"]'::jsonb, false) -> 'purge_ok'), '[]'::jsonb,
+  'an event that is not a purge is no certificate');
+SELECT is((SELECT public.t118_apply('aaaa1111-0000-0000-0000-000000011820', 'Plant', '[]'::jsonb, '["11800000-0000-0000-0000-000000000b05"]'::jsonb, false) -> 'purge_ok'), '[]'::jsonb,
+  'and a certificate does not answer for a row still there');
+RESET ROLE;
+
+-- An operation under a day old is its creator's, and a settled one is nobody's.
+SELECT public.t118_row('11800000-0000-0000-0000-000000000b06'::uuid, 'aaaa1111-0000-0000-0000-000000011820', 'Plant/young.mov');
+SET LOCAL ROLE authenticated;
+INSERT INTO t118_ret SELECT 'n-t', public.network_share_trash(ARRAY['11800000-0000-0000-0000-000000000b06'::uuid]);
+SELECT is((SELECT public.t118_apply('aaaa1111-0000-0000-0000-000000011820', 'Plant', '[]'::jsonb, '[]'::jsonb, false) -> 'stale'), '[]'::jsonb,
+  'an operation under a day old is not offered as stale');
+SELECT lives_ok($$ SELECT public.network_share_settle(ARRAY[public.t118_op('n-t')], 'done') $$, 'it settles');
+SELECT is((SELECT count(*)::int FROM jsonb_array_elements(public.network_share_pending_mine()) e WHERE (e ->> 'op_id')::uuid = public.t118_op('n-t')), 0,
+  'and a settled operation leaves pending_mine');
+RESET ROLE;
+
+-- Another provider's row reads as no row at all, and each end of a restore is asked alone.
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path) VALUES
+  ('11800000-0000-0000-0000-000000000b07', 'aaaa1111-0000-0000-0000-000000011820', 'cloud.txt', 'supabase', 'projects/aaaa1111-0000-0000-0000-000000011820/files/11800000-0000-0000-0000-000000000b07/cloud.txt');
+SELECT public.t118_trashed('11800000-0000-0000-0000-000000000b08'::uuid, 'aaaa1111-0000-0000-0000-000000011820', 'Elsewhere/a.mov', 'Plant');
+SELECT public.t118_trashed('11800000-0000-0000-0000-000000000b09'::uuid, 'aaaa1111-0000-0000-0000-000000011820', 'Plant/b.mov', 'Elsewhere');
+SET LOCAL ROLE authenticated;
+SELECT throws_ok($$ SELECT public.network_share_trash(ARRAY['11800000-0000-0000-0000-000000000b07'::uuid]) $$, '42501', 'network_share: not allowed',
+  'another provider''s row reads the same as no row');
+SELECT throws_ok($$ SELECT public.network_share_restore(ARRAY['11800000-0000-0000-0000-000000000b08'::uuid]) $$, 'P0001', 'network_share: no_folder',
+  'a trashed row whose home is outside the folder stays, with its bin inside');
+SELECT throws_ok($$ SELECT public.network_share_restore(ARRAY['11800000-0000-0000-0000-000000000b09'::uuid]) $$, 'P0001', 'network_share: no_folder',
+  'and one whose bin is outside, with its home inside');
+RESET ROLE;
+
+
 -- ── L. The row cap ───────────────────────────────────────────────────────────
 -- Fifty thousand rows through the guards would take a minute, so this transaction takes them off.
+-- Rolled back, they stay as dead rows in files until a vacuum: 95 runs in a row left 2.38M on
+-- wilson-dev, and it stopped answering. Never loop this section against a hosted database.
 ALTER TABLE public.files DISABLE TRIGGER USER;
 ALTER TABLE public.files DROP CONSTRAINT files_network_share_shape_chk;
 ALTER TABLE public.files DROP CONSTRAINT files_network_share_namespace_chk;
