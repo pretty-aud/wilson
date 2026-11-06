@@ -618,8 +618,9 @@ const DECK = 'SLIDE #1 — Title Page\n═════════════�
 /** The meter with a text upload (BRIEF) and the picture. Before DG7 (`bfea9fd6`,
     and until her answer of 2026-11-05): 'An estimate: about 4,008 of 200,000
     tokens', 'About 2% of what D.O.G. can read for one deck'. Now the same 4,008,
-    the full deck's own words (MTR-03), the model's limit (MTR-01); the word
-    estimate came with DG7 and went with DG8, by her words of 2026-11-06. */
+    the full deck's own words (MTR-03), the model's limit (MTR-01); the sentence's
+    word estimate came with DG7, the hover's was older, and both went with DG8, by
+    her words of 2026-11-06. */
 const FULL_DECK_OWN = Math.ceil(DEFAULT_FULL_DECK_SYSTEM.length / 4) + FULL_DECK_FIXED_TOKENS
 const METER_NOW = Object.freeze({
   hover: `About ${(4008 + FULL_DECK_OWN).toLocaleString()} of 983,616 tokens`,

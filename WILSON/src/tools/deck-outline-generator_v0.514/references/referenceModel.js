@@ -658,7 +658,7 @@ export function sendsInline(fileData, limit) {
 // 110-page PDF read 495,000 against 200,000, 248%; now 330,000 against 983,616,
 // 34%. Nothing in WILSON trims, samples or refuses a file for this number.
 //
-// DG8 (2026-11-06). Audrey, verbatim: "sorry dont say that its an estimate". So
+// DG8 (2026-11-06). Her words, verbatim: "sorry dont say that its an estimate". So
 // the bar's sentence, card 1's header and the hover no longer say it. Nothing
 // here changed: the same page figure, the same limit, the same percent.
 

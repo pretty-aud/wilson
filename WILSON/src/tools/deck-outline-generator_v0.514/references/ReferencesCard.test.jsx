@@ -480,17 +480,18 @@ describe('DG2: the References card reads as one list of what the AI reads', () =
 // =============================================================================
 // DG8, her words of 2026-11-06, verbatim: "sorry dont say that its an estimate".
 // Everything the bar and the header put on screen or hand to a screen reader, in
-// every state, so the word cannot come back unseen in any letter case.
+// every state, with and without what follows the sentence, so the word cannot
+// come back unseen in any letter case or form (estimated, estimation).
 // =============================================================================
 describe('DG8: the limit bar does not say it is an estimate', () => {
   /** An element's words and every attribute's value, its children's too. */
   const said = (root) => [root, ...root.querySelectorAll('*')].flatMap((el) => [el.textContent, ...[...el.attributes].map((a) => a.value)]).join(' | ')
-  const WORD = /estimate/i
-  const STATES = [['under 1 percent', 100, 'Less than 1%'], ['under the limit', 330000, 'About 34%'], ['past it', 1200000, 'about 122%']]
+  const WORD = /estimat/i
+  const STATES = [['nothing chosen', 0, 'About 0%'], ['under 1 percent', 100, 'Less than 1%'], ['under the limit', 330000, 'About 34%'], ['past it', 1200000, 'about 122%']]
 
   it.each(STATES)('%s: not in the bar, its hover, what a screen reader hears, or the header', (_, tokens, number) => {
-    for (const uncounted of [0, 2]) {
-      const bar = render(<ReferencesMeter tokens={tokens} uncounted={uncounted} bytes={30 * 1024 * 1024} />).container
+    for (const [uncounted, bytes] of [0, 1, 2].flatMap((n) => [[n, 0], [n, 30 * 1024 * 1024]])) {
+      const bar = render(<ReferencesMeter tokens={tokens} uncounted={uncounted} bytes={bytes} />).container
       const head = render(<ReferencesCount refs={fakeRefs([ITEM], { chosenTokens: tokens, chosenUncounted: uncounted })} uploads={2} />).container
       // Each really holds what it is checked for, so the check is not of nothing.
       const track = bar.querySelector('[role="meter"]')
@@ -516,6 +517,7 @@ describe('DG8: the limit bar does not say it is an estimate', () => {
     expect(planted('<p><span>An Estimate: about 1</span></p>')).toMatch(WORD)
     expect(planted('<p title="AN ESTIMATE">About 34%</p>')).toMatch(WORD)
     expect(planted('<i aria-valuetext="estimated"></i>')).toMatch(WORD)
+    expect(planted('<p>By estimation</p>')).toMatch(WORD)
     expect(planted('<p title="About 1 of 2 tokens">About 34%</p>')).not.toMatch(WORD)
   })
 })
@@ -524,7 +526,7 @@ describe('DG8: the limit bar does not say it is an estimate', () => {
 // DG7, the meter (2026-11-05; her words at the "Size: the meter" comment in
 // referenceModel.js; OUTSTANDING MTR-01): past the limit it still gives the
 // number; its limit is the model a full deck resolves to, less the answer's
-// reserve. DG8 took the word estimate out of it (its describe, below).
+// reserve. DG8 took the word estimate out of it (its describe, above).
 // =============================================================================
 describe('DG7: the reading meter says what is true', () => {
   afterEach(() => { setModelSources({}) })

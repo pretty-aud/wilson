@@ -1,8 +1,9 @@
 # 94 — D.O.G.'s card 1: References and Uploads side by side, and the limit bar
 
 One session, **DG7**, in two sections: the layout, then the limit bar; **DG8**
-corrected the limit bar's words on 2026-11-06. Answer the questions by their numbers. Nothing here needs a sign-in; every picture is
-the dev fixtures' made-up project (*Salt Hours*).
+corrected the limit bar's words on 2026-11-06. Every question here is answered, so
+nothing needs an answer from you. Nothing here needs a sign-in; every picture is the
+dev fixtures' made-up project (*Salt Hours*).
 
 ## The layout
 
@@ -260,9 +261,9 @@ mode, the figures in the list). Each model's figure was read again from the
 documentation by a reviewer and a checker. No AI call was made, and neither the
 server's AI function nor its list of models was touched.
 
-DG8 added one test: it reads every word and label the bar and the header show or hand
-a screen reader, under 1 percent, under the limit and past it, for the word in any
-letter case. 11 deliberate breakages, each red.
+DG8 added one group of tests: they read every word and label the bar and the header
+show or hand a screen reader, with nothing chosen, under 1 percent, under the limit and
+past it, for the word in any letter case. 15 deliberate breakages, each red.
 
 **Recorded, not changed**, on the project's open list: the page cap counts a whole
 request, so two 400-page PDFs warn nowhere; the 32 MB PDF warning looks out of date
@@ -275,7 +276,7 @@ outline. Please try again.*, not the reason.
 
 ### Question
 
-**Answered 2026-11-06:** first *"Keep as built (Recommended)"*; a minute later, *"sorry dont say that its an estimate and also for the buttons, lets make srue to have them be aligned on the placement with the other button"*; and of the buttons, asked which she meant, *"disregard i see buttons are aligned forget what i said"*. So the bar keeps its words but for *(an estimate)*, which goes everywhere it shows (the session DG8, brief `docs/sessions/briefs/po-dg8-limit-bar-words.md`). This page is now corrected (top of *The limit bar*).
+**Answered 2026-11-06:** first *"Keep as built (Recommended)"*; a minute later, *"sorry dont say that its an estimate and also for the buttons, lets make srue to have them be aligned on the placement with the other button"*; and of the buttons, asked which you meant, *"disregard i see buttons are aligned forget what i said"*. So the bar keeps its words but for *(an estimate)*, which goes everywhere it shows (the session DG8). This page is now corrected (top of *The limit bar*).
 
 - **Q4, as it was asked on 2026-11-05. The bar's new words then.** (a) As built
   (recommended: that day's words, with *(an estimate)* added and the number past the limit). (b) The word first:
