@@ -12,7 +12,7 @@
 
 BEGIN;
 
-SELECT plan(243);
+SELECT plan(258);
 
 SELECT * FROM tests.rls_setup();
 
@@ -675,6 +675,10 @@ SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-00000000
 SELECT throws_ok($$ SELECT public.moth_undo_move(public.t119_move_id('sm')) $$, 'P0001', 'moth_move:pending', 'nor be undone');
 SELECT lives_ok($$ SELECT public.network_share_settle(ARRAY[public.t119_op('sm')], 'done') $$, 'the desktop renamed it');
 -- Back to the exact place, deep as it was, which no folder row names.
+SELECT is(public.moth_undo_move(public.t119_move_id('sm'), true) -> 'items' -> 0 ->> 'to_path', 'nas:Salt-Hours/ops/deep/m.mov', 'an office-server undo can be planned');
+RESET ROLE;
+SELECT is((SELECT count(*)::int FROM public.network_share_ops WHERE file_id = '11900000-0000-0000-0000-000000000601' AND state = 'pending'), 0, 'and the plan journals nothing');
+SET LOCAL ROLE authenticated;
 INSERT INTO t119_ret SELECT 'su', public.moth_undo_move(public.t119_move_id('sm'));
 SELECT is(public.t119_v('su') -> 'ops' -> 0 ->> 'to', 'Salt-Hours/ops/deep/m.mov', 'an undo sends it to the exact place it left');
 RESET ROLE;
@@ -843,6 +847,13 @@ SELECT throws_ok($$ SELECT public.moth_undo_move(public.t119_move_id('rf')) $$, 
 RESET ROLE;
 SELECT public.t119_a();
 UPDATE public.projects SET folder_root = public.t119_root() || chr(92) || 'Salt-Hours' WHERE id = 'aaaa1190-0000-0000-0000-000000000011';
+UPDATE public.projects SET folder_root = public.t119_root() || chr(92) || 'Elsewhere' WHERE id = 'aaaa1190-0000-0000-0000-000000000012';
+SET LOCAL ROLE authenticated;
+SELECT public.t119_c();
+SELECT throws_ok($$ SELECT public.moth_undo_move(public.t119_move_id('rf')) $$, 'P0001', 'moth_move:no_folder', 'and the file itself no longer in its project''s folder');
+RESET ROLE;
+SELECT public.t119_a();
+UPDATE public.projects SET folder_root = public.t119_root() || chr(92) || 'Moon-Film' WHERE id = 'aaaa1190-0000-0000-0000-000000000012';
 UPDATE public.workspace_storage SET mode = 'central' WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
 SET LOCAL ROLE authenticated;
 SELECT public.t119_c();
@@ -882,6 +893,13 @@ SELECT throws_ok($$ SELECT public.network_share_settle(ARRAY[public.t119_op('st'
 SELECT is((SELECT count(*)::int FROM jsonb_array_elements(public.network_share_stale_moves()) e WHERE e ->> 'op_id' = public.t119_op('st')::text), 0, 'nor see it');
 SELECT public.t119_e();
 SELECT throws_ok($$ SELECT public.network_share_settle(ARRAY[public.t119_op('st')], 'not_moved') $$, '42501', 'network_share: not allowed', 'nor someone on neither');
+RESET ROLE;
+INSERT INTO public.project_members (project_id, user_id, workspace_id, project_role) VALUES
+  ('aaaa1190-0000-0000-0000-000000000012', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', '11111111-1111-1111-1111-111111111111', 'manager') ON CONFLICT DO NOTHING;
+SET LOCAL ROLE authenticated;
+SELECT public.t119_e();
+SELECT throws_ok($$ SELECT public.network_share_settle(ARRAY[public.t119_op('st')], 'not_moved') $$, '42501', 'network_share: not allowed', 'nor a manager of the other end alone');
+SELECT is((SELECT count(*)::int FROM jsonb_array_elements(public.network_share_stale_moves()) e WHERE e ->> 'op_id' = public.t119_op('st')::text), 0, 'who does not see it either');
 SELECT public.t119_as('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'admin', '22222222-2222-2222-2222-222222222222');
 SELECT throws_ok($$ SELECT public.network_share_settle(ARRAY[public.t119_op('st')], 'not_moved') $$, '42501', 'network_share: not allowed', 'nor another company''s admin');
 SELECT is(public.network_share_stale_moves(), '[]'::jsonb, 'whose list does not hold it');
@@ -890,7 +908,44 @@ SELECT lives_ok($$ SELECT public.network_share_settle(ARRAY[public.t119_op('st')
 RESET ROLE;
 SELECT is((SELECT row(project_id, storage_path)::text FROM public.files WHERE id = '11900000-0000-0000-0000-0000000006a9'), '(aaaa1190-0000-0000-0000-000000000011,nas:Salt-Hours/stale.mov)', 'the row is back where the file is');
 SELECT is((SELECT state FROM public.network_share_ops WHERE id = public.t119_op('st')), 'reverted', 'the operation is closed');
+SET LOCAL ROLE authenticated;
+SELECT public.t119_a();
+SELECT is((SELECT count(*)::int FROM jsonb_array_elements(public.network_share_stale_moves()) e WHERE e ->> 'op_id' = public.t119_op('st')::text), 0, 'and it is off the list');
+RESET ROLE;
 SELECT is((SELECT actor_user_id FROM public.file_moves WHERE undo_of = public.t119_move_id('st')), 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, 'and the way back names who called it off');
+
+-- Someone else calling off a stale undo leaves it for its mover to try again.
+SELECT public.t119_share('11900000-0000-0000-0000-0000000006a8', 'aaaa1190-0000-0000-0000-000000000011', 'Salt-Hours/stale-undo.mov');
+SET LOCAL ROLE authenticated;
+SELECT public.t119_c();
+INSERT INTO t119_ret SELECT 'su2', public.t119_m(ARRAY['11900000-0000-0000-0000-0000000006a8'::uuid], 'aaaa1190-0000-0000-0000-000000000012');
+SELECT lives_ok($$ SELECT public.network_share_settle(ARRAY[public.t119_op('su2')], 'done') $$, 'it moved');
+INSERT INTO t119_ret SELECT 'su3', public.moth_undo_move(public.t119_move_id('su2'));
+RESET ROLE;
+UPDATE public.network_share_ops SET created_at = now() - interval '25 hours' WHERE id = public.t119_op('su3');
+SET LOCAL ROLE authenticated;
+SELECT public.t119_a();
+SELECT lives_ok($$ SELECT public.network_share_settle(ARRAY[public.t119_op('su3')], 'not_moved') $$, 'its undo never settled, and an admin calls that off');
+RESET ROLE;
+SELECT is((SELECT undone_at FROM public.file_moves WHERE id = public.t119_move_id('su2')), NULL::timestamptz, 'the move no longer reads as undone');
+SET LOCAL ROLE authenticated;
+SELECT public.t119_c();
+SELECT is(public.moth_undo_move(public.t119_move_id('su2')) -> 'ops' -> 0 ->> 'to', 'Salt-Hours/stale-undo.mov', 'and its mover can try again');
+RESET ROLE;
+
+-- An adopt between projects is called off the same way.
+SELECT public.t119_local('11900000-0000-0000-0000-000000000703', 'aaaa1190-0000-0000-0000-000000000011', 'stale-adopt.mov');
+SET LOCAL ROLE authenticated;
+SELECT public.t119_c();
+INSERT INTO t119_ret SELECT 'sa', public.t119_m(ARRAY['11900000-0000-0000-0000-000000000703'::uuid], 'aaaa1190-0000-0000-0000-000000000012');
+RESET ROLE;
+UPDATE public.network_share_ops SET created_at = now() - interval '25 hours' WHERE id = public.t119_op('sa');
+SET LOCAL ROLE authenticated;
+SELECT public.t119_a();
+SELECT is((SELECT e ->> 'op' FROM jsonb_array_elements(public.network_share_stale_moves()) e WHERE e ->> 'op_id' = public.t119_op('sa')::text), 'adopt', 'a stale adopt is listed');
+SELECT lives_ok($$ SELECT public.network_share_settle(ARRAY[public.t119_op('sa')], 'not_moved') $$, 'and can be called off');
+RESET ROLE;
+SELECT is((SELECT row(storage_provider, project_id)::text FROM public.files WHERE id = '11900000-0000-0000-0000-000000000703'), '(local_server,aaaa1190-0000-0000-0000-000000000011)', 'the row is back on its computer');
 
 SELECT * FROM finish();
 ROLLBACK;

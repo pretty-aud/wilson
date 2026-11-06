@@ -705,7 +705,10 @@ BEGIN
   v_projs := ARRAY(SELECT DISTINCT x FROM jsonb_array_elements(v_row.items) e,
                      LATERAL unnest(ARRAY[(e ->> 'from_project')::uuid, (e ->> 'to_project')::uuid]) x);
   v_fold := ARRAY(SELECT DISTINCT (e ->> 'from_folder')::uuid FROM jsonb_array_elements(v_row.items) e WHERE e ->> 'from_folder' IS NOT NULL);
-  PERFORM public._moth_lock_moves(v_projs, v_fold, v_ids);
+  -- Where each file is now as well: one that has moved on since is reached with no lock on its
+  -- project otherwise, and a walk of that project would cross this for its row.
+  PERFORM public._moth_lock_moves(
+    v_projs || ARRAY(SELECT x.project_id FROM public.files x WHERE x.id = ANY (v_ids)), v_fold, v_ids);
   -- The journal row after the advisory locks: a settle's way back holds those and then touches this
   -- row, so taking it first would cross. Asked again here, because the wait may have changed it.
   SELECT * INTO v_row FROM public.file_moves m
@@ -1272,7 +1275,9 @@ BEGIN
 
   -- The order of the locks, which one transaction cannot probe. A check before its lock is a check
   -- of a row that can still change.
-  IF position('FOR SHARE' IN v_body) = 0
+  IF position('public.projects p WHERE p.id = ANY (p_projects) ORDER BY p.id FOR SHARE' IN v_body) = 0
+     OR position('public.folders fo WHERE fo.id = ANY (p_folders) ORDER BY fo.id FOR SHARE' IN v_body) = 0
+     OR position('public.files f WHERE f.id = ANY (p_files) ORDER BY f.id FOR UPDATE' IN v_body) = 0
      OR position('_network_share_lock_projects' IN v_body) > position('FOR SHARE' IN v_body)
      OR position('FOR SHARE' IN v_body) > position('FOR UPDATE' IN v_body) THEN
     RAISE EXCEPTION '0118 post-condition: _moth_lock_moves must take the advisory locks, then the shared rows, then the files';
@@ -1281,8 +1286,10 @@ BEGIN
     FROM pg_proc WHERE oid = 'public.fn_moth_apply_moves(jsonb,uuid,boolean)'::regprocedure;
   IF position('_moth_lock_moves' IN v_body) > position('_moth_target_eligible' IN v_body)
      OR position('_moth_lock_moves' IN v_body) > position('moth_can_write_target' IN v_body)
-     OR position('_moth_lock_moves' IN v_body) > position('moth_move:plan_changed' IN v_body)
-     OR position('_moth_dest_eligible' IN substr(v_body, position('_moth_lock_moves' IN v_body))) = 0 THEN
+     OR position('NOT x.project_id = ANY (v_projects)' IN v_body) = 0
+     OR position('_moth_lock_moves' IN v_body) > position('NOT x.project_id = ANY (v_projects)' IN v_body)
+     OR position('_moth_dest_eligible' IN substr(v_body, position('_moth_lock_moves' IN v_body))) = 0
+     OR position('foreign_key_violation' IN v_body) = 0 THEN
     RAISE EXCEPTION '0118 post-condition: fn_moth_apply_moves must take its locks before it asks again';
   END IF;
   SELECT regexp_replace(prosrc, '--[^\n]*', '', 'g') INTO v_body
@@ -1290,13 +1297,18 @@ BEGIN
   IF position('_moth_lock_moves' IN v_body) = 0
      OR position('_moth_lock_moves' IN v_body) > position('FOR UPDATE' IN v_body)
      OR position('FOR UPDATE' IN v_body) > position('_moth_target_eligible' IN v_body)
-     OR position('_moth_target_eligible' IN v_body) > position('moth_move:changed_since' IN v_body) THEN
+     OR position('_moth_target_eligible' IN v_body) > position('moth_move:changed_since' IN v_body)
+     OR position('INTO v_row' IN substr(v_body, position('_moth_lock_moves' IN v_body))) = 0
+     OR position('moth_move:already_undone' IN v_body) < position('_moth_lock_moves' IN v_body)
+     OR position('x.project_id FROM public.files x' IN v_body) = 0 THEN
     RAISE EXCEPTION '0118 post-condition: moth_undo_move must lock, then read the journal row, then the gate, then the positions';
   END IF;
   SELECT regexp_replace(prosrc, '--[^\n]*', '', 'g') INTO v_body
     FROM pg_proc WHERE oid = 'public._moth_trash_batch(uuid[],boolean)'::regprocedure;
-  IF position('FOR UPDATE' IN v_body) = 0 OR position('FOR UPDATE' IN v_body) > position('soft_delete_row' IN v_body) THEN
-    RAISE EXCEPTION '0118 post-condition: _moth_trash_batch must lock its rows before it trashes them';
+  IF position('FOR UPDATE' IN v_body) = 0
+     OR position('FOR UPDATE' IN v_body) > position('soft_delete_row' IN v_body)
+     OR position('_moth_target_eligible' IN substr(v_body, position('FOR UPDATE' IN v_body))) = 0 THEN
+    RAISE EXCEPTION '0118 post-condition: _moth_trash_batch must lock its rows and ask again before it trashes them';
   END IF;
 
   -- 0117's stub is gone, and the settle locks both ends of a move before any row.
@@ -1306,13 +1318,15 @@ BEGIN
      OR position('set_config(''wilson.file_move''' IN v_body) = 0
      OR position('INSERT INTO public.file_moves' IN v_body) = 0
      OR position('undone_at' IN v_body) = 0
+     OR position('FOR KEY SHARE' IN v_body) = 0
+     OR position('foreign_key_violation' IN v_body) = 0
      OR position('_network_share_move_core' IN v_body) > 0
      OR position('_network_share_adopt_core' IN v_body) > 0 THEN
     RAISE EXCEPTION '0118 post-condition: _network_share_replay_origin is not its own journalled path';
   END IF;
   SELECT regexp_replace(prosrc, '--[^\n]*', '', 'g') INTO v_body
     FROM pg_proc WHERE oid = 'public.network_share_settle(uuid[],text,jsonb)'::regprocedure;
-  IF position('o.dest_project_id' IN v_body) = 0
+  IF position('unnest(ARRAY[f.project_id, o.project_id, o.dest_project_id])' IN v_body) = 0
      OR position('_network_share_lock_projects' IN v_body) > position('FOR UPDATE' IN v_body) THEN
     RAISE EXCEPTION '0118 post-condition: network_share_settle does not lock both ends of a move before any row';
   END IF;
