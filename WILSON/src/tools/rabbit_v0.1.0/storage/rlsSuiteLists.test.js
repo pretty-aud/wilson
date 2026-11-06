@@ -86,7 +86,7 @@ describe('rls.yml\'s failure-replay list', () => {
     // table; and 0117's: suites 116 and 117, network_share_checks and
     // network_share_ops, both in RLS_TABLES too, and suite 118, no table.
     // 0118's: suites 119 and 120, no table.
-    expect(listed.slice(-5)).toEqual(['116_network_share_checks.sql', '117_network_share_ops.sql', '118_network_share_catalogue.sql', '119_moth_moves.sql', '120_moth_trash.sql'])
+    expect(listed.slice(-6)).toEqual(['116_network_share_checks.sql', '117_network_share_ops.sql', '118_network_share_catalogue.sql', '119_moth_moves.sql', '120_moth_trash.sql', '121_moth_history.sql'])
   })
 })
 
@@ -134,7 +134,7 @@ describe('scripts/tap-all.mjs picks suites by number', () => {
     const files = readdirSync(SUITE_DIR)
     const picked = pickSuites(files)
     expect(picked).toHaveLength(files.filter((f) => f.endsWith('.sql')).length)
-    expect(picked.slice(-6)).toEqual(['115_stable_file_bodies.sql', '116_network_share_checks.sql', '117_network_share_ops.sql', '118_network_share_catalogue.sql', '119_moth_moves.sql', '120_moth_trash.sql'])
+    expect(picked.slice(-7)).toEqual(['115_stable_file_bodies.sql', '116_network_share_checks.sql', '117_network_share_ops.sql', '118_network_share_catalogue.sql', '119_moth_moves.sql', '120_moth_trash.sql', '121_moth_history.sql'])
     expect(picked.indexOf('10_task_dependencies.sql')).toBeLessThan(picked.indexOf('11_task_links.sql'))
   })
 })
