@@ -5048,6 +5048,16 @@ nothing checks them before executing an action.
 
 ---
 
+### 13.6 M.O.T.H.
+
+**The page.** `src/tools/moth_v0.1.0/`, a lazy chunk: `App.jsx` reaches it only through `lazy(import())` and mounts it the first time the page is opened, and `MothPage.test.jsx` scans that nothing else imports it. It reads only through `listMothIslands`, `listMothFolders`, `listMothFiles` and `listTrashedFiles`, which the server has already stripped of money and Legal; `mothFileHidden` looks again, and is the only filter on the signed-out desktop. The same test scans the folder for any other read. Every control is a `GatedAction` on `canOnProject('project.entity.write')`, and the server asks again.
+
+**Doing things.** `state/mothFileOps.js` writes and `state/mothHistory.js` holds the undo, in memory, ten each way, cleared on an account, workspace or adapter change. A cloud move asks a plan first. A rehome or a copy-up is copied before the commit and removed if it is refused. A move on the office server commits first and renames after, and a rename that fails settles `not_moved`, which puts the row back. A browser refuses from the plan, before anything is written.
+
+**The office server on the desktop.** All behind same origin and the launch token, on a UNC drive that answers, and refusing any path through a link: `networkShareWalk.cjs` (in a worker thread, whole directories, 5,000 files, 2,000 directories, depth 8, 60 s, a folder of one frame series as one entry), `networkShareOps.cjs` (renames, a copy in, the bin's purge, a file's bytes), `networkShare.cjs` (adding to your own space, whose bearer token is checked with the auth server by `authCheck.cjs`), `shareContain.cjs`, and `rootReachable.cjs`, whose one instance Bins shares. **The renderer's half** is `state/networkShareCatalogue.js`: at most about 1,000 entries a call, a directory over one call in parts marked not complete and then whole, and the same call again while the server says `more_missing`. A delete whose file has gone settles `done`, or its row could never leave.
+
+**A desktop project.** `fileTrash.cjs` keeps a deleted file 30 days under `<folder>/.trash`, and purges when the project opens. `fileMoves.cjs` moves between projects with a journal in `<rabbit-data>/moves/`, finished at start-up. After a copy-up to the cloud, `localMedia.cjs` keeps the local copy 30 days under `<local media root>/.trash`, journalled as `retire-<op>.json`.
+
 ## 14. Who talks to whom
 
 Every arrow in the system, in prose. Read this section if you read nothing

@@ -597,3 +597,18 @@ Plan §0, the four conditions, as boxes:
       Vercel's production branch is `feat/multi-user-v1` (`docs/WEB_DEPLOY.md`), so merging into `main` deploys nothing on the
       beta. By her ruling of 2026-10-28 (walkthrough 85 Q3, (a)), 1.0.0's web app is a second Vercel project, on production at
       its own address, and the beta stays on staging (`docs/PRODUCTION_RUNBOOK.md` (f)).
+
+## §T. M.O.T.H.'s first page (20 min) `[Cloud][Desktop]`
+
+- [ ] `[Cloud]` Open M.O.T.H. as an ordinary member. **My personal space** is in the list. Leave and come back: still one.
+- [ ] `[Cloud]` As a workspace admin, open M.O.T.H.: another person's space is not in the list. Open it from Files: it is read-only, and Logs has the line saying so.
+- [ ] `[Cloud]` Move a file from your personal space into a project with **Move to…**. Files shows it there and it still opens.
+- [ ] `[Cloud]` As a reviewer on a project, tick a file: **Move to…** and **Delete** are greyed, and hovering says why.
+- [ ] `[Cloud]` Delete a file in M.O.T.H. **Undo** brings it back, and Ctrl+Z does the same while you are on the page. Delete it again, open **Trash**, and **Restore** it.
+- [ ] `[Cloud]` Look through a project with invoices and a Legal file, in the list, the search and the trash: neither appears, for any role.
+- [ ] `[Desktop]` In a project kept on this computer, delete a file. The dialog says *It stays in this project's trash for 30 days.* **Undo** brings back the same file.
+- [ ] `[Local]` Move a file between two projects kept on this computer. It lands in the new one and has left the old one.
+- [ ] `[Desktop]` On a real office server: open a project in Files and read *Listed from the company server.* with when it was last checked. **Refresh**. Delete a file: the dialog says *It moves to the company server's bin for 30 days.*, and the file is in `.wilson-bin` on the server. Restore it.
+- [ ] `[Cloud]` In a browser, on that same project: the banner says *Refresh from the desktop app*, and a delete says *Do this from the WILSON desktop app*.
+- [ ] `[Desktop]` On a company with an office server, add a file to your personal space from M.O.T.H. The panel says *In this company, your personal space keeps its files on the office server.*
+
