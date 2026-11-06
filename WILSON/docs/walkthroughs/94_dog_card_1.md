@@ -1,7 +1,7 @@
 # 94 — D.O.G.'s card 1: References and Uploads side by side, and the limit bar
 
-One session, **DG7**, in two sections: the layout, then the limit bar. Answer
-the questions by their numbers. Nothing here needs a sign-in; every picture is
+One session, **DG7**, in two sections: the layout, then the limit bar; **DG8**
+corrected the limit bar's words on 2026-11-06. Answer the questions by their numbers. Nothing here needs a sign-in; every picture is
 the dev fixtures' made-up project (*Salt Hours*).
 
 ## The layout
@@ -175,6 +175,19 @@ but it was fine. this is not related to the visual update"* Asked what to do, yo
 (Recommended)"*. It only ever warned; it still only warns. Nothing in WILSON cuts
 or refuses a file for this number.
 
+**Corrected 2026-11-06 (the session DG8).** Your words: *"sorry dont say that its an estimate"*. So the limit
+bar no longer says it, anywhere it showed, and this page now quotes the new words:
+
+- Under the limit: *About 34% of what D.O.G. can read for one deck*.
+- Under 1 percent: *Less than 1% of what D.O.G. can read for one deck*.
+- Past the limit: *Past what D.O.G. can read for one deck (about 248%): generating may
+  be slow, cost more, or fail.*
+- Card 1's header: *over the limit, about 248%*.
+- The hover: *About X of Y tokens*.
+
+Nothing else about the bar moved: the same limit, the same figure for a page, the same
+percent, and it warns when it did. There is no question for you here.
+
 *Tokens* below are the AI's unit for counting what it reads, roughly a word.
 
 **What it read for a 110-page text PDF:**
@@ -184,7 +197,7 @@ or refuses a file for this number.
 | One PDF page counted at | 4,500 tokens | 3,000 tokens |
 | The PDF | 495,000 | 330,000 |
 | Measured against | 200,000 (a number picked in October) | 983,616 (the AI model's own limit) |
-| The bar | *Past what D.O.G. can read for one deck…*, 248 percent | *About 34% of what D.O.G. can read for one deck (an estimate)* |
+| The bar | *Past what D.O.G. can read for one deck…*, 248 percent | *About 34% of what D.O.G. can read for one deck* |
 
 The usage log's largest decks really took 230,850 to 247,693 tokens, about 2,100
 a page if they were your script, so the bar still reads a little high on purpose.
@@ -200,17 +213,18 @@ model WILSON has no record of keeps the old 200,000.
 tokens of text, and a picture of the page on top. Your decks measured about 2,100
 all in. 3,000 is cautious for a text PDF like a script. **It can read low** for a
 PDF of dense or picture-heavy pages, up to about 7,800 a page by the provider's
-numbers, which is why the bar now says *an estimate* (recorded on the project's
-open list).
+numbers (recorded on the project's open list). By your words of 2026-11-06 the bar
+does not say so.
 
 **Its words now:**
 
-- Under the limit: *About 34% of what D.O.G. can read for one deck (an estimate)*.
-- Past it: *Past what D.O.G. can read for one deck (about 248%, an estimate):
+- Under the limit: *About 34% of what D.O.G. can read for one deck*.
+- Past it: *Past what D.O.G. can read for one deck (about 248%):
   generating may be slow, cost more, or fail.* It used to give no number there.
   (248 is the number in the picture, where two made-up PDFs hold 810 pages together.
   It equals your script's old reading only by chance: your script now reads about 34%.)
-- In card 1's header, with the card open or folded: *over the limit, about 248% (an estimate)*.
+- In card 1's header, with the card open or folded: *over the limit, about 248%*.
+- Hovering the bar: *About X of 983,616 tokens*, X being the tokens it counted.
 
 **Two smaller fixes.**
 
@@ -229,13 +243,14 @@ open list).
 
 | # | Do | You should see |
 |---|---|---|
-| 1 | Upload your 110-page script | The bar about a third of the way, *About 34%… (an estimate)*; hover it for the tokens; no warning on the tile |
+| 1 | Upload your 110-page script | The bar about a third of the way, *About 34%…*; hover it for the tokens; no warning on the tile |
 | 2 | Generate, then read that generation's row in the usage log | The real count, lower than the bar's |
 | 3 | Switch to Single page and type a page request | The bar's words or its hover move; back on Full deck they do not count |
 
-Pictures, in the same folder, at 1280 × 800 and 1440 × 900:
-`po-dg7-meter-after-110-pages-…` and `po-dg7-meter-after-past-the-limit-…` (made-up
-PDFs of 110 and 700 pages).
+Pictures, in the same folder, at 1280 × 800 and 1440 × 900, with the words of
+2026-11-06: `po-dg8-meter-110-pages-…` and `po-dg8-meter-past-the-limit-…` (made-up
+PDFs of 110 and 700 pages). The older `po-dg7-meter-after-…` show the words of
+2026-11-05.
 
 ### How it was checked
 
@@ -244,6 +259,10 @@ figure, the words, the header, the page cap, the warning on an upload, the count
 mode, the figures in the list). Each model's figure was read again from the
 documentation by a reviewer and a checker. No AI call was made, and neither the
 server's AI function nor its list of models was touched.
+
+DG8 added one test: it reads every word and label the bar and the header show or hand
+a screen reader, under 1 percent, under the limit and past it, for the word in any
+letter case. 11 deliberate breakages, each red.
 
 **Recorded, not changed**, on the project's open list: the page cap counts a whole
 request, so two 400-page PDFs warn nowhere; the 32 MB PDF warning looks out of date
@@ -256,8 +275,8 @@ outline. Please try again.*, not the reason.
 
 ### Question
 
-**Answered 2026-11-06:** first *"Keep as built (Recommended)"*; a minute later, *"sorry dont say that its an estimate and also for the buttons, lets make srue to have them be aligned on the placement with the other button"*; and of the buttons, asked which she meant, *"disregard i see buttons are aligned forget what i said"*. So the bar keeps its words but for *(an estimate)*, which goes everywhere it shows (the session DG8, brief `docs/sessions/briefs/po-dg8-limit-bar-words.md`). This page is corrected when DG8 lands.
+**Answered 2026-11-06:** first *"Keep as built (Recommended)"*; a minute later, *"sorry dont say that its an estimate and also for the buttons, lets make srue to have them be aligned on the placement with the other button"*; and of the buttons, asked which she meant, *"disregard i see buttons are aligned forget what i said"*. So the bar keeps its words but for *(an estimate)*, which goes everywhere it shows (the session DG8, brief `docs/sessions/briefs/po-dg8-limit-bar-words.md`). This page is now corrected (top of *The limit bar*).
 
-- **Q4. The bar's new words** (above). (a) As built (recommended: today's words,
-  with *(an estimate)* added and the number past the limit). (b) The word first:
+- **Q4, as it was asked on 2026-11-05. The bar's new words then.** (a) As built
+  (recommended: that day's words, with *(an estimate)* added and the number past the limit). (b) The word first:
   *An estimate: about 34% of what D.O.G. can read for one deck.* (c) Your own words.

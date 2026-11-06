@@ -168,9 +168,10 @@ round 1, removes the chosen references only. The rest of this section stands.
   read at Preview or Generate); until then it is not guessed, and the line adds
   *"· 2 PDFs not counted until read"*. Past 100% the bar turns amber and the
   line reads *"Past what D.O.G. can read for one deck: generating may be slow,
-  cost more, or fail."*; Generate stays enabled (R10). The hover says it is an
-  estimate, in tokens. A PDF over 100 pages says so on its row. (DG7,
-  2026-11-05: the limit, the page figure, the words and the cap changed; §18.)
+  cost more, or fail."*; Generate stays enabled (R10). The hover gives it in
+  tokens. A PDF over 100 pages says so on its row. (DG7, 2026-11-05: the limit,
+  the page figure, the words and the cap changed; DG8, 2026-11-06: the bar does
+  not say it is an estimate; §18.)
 - **Add references** opens the window. With no project chosen the card says
   *"Choose a project to reference its items and files. Your notes can be
   referenced without one."* and the button still opens the window on Notes (R7).
@@ -719,6 +720,11 @@ resolves to, from the provider's documentation (`src/lib/aiModels.js`,
 `MODEL_INPUT_LIMITS`), less the 16,384 the request reserves: 983,616 on Sonnet 5. A PDF
 page counts 3,000, the top of the provider's documented text range and about 1.4
 times the 2,100 measured from staging's log; it can read low on dense or picture-heavy
-pages (OUTSTANDING DG7-01), and the sentence now says *(an estimate)* and, past the
-limit, the number. Item 18's page cap is the provider's 600 a request, 100 under a 1M
-window, and it shows on an upload's tile too. Q8 stands: it warns and never blocks.
+pages (OUTSTANDING DG7-01), and the sentence gives the number past the limit. Item 18's
+page cap is the provider's 600 a request, 100 under a 1M window, and it shows on an
+upload's tile too. Q8 stands: it warns and never blocks.
+
+**2026-11-06 (DG8).** DG7 added *(an estimate)* to the sentence and the header. Her
+words, verbatim: *"sorry dont say that its an estimate"*. So neither says it, nor the hover, which had said it since
+before DG7. *About* and *about* stay. The page figure, the limit, the percent and when it
+warns did not change, so the number can still read low (DG7-01): recorded, not fixed.
