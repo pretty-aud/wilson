@@ -13,7 +13,9 @@ const { checkShareLocator } = require('../../../../electron/networkShare.cjs')
 const { makeRootQuestions } = require('../../../../electron/rootReachable.cjs')
 const { makeShareContain } = require('../../../../electron/shareContain.cjs')
 
-let root, outside, server, base, sameOrigin, drive, picked, reach, contain
+let root, outside, server, base, sameOrigin, drive, picked, reach, contain, caller, opsFsp
+const ME = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+const OTHER = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 const put = (rel, text = 'x') => { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text) }
 const has = (rel) => fs.existsSync(path.join(root, rel))
 const ask = async (pairs) => {
@@ -32,6 +34,8 @@ beforeEach(async () => {
   sameOrigin = true
   drive = root
   picked = new Set()
+  caller = 'bearer'
+  opsFsp = fs.promises
   reach = makeRootQuestions({ askRoot: (r) => fs.promises.stat(r).then(() => true, () => false), rootTtlMs: 1, rootOffTtlMs: 1 })
   contain = makeShareContain({ reach })
   const app = express()
@@ -43,6 +47,8 @@ beforeEach(async () => {
     isShareRoot: () => true,
     reach,
     contain,
+    get fsp() { return opsFsp },
+    verifyBearer: async (header) => (caller === 'off' ? { unreachable: true } : { userId: header === 'Bearer mine' ? ME : null }),
     isAuthorizedFile: (p) => picked.has(p),
     resolveMediaKey: (key) => (key === 'good/key.mov' ? path.join(outside, 'media.mov') : null),
   })
@@ -280,3 +286,156 @@ describe('the open arm', () => {
     expect((await locate()('Salt/gone.mov')).ok).toBe(false)
   })
 })
+
+// Whole-session review round 1.
+describe('a rename that is interrupted', () => {
+  const heldFsp = (onRename) => ({ ...fs.promises, rename: onRename })
+  const remount = async (fsp) => {
+    await new Promise((ok) => server.close(ok))
+    const app = express()
+    app.use(express.json())
+    mountNetworkShareOps(app, {
+      getWorkspaceRoot: () => drive, isSameOriginRequest: () => true, checkShareLocator, isShareRoot: () => true, reach, contain, fsp,
+      verifyBearer: async () => ({ userId: null }), isAuthorizedFile: (p) => picked.has(p),
+      resolveMediaKey: (key) => (key === 'good/key.mov' ? path.join(outside, 'media.mov') : null),
+    })
+    await new Promise((ok) => { server = app.listen(0, '127.0.0.1', ok) })
+    base = `http://127.0.0.1:${server.address().port}`
+  }
+  it('🚨 a rename that threw after the server made it keeps the moved file, and says it moved', async () => {
+    put('Salt/a.mov', 'abc')
+    await remount(heldFsp(async (from, to) => {
+      await fs.promises.rename(from, to)
+      const e = new Error('the connection dropped'); e.code = 'ECONNRESET'; throw e
+    }))
+    const { body } = await ask([{ from: 'Salt/a.mov', to: 'Pepper/a.mov' }])
+    expect(body.results[0].ok).toBe(true)
+    expect(fs.readFileSync(path.join(root, 'Pepper/a.mov'), 'utf8')).toBe('abc')
+  })
+  it('🚨 a rename refused while a program holds the file clears only its own reservation', async () => {
+    put('Salt/a.mov', 'abc')
+    await remount(heldFsp(async () => { const e = new Error('held'); e.code = 'EBUSY'; throw e }))
+    const { body } = await ask([{ from: 'Salt/a.mov', to: 'Pepper/a.mov' }])
+    expect(body.results[0]).toMatchObject({ ok: false, code: 'in_use' })
+    expect(has('Pepper/a.mov')).toBe(false)
+    expect(has('Salt/a.mov')).toBe(true)
+  })
+  it('🚨 an empty file left at the target by an interrupted rename does not hold the name', async () => {
+    put('Salt/a.mov', 'abc')
+    put('Pepper/a.mov', '')
+    const { body } = await ask([{ from: 'Salt/a.mov', to: 'Pepper/a.mov' }])
+    expect(body.results[0].ok).toBe(true)
+    expect(fs.readFileSync(path.join(root, 'Pepper/a.mov'), 'utf8')).toBe('abc')
+  })
+  it('a real file at the target still holds it, however small', async () => {
+    put('Salt/a.mov', 'abc')
+    put('Pepper/a.mov', 'x')
+    expect((await ask([{ from: 'Salt/a.mov', to: 'Pepper/a.mov' }])).body.results[0].code).toBe('name_taken')
+    expect(has('Salt/a.mov')).toBe(true)
+  })
+  it('🚨 a repeat looks at what it finds: another file at the target is not this one', async () => {
+    put('Pepper/b.mov', 'a colleague\'s other file')
+    const wrong = await ask([{ from: 'Salt/a.mov', to: 'Pepper/b.mov', size: 3 }])
+    expect(wrong.body.results[0]).toMatchObject({ ok: false, code: 'not_there' })
+    put('Pepper/c.mov', 'abc')
+    const right = await ask([{ from: 'Salt/c.mov', to: 'Pepper/c.mov', size: 3 }])
+    expect(right.body.results[0]).toMatchObject({ ok: true, already: true })
+  })
+  it('🚨 a restore leaves no empty id folder in the bin', async () => {
+    const id = '11111111-1111-4111-8111-111111111111'
+    put(`Salt/.wilson-bin/${id}/a.mov`, 'abc')
+    const { body } = await ask([{ from: `Salt/.wilson-bin/${id}/a.mov`, to: 'Salt/a.mov' }])
+    expect(body.results[0].ok).toBe(true)
+    expect(has(`Salt/.wilson-bin/${id}`)).toBe(false)
+  })
+})
+
+describe('a copy in that fails', () => {
+  it('🚨 clears its reservation, so a retry is not refused for ever and no empty file is listed', async () => {
+    fs.writeFileSync(path.join(outside, 'media.mov'), 'abc')
+    await new Promise((ok) => server.close(ok))
+    const app = express()
+    app.use(express.json())
+    mountNetworkShareOps(app, {
+      getWorkspaceRoot: () => drive, isSameOriginRequest: () => true, checkShareLocator, isShareRoot: () => true, reach, contain,
+      fsp: { ...fs.promises, rename: async () => { const e = new Error('held'); e.code = 'EBUSY'; throw e } },
+      resolveMediaKey: () => path.join(outside, 'media.mov'),
+    })
+    await new Promise((ok) => { server = app.listen(0, '127.0.0.1', ok) })
+    base = `http://127.0.0.1:${server.address().port}`
+    const out = await post(PUT_ROUTE, { to: 'Salt/a.mov', from: { media_key: 'good/key.mov' } })
+    expect(out.status).toBe(500)
+    expect(has('Salt/a.mov')).toBe(false)
+    expect(fs.readdirSync(path.join(root, 'Salt'))).toEqual([])
+  })
+  it('🚨 a copy that arrived but cannot be looked at says it arrived', async () => {
+    fs.writeFileSync(path.join(outside, 'media.mov'), 'abc')
+    const out = await post(PUT_ROUTE, { to: 'Salt/b.mov', from: { media_key: 'good/key.mov' } })
+    expect(out.status).toBe(201)
+    expect(out.body.size_bytes).toBe(3)
+    expect(fs.readdirSync(path.join(root, 'Salt'))).toEqual(['b.mov'])
+  })
+})
+
+describe('🚨 somebody else\'s personal folder', () => {
+  const opAs = async (pairs, bearer) => {
+    const r = await fetch(`${base}${ROUTE}`, { method: 'POST', headers: { 'content-type': 'application/json', ...(bearer ? { authorization: `Bearer ${bearer}` } : {}) }, body: JSON.stringify({ pairs }) })
+    return { status: r.status, body: await r.json() }
+  }
+  const binned = (who) => `_WILSON_PERSONAL/${who}/.wilson-bin/11111111-1111-4111-8111-111111111111`
+  it('a rename, a copy in and a purge are refused, and the file stays', async () => {
+    put(`_WILSON_PERSONAL/${OTHER}/a.pdf`, 'theirs')
+    const op = await opAs([{ from: `_WILSON_PERSONAL/${OTHER}/a.pdf`, to: `${binned(OTHER)}/a.pdf` }], 'mine')
+    expect(op.status).toBe(403)
+    expect(op.body.code).toBe('not_your_folder')
+    expect(has(`_WILSON_PERSONAL/${OTHER}/a.pdf`)).toBe(true)
+    fs.writeFileSync(path.join(outside, 'media.mov'), 'abc')
+    const copy = await fetch(`${base}${PUT_ROUTE}`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer mine' }, body: JSON.stringify({ to: `_WILSON_PERSONAL/${OTHER}/b.mov`, from: { media_key: 'good/key.mov' } }) })
+    expect(copy.status).toBe(403)
+    put(`${binned(OTHER)}/old.pdf`, 'theirs')
+    const purge = await fetch(`${base}${PURGE_ROUTE}`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer mine' }, body: JSON.stringify({ paths: [binned(OTHER)] }) })
+    expect(purge.status).toBe(403)
+    expect(has(`${binned(OTHER)}/old.pdf`)).toBe(true)
+  })
+  it('a page with no bearer token is refused too, however the folder is cased', async () => {
+    put(`_WILSON_PERSONAL/${ME}/a.pdf`)
+    expect((await opAs([{ from: `_wilson_personal/${ME}/a.pdf`, to: `_WILSON_PERSONAL/${ME}/b.pdf` }])).status).toBe(403)
+  })
+  it('the person\'s own folder works, and moving out of it needs only their own token', async () => {
+    put(`_WILSON_PERSONAL/${ME}/a.pdf`)
+    const { body } = await opAs([{ from: `_WILSON_PERSONAL/${ME}/a.pdf`, to: 'Salt/a.pdf' }], 'mine')
+    expect(body.results[0].ok).toBe(true)
+  })
+  it('an auth server that does not answer is said plainly, and nothing moves', async () => {
+    put(`_WILSON_PERSONAL/${ME}/a.pdf`)
+    caller = 'off'
+    const out = await opAs([{ from: `_WILSON_PERSONAL/${ME}/a.pdf`, to: 'Salt/a.pdf' }], 'mine')
+    expect(out.status).toBe(503)
+    expect(out.body.code).toBe('cannot_check')
+    expect(has(`_WILSON_PERSONAL/${ME}/a.pdf`)).toBe(true)
+  })
+  it('a project\'s own files ask no token', async () => {
+    put('Salt/a.mov')
+    expect((await ask([{ from: 'Salt/a.mov', to: 'Pepper/a.mov' }])).status).toBe(200)
+  })
+})
+
+describe('is the server there', () => {
+  it('🚨 a page can ask before it commits anything', async () => {
+    expect((await fetch(`${base}/api/network-share/reachable`)).status).toBe(200)
+    drive = path.join(root, 'nowhere')
+    const off = await fetch(`${base}/api/network-share/reachable`)
+    expect(off.status).toBe(503)
+    expect((await off.json()).code).toBe('unreachable')
+  })
+})
+
+describe('what the routes\' file calls hold', () => {
+  it('🚨 none of them goes to the pool outside the contained slots', () => {
+    const text = fs.readFileSync(new URL('../../../../electron/networkShareOps.cjs', import.meta.url), 'utf8')
+    expect(text).not.toMatch(/fsp\.copyFile/)
+    const direct = text.split('\n').filter((line) => /\bfsp\.[a-z]+\(/i.test(line) && !/io\(/.test(line) && !/fsp\.stat\(sourceAt\)/.test(line))
+    expect(direct).toEqual([])
+  })
+})
+

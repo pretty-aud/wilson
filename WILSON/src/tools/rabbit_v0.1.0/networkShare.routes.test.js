@@ -497,6 +497,22 @@ describe('POST /api/network-share/personal-space/files', () => {
     expect(touched).toEqual([])
   })
 
+  it('🚨 the real test: a device path and a money folder as the root are not an office server', () => {
+    const { isShareRoot } = require('../../../electron/networkShare.cjs')
+    const u = (...parts) => `${BS}${BS}${parts.join(BS)}`
+    expect(isShareRoot(u('nas', 'share', 'wilson'))).toBe(true)
+    expect(isShareRoot('//nas/share/wilson')).toBe(true)
+    expect(isShareRoot(u('?', 'C:', 'Users'))).toBe(false)
+    expect(isShareRoot(u('.', 'C:', 'Users'))).toBe(false)
+    expect(isShareRoot('//?/C:/Users')).toBe(false)
+    expect(isShareRoot(u('nas', 'share'))).toBe(false)
+    expect(isShareRoot(u('nas', 'share', 'INVOICES'))).toBe(false)
+    expect(isShareRoot(u('nas', 'share', 'work', 'legal'))).toBe(false)
+    expect(isShareRoot(u('nas', 'share', 'Acme_RECEIPTS&INVOICES'))).toBe(false)
+    expect(isShareRoot('C:/wilson')).toBe(false)
+    expect(isShareRoot(null)).toBe(false)
+  })
+
   it('takes a UNC drive with the real test', async () => {
     await new Promise((resolve) => server.close(resolve))
     // The path is not on this machine, so the answer is that it cannot be reached: past the test.

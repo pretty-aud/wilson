@@ -9,7 +9,8 @@ import path from 'node:path'
 import express from 'express'
 
 const require = createRequire(import.meta.url)
-const { mountNetworkShareWalk, ROUTE, SEQUENCE_MIME } = require('../../../../electron/networkShareWalk.cjs')
+const { mountNetworkShareWalk, walkFolder, ROUTE, SEQUENCE_MIME } = require('../../../../electron/networkShareWalk.cjs')
+const { classifySequence, SEQUENCE_EXTS } = require('../../../../electron/frameSequence.cjs')
 const { checkShareLocator, walkLists } = require('../../../../electron/networkShare.cjs')
 const { makeRootQuestions } = require('../../../../electron/rootReachable.cjs')
 
@@ -32,6 +33,7 @@ async function start() {
     isShareRoot: () => true,
     reach: makeRootQuestions({ askRoot: (r) => fs.promises.stat(r).then(() => true, () => false) }),
     lists: walkLists,
+    verifyBearer: async () => ({ userId: null }),
     limits,
     deadlineMs,
   })
@@ -199,3 +201,50 @@ describe('what is refused', () => {
     expect(asked).toEqual([])
   })
 })
+
+// Whole-session review round 1.
+describe('review round 1', () => {
+  it('🚨 a folder reached through a junction on the way is refused: a money folder cannot be listed under an innocent name', async () => {
+    fs.mkdirSync(path.join(outside, 'Docs'), { recursive: true })
+    fs.writeFileSync(path.join(outside, 'Docs', 'q3.pdf'), 'x')
+    const inside = path.join(root, 'INV')
+    fs.mkdirSync(path.join(inside, 'Docs'), { recursive: true })
+    fs.writeFileSync(path.join(inside, 'Docs', 'q3.pdf'), 'x')
+    fs.mkdirSync(path.join(root, 'Projects'))
+    fs.symlinkSync(inside, path.join(root, 'Projects', 'Alpha'), 'junction')
+    const out = await walk({ folder: 'Projects/Alpha/Docs' })
+    expect(out.status).toBe(403)
+    expect(out.body.code).toBe('a_link')
+  })
+  it('🚨 a frame folder that cannot be read leaves its parent not complete, so its row is not called missing', () => {
+    fs.mkdirSync(path.join(root, 'Salt', 'frames'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'Salt', 'a.mov'), 'x')
+    const refusing = {
+      ...fs,
+      readdirSync: (dir, opts) => {
+        if (String(dir).endsWith('frames')) { const e = new Error('no'); e.code = 'EACCES'; throw e }
+        return fs.readdirSync(dir, opts)
+      },
+    }
+    const out = walkFolder({
+      root, folder: 'Salt', start: null,
+      lists: { ...walkLists, sequenceExts: SEQUENCE_EXTS, sequenceMime: SEQUENCE_MIME },
+      limits: { deadlineMs: 60000, maxFiles: 5000, maxDirs: 2000, maxDepth: 8, maxBin: 500, maxFrameStats: 5000, oldestMs: 0 },
+    }, refusing, path, classifySequence)
+    expect(out.dirs.find((d) => d.d === 'Salt').complete).toBe(false)
+    expect(out.dirs.find((d) => d.d === 'Salt/frames').complete).toBe(false)
+  })
+  it('🚨 an empty id folder in the bin takes no place in its list', async () => {
+    const full = '22222222-2222-4222-8222-222222222222'
+    const empty = '11111111-1111-4111-8111-111111111111'
+    fs.mkdirSync(path.join(root, 'Salt', '.wilson-bin', empty), { recursive: true })
+    put(`Salt/.wilson-bin/${full}/a.mov`)
+    expect((await walk({ folder: 'Salt' })).body.bin).toEqual([full])
+  })
+  it('🚨 a walk of somebody else\'s personal folder is refused', async () => {
+    const other = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+    put(`_WILSON_PERSONAL/${other}/a.mov`)
+    expect((await walk({ folder: `_WILSON_PERSONAL/${other}` })).status).toBe(403)
+  })
+})
+

@@ -81,12 +81,34 @@ function checkShareLocator(p) {
   if (/(^|\/)\./.test(p)) return false;
   if (/[. ](\/|$)/.test(p)) return false;
   if (SHORT_NAME.test(p)) return false;
-  for (const seg of p.split('/')) {
-    const upper = seg.toUpperCase();
-    if (SHARE_REFUSED_EXACT.includes(upper)) return false;
-    if (SHARE_REFUSED_SUFFIX.some((suffix) => upper.endsWith(suffix))) return false;
-  }
-  return true;
+  return !p.split('/').some(moneyName);
+}
+
+const moneyName = (segment) => {
+  const upper = String(segment).toUpperCase();
+  return SHARE_REFUSED_EXACT.includes(upper) || SHARE_REFUSED_SUFFIX.some((suffix) => upper.endsWith(suffix));
+};
+
+/**
+ * What counts as a company's office server. Two leading slashes alone would let a device path through (two
+ * slashes, a question mark and a drive letter is the local disk), and a root that is itself a money folder
+ * would make every locator under it read as an ordinary name to the lists above. Every office-server gate
+ * asks this one question.
+ */
+function isShareRoot(root) {
+  if (typeof root !== 'string' || !/^[\\/]{2}/.test(root)) return false;
+  if (/^[\\/]{2}[?.]([\\/]|$)/.test(root)) return false;
+  const segments = root.replace(/^[\\/]+/, '').split(/[\\/]+/).filter(Boolean);
+  if (segments.length < 3) return false;
+  return !segments.slice(1).some(moneyName);
+}
+
+// Whose personal folder a locator is in: its second segment, or '-' when it names no one. null when it
+// is not in one. A server's names are not case-sensitive, so neither is this.
+function personalOwnerOf(locator) {
+  if (typeof locator !== 'string') return null;
+  const [first, second] = locator.split('/');
+  return first.toUpperCase() === PERSONAL_PARENT.toUpperCase() ? String(second || '-').toLowerCase() : null;
 }
 
 // 'clip.mov' → 'clip (2).mov'; a name with no extension, or only a leading dot, keeps
@@ -130,8 +152,11 @@ function mountNetworkShare(expressApp, {
   getWorkspaceRoot,
   getSignedInUserId,
   verifyBearer,
+  // The instance the other office-server routes ask: its question holds a worker thread, not the pool
+  // this process's own reads wait on (rootReachable.cjs, measured).
+  reach = null,
   // Seams for the tests: a UNC path cannot exist on the runner.
-  isShareRoot = (root) => /^[\\/]{2}/.test(root),
+  isShareRoot: isShareRootImpl = isShareRoot,
   fsp = fs.promises,
   createWriteStream = fs.createWriteStream,
   pathImpl = path,
@@ -149,6 +174,7 @@ function mountNetworkShare(expressApp, {
   // Is the server there? The race bounds the wait, not the call: a dead SMB path can
   // hold a stat for the OS timeout, and nothing here waits for it.
   async function rootReachable(root) {
+    if (reach) return reach.rootReachable(root);
     let timer;
     const timedOut = new Promise((resolve) => { timer = setTimeout(() => resolve(false), reachWaitMs); });
     const stat = fsp.stat(root).then((s) => s.isDirectory(), () => false);
@@ -179,7 +205,7 @@ function mountNetworkShare(expressApp, {
     const wantRoot = typeof q.root === 'string' ? q.root.trim() : '';
     const root = getWorkspaceRoot();
     // A UNC drive, before any fs call, and the one the signed-in renderer pushed.
-    if (!root || !isShareRoot(root)) {
+    if (!root || !isShareRootImpl(root)) {
       return refuse(res, 409, 'no_drive', 'This company does not keep its files on an office server.');
     }
     if (wantRoot.toLowerCase() !== String(root).toLowerCase()) {
@@ -319,6 +345,8 @@ function mountNetworkShare(expressApp, {
 module.exports = {
   mountNetworkShare,
   checkShareLocator,
+  isShareRoot,
+  personalOwnerOf,
   SHARE_REFUSED_EXACT,
   SHARE_REFUSED_SUFFIX,
   // What the walk's worker is told, as data: it cannot share this module's regexes.

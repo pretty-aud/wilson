@@ -57,7 +57,7 @@ function makeShareContain({ reach, fsp = fs.promises, pathImpl = path, statMax =
   }
 
   // { ok: true, abs, stat } or { ok: false, code }: not_contained, unreachable, not_there, a_link, failed.
-  return async function shareContain(root, relative) {
+  const shareContain = async function shareContain(root, relative) {
     const abs = resolveContainedFilePath(root, relative);
     if (!abs) return { ok: false, code: 'not_contained' };
     const realRoot = await realRootOf(root);
@@ -72,6 +72,11 @@ function makeShareContain({ reach, fsp = fs.promises, pathImpl = path, statMax =
     if (comparable(real.value) !== comparable(wanted)) return { ok: false, code: 'a_link' };
     return { ok: true, abs, stat: stat.value };
   };
+  // A route's own call on the server takes one of the same slots, so a dead server can hold only these
+  // threads of the pool, and the app's own reads still have theirs. No time limit: a rename's outcome is
+  // worth waiting for.
+  shareContain.withSlot = (call) => takeStat().then(call).finally(freeStat);
+  return shareContain;
 }
 
 module.exports = { makeShareContain };

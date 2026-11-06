@@ -16,6 +16,7 @@
 
 const { Worker } = require('node:worker_threads');
 const { classifySequence, SEQUENCE_EXTS } = require('./frameSequence.cjs');
+const { isShareRoot: isShareRootReal, personalOwnerOf } = require('./networkShare.cjs');
 
 const ROUTE = '/api/network-share/walk';
 const MAX_FILES = 5000;
@@ -58,13 +59,17 @@ function walkFolder(input, fs, path, classify) {
     return { ok: false, code: err.code === 'ENOENT' || err.code === 'ENOTDIR' ? 'not_there' : 'no_access' };
   }
   const low = (p) => p.toLowerCase();
-  if (low(realFolder) !== low(realRoot) && !low(realFolder).startsWith(low(realRoot) + path.sep)) return { ok: false, code: 'a_link' };
+  // A link anywhere on the way is refused as shareContain refuses it, not only one that leads out: a
+  // junction inside the drive would list a money folder under an innocent name.
+  if (low(realFolder).normalize('NFC') !== low(path.join(realRoot, ...folder.split('/'))).normalize('NFC')) return { ok: false, code: 'a_link' };
 
   const compare = (a, b) => { const x = low(a); const y = low(b); return x < y ? -1 : x > y ? 1 : 0; };
-  // A folder of one frame series is one entry, in its parent's list (NS-X07).
+  // A folder of one frame series is one entry, in its parent's list (NS-X07). One that cannot be read now
+  // says so: it may be a series, and its row must not be called missing because the look failed.
+  const UNREADABLE = { unreadable: true };
   function asSequence(rel) {
     let entries;
-    try { entries = fs.readdirSync(at(rel), { withFileTypes: true }); } catch { return null; }
+    try { entries = fs.readdirSync(at(rel), { withFileTypes: true }); } catch { return UNREADABLE; }
     if (entries.some((e) => !e.name.startsWith('.') && !e.isFile())) return null;
     const names = entries.filter((e) => !e.name.startsWith('.')).map((e) => e.name);
     const seq = classify(names, lists.sequenceExts);
@@ -81,7 +86,7 @@ function walkFolder(input, fs, path, classify) {
         counted += 1;
       } catch { /* a frame that went while counting */ }
     }
-    if (counted === 0) return null;
+    if (counted === 0) return UNREADABLE;
     return { size: Math.round((size / counted) * seq.frames.length), newest };
   }
 
@@ -94,7 +99,13 @@ function walkFolder(input, fs, path, classify) {
 
   if (!start) {
     try {
-      bin = fs.readdirSync(path.join(at(folder), '.wilson-bin')).filter((name) => uuid.test(name)).slice(0, limits.maxBin);
+      // An empty id folder holds nothing to ask about, and must not take a place in this list.
+      for (const name of fs.readdirSync(path.join(at(folder), '.wilson-bin')).filter((n) => uuid.test(n))) {
+        if (bin.length >= limits.maxBin || Date.now() > deadline) break;
+        try {
+          if (fs.readdirSync(path.join(at(folder), '.wilson-bin', name)).length > 0) bin.push(name);
+        } catch { /* not there now */ }
+      }
     } catch { /* no bin yet */ }
   }
 
@@ -135,7 +146,11 @@ function walkFolder(input, fs, path, classify) {
       if (st.isSymbolicLink()) continue;
       if (st.isDirectory()) {
         const seq = asSequence(child);
-        if (seq) {
+        if (seq === UNREADABLE) {
+          record.complete = false;
+          record.subdirs.push(entry.name);
+          if (depth + 1 <= limits.maxDepth) below.push(child);
+        } else if (seq) {
           if (files + record.files.length >= limits.maxFiles) { record.complete = false; continue; }
           const entryOut = { n: entry.name, s: String(seq.size), t: lists.sequenceMime };
           const m = timeOf(seq.newest);
@@ -202,7 +217,8 @@ function mountNetworkShareWalk(expressApp, {
   checkShareLocator,
   reach,
   lists,
-  isShareRoot = (root) => /^[\\/]{2}/.test(root),
+  isShareRoot = isShareRootReal,
+  verifyBearer = async () => ({ userId: null }),
   deadlineMs = DEADLINE_MS,
   limits = {},
 } = {}) {
@@ -220,6 +236,13 @@ function mountNetworkShareWalk(expressApp, {
     const root = getWorkspaceRoot();
     if (!root || !isShareRoot(root)) return res.status(409).json({ code: 'no_drive', error: 'This company is not on an office server from this computer.' });
     if (!(await reach.rootReachable(root))) return res.status(503).json({ code: 'unreachable', error: 'The office server cannot be reached from this computer.' });
+    // A personal space's walk is its owner's (0117's _network_share_may_check), so this says what the server would.
+    const owner = personalOwnerOf(folder);
+    if (owner) {
+      const verified = await verifyBearer(req.headers?.authorization);
+      if (verified.unreachable) return res.status(503).json({ code: 'cannot_check', error: 'WILSON could not check who you are just now. Try again.' });
+      if (owner !== String(verified.userId ?? '').toLowerCase()) return res.status(403).json({ code: 'not_your_folder', error: 'This is somebody else\'s personal space.' });
+    }
     const answer = await walkInWorker({
       root,
       folder,

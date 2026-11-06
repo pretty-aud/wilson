@@ -8,7 +8,20 @@ import { localFetch } from '../../../lib/localServerFetch.js'
 export const DESKTOP_PREVIEW_SENTENCE = 'Preview available on the desktop app'
 export const DESKTOP_ACTION_SENTENCE = 'Do this from the WILSON desktop app'
 
-export function createDesktopFileOps({ available = hasLocalServer, fetchImpl = localFetch } = {}) {
+// Who is calling, for a write in a personal folder, which the routes check with the auth server
+// (authCheck.cjs). No session is no header, and those routes refuse.
+async function sessionToken() {
+  try {
+    // Asked here, not at load: these calls exist on a build and in tests with no cloud configured.
+    const { supabase } = await import('../../../cloud/auth/supabaseClient')
+    const { data } = await supabase.auth.getSession()
+    return data?.session?.access_token ?? null
+  } catch {
+    return null
+  }
+}
+
+export function createDesktopFileOps({ available = hasLocalServer, fetchImpl = localFetch, getAccessToken = sessionToken } = {}) {
   const here = () => { if (!available()) throw new Error(DESKTOP_ACTION_SENTENCE) }
   async function answered(res) {
     const body = await res.json().catch(() => ({}))
@@ -20,17 +33,23 @@ export function createDesktopFileOps({ available = hasLocalServer, fetchImpl = l
   }
   const post = async (route, body) => {
     here()
+    const token = await getAccessToken()
     return answered(await fetchImpl(route, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: JSON.stringify(body),
     }))
   }
   return {
     available,
+    // Asked before anything is written: an answer of 'unreachable' throws its sentence.
+    reachable: async () => {
+      here()
+      return answered(await fetchImpl('/api/network-share/reachable'))
+    },
     // { dirs, bin, stopped_at, counts }: network_share_catalogue_apply's p_dirs and p_bin.
     walkFolder: (folder, start = null) => post('/api/network-share/walk', { folder, start }),
-    // { results: [{ from, to, ok, code?, already? }] }, each pair for itself.
+    // { results: [{ from, to, ok, code?, already? }] }, each pair for itself. A pair may say the size it expects.
     rename: (pairs) => post('/api/network-share/op', { pairs }),
     // from: { picked: <path from rabbit:pick-files> } or { media_key }
     put: (to, from) => post('/api/network-share/put', { to, from }),

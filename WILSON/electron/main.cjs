@@ -2484,20 +2484,22 @@ function startLocalServer(distPath) {
     // below, so those stay as they were (several tests lift their bodies).
     mountPersonalSpace(expressApp, { space: personalSpace, emptyBundle, readRabbitBundle, writeRabbitBundle });
     // MO1 (PS-7): a company on an office server keeps a personal space's files there.
-    const { checkShareLocator, walkLists } = require('./networkShare.cjs');
+    const { checkShareLocator, walkLists, SHARE_REFUSED_EXACT } = require('./networkShare.cjs');
     const { isSameOriginRequest } = require('./fileReads.cjs');
     const { makeVerifyBearer, readAuthPublic } = require('./authCheck.cjs');
-    require('./networkShare.cjs').mountNetworkShare(expressApp, {
-      getWorkspaceRoot: () => workspaceRootDir,
-      getSignedInUserId: () => signedInUserId,
-      verifyBearer: makeVerifyBearer({ getAuthPublic: () => readAuthPublic({ distDir: distPath }) }),
-      log: (line) => console.warn(line),
-    });
     // MO1 (MOTH §1.8): one reachability instance with the cloud bins below, so a server that went off
     // for one is off for the other.
     const shareReach = require('./rootReachable.cjs').makeRootQuestions();
+    const shareVerify = makeVerifyBearer({ getAuthPublic: () => readAuthPublic({ distDir: distPath }) });
+    require('./networkShare.cjs').mountNetworkShare(expressApp, {
+      getWorkspaceRoot: () => workspaceRootDir,
+      getSignedInUserId: () => signedInUserId,
+      verifyBearer: shareVerify,
+      reach: shareReach,
+      log: (line) => console.warn(line),
+    });
     const shareContain = require('./shareContain.cjs').makeShareContain({ reach: shareReach });
-    const shareDeps = { getWorkspaceRoot: () => workspaceRootDir, isSameOriginRequest, checkShareLocator, reach: shareReach };
+    const shareDeps = { getWorkspaceRoot: () => workspaceRootDir, isSameOriginRequest, checkShareLocator, reach: shareReach, verifyBearer: shareVerify };
     require('./networkShareWalk.cjs').mountNetworkShareWalk(expressApp, { ...shareDeps, lists: walkLists });
     const { mountNetworkShareOps, makeShareLocate } = require('./networkShareOps.cjs');
     mountNetworkShareOps(expressApp, {
@@ -2509,6 +2511,8 @@ function startLocalServer(distPath) {
         const { checkMediaKey, insideByRealPath } = require('./localMedia.cjs');
         const check = checkMediaKey(key);
         if (!check.ok) return null;
+        // A copy-up carries a project's picture or video. Money and Legal never leave for the office server.
+        if (check.segments.some((segment) => SHARE_REFUSED_EXACT.includes(String(segment).toUpperCase()))) return null;
         const root = getLocalMediaRoot({ create: false });
         const at = root ? resolveContainedFilePath(root, check.segments.join(path.sep)) : null;
         return at && insideByRealPath(root, at) ? at : null;
@@ -5510,6 +5514,12 @@ ipcMain.handle('rabbit:set-workspace-root', (_event, opts) => {
   if (!isUnc && !isDrive) {
     workspaceRootDir = null;
     return { ok: false, error: 'the storage root must be an absolute \\\\server\\share or drive path' };
+  }
+  // MO1: a device path can be the local disk. networkShare.cjs's isShareRoot, which every office-server
+  // route asks, also refuses a money folder as the root.
+  if (isUnc && /^[\\/]{2}[?.]([\\/]|$)/.test(raw)) {
+    workspaceRootDir = null;
+    return { ok: false, error: 'a device path cannot be the storage root' };
   }
   // Canonical form: resolved, no trailing separator. Bare roots are refused
   // in depth, not only at the UI: 'C:' (a stripped 'C:\') is drive-relative
