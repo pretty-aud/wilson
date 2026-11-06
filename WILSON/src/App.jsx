@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useLayoutEffect, lazy, Suspense } from 'react'
+import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, lazy, Suspense } from 'react'
 import { Menu } from 'lucide-react'
 import TitleBar from './components/TitleBar'
 import DevFixturesBadge from './dev/DevFixturesBadge'
@@ -31,6 +31,7 @@ import { createCoalescingSave } from './lib/coalescingSave'
 import { installCompanionShiftHotkey } from './lib/companionHotkey'
 import { PAGES, PAGE_BARS, PAGE_TITLES, COMPRESSED_BAR_HEIGHT, getPage, navPages } from './layout/pages'
 import PageSurface from './layout/PageSurface'
+import LazyPageBoundary from './components/LazyPageBoundary';
 import { resolveUserPet, saveCloudPet, mirrorPetToCache, fetchCloudPet, isStalePetWrite,
          resolveUserSettings, mirrorSettingsToCache, setUserStateOwner,
          getUserStateOwner } from './lib/userState'
@@ -53,7 +54,19 @@ import DeckOutlineGenerator from './tools/deck-outline-generator_v0.514'
 import Otter from './tools/otter_v0.3.1'
 import Rabbit from './tools/rabbit_v0.1.0'
 // MO1 (MOTH_DESIGN §1.10): a lazy chunk, loaded the first time the page is opened. Nothing else reaches it.
-const MothPage = lazy(() => import('./tools/moth_v0.1.0'))
+// A lazy() remembers a failed import, so asking again takes a new one. The boundary holds a page that will not
+// load, or that throws while drawing, to its own surface.
+function MothSurface({ isActive }) {
+  const [attempt, setAttempt] = useState(0)
+  const MothPage = useMemo(() => lazy(() => import('./tools/moth_v0.1.0')), [attempt])
+  return (
+    <LazyPageBoundary key={attempt} title="M.O.T.H." onRetry={() => setAttempt((n) => n + 1)}>
+      <Suspense fallback={<p>Opening M.O.T.H.…</p>}>
+        <MothPage isActive={isActive} />
+      </Suspense>
+    </LazyPageBoundary>
+  )
+}
 import PetCompanion from './components/PetCompanion'
 import { PET_BREEDS, pickRandomBreed } from './components/sprites/index'
 import {
@@ -2634,11 +2647,7 @@ export default function App() {
         />
       </PageSurface>
       <PageSurface id="moth" currentPage={currentPage} overflow="hidden">
-        {mothEntered && (
-          <Suspense fallback={<p>Opening M.O.T.H.…</p>}>
-            <MothPage isActive={currentPage === 'moth'} />
-          </Suspense>
-        )}
+        {mothEntered && <MothSurface isActive={currentPage === 'moth'} />}
       </PageSurface>
       <PageSurface id="settings" currentPage={currentPage}>
         <SettingsPageWithAgent

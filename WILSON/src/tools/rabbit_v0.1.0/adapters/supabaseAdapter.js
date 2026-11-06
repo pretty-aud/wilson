@@ -92,7 +92,7 @@ import { createNetworkShareStorageProvider } from '../storage/networkShareProvid
 import { mothRefusal } from './mothErrors';
 import { describeSourceFile } from '../storage/mediaMetadata';
 import {
-  generateThumbnail, thumbnailKeyFor, putThumbnailTo, removeThumbnailFrom,
+  generateThumbnail, thumbnailKeyFor, putThumbnailTo, removeThumbnailFrom, carryThumbnail,
   thumbnailUrlsAt,
 } from '../storage/thumbnails';
 // Session 40: the video decoder is a SEPARATE entry point, not an option on
@@ -102,7 +102,7 @@ import {
   looksLikeVideoFile, generateVideoThumbnailFromFile,
 } from '../storage/videoThumbnails';
 import { getWorkspaceStorageCached } from '../../../cloud/workspaceStorage';
-import { personalSpacesAvailable, isPersonalSpace } from '../../../cloud/personalSpace';
+import { personalSpacesAvailable, isPersonalSpace, resetPersonalSpaceProbe } from '../../../cloud/personalSpace';
 import { presignStorage, presignReadUrls } from '../../../cloud/storageApi';
 import { serializeProjectRates, projectRatesPath } from '../projectRates';
 import {
@@ -156,6 +156,7 @@ export function resetSupabaseAdapter() {
   fileTagsKnown = null;
   rekeyFileBodyKnown = null;
   topicEpochKnown = null;
+  resetPersonalSpaceProbe();
   privateColumnKnown = null;
   fileMetaKnown = null;
 }
@@ -277,8 +278,9 @@ async function topicEpochAvailable(client) {
     topicEpochKnown = false;
     return false;
   }
-  // Any other failure (network) says nothing about the schema: not now.
-  return false;
+  // Any other failure (network) says nothing about the schema: not now. Not false: the list would read
+  // no epoch, and a channel on a project that has one would join a topic the server refuses.
+  return null;
 }
 // The project channel's name: epoch 0 keeps the name every build has used.
 export function projectTopicName(projectId, topicEpoch = 0) {
@@ -2815,14 +2817,15 @@ export function supabaseAdapter() {
       const privateCol = (await privateProjectsAvailable(client)) ? ', is_private' : '';
       // MO1 (0109): topic_epoch, so the open project's channel joins the topic
       // its current epoch names (not in PROJECT_COLUMNS: the client never writes it).
-      const epochCol = (await topicEpochAvailable(client)) ? ', topic_epoch' : '';
+      const epochKnown = await topicEpochAvailable(client);
+      const epochCol = epochKnown !== false ? ', topic_epoch' : '';
       // MO1 (0110): a personal space is in no list; an admin's RLS would admit
       // everyone's. "Not now" fails closed: this read must not guess.
       const personal = await personalSpacesAvailable(client);
       if (personal === null) throw new Error('[supabase] the project list could not be read just now');
       let list = client
         .from('projects')
-        .select('id, title, status, status_tag, updated_at, budget_total, budget_currency, client_name, cover_image_url' + privateCol + epochCol);
+        .select('id, title, status, status_tag, updated_at, budget_total, budget_currency, client_name, folder_root, cover_image_url' + privateCol + epochCol);
       if (personal) list = list.is('personal_owner_id', null);
       return unwrap(await list.order('updated_at', { ascending: false }));
     },
@@ -6080,13 +6083,7 @@ export function supabaseAdapter() {
       let thumbnail = null;
       if (item.to_thumb && file.thumbnail_url) {
         try {
-          const pictures = client.storage.from(THUMBNAIL_BUCKET);
-          if (from === FILE_PROVIDERS.LOCAL_SERVER) {
-            const picture = await getStorageProvider(from).get(file.thumbnail_url);
-            unwrap(await pictures.upload(item.to_thumb, picture, { contentType: 'image/jpeg' }));
-          } else {
-            unwrap(await pictures.copy(file.thumbnail_url, item.to_thumb));
-          }
+          await carryThumbnail(from, to, file.thumbnail_url, item.to_thumb, { client });
           thumbnail = item.to_thumb;
         } catch { /* said above */ }
       }
@@ -6097,7 +6094,7 @@ export function supabaseAdapter() {
       await getStorageProvider(item.to_provider).del(item.to_path).catch(() => {});
       if (item.to_thumb) {
         const client = await requireClient();
-        await client.storage.from(THUMBNAIL_BUCKET).remove([item.to_thumb]).catch(() => {});
+        await removeThumbnailFrom(item.to_provider, item.to_thumb, { client }).catch(() => {});
       }
     },
 
@@ -6127,10 +6124,10 @@ export function supabaseAdapter() {
     // networkShareCatalogue.js asks. p_root is checked against the drive by the server.
     async refreshNetworkShare({ projectId, root, folder, dirs, bin = [], final = true, stoppedAt = null, first = false }) {
       const client = await requireClient();
-      return unwrapPersonalRpc(await client.rpc('network_share_catalogue_apply', {
+      return unwrapMoth(await client.rpc('network_share_catalogue_apply', {
         p_project_id: projectId, p_root: root, p_folder: folder, p_dirs: dirs, p_bin: bin,
         p_final: final, p_stopped_at: stoppedAt, p_first: first,
-      }), 'network_share_catalogue_apply', MOTH_ABSENT);
+      }), 'network_share_catalogue_apply');
     },
     async getNetworkShareCheck(projectId) {
       const client = await requireClient();
@@ -6138,23 +6135,22 @@ export function supabaseAdapter() {
     },
     async settleNetworkShareOps(opIds, outcome, facts = null) {
       const client = await requireClient();
-      return unwrapPersonalRpc(await client.rpc('network_share_settle', { p_op_ids: opIds, p_outcome: outcome, p_facts: facts }),
-        'network_share_settle', MOTH_ABSENT);
+      return unwrapMoth(await client.rpc('network_share_settle', { p_op_ids: opIds, p_outcome: outcome, p_facts: facts }), 'network_share_settle');
     },
     async networkSharePending() {
       const client = await requireClient();
-      return unwrapPersonalRpc(await client.rpc('network_share_pending_mine'), 'network_share_pending_mine', MOTH_ABSENT) || [];
+      return unwrapMoth(await client.rpc('network_share_pending_mine'), 'network_share_pending_mine') || [];
     },
     // Moves left over a day ago that this person may call off, because only their computer could have moved them.
     async networkShareStaleMoves() {
       const client = await requireClient();
-      return unwrapPersonalRpc(await client.rpc('network_share_stale_moves'), 'network_share_stale_moves', MOTH_ABSENT) || [];
+      return unwrapMoth(await client.rpc('network_share_stale_moves'), 'network_share_stale_moves') || [];
     },
     async networkShareRecordAdded({ projectId, root, folderId = null, entries }) {
       const client = await requireClient();
-      return unwrapPersonalRpc(await client.rpc('network_share_record_added', {
+      return unwrapMoth(await client.rpc('network_share_record_added', {
         p_project: projectId, p_root: root, p_folder_id: folderId, p_entries: entries,
-      }), 'network_share_record_added', MOTH_ABSENT);
+      }), 'network_share_record_added');
     },
   };
 }

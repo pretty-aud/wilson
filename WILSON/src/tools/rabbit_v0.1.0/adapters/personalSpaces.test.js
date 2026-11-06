@@ -67,6 +67,16 @@ describe('listProjects', () => {
     await adapter.listProjects()
     expect(listReads(fake)[0].filters).toEqual([['is', 'personal_owner_id', null]])
   })
+  it('🚨 a window open across 0110\'s apply asks again on an auth event, so a space does not list as a project', async () => {
+    const before = use(makeClient({ has0110: false }))
+    await adapter.listProjects()
+    expect(listReads(before)[0].filters).toEqual([])
+    const after = makeClient({ has0110: true })
+    globalThis.__testSupabase = after.client
+    mod.resetSupabaseAdapter()
+    await adapter.listProjects()
+    expect(listReads(after)[0].filters).toEqual([['is', 'personal_owner_id', null]])
+  })
   it('CONTROL: a database without 0110 lists as before, no filter', async () => {
     const fake = use(makeClient({ has0110: false }))
     await adapter.listProjects()

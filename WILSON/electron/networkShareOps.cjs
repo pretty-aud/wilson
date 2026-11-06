@@ -226,7 +226,12 @@ function mountNetworkShareOps(expressApp, {
       const source = await fsp.stat(sourceAt).catch(() => null);
       if (!source || !source.isFile()) return refuse(res, 404, 'not_there', NOT_HERE);
       const toAt = at(root, to);
-      if (await lookAt(toAt)) return refuse(res, 409, 'name_taken', 'A file with this name is already there.');
+      const inTheWay = await lookAt(toAt);
+      if (inTheWay) {
+        // A reservation a crash left: empty, where this copy is not.
+        if (!inTheWay.isFile() || inTheWay.size !== 0 || source.size === 0) return refuse(res, 409, 'name_taken', 'A file with this name is already there.');
+        await io(() => fsp.unlink(toAt));
+      }
       if (!(await ensureDir(root, parentOf(to), new Set()))) return refuse(res, 403, 'a_link', 'WILSON does not write through a link on the office server.');
       // Dot-led, so a walk never lists a copy that has not finished. In a worker: as long as the file is big,
       // and a server that stops answering holds that thread and no other.

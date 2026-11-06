@@ -54,6 +54,15 @@ export function createDesktopFileOps({ available = hasLocalServer, fetchImpl = l
     // from: { picked: <path from rabbit:pick-files> } or { media_key }
     put: (to, from) => post('/api/network-share/put', { to, from }),
     purgeBin: (paths) => post('/api/network-share/purge', { paths }),
+    // What is at a locator now, or null: { size, modified_at }. Throws when the server cannot be asked.
+    statFile: async (locator) => {
+      here()
+      const res = await fetchImpl(`/api/rabbit/network-share/file/${locator.split('/').map(encodeURIComponent).join('/')}`, { method: 'HEAD' })
+      if (res.status === 404) return null
+      if (!res.ok) await answered(res)
+      const modified = Date.parse(res.headers?.get?.('last-modified') ?? '')
+      return { size: Number(res.headers?.get?.('content-length') ?? 0), modified_at: Number.isFinite(modified) ? new Date(modified).toISOString() : undefined }
+    },
     retireLocalMedia: (key, op) => post('/api/rabbit/local-media/retire', { key, op }),
     // The bearer token is who is calling, as the route checks it with the auth server (authCheck.cjs).
     async addToPersonalSpace({ root, folder, file, accessToken }) {

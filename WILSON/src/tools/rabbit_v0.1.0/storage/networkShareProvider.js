@@ -9,9 +9,9 @@ import { createDesktopFileOps, DESKTOP_ACTION_SENTENCE, DESKTOP_PREVIEW_SENTENCE
 const FILE_BASE = '/api/rabbit/network-share/file'
 const BIN_ENTRY = /\/\.wilson-bin\/[0-9a-f-]{36}$/
 
-export const locatorOf = (key) => (String(key).startsWith('nas:') ? String(key).slice(4) : String(key))
+const locatorOf = (key) => (String(key).startsWith('nas:') ? String(key).slice(4) : String(key))
 
-export function networkShareUrl(key, { download } = {}) {
+function networkShareUrl(key, { download } = {}) {
   const path = locatorOf(key).split('/').map(encodeURIComponent).join('/')
   return `${FILE_BASE}/${path}${download ? '?download=1' : ''}`
 }

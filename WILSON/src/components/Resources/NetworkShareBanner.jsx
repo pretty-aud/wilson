@@ -8,10 +8,20 @@ import GatedAction from '../../permissions/GatedAction'
 import { fetchWorkspaceStorage } from '../../cloud/workspaceStorage'
 import { createNetworkShareCatalogue, spaceFolderOf, CANNOT_READ_WHOLE } from '../../tools/rabbit_v0.1.0/state/networkShareCatalogue'
 import { desktopFileOps } from '../../tools/rabbit_v0.1.0/storage/desktopFileOps'
+import { useWorkspaceMembers } from '../TeamMembers/useWorkspaceMembers'
 
 export const FROM_THE_DESKTOP = 'Refresh from the desktop app'
+const PART_READ = 'Part of this folder could not be read this time, so nothing in that part is called missing.'
 
-export default function NetworkShareBanner({ adapter, project, canCheck, deniedReason, nameOf = () => null, onChanged = () => {} }) {
+// Who last looked: the members are read only for a banner that has someone to name.
+function CheckedBy({ userId }) {
+  const { members } = useWorkspaceMembers()
+  const name = members?.find?.((m) => m.user_id === userId)
+  const shown = name?.display_name || name?.username
+  return shown ? ` by ${shown}` : null
+}
+
+export default function NetworkShareBanner({ adapter, project, canCheck, deniedReason, onChanged = () => {} }) {
   const [root, setRoot] = useState(null)
   const [check, setCheck] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -52,7 +62,7 @@ export default function NetworkShareBanner({ adapter, project, canCheck, deniedR
     setNote('')
     try {
       const out = await catalogue.refreshNow(project, { root })
-      setNote(out.tooBig ? CANNOT_READ_WHOLE : '')
+      setNote(out.tooBig ? CANNOT_READ_WHOLE : (out.complete === false ? PART_READ : ''))
       await read()
       onChanged()
     } catch (err) {
@@ -63,13 +73,13 @@ export default function NetworkShareBanner({ adapter, project, canCheck, deniedR
   }
 
   const when = check?.last_checked_at ? new Date(check.last_checked_at).toLocaleString() : null
-  const who = check?.last_checked_by ? nameOf(check.last_checked_by) : null
   const allowed = canCheck && onDesktop
 
   return (
     <Banner tone="info" live={false} data-network-share-banner>
       Listed from the company server.{' '}
-      {when ? `Last checked ${when}${who ? ` by ${who}` : ''}.` : 'Not checked yet.'}{' '}
+      {when ? <>Last checked {when}{check?.last_checked_by ? <CheckedBy userId={check.last_checked_by} /> : null}.</> : 'Not checked yet.'}{' '}
+      {check?.missing_count > 0 ? `${check.missing_count} ${check.missing_count === 1 ? 'file was' : 'files were'} not found on the server at the last check. ` : ''}
       {note}{' '}
       <GatedAction allowed={allowed} reason={onDesktop ? deniedReason : FROM_THE_DESKTOP}>
         <Button variant="ghost" size="sm" onClick={refresh} disabled={!allowed} loading={busy} loadingLabel="Checking…">

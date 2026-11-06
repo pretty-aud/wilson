@@ -10,6 +10,7 @@ vi.mock('../../../cloud/auth/supabaseClient.js', () => ({
 let mod
 let adapter
 let rpcs
+const rpcAnswers = {}
 let answer
 let copied
 let pictureRefused
@@ -23,6 +24,7 @@ function fake() {
     },
     rpc: async (fn, args) => {
       rpcs.push({ fn, args })
+      if (rpcAnswers[fn]) return rpcAnswers[fn]
       return answer
     },
     storage: {
@@ -132,6 +134,14 @@ describe('the office server', () => {
     expect(rpcs.map((r) => r.fn)).toEqual(['network_share_settle', 'network_share_pending_mine', 'network_share_stale_moves', 'network_share_record_added'])
     expect(rpcs[0].args).toEqual({ p_op_ids: ['o'], p_outcome: 'not_moved', p_facts: null })
     expect(rpcs[3].args).toEqual({ p_project: 'p', p_root: 'r', p_folder_id: null, p_entries: [{ n: 'a', s: '1' }] })
+  })
+  it('🚨 an office-server refusal reaches the page in words, not as a raw code', async () => {
+    rpcAnswers.network_share_record_added = { data: null, error: { message: 'network_share: folders_unplaced' } }
+    await expect(adapter.networkShareRecordAdded({ projectId: 'p', root: 'r', entries: [] })).rejects.toMatchObject({ code: 'folders_unplaced' })
+    rpcAnswers.network_share_catalogue_apply = { data: null, error: { message: 'network_share: not allowed' } }
+    await expect(adapter.refreshNetworkShare({ projectId: 'p', root: 'r', folder: 'f', dirs: [] })).rejects.toMatchObject({ code: 'not_allowed' })
+    delete rpcAnswers.network_share_record_added
+    delete rpcAnswers.network_share_catalogue_apply
   })
   it('the last check, and who is calling', async () => {
     expect(await adapter.getNetworkShareCheck('p')).toEqual({ last_checked_at: 'then' })

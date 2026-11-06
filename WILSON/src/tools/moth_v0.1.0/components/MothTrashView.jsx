@@ -6,6 +6,8 @@ import { Trash2 } from 'lucide-react'
 import GatedAction from '../../../permissions/GatedAction'
 
 const DAY = 24 * 60 * 60 * 1000
+// The server's page runs on to the end of a batch deleted together, so a page this long may have more behind it.
+const PAGE = 200
 
 export function daysLeft(purgesAt, now = Date.now()) {
   const left = Date.parse(purgesAt) - now
@@ -54,11 +56,15 @@ export default function MothTrashView({ adapter, fileOps, islands, access, refre
   const [failed, setFailed] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(null)
+  const [more, setMore] = useState(false)
+  const [loadingOlder, setLoadingOlder] = useState(false)
 
   const load = useCallback(async () => {
     setFailed(false)
     try {
-      setRows(await adapter.listTrashedFiles({ projectIds: islands.map((row) => row.id) }))
+      const page = await adapter.listTrashedFiles({ projectIds: islands.map((row) => row.id), limit: PAGE })
+      setRows(page)
+      setMore(page.length >= PAGE)
     } catch {
       setRows(null)
       setFailed(true)
@@ -66,6 +72,25 @@ export default function MothTrashView({ adapter, fileOps, islands, access, refre
   }, [adapter, islands])
 
   useEffect(() => { load() }, [load, refreshKey])
+
+  // Older than the last row shown. An adapter with no paging (this computer's) answers what it answered, and
+  // nothing new is the end.
+  const showOlder = async () => {
+    if (loadingOlder) return
+    setLoadingOlder(true)
+    setError('')
+    try {
+      const page = await adapter.listTrashedFiles({ projectIds: islands.map((row) => row.id), limit: PAGE, before: rows[rows.length - 1]?.deleted_at ?? null })
+      const known = new Set(rows.map((row) => row.id))
+      const fresh = page.filter((row) => !known.has(row.id))
+      setRows([...rows, ...fresh])
+      setMore(fresh.length > 0 && page.length >= PAGE)
+    } catch (err) {
+      setError(err?.message || String(err))
+    } finally {
+      setLoadingOlder(false)
+    }
+  }
 
   const restore = async (row) => {
     setBusy(row.id)
@@ -122,6 +147,7 @@ export default function MothTrashView({ adapter, fileOps, islands, access, refre
           )
         })}
       </ul>
+      {more && <Button variant="ghost" onClick={showOlder} loading={loadingOlder} loadingLabel="Looking…" data-moth-trash-older>Show older</Button>}
     </>
   )
 }

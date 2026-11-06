@@ -7,12 +7,14 @@ import GatedAction from '../../../permissions/GatedAction'
 
 export const OFFICE_SERVER_SENTENCE = 'In this company, your personal space keeps its files on the office server.'
 export const FROM_THE_DESKTOP_SENTENCE = 'Add files to your personal space from the desktop app'
+export const NOT_ON_THIS_STORAGE_SENTENCE = 'This company keeps its files in a folder on one computer, so a personal space cannot hold files here.'
 
-export default function MothPersonalPanel({ island, gate, onDesktop, onOfficeServer, onAdd }) {
+export default function MothPersonalPanel({ island, gate, onDesktop, onOfficeServer, cannotHoldFiles = false, onAdd }) {
   const input = useRef(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const refused = onOfficeServer && !onDesktop
+  const refused = (onOfficeServer && !onDesktop) || cannotHoldFiles
+  const reason = cannotHoldFiles ? NOT_ON_THIS_STORAGE_SENTENCE : FROM_THE_DESKTOP_SENTENCE
 
   const add = async (event) => {
     const picked = [...(event.target.files || [])]
@@ -31,10 +33,10 @@ export default function MothPersonalPanel({ island, gate, onDesktop, onOfficeSer
 
   return (
     <div className="moth-personal" data-moth-personal>
-      {onOfficeServer && <p className="moth-quiet" data-moth-office-sentence>{refused ? FROM_THE_DESKTOP_SENTENCE : OFFICE_SERVER_SENTENCE}</p>}
+      {(onOfficeServer || cannotHoldFiles) && <p className="moth-quiet" data-moth-office-sentence>{refused ? reason : OFFICE_SERVER_SENTENCE}</p>}
       {error && <Banner tone="danger">{error}</Banner>}
       <input ref={input} type="file" multiple hidden onChange={add} data-moth-add-input />
-      <GatedAction allowed={gate.allowed && !refused} reason={refused ? FROM_THE_DESKTOP_SENTENCE : gate.reason}>
+      <GatedAction allowed={gate.allowed && !refused} reason={refused ? reason : gate.reason}>
         <Button onClick={() => input.current?.click()} loading={busy} loadingLabel="Adding…" disabled={!gate.allowed || refused}>Add files</Button>
       </GatedAction>
     </div>

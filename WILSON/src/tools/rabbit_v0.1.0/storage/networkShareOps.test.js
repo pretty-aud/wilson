@@ -431,6 +431,13 @@ describe('is the server there', () => {
 })
 
 describe('what the routes\' file calls hold', () => {
+  it('🚨 no synchronous call in the modules that answer on the main thread (a planted readFileSync goes red here)', () => {
+    for (const name of ['networkShareOps.cjs', 'shareContain.cjs', 'networkShare.cjs']) {
+      const text = fs.readFileSync(new URL(`../../../../electron/${name}`, import.meta.url), 'utf8')
+      expect(text.replace(/^\s*\/\/.*$/gm, ''), name).not.toMatch(/\b[a-zA-Z]+Sync\(/)
+    }
+    expect('fs.readFileSync(x)').toMatch(/\b[a-zA-Z]+Sync\(/)
+  })
   it('🚨 none of them goes to the pool outside the contained slots', () => {
     const text = fs.readFileSync(new URL('../../../../electron/networkShareOps.cjs', import.meta.url), 'utf8')
     expect(text).not.toMatch(/fsp\.copyFile/)

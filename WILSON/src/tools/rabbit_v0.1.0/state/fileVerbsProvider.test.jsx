@@ -44,6 +44,7 @@ vi.mock('../../../dev/devFixtures', () => ({ devFixtures: () => null }))
 vi.mock('../intake/pipeline', () => ({ runIngestion: vi.fn() }))
 
 const { RabbitProvider, useRabbit } = await import('./RabbitProvider')
+const { desktopFileOps, DESKTOP_ACTION_SENTENCE } = await import('../storage/desktopFileOps')
 
 function makeAdapter() {
   const calls = []
@@ -294,5 +295,60 @@ describe('the saved row lands in the bundle (review round 2, R2-UI-01)', () => {
     const before = ctxRef.files
     await act(async () => { pending[0].resolve({ id: 'f1', description: 'late', updated_at: at(6) }); await w })
     expect(ctxRef.files).toBe(before)
+  })
+})
+
+describe('🚨 a delete on the office server (whole-session review round 1)', () => {
+  const shareRow = { id: 'f1', project_id: 'p1', name: 'a.mov', storage_provider: 'network_share', tags: [] }
+  const useShareRow = () => {
+    const load = holder.adapter.loadProject
+    holder.adapter.loadProject = async (id = 'p1') => ({ ...(await load(id)), ...(id === 'p1' ? { files: [{ ...shareRow }] } : {}) })
+    holder.adapter.trashFiles = vi.fn(async () => ({ done: 1, ops: [{ op_id: 'o1', id: 'f1', from: 'Salt/a.mov', to: 'Salt/.wilson-bin/x/a.mov' }] }))
+    holder.adapter.restoreFiles = vi.fn(async () => ({ done: 1, ops: [{ op_id: 'o2', id: 'f1', from: 'bin', to: 'Salt/a.mov' }] }))
+    holder.adapter.listFiles = vi.fn(async () => [{ ...shareRow }])
+    holder.adapter.settleNetworkShareOps = vi.fn(async () => {})
+  }
+  afterEach(() => vi.restoreAllMocks())
+
+  it('in a browser, says where to do it before the server\'s row is touched, and the file stays', async () => {
+    useShareRow()
+    vi.spyOn(desktopFileOps, 'available').mockReturnValue(false)
+    await mount()
+    let failed
+    await act(async () => { await ctxRef.deleteFile('f1').catch((err) => { failed = err }) })
+    expect(failed?.message).toBe(DESKTOP_ACTION_SENTENCE)
+    expect(holder.adapter.trashFiles).not.toHaveBeenCalled()
+    expect(ctxRef.files.map((f) => f.id)).toEqual(['f1'])
+  })
+  it('with the server off, says so before the server\'s row is touched', async () => {
+    useShareRow()
+    vi.spyOn(desktopFileOps, 'available').mockReturnValue(true)
+    vi.spyOn(desktopFileOps, 'reachable').mockRejectedValue(new Error('The office server cannot be reached from this computer.'))
+    await mount()
+    let failed
+    await act(async () => { await ctxRef.deleteFile('f1').catch((err) => { failed = err }) })
+    expect(failed?.message).toMatch(/cannot be reached/)
+    expect(holder.adapter.trashFiles).not.toHaveBeenCalled()
+  })
+  it('a file held open comes back to the list, and no toast says Deleted', async () => {
+    useShareRow()
+    vi.spyOn(desktopFileOps, 'available').mockReturnValue(true)
+    vi.spyOn(desktopFileOps, 'reachable').mockResolvedValue({ ok: true })
+    vi.spyOn(desktopFileOps, 'rename').mockResolvedValue({ results: [{ ok: false, code: 'in_use' }] })
+    await mount()
+    let failed
+    await act(async () => { await ctxRef.deleteFile('f1').catch((err) => { failed = err }) })
+    expect(failed?.message).toMatch(/a program has it open/)
+    expect(holder.adapter.settleNetworkShareOps).toHaveBeenCalledWith(['o1'], 'not_moved')
+    expect(ctxRef.files.map((f) => f.id)).toEqual(['f1'])
+  })
+  it('a restore in a browser is refused the same way', async () => {
+    useShareRow()
+    vi.spyOn(desktopFileOps, 'available').mockReturnValue(false)
+    await mount()
+    let failed
+    await act(async () => { await ctxRef.restoreFile(shareRow, 'p1').catch((err) => { failed = err }) })
+    expect(failed?.message).toBe(DESKTOP_ACTION_SENTENCE)
+    expect(holder.adapter.restoreFiles).not.toHaveBeenCalled()
   })
 })

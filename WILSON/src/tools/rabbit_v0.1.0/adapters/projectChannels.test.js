@@ -113,6 +113,15 @@ describe('subscribeWorkspaceChanges (0109)', () => {
 
 describe('listProjects and topic_epoch', () => {
   const listCols = () => fake.selects.filter(s => s.table === 'projects' && /^id, title/.test(s.cols)).map(s => s.cols)
+  it('🚨 reads folder_root: without it an ordinary project never finds its folder on the office server', async () => {
+    await supabaseAdapter().listProjects()
+    expect(listCols()[0]).toMatch(/\bfolder_root\b/)
+  })
+  it('🚨 a blip in the probe does not drop the column: a project with an epoch would join a topic the server refuses', async () => {
+    fake.client.rpc = async () => ({ data: null, error: { code: '503', message: 'network' } })
+    await supabaseAdapter().listProjects()
+    expect(listCols()[0]).toMatch(/, topic_epoch$/)
+  })
   it('reads topic_epoch where 0109 is present', async () => {
     await supabaseAdapter().listProjects()
     expect(listCols()).toHaveLength(1)

@@ -1,10 +1,12 @@
 // networkShareCatalogue.test.js — MO1 (MOTH_DESIGN §1.9): carrying a walk to the catalogue, and an operation's rename.
 import { describe, it, expect, vi } from 'vitest'
+import { createRequire } from 'node:module'
 import { createNetworkShareCatalogue, spaceFolderOf, splitDirs, ENTRIES_PER_CALL } from './networkShareCatalogue.js'
-import { createNetworkShareStorageProvider, networkShareUrl, locatorOf } from '../storage/networkShareProvider.js'
+import { createNetworkShareStorageProvider } from '../storage/networkShareProvider.js'
 import { createDesktopFileOps, DESKTOP_ACTION_SENTENCE, DESKTOP_PREVIEW_SENTENCE } from '../storage/desktopFileOps.js'
 import { mothRefusal } from '../adapters/mothErrors.js'
 
+const require = createRequire(import.meta.url)
 const files = (n, p = 'f') => Array.from({ length: n }, (_, i) => ({ n: `${p}${i}.mov`, s: '1' }))
 const dir = (d, n = 0, complete = true) => ({ d, complete, subdirs: [], files: files(n) })
 
@@ -38,7 +40,8 @@ describe('a space\'s folder', () => {
 
 describe('splitting a walk into calls', () => {
   it('fits small directories together', () => {
-    expect(splitDirs([dir('a', 400), dir('b', 400), dir('c', 400)]).map((c) => c.map((d) => d.d))).toEqual([['a', 'b'], ['c']])
+    const part = Math.floor(ENTRIES_PER_CALL * 0.4)
+    expect(splitDirs([dir('a', part), dir('b', part), dir('c', part)]).map((c) => c.map((d) => d.d))).toEqual([['a', 'b'], ['c']])
   })
   it('🚨 a directory over one call goes in parts not complete, then whole, so nothing in it reads missing early', () => {
     const big = dir('big', ENTRIES_PER_CALL * 2 + 1)
@@ -51,7 +54,7 @@ describe('splitting a walk into calls', () => {
 
 describe('refreshing', () => {
   it('says first once and final once, on the last call', async () => {
-    const { catalogue, apply } = setup({ walks: [{ dirs: [dir('Salt', 800), dir('Salt/a', 800)], bin: ['id1'], stopped_at: null }] })
+    const { catalogue, apply } = setup({ walks: [{ dirs: [dir('Salt', ENTRIES_PER_CALL - 100), dir('Salt/a', ENTRIES_PER_CALL - 100)], bin: ['id1'], stopped_at: null }] })
     await catalogue.refreshNow({ id: 'p1' }, { root: '//s/d', folder: 'Salt' })
     expect(apply.map((c) => [c.first, c.final])).toEqual([[true, false], [false, true]])
     expect(apply.map((c) => c.bin)).toEqual([['id1'], []])
@@ -70,6 +73,60 @@ describe('refreshing', () => {
     expect(ops.walkFolder.mock.calls).toEqual([['Salt', 'Salt/b'], ['Salt', 'Salt/c']])
     expect(apply.map((c) => [c.final, c.stoppedAt])).toEqual([[false, 'Salt/c'], [true, null]])
     expect(out.complete).toBe(false)
+  })
+  it('🚨 what is left of a call stops before the server\'s limit, and the last call records where to carry on', async () => {
+    const many = Array.from({ length: 40 }, (_, i) => dir(`Salt/d${i}`, 400))
+    const { catalogue, apply } = setup({ walks: [
+      { dirs: many, bin: [], stopped_at: 'Salt/m' },
+      { dirs: many, bin: [], stopped_at: 'Salt/n' },
+      { dirs: many, bin: [], stopped_at: 'Salt/o' },
+    ] })
+    const out = await catalogue.refreshNow({ id: 'p1' }, { root: '//s/d', folder: 'Salt' })
+    expect(apply.length).toBeLessThanOrEqual(55)
+    const last = apply[apply.length - 1]
+    expect(last.final).toBe(true)
+    expect(last.stoppedAt).not.toBeNull()
+    expect(apply.filter((c) => c.final).length).toBe(1)
+    expect(out.complete).toBe(false)
+  })
+  it('🚨 thirty walks is a stop too, not a run nobody records', async () => {
+    const walks = Array.from({ length: 31 }, (_, i) => ({ dirs: [dir(`Salt/w${i}`)], bin: [], stopped_at: `Salt/w${i + 1}` }))
+    const { catalogue, apply } = setup({ walks })
+    await catalogue.refreshNow({ id: 'p1' }, { root: '//s/d', folder: 'Salt' })
+    expect(apply[apply.length - 1].final).toBe(true)
+    expect(apply[apply.length - 1].stoppedAt).toBe('Salt/w30')
+  })
+  it('🚨 a call the database runs out of time on is sent smaller', async () => {
+    const { catalogue, adapter, apply } = setup({ walks: [{ dirs: [dir('Salt', 200), dir('Salt/a', 200)], bin: [], stopped_at: null }] })
+    const real = adapter.refreshNetworkShare
+    adapter.refreshNetworkShare = vi.fn(async (call) => {
+      if (call.dirs.reduce((n, d) => n + d.files.length, 0) > 250) throw new Error('[supabase] canceling statement due to statement timeout')
+      return real(call)
+    })
+    await catalogue.refreshNow({ id: 'p1' }, { root: '//s/d', folder: 'Salt' })
+    expect(apply.map((c) => c.dirs.map((d) => d.d))).toEqual([['Salt'], ['Salt/a']])
+    expect(apply[0].first).toBe(true)
+    expect(apply[1].final).toBe(true)
+  })
+  it('🚨 a call that cannot fit however small says so, and stops', async () => {
+    const { catalogue, adapter } = setup({ walks: [{ dirs: [dir('Salt', 100)], bin: [], stopped_at: null }] })
+    adapter.refreshNetworkShare = vi.fn(async () => { throw new Error('[supabase] canceling statement due to statement timeout') })
+    await expect(catalogue.refreshNow({ id: 'p1' }, { root: '//s/d', folder: 'Salt' })).rejects.toThrow('changed too much')
+    expect(adapter.refreshNetworkShare.mock.calls.length).toBeLessThan(20)
+  })
+  it('🚨 a stale operation and a bin file come once, however many calls repeated them', async () => {
+    const stale = { op_id: 'o1', op: 'move', from: 'x', to: 'y' }
+    const { catalogue, ops } = setup({
+      walks: [{ dirs: [dir('Salt', 400), dir('Salt/a', 400), dir('Salt/b', 400)], bin: [], stopped_at: null }],
+      applies: [
+        { stale: [stale], purge_ok: ['i'], restore_back: [{ id: 'k', to: 'Salt/z.mov' }] },
+        { stale: [stale], purge_ok: [], restore_back: [{ id: 'k', to: 'Salt/z.mov' }] },
+        { stale: [stale], purge_ok: [], restore_back: [] },
+      ],
+    })
+    await catalogue.refreshNow({ id: 'p1' }, { root: '//s/d', folder: 'Salt' })
+    expect(ops.rename.mock.calls.flatMap(([pairs]) => pairs).filter((p) => p.from === 'x').length).toBe(1)
+    expect(ops.rename.mock.calls.flatMap(([pairs]) => pairs).filter((p) => p.to === 'Salt/z.mov').length).toBe(1)
   })
   it('says plainly when a folder is too big to read whole', async () => {
     const { catalogue } = setup({ walks: [{ dirs: [dir('Salt', 5000, false)], bin: [], stopped_at: null }] })
@@ -138,6 +195,81 @@ describe('an operation\'s rename', () => {
     await catalogue.settlePending()
     expect(ops.rename).toHaveBeenCalledWith([{ from: 'a/9', to: 'b/9' }])
   })
+  it('🚨 a size goes with its pair, for a repeat to compare', async () => {
+    const { catalogue, ops } = setup()
+    await catalogue.runNasOp([op('1', { size: 7 })])
+    expect(ops.rename).toHaveBeenCalledWith([{ from: 'a/1', to: 'b/1', size: 7 }])
+  })
+  it('🚨 a rename nobody can say happened stays pending: the file may be at either end', async () => {
+    const { catalogue, ops, adapter } = setup()
+    ops.rename = vi.fn(async () => ({ results: [{ ok: false, code: 'failed' }, { ok: false, code: 'not_verified' }, { ok: false, code: 'in_use' }] }))
+    const out = await catalogue.runNasOp([op('1'), op('2'), op('3')])
+    expect(out.left.map((o) => o.op_id)).toEqual(['1', '2'])
+    expect(out.notMoved.map((o) => o.op_id)).toEqual(['3'])
+    expect(adapter.settleNetworkShareOps).toHaveBeenCalledTimes(1)
+    expect(adapter.settleNetworkShareOps).toHaveBeenCalledWith(['3'], 'not_moved')
+  })
+  it('🚨 a server that stops answering leaves every operation pending, and does not throw', async () => {
+    const { catalogue, ops, adapter } = setup()
+    ops.rename = vi.fn(async () => { throw Object.assign(new Error('Off.'), { code: 'unreachable' }) })
+    const out = await catalogue.runNasOp([op('1')])
+    expect(out.left.map((o) => o.op_id)).toEqual(['1'])
+    expect(adapter.settleNetworkShareOps).not.toHaveBeenCalled()
+  })
+  it('🚨 one settle the server refuses does not hold the others', async () => {
+    const { catalogue, adapter } = setup()
+    adapter.settleNetworkShareOps = vi.fn(async (ids) => { if (ids.includes('2')) throw new Error('occupied') })
+    const out = await catalogue.runNasOp([op('1'), op('2')])
+    expect(out.done.map((o) => o.op_id)).toEqual(['1'])
+    expect(out.left.map((o) => o.op_id)).toEqual(['2'])
+  })
+  it('🚨 more renames than the route takes go in batches', async () => {
+    const { catalogue, ops } = setup()
+    await catalogue.runNasOp(Array.from({ length: 1001 }, (_, i) => op(String(i))))
+    expect(ops.rename.mock.calls.map(([pairs]) => pairs.length)).toEqual([500, 500, 1])
+  })
+  it('🚨 a copy-up settles done with what it read off the server: the real settle refuses it without', async () => {
+    const { catalogue, ops, adapter } = setup()
+    ops.put = vi.fn(async () => ({ locator: 'Moon/a.mov', size_bytes: 3, modified_at: '2026-11-06T00:00:00.000Z' }))
+    expect(await catalogue.runCopyUp({ op_id: 'o1', id: 'a', to: 'Moon/a.mov' }, 'k/a.mov')).toEqual({ ok: true })
+    expect(ops.put).toHaveBeenCalledWith('Moon/a.mov', { media_key: 'k/a.mov' })
+    expect(adapter.settleNetworkShareOps).toHaveBeenCalledWith(['o1'], 'done', { o1: { s: '3', m: '2026-11-06T00:00:00.000Z' } })
+  })
+  it('🚨 a copy-up whose copy failed settles not_moved, and one whose settle failed stays pending', async () => {
+    const { catalogue, ops, adapter } = setup()
+    ops.put = vi.fn(async () => { throw Object.assign(new Error('x'), { code: 'name_taken', status: 409 }) })
+    expect(await catalogue.runCopyUp({ op_id: 'o1', to: 'y' }, 'k')).toEqual({ ok: false, code: 'name_taken' })
+    expect(adapter.settleNetworkShareOps).toHaveBeenLastCalledWith(['o1'], 'not_moved')
+    ops.put = vi.fn(async () => ({ size_bytes: 3, modified_at: 'then' }))
+    adapter.settleNetworkShareOps = vi.fn(async () => { throw new Error('no answer') })
+    expect(await catalogue.runCopyUp({ op_id: 'o2', to: 'y' }, 'k')).toEqual({ ok: false, code: 'left', left: true })
+  })
+  it('🚨 a copy-up left over is looked at: there, it settles done; not there, not_moved; and not while it is still copying', async () => {
+    const { catalogue, ops, adapter } = setup()
+    ops.statFile = vi.fn(async (at) => (at === 'there' ? { size: 3, modified_at: 'then' } : null))
+    adapter.networkSharePending = vi.fn(async () => [{ op_id: 'a', op: 'adopt', from: null, to: 'there' }, { op_id: 'b', op: 'adopt', from: null, to: 'gone' }])
+    await catalogue.settlePending()
+    expect(adapter.settleNetworkShareOps).toHaveBeenCalledWith(['a'], 'done', { a: { s: '3', m: 'then' } })
+    expect(adapter.settleNetworkShareOps).toHaveBeenCalledWith(['b'], 'not_moved')
+
+    const held = setup()
+    let finish
+    held.ops.put = vi.fn(() => new Promise((ok) => { finish = ok }))
+    held.ops.statFile = vi.fn(async () => null)
+    const copying = held.catalogue.runCopyUp({ op_id: 'c', to: 'there' }, 'k')
+    held.adapter.networkSharePending = vi.fn(async () => [{ op_id: 'c', op: 'adopt', from: null, to: 'there' }])
+    await held.catalogue.settlePending()
+    expect(held.adapter.settleNetworkShareOps).not.toHaveBeenCalled()
+    finish({ size_bytes: 1, modified_at: 'x' })
+    await copying
+  })
+  it('an empty file at a copy-up\'s target is a reservation, not the copy', async () => {
+    const { catalogue, ops, adapter } = setup()
+    ops.statFile = vi.fn(async () => ({ size: 0 }))
+    adapter.networkSharePending = vi.fn(async () => [{ op_id: 'a', op: 'adopt', from: null, to: 'there' }])
+    await catalogue.settlePending()
+    expect(adapter.settleNetworkShareOps).toHaveBeenCalledWith(['a'], 'not_moved')
+  })
   it('a browser settles nothing', async () => {
     const { catalogue, ops, adapter } = setup()
     ops.available = () => false
@@ -151,8 +283,7 @@ describe('the provider and the desktop calls', () => {
   it('its six functions, by locator, encoded per segment', async () => {
     const fetchImpl = ok()
     const p = createNetworkShareStorageProvider({ available: () => true, fetchImpl })
-    expect(locatorOf('nas:Salt/a b.mov')).toBe('Salt/a b.mov')
-    expect(networkShareUrl('nas:Salt/a b.mov', { download: true })).toBe('/api/rabbit/network-share/file/Salt/a%20b.mov?download=1')
+    expect(await p.getUrl('nas:Salt/a b.mov', 60, { download: true })).toBe('/api/rabbit/network-share/file/Salt/a%20b.mov?download=1')
     expect(await p.getUrl('nas:Salt/a b.mov')).toBe('/api/rabbit/network-share/file/Salt/a%20b.mov')
     expect(await p.get('nas:a')).toBe('blob')
     expect(await p.exists('nas:a')).toBe(true)
@@ -188,6 +319,22 @@ describe('the provider and the desktop calls', () => {
 })
 
 describe('a refusal in words', () => {
+  it('🚨 every code the two migrations can raise has a sentence of its own, not the fallback', () => {
+    const fs = require('node:fs')
+    const dir = new URL('../../../../supabase/migrations/', import.meta.url)
+    const text = ['0117_network_share_catalogue.sql', '0118_moth_moves_and_trash.sql'].map((n) => fs.readFileSync(new URL(n, dir), 'utf8')).join('\n')
+    const codes = new Set([...text.matchAll(/(?:moth_(?:move|trash):|network_share: )([a-z][a-z_0-9 ]*[a-z_0-9])/g)].map((m) => m[1]))
+    expect(codes.size).toBeGreaterThan(20)
+    for (const code of codes) {
+      const said = mothRefusal({ message: `moth_move:${code.replace(/ /g, '_')}` })
+      expect(said.message, code).not.toBe('WILSON could not do that. Try it again.')
+    }
+  })
+  it('🚨 an office-server refusal reads as words too, and a restore whose name is held says what to do', () => {
+    expect(mothRefusal({ message: 'network_share: folders_unplaced' }).code).toBe('folders_unplaced')
+    expect(mothRefusal({ message: 'network_share: not allowed' }).code).toBe('not_allowed')
+    expect(mothRefusal({ message: 'moth_trash:occupied' }).message).toMatch(/Rename/)
+  })
   it('each code, the fallback, and an error that is not one', () => {
     expect(mothRefusal({ message: 'moth_move:not_found' })).toMatchObject({ code: 'not_found', message: 'That file or folder is not there.' })
     expect(mothRefusal({ message: 'moth_trash:not_allowed' }).code).toBe('not_allowed')

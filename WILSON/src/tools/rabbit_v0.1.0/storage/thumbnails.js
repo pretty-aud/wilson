@@ -292,6 +292,31 @@ export async function putThumbnailTo(fileProvider, key, blob, {
 }
 
 /**
+ * A picture carried with its moved file (MO1, 0118), from the store it is in to the one the row will name. It
+ * follows the body, as putThumbnailTo's callers do. Throws: the caller decides a picture is not worth a refusal.
+ */
+export async function carryThumbnail(fromProvider, toProvider, fromKey, toKey, {
+  client,
+  getProvider = getStorageProvider,
+} = {}) {
+  const pictures = client.storage.from(THUMBNAIL_BUCKET)
+  if (fromProvider === FILE_PROVIDERS.SUPABASE && toProvider === FILE_PROVIDERS.SUPABASE) {
+    const { error } = await pictures.copy(fromKey, toKey)
+    if (error) throw error
+    return
+  }
+  let picture
+  if (fromProvider === FILE_PROVIDERS.SUPABASE) {
+    const { data, error } = await pictures.download(fromKey)
+    if (error) throw error
+    picture = data
+  } else {
+    picture = await getProvider(fromProvider).get(fromKey)
+  }
+  await putThumbnailTo(toProvider, toKey, picture, { client, getProvider })
+}
+
+/**
  * The compensating delete, at whichever store the thumbnail actually reached.
  *
  * 🚨 THROWS ON REFUSAL for both arms, and the caller logs. With no `files` row

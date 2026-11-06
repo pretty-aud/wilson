@@ -18,6 +18,11 @@
 //           again next time. A reader that must keep personal spaces out fails
 //           closed on it instead of reading as if there were none.
 let columnKnown = null
+// With the adapter's other probes, on an auth event: a window left open across 0110's apply must not go on
+// listing spaces as ordinary projects until it restarts.
+export function resetPersonalSpaceProbe() {
+  columnKnown = null
+}
 export async function personalSpacesAvailable(client) {
   if (columnKnown !== null) return columnKnown
   const { error } = await client.from('projects').select('personal_owner_id').limit(1)

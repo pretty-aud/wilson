@@ -1185,9 +1185,8 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
           <NetworkShareBanner
             adapter={getAdapter?.()}
             project={project}
-            canCheck={isPersonalOwner || canOnProject({ appRole, projectRole: isOpenProject ? ctx?.myProjectRole ?? null : null, isStaffed: isOpenProject ? ctx?.projectIsStaffed : false, ready: perms?.ready, noRoles }, 'project.roster.manage')}
+            canCheck={personalRow ? isPersonalOwner : canOnProject({ appRole, projectRole: isOpenProject ? ctx?.myProjectRole ?? null : null, isStaffed: isOpenProject ? ctx?.projectIsStaffed : false, ready: perms?.ready, noRoles }, 'project.roster.manage')}
             deniedReason={writeReason}
-            nameOf={(id) => wm.members?.find?.((m) => m.user_id === id)?.display_name ?? null}
             onChanged={() => setReloads(n => n + 1)}
           />
         )}

@@ -67,6 +67,7 @@ import { byMilestoneDate } from './milestoneOrder';
 import { buildRevertPlan } from '../components/editHistoryRevert';
 import { hasLocalServer, loadOtterSettings, saveOtterSettings } from '../../../lib/localData';
 import { createNetworkShareCatalogue } from './networkShareCatalogue';
+import { desktopFileOps, DESKTOP_ACTION_SENTENCE } from '../storage/desktopFileOps';
 import { devFixtures } from '../../../dev/devFixtures';
 import { probeInBrowser } from '../bins/binProbeFallback';
 import { previewKindFor, needsBrowserProbe, rowsToReprobeAfterRelink } from '../bins/binMedia';
@@ -5505,16 +5506,31 @@ export function RabbitProvider({ children }) {
   }, [activeProjectId]);
 
   // MO1: a file on the office server is deleted server first, then renamed into the bin (NS-D12).
+  // The desktop and the server both, asked before the server's row is touched: a browser's delete, or one with
+  // the server off, must not go through on the row and then say it failed.
   const shareCatalogue = useCallback(() => createNetworkShareCatalogue({ adapter: adapterRef.current }), []);
+  const readyForShare = useCallback(async () => {
+    if (!desktopFileOps.available()) throw new Error(DESKTOP_ACTION_SENTENCE);
+    await desktopFileOps.reachable();
+  }, []);
+  const refusedByShare = (outcome, verb) => {
+    if (!outcome?.notMoved?.length) return;
+    throw new Error(outcome.notMoved[0].code === 'in_use'
+      ? `Could not ${verb} this file, because a program has it open on the office server. Close it and try again.`
+      : `The office server would not ${verb} this file, so it stayed where it was.`);
+  };
   const restoreFile = useCallback(async (row, projectId = activeProjectId) => {
     if (row?.storage_provider === 'network_share') {
+      await readyForShare();
       const answer = await adapterRef.current.restoreFiles([row.id], projectId);
-      await shareCatalogue().runNasOp(answer?.ops ?? [], { kind: 'restore' });
+      const outcome = await shareCatalogue().runNasOp(answer?.ops ?? [], { kind: 'restore' });
+      if (outcome.notMoved?.length) await noteFilesChangedElsewhere([projectId]);
+      refusedByShare(outcome, 'restore');
     } else {
       await adapterRef.current.restoreFile(row.id, projectId);
     }
     await noteFilesChangedElsewhere([projectId]);
-  }, [activeProjectId, noteFilesChangedElsewhere, shareCatalogue]);
+  }, [activeProjectId, noteFilesChangedElsewhere, shareCatalogue, readyForShare]);
 
   const deleteFile = useCallback(async (fileId) => {
     const projectId = activeProjectId;
@@ -5523,13 +5539,16 @@ export function RabbitProvider({ children }) {
       prev => ({ ...prev, files: prev.files.filter(f => f.id !== fileId) }),
       async () => {
         if (row?.storage_provider !== 'network_share') return adapterRef.current.deleteFile(fileId, projectId);
+        await readyForShare();
         const answer = await adapterRef.current.trashFiles([fileId], projectId);
-        return shareCatalogue().runNasOp(answer?.ops ?? [], { kind: 'trash' });
+        const outcome = await shareCatalogue().runNasOp(answer?.ops ?? [], { kind: 'trash' });
+        refusedByShare(outcome, 'delete');
+        return outcome;
       },
     );
     if (row) showUndoToast(`Deleted "${row.name || 'file'}"`, () => restoreFile(row, projectId));
     return result;
-  }, [optimistic, activeProjectId, showUndoToast, restoreFile, shareCatalogue]);
+  }, [optimistic, activeProjectId, showUndoToast, restoreFile, shareCatalogue, readyForShare]);
 
   // A desktop project's trash: what has been kept its 30 days goes when the project opens (fileTrash.cjs).
   useEffect(() => {

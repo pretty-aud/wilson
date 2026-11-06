@@ -7,7 +7,7 @@ import { DESKTOP_ACTION_SENTENCE } from '../../rabbit_v0.1.0/storage/desktopFile
 
 const file = (id, extra = {}) => ({ id, name: `${id}.mov`, storage_path: `p/${id}.mov`, storage_provider: 'supabase', ...extra })
 
-let adapter, catalogue, ops, history, changed, fileOps, calls
+let adapter, catalogue, ops, history, changed, fileOps, calls, notes
 
 function make(extra = {}) {
   calls = []
@@ -24,11 +24,12 @@ function make(extra = {}) {
     settleNetworkShareOps: note('settle'),
     ...extra,
   }
-  catalogue = { runNasOp: note('rename', { done: [], notMoved: [] }) }
-  ops = { available: () => true, put: note('put', {}), retireLocalMedia: note('retire', {}) }
+  catalogue = { runNasOp: note('rename', { done: [], notMoved: [], left: [] }), runCopyUp: note('put', { ok: true }) }
+  ops = { available: () => true, reachable: note('reachable', { ok: true }), retireLocalMedia: note('retire', {}) }
   history = createMothHistory()
   changed = []
-  fileOps = createMothFileOps({ adapter, catalogue, ops, history, onChanged: (p) => changed.push(p) })
+  notes = []
+  fileOps = createMothFileOps({ adapter, catalogue, ops, history, onChanged: (p) => changed.push(p), onNote: (n) => notes.push(n) })
 }
 
 beforeEach(() => make())
@@ -50,7 +51,7 @@ describe('a move in the cloud', () => {
   it('🚨 a refused commit removes the copy, and the file stays where it was', async () => {
     make({
       planFileMove: vi.fn(async () => ({ items: [{ id: 'a', how: 'rehome', to_provider: 'supabase', to_path: 'new/a.mov' }] })),
-      moveFiles: vi.fn(async () => { throw new Error('A file with this name is already there.') }),
+      moveFiles: vi.fn(async () => { throw Object.assign(new Error('A file with this name is already there.'), { code: 'name_taken' }) }),
     })
     await expect(fileOps.moveFiles([file('a')], 'p1', 'p2')).rejects.toThrow('already there')
     expect(calls).toEqual(['copy', 'uncopy'])
@@ -72,10 +73,54 @@ describe('on the office server', () => {
     await expect(fileOps.moveFiles([file('a', { storage_provider: 'network_share' })], 'p1', 'p2')).rejects.toThrow(DESKTOP_ACTION_SENTENCE)
     expect(adapter.moveFiles).not.toHaveBeenCalled()
   })
-  it('commits first, then renames', async () => {
+  it('asks whether the server is there, commits, then renames', async () => {
     make({ planFileMove: planShare, moveFiles: vi.fn(async () => { calls.push('commit'); return { move_id: 'm1', ops: [{ op_id: 'o1', id: 'a', from: 'Salt/a.mov', to: 'Moon/a.mov' }] } }) })
     await fileOps.moveFiles([file('a', { storage_provider: 'network_share' })], 'p1', 'p2')
-    expect(calls).toEqual(['commit', 'rename'])
+    expect(calls).toEqual(['reachable', 'commit', 'rename'])
+  })
+  it('🚨 a server that is off is said before anything is written', async () => {
+    make({ planFileMove: planShare })
+    ops.reachable = vi.fn(async () => { throw Object.assign(new Error('The office server cannot be reached from this computer.'), { code: 'unreachable' }) })
+    await expect(fileOps.moveFiles([file('a', { storage_provider: 'network_share' })], 'p1', 'p2')).rejects.toThrow('cannot be reached')
+    expect(adapter.moveFiles).not.toHaveBeenCalled()
+    await expect(fileOps.trashFiles([file('a', { storage_provider: 'network_share' })], 'p1')).rejects.toThrow('cannot be reached')
+    expect(adapter.trashFiles).not.toHaveBeenCalled()
+    await expect(fileOps.restoreFiles([file('a', { storage_provider: 'network_share' })], 'p1')).rejects.toThrow('cannot be reached')
+    expect(adapter.restoreFiles).not.toHaveBeenCalled()
+  })
+  it('a rename carries the size it expects, for a repeat to compare', async () => {
+    make({ planFileMove: planShare, moveFiles: vi.fn(async () => ({ move_id: 'm1', ops: [{ op_id: 'o1', id: 'a', from: 'Salt/a.mov', to: 'Moon/a.mov' }] })) })
+    await fileOps.moveFiles([file('a', { storage_provider: 'network_share', size_bytes: 7 })], 'p1', 'p2')
+    expect(catalogue.runNasOp.mock.calls[0][0][0].size).toBe(7)
+  })
+  it('🚨 a rename the server has not answered is left to finish, and says so: told, no undo step', async () => {
+    make({ planFileMove: planShare, moveFiles: vi.fn(async () => ({ move_id: 'm1', ops: [{ op_id: 'o1', id: 'a', from: 'x', to: 'y' }] })) })
+    catalogue.runNasOp = vi.fn(async () => ({ done: [], notMoved: [], left: [{ op_id: 'o1', code: 'failed' }] }))
+    await expect(fileOps.moveFiles([file('a', { storage_provider: 'network_share' })], 'p1', 'p2')).rejects.toThrow('will finish')
+    expect(history.canUndo()).toBe(false)
+    expect(changed).toEqual([['p1', 'p2']])
+  })
+  it('🚨 part of a batch moved: it says how many, tells Files, and offers no undo the server would refuse', async () => {
+    const two = vi.fn(async () => ({ items: [
+      { id: 'a', how: 'share_move', from: 'Salt/a.mov', to_path: 'Moon/a.mov', to_provider: 'network_share' },
+      { id: 'b', how: 'share_move', from: 'Salt/b.mov', to_path: 'Moon/b.mov', to_provider: 'network_share' },
+    ] }))
+    make({ planFileMove: two, moveFiles: vi.fn(async () => ({ move_id: 'm1', ops: [{ op_id: 'o1', id: 'a', from: 'x', to: 'y' }, { op_id: 'o2', id: 'b', from: 'x2', to: 'y2' }] })) })
+    catalogue.runNasOp = vi.fn(async () => ({ done: [{ op_id: 'o1', id: 'a' }], notMoved: [{ op_id: 'o2', id: 'b', code: 'name_taken' }], left: [] }))
+    const files = [file('a', { storage_provider: 'network_share' }), file('b', { storage_provider: 'network_share' })]
+    await expect(fileOps.moveFiles(files, 'p1', 'p2')).rejects.toThrow('Moved 1 of 2')
+    expect(changed).toEqual([['p1', 'p2']])
+    expect(history.canUndo()).toBe(false)
+  })
+  it('🚨 part of a delete went: the undo step is for what went, and Files is told', async () => {
+    make({ trashFiles: vi.fn(async () => ({ done: 2, ops: [{ op_id: 'o1', id: 'a', from: 'x', to: 'y' }, { op_id: 'o2', id: 'b', from: 'x2', to: 'y2' }] })) })
+    catalogue.runNasOp = vi.fn(async () => ({ done: [{ op_id: 'o1', id: 'a' }], notMoved: [{ op_id: 'o2', id: 'b', code: 'in_use' }], left: [] }))
+    const files = [file('a', { storage_provider: 'network_share' }), file('b', { storage_provider: 'network_share' })]
+    await expect(fileOps.trashFiles(files, 'p1')).rejects.toThrow('1 of 2')
+    expect(changed).toEqual([['p1']])
+    expect(history.canUndo()).toBe(true)
+    await history.undo()
+    expect(adapter.restoreFiles).toHaveBeenCalledWith(['a'], 'p1')
   })
   it('a rename that fails is told, and is not counted as moved', async () => {
     make({ planFileMove: planShare, moveFiles: vi.fn(async () => ({ move_id: 'm1', ops: [{ op_id: 'o1', id: 'a', from: 'x', to: 'y' }] })) })
@@ -83,22 +128,85 @@ describe('on the office server', () => {
     await expect(fileOps.moveFiles([file('a', { storage_provider: 'network_share' })], 'p1', 'p2')).rejects.toThrow('already in that folder')
     expect(history.canUndo()).toBe(false)
   })
-  it('a copy-up copies, settles done, and a failed copy settles not_moved', async () => {
+  it('a copy-up goes through the catalogue with its media key, and only one that landed retires the original', async () => {
     make({
       planFileMove: vi.fn(async () => ({ items: [{ id: 'a', how: 'copy_up', to_provider: 'network_share', to_path: 'nas:Moon/a.mov' }] })),
       moveFiles: vi.fn(async () => ({ move_id: 'm1', ops: [{ op_id: 'o1', id: 'a', to: 'Moon/a.mov' }] })),
     })
     const local = file('a', { storage_provider: 'local_server', storage_path: 'projects/p/x/y/a.mov' })
     await fileOps.moveFiles([local], 'p1', 'p2')
-    expect(ops.put).toHaveBeenCalledWith('Moon/a.mov', { media_key: 'projects/p/x/y/a.mov' })
-    expect(adapter.settleNetworkShareOps).toHaveBeenCalledWith(['o1'], 'done')
-    ops.put = vi.fn(async () => { throw Object.assign(new Error('x'), { code: 'name_taken' }) })
+    expect(catalogue.runCopyUp).toHaveBeenCalledWith({ op_id: 'o1', id: 'a', to: 'Moon/a.mov' }, 'projects/p/x/y/a.mov')
+    expect(ops.retireLocalMedia).toHaveBeenCalledTimes(1)
+    catalogue.runCopyUp = vi.fn(async () => ({ ok: false, code: 'name_taken' }))
     await expect(fileOps.moveFiles([local], 'p1', 'p2')).rejects.toThrow('already in that folder')
-    expect(adapter.settleNetworkShareOps).toHaveBeenLastCalledWith(['o1'], 'not_moved')
+    expect(ops.retireLocalMedia).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('what a move leaves behind', () => {
+  it('🚨 a refused commit removes the copy, and a lost answer does not: the row may already name it', async () => {
+    const rehome = vi.fn(async () => ({ items: [{ id: 'a', how: 'rehome', to_provider: 'supabase', to_path: 'new/a.mov' }] }))
+    make({ planFileMove: rehome, moveFiles: vi.fn(async () => { throw Object.assign(new Error('A file with this name is already there.'), { code: 'name_taken' }) }) })
+    await expect(fileOps.moveFiles([file('a')], 'p1', 'p2')).rejects.toThrow('already there')
+    expect(adapter.removeMoveCopy).toHaveBeenCalledTimes(1)
+    make({ planFileMove: rehome, moveFiles: vi.fn(async () => { throw new TypeError('Failed to fetch') }) })
+    await expect(fileOps.moveFiles([file('a')], 'p1', 'p2')).rejects.toThrow('could not tell')
+    expect(adapter.removeMoveCopy).not.toHaveBeenCalled()
+    expect(changed).toEqual([['p1', 'p2']])
+  })
+  it('a copy that fails before the commit removes what was made', async () => {
+    const two = vi.fn(async () => ({ items: [
+      { id: 'a', how: 'rehome', to_provider: 'supabase', to_path: 'new/a.mov' },
+      { id: 'b', how: 'rehome', to_provider: 'supabase', to_path: 'new/b.mov' },
+    ] }))
+    make({ planFileMove: two, copyBodyForMove: vi.fn(async (f) => { if (f.id === 'b') throw new Error('no copy'); return { file_id: f.id, path: 'x' } }) })
+    await expect(fileOps.moveFiles([file('a'), file('b')], 'p1', 'p2')).rejects.toThrow('no copy')
+    expect(adapter.removeMoveCopy).toHaveBeenCalledTimes(1)
+    expect(adapter.moveFiles).not.toHaveBeenCalled()
+  })
+  it('🚨 the person is told what a move cleared and what an undo could not bring back', async () => {
+    make({
+      moveFiles: vi.fn(async () => ({ move_id: 'm1', moved: 1, links_cleared: 2, ops: [] })),
+      undoFileMove: vi.fn(async () => ({ move_id: 'm2', links_not_restored: 1, pictures_not_restored: 1, ops: [] })),
+    })
+    await fileOps.moveFiles([file('a')], 'p1', 'p2')
+    expect(notes[0]).toMatch(/links/)
+    await history.undo()
+    expect(notes[1]).toMatch(/could not come back/)
   })
 })
 
 describe('undo and redo', () => {
+  it('🚨 a step that failed for a reason that may pass stays, so it can be asked again', async () => {
+    make({ undoFileMove: vi.fn(async () => { throw new TypeError('Failed to fetch') }) })
+    await fileOps.moveFiles([file('a')], 'p1', 'p2')
+    await expect(history.undo()).rejects.toThrow('Failed to fetch')
+    expect(history.canUndo()).toBe(true)
+  })
+  it('🚨 asked twice at once, it runs once', async () => {
+    let finish
+    const ran = vi.fn(() => new Promise((ok) => { finish = ok }))
+    history.push({ label: 'a', run: ran })
+    history.push({ label: 'b', run: ran })
+    const first = history.undo()
+    const second = history.undo()
+    finish()
+    await first
+    await second
+    expect(ran).toHaveBeenCalledTimes(1)
+  })
+  it('🚨 a toast\'s Undo acts only on its own step, not on whatever is on top', async () => {
+    const one = vi.fn(async () => null)
+    const two = vi.fn(async () => null)
+    history.push({ label: 'one', run: one })
+    const own = history.top()
+    history.push({ label: 'two', run: two })
+    await history.undoStep(own)
+    expect(one).not.toHaveBeenCalled()
+    expect(two).not.toHaveBeenCalled()
+    await history.undoStep(history.top())
+    expect(two).toHaveBeenCalledTimes(1)
+  })
   it('a move undoes, and its undo redoes', async () => {
     await fileOps.moveFiles([file('a')], 'p1', 'p2')
     await history.undo()
@@ -109,7 +217,7 @@ describe('undo and redo', () => {
     expect(history.canUndo()).toBe(true)
   })
   it('a refused undo leaves the step gone and says why', async () => {
-    make({ undoFileMove: vi.fn(async () => { throw new Error('This file has changed since that move, so it cannot be undone.') }) })
+    make({ undoFileMove: vi.fn(async () => { throw Object.assign(new Error('This file has changed since that move, so it cannot be undone.'), { code: 'changed_since' }) }) })
     await fileOps.moveFiles([file('a')], 'p1', 'p2')
     await expect(history.undo()).rejects.toThrow('changed since')
     expect(history.canUndo()).toBe(false)
@@ -149,7 +257,7 @@ describe('delete', () => {
   it('its renames run after the server has answered', async () => {
     make({ trashFiles: vi.fn(async () => { calls.push('trash'); return { done: 1, ops: [{ op_id: 'o', from: 'a', to: 'b' }] } }) })
     await fileOps.trashFiles([file('a', { storage_provider: 'network_share' })], 'p1')
-    expect(calls).toEqual(['trash', 'rename'])
+    expect(calls).toEqual(['reachable', 'trash', 'rename'])
     expect(catalogue.runNasOp).toHaveBeenCalledWith([{ op_id: 'o', from: 'a', to: 'b' }], { kind: 'trash' })
   })
 })
@@ -158,17 +266,24 @@ describe('a desktop-only project', () => {
   beforeEach(() => {
     make()
     delete adapter.planFileMove
-    adapter.moveFilesBetweenProjects = vi.fn(async () => ({ moved: 1 }))
+    adapter.moveFilesBetweenProjects = vi.fn(async () => ({ moved: 1, before: [{ id: 'a', folder_id: 'x', links: {} }], links_not_restored: 0 }))
     adapter.moveFilesInProject = vi.fn(async () => ({ moved: 1 }))
-    fileOps = createMothFileOps({ adapter, catalogue, ops, history, onChanged: () => {} })
+    notes = []
+    fileOps = createMothFileOps({ adapter, catalogue, ops, history, onChanged: () => {}, onNote: (n) => notes.push(n) })
   })
   it('between projects, through its own route, and back', async () => {
     await fileOps.moveFiles([file('a')], 'p1', 'p2', 'f1')
     expect(adapter.moveFilesBetweenProjects).toHaveBeenCalledWith(['a'], 'p1', 'p2', 'f1')
     await history.undo()
-    expect(adapter.moveFilesBetweenProjects).toHaveBeenLastCalledWith(['a'], 'p2', 'p1', null)
+    expect(adapter.moveFilesBetweenProjects).toHaveBeenLastCalledWith(['a'], 'p2', 'p1', null, { back: [{ id: 'a', folder_id: 'x', links: {} }] })
     await history.redo()
     expect(adapter.moveFilesBetweenProjects).toHaveBeenLastCalledWith(['a'], 'p1', 'p2', 'f1')
+  })
+  it('🚨 an undo says what it could not bring back', async () => {
+    await fileOps.moveFiles([file('a')], 'p1', 'p2')
+    adapter.moveFilesBetweenProjects = vi.fn(async () => ({ moved: 1, links_not_restored: 1 }))
+    await history.undo()
+    expect(notes.some((n) => /could not come back/.test(n))).toBe(true)
   })
   it('within a project, each file back to the folder it came from', async () => {
     await fileOps.moveFiles([file('a', { folder_id: 'x' }), file('b', { folder_id: 'y' })], 'p1', 'p1', 'f1')

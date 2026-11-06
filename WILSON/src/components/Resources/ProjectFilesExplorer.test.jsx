@@ -42,6 +42,13 @@ vi.mock('../../cloud/auth/supabaseClient', () => ({
   hydrateSupabase: async () => {},
 }))
 
+// The company's storage, for the office-server banner. Nothing else here asks.
+const storageNow = vi.hoisted(() => ({ row: null }))
+vi.mock('../../cloud/workspaceStorage', async (original) => ({
+  ...(await original()),
+  fetchWorkspaceStorage: async () => storageNow.row,
+}))
+
 
 const here = dirname(fileURLToPath(import.meta.url))
 const css = readFileSync(resolve(here, 'resources.css'), 'utf8')
@@ -1784,5 +1791,36 @@ describe('D2 — a signed download starts in the app on the desktop, never by se
     expect(await downloadCloudFile({ downloadUrl: async () => SIGNED, downloadFile: async () => new Blob(['x']) }, row, 'x.pdf')).toEqual({ via: 'url' })
     expect(calls).toEqual([SIGNED])
     expect(clicked).toEqual([])
+  })
+})
+
+describe('on an office server (whole-session review round 1)', () => {
+  const OFFICE = { mode: 'byos', provider: 'network', root_kind: 'unc', root_path: '//s/d' }
+  const withCheck = (check) => () => ({ ...REAL_ADAPTER(), getNetworkShareCheck: async () => check })
+  afterEach(() => {
+    storageNow.row = null
+    ctx.getAdapter = REAL_ADAPTER
+    ctx.projectsIndex.p1 = { id: 'p1', title: 'Smoke one' }
+    delete ctx.adapterMode
+  })
+  it('🚨 a project whose list row names its folder gets the banner, and a recorded check does not bring the page down', async () => {
+    storageNow.row = OFFICE
+    ctx.adapterMode = 'supabase'
+    ctx.projectsIndex.p1 = { id: 'p1', title: 'Smoke one', folder_root: '//s/d/Salt' }
+    ctx.getAdapter = withCheck({ last_checked_at: '2026-11-06T10:00:00Z', last_checked_by: 'u2', missing_count: 3 })
+    render(<ProjectFilesExplorer />)
+    const banner = await waitFor(() => {
+      const found = document.querySelector('[data-network-share-banner]')
+      expect(found?.textContent).toMatch(/Last checked/)
+      return found
+    })
+    expect(banner.textContent).toMatch(/3 files were not found on the server at the last check/)
+  })
+  it('no folder under the drive, no banner', async () => {
+    storageNow.row = OFFICE
+    ctx.adapterMode = 'supabase'
+    render(<ProjectFilesExplorer />)
+    await screen.findByRole('tablist')
+    expect(document.querySelector('[data-network-share-banner]')).toBeNull()
   })
 })
