@@ -953,6 +953,8 @@ nothing reads a claim anywhere else. `authenticated`'s 8 s `statement_timeout` s
 calls: a client sends at most about 1,000 entries, and a sweep marks at most 1,500 rows
 missing a call and says `more_missing`.
 
+**Moving a file (MO1, migration 0118).** `moth_move_items` and `moth_undo_move`, both through `fn_moth_apply_moves`, which clients cannot call. The plan writes nothing and says how each file goes (`metadata`, `rehome`, `copy_up`, `share_move`, `none`); the commit asks everything again under its locks, writes one `file_moves` row, sets `wilson.file_move`, makes one UPDATE per file, queues any old copy, and clears the marker. **The one order of locks:** the projects' advisory locks in id order, then project and folder rows `FOR SHARE`, then files `FOR UPDATE`, each in id order, with no row held before the advisory locks, because a walk holds its project's advisory lock while it takes file rows. An undo adds the project each file is in now, then takes its journal row. Section 7 of the file refuses it if that order changes, because one transaction cannot race it. **A way back:** a settle of `not_moved` runs `_network_share_replay_origin`, its own journalled path, which needs no rights the person may have lost. A move asks the office-server folder claims once per project (`wilson.network_share_asked`), since each asking scans every project in the company. `moth_trash_files` and `moth_restore_files` judge every id by the one exclusion before touching any, lock the rows and ask again; `moth_trash_index` hands out no locator. Errors are `moth_move:<code>` and `moth_trash:<code>`.
+
 ### 4.5 Realtime
 
 WILSON uses **broadcast-from-database**, never `postgres_changes`.
@@ -2537,7 +2539,9 @@ acts like a file manager*. Moving a row moves the real file, deleting moves it i
 folder on the server (`.wilson-bin`), and restore brings it back. Each call writes the row
 first, journals an op, and leaves the desktop to move the file and settle: `done`, or
 `not_moved`, which puts the row back. An op pending over 24 hours can be settled by anyone who
-may check that space and has the folder. **`_WILSON_PERSONAL/<uid>` is a person's space on the
+may check that space and has the folder. A move between projects, after the same 24 hours, can be
+called off (`not_moved` alone) by whoever may check both folders, who find it through
+`network_share_stale_moves` (MO1, 0118). **`_WILSON_PERSONAL/<uid>` is a person's space on the
 server**, so her answer *Yes, say so* holds: a personal space in an office-server company keeps
 its files there, in a folder the person is told about. The route is
 `POST /api/network-share/personal-space/files` in `electron/networkShare.cjs`: gated, same
@@ -5447,6 +5451,15 @@ of a session — this section is limits by design, that file is faults.
 - **A rename across calls can attach an id to a copy**, when a file of the same name, size and time is met before the original's directory has been read. The rows stay true to the files.
 - **A script on WILSON's own page can name another person's id on the add route.** Foreign pages, frames, windows and origins are closed, and a wrong drive is refused. Owed before the walk ships: the id from a verified bearer token.
 - **A real file with a short-name shape (`ABCDEF~1`) is not listed.** Neither is one over 2,000 bytes of path.
+
+**Moves and the Moth trash (MO1, 0118)**
+
+- **A move between projects on an office server waits for the computer that began it.** Its row moves first. If that laptop never comes back, or its owner lost a project or left, the row and the real file disagree until someone settles it. After 24 hours whoever may check both folders can find it (`network_share_stale_moves`) and call it off (`not_moved`). Only that computer can say it did move. A personal space stays its owner's, so a file leaving one needs its owner.
+- **A late laptop can still rename after a call-off** until the desktop client re-reads the operation first. Owed to that client.
+- **A plain writer on two projects can call a move on office-server files from a browser**, which the server cannot tell from the desktop. The rows wait as above.
+- **A file in a batch half of which went back cannot be undone whole.** It answers `changed_since`, and the rest goes by Move to.
+- **Files' own delete can land on a row a move was holding**, judged by the project it was leaving. Moth's path locks first; the generic one was left, bounded and restorable.
+- **Past about 20,000 files trashed within 30 days in one company**, a member's trash view can reach the 8 s, and needs the partial index in the runbook's row.
 
 **Storage (MO1, 0115)**
 
