@@ -55,7 +55,7 @@ function start(options = {}) {
 }
 
 // http.request, for the headers a browser's fetch would not let a page set.
-function send({ body = 'hello', query = {}, headers = {}, abortAfter = null } = {}) {
+function send({ body = 'hello', query = {}, headers = {}, abortAfter = null, hold = false, onRequest = null } = {}) {
   const q = new URLSearchParams({
     root: driveRoot ?? '',
     folder: `_WILSON_PERSONAL/${USER}`,
@@ -88,9 +88,12 @@ function send({ body = 'hello', query = {}, headers = {}, abortAfter = null } = 
       if (abortAfter !== null) resolve({ status: 0, json: null })
       else reject(err)
     })
+    if (onRequest) onRequest(req)
     if (abortAfter !== null) {
       req.flushHeaders()
-      req.write(body.slice(0, abortAfter), () => setTimeout(() => req.destroy(), 30))
+      req.write(body.slice(0, abortAfter), () => {
+        if (!hold) setTimeout(() => req.destroy(), 30)
+      })
     } else {
       req.end(body)
     }
@@ -137,8 +140,19 @@ describe('checkShareLocator holds what network_share_locator_ok holds (0117)', (
     for (const bad of refused) expect(checkShareLocator(bad), String(bad)).toBe(false)
   })
 
-  it('counts length in characters, as SQL does', () => {
-    expect(checkShareLocator(String.fromCodePoint(0x1f600).repeat(1024))).toBe(true)
+  it('counts length in characters and in bytes, as SQL does', () => {
+    expect(checkShareLocator(String.fromCodePoint(0x1f600).repeat(500))).toBe(true)
+    expect(checkShareLocator(String.fromCodePoint(0x1f600).repeat(501))).toBe(false)
+    expect(checkShareLocator('a'.repeat(1024))).toBe(true)
+  })
+
+  it('refuses a short name, and not a tilde in an ordinary one', () => {
+    for (const p of ['_WILSO~1', 'P_DATA~1/rates.json', 'a/CLIP~12.MOV', 'a/take~a1/b.mov']) {
+      expect(checkShareLocator(p), p).toBe(false)
+    }
+    for (const p of ['a/shot~final/b.mov', 'a/~draft.mov', 'a/b~c~d.mov']) {
+      expect(checkShareLocator(p), p).toBe(true)
+    }
   })
 
   it('carries the SQL\'s lists, word for word', () => {
@@ -206,9 +220,66 @@ describe('POST /api/network-share/personal-space/files', () => {
   })
 
   it('leaves nothing behind when the connection drops', async () => {
-    const res = await send({ body: 'x'.repeat(4096), abortAfter: 100 })
+    let client
+    const sent = send({ body: 'x'.repeat(4096), abortAfter: 100, hold: true, onRequest: (r) => { client = r } })
+    await vi.waitFor(() => expect(listing().some((n) => n.startsWith('.wilson-upload-'))).toBe(true), { timeout: 3000 })
+    client.destroy()
+    expect((await sent).status).toBe(0)
+    await vi.waitFor(() => expect(listing()).toEqual([]), { timeout: 3000 })
+  })
+
+  it('ends an add whose connection has gone quiet, and keeps nothing', async () => {
+    await new Promise((resolve) => server.close(resolve))
+    await start({ stallMs: 60 })
+    const res = await send({ body: 'x'.repeat(4096), abortAfter: 100, hold: true })
     expect(res.status).toBe(0)
     await vi.waitFor(() => expect(listing()).toEqual([]), { timeout: 3000 })
+  })
+
+  it('answers when the file cannot be finished, though the whole body was read', async () => {
+    await new Promise((resolve) => server.close(resolve))
+    const busy = Object.assign(new Error('busy'), { code: 'EBUSY' })
+    await start({ fsp: { ...fs.promises, rename: () => Promise.reject(busy) } })
+    const res = await send()
+    expect(res.status).toBe(500)
+    expect(res.json.code).toBe('write_failed')
+    expect(res.json.error).toContain('Nothing was kept')
+    expect(listing()).toEqual([])
+  })
+
+  it('answers when the name cannot be reserved', async () => {
+    await new Promise((resolve) => server.close(resolve))
+    const denied = Object.assign(new Error('denied'), { code: 'EACCES' })
+    await start({ fsp: { ...fs.promises, open: () => Promise.reject(denied) } })
+    const res = await send()
+    expect(res.status).toBe(500)
+    expect(res.json.code).toBe('write_failed')
+    expect(listing()).toEqual([])
+  })
+
+  it('does not say nothing was kept when part of it could not be removed', async () => {
+    await new Promise((resolve) => server.close(resolve))
+    const busy = Object.assign(new Error('busy'), { code: 'EBUSY' })
+    await start({
+      fsp: { ...fs.promises, rename: () => Promise.reject(busy), unlink: () => Promise.reject(busy) },
+    })
+    const res = await send()
+    expect(res.status).toBe(500)
+    expect(res.json.error).not.toContain('Nothing was kept')
+    expect(res.json.error).toContain('may still be')
+  })
+
+  it('clears what a killed add left, and not what another add is writing', async () => {
+    fs.mkdirSync(folderOf(), { recursive: true })
+    const old = path.join(folderOf(), '.wilson-upload-old.tmp')
+    const young = path.join(folderOf(), '.wilson-upload-young.tmp')
+    fs.writeFileSync(old, 'part')
+    fs.writeFileSync(young, 'part')
+    const longAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)
+    fs.utimesSync(old, longAgo, longAgo)
+    expect((await send()).status).toBe(201)
+    await vi.waitFor(() => expect(fs.existsSync(old)).toBe(false), { timeout: 3000 })
+    expect(fs.existsSync(young)).toBe(true)
   })
 
   it('refuses a size that is missing or not a whole number', async () => {
@@ -286,6 +357,39 @@ describe('POST /api/network-share/personal-space/files', () => {
     }
   })
 
+  it('refuses a link that leads to another folder inside the drive', async () => {
+    const target = path.join(root, 'Finance')
+    fs.mkdirSync(target)
+    fs.mkdirSync(path.join(root, '_WILSON_PERSONAL'))
+    try {
+      fs.symlinkSync(target, folderOf(), 'junction')
+    } catch {
+      return // no link on this machine; the check needs one
+    }
+    const res = await send()
+    expect(res.status).toBe(403)
+    expect(res.json.code).toBe('not_your_folder')
+    expect(fs.readdirSync(target)).toEqual([])
+  })
+
+  it('makes no folder through a link on the parent', async () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'wilson-outside-'))
+    try {
+      try {
+        fs.symlinkSync(outside, path.join(root, '_WILSON_PERSONAL'), 'junction')
+      } catch {
+        return // no link on this machine; the check needs one
+      }
+      const res = await send()
+      expect(res.status).toBe(403)
+      expect(res.json.code).toBe('not_your_folder')
+      expect(fs.readdirSync(outside)).toEqual([])
+    } finally {
+      fs.rmSync(path.join(root, '_WILSON_PERSONAL'), { recursive: true, force: true })
+      fs.rmSync(outside, { recursive: true, force: true })
+    }
+  })
+
   it('refuses a request from anywhere but the page itself', async () => {
     for (const headers of [{ 'sec-fetch-site': 'same-site' }, { 'sec-fetch-site': 'cross-site' }, { 'sec-fetch-site': 'none' }]) {
       const res = await send({ headers })
@@ -353,6 +457,10 @@ describe('the wiring', () => {
     expect(mount).toBeGreaterThan(lock)
     expect(main.slice(mount, mount + 300)).toContain('getWorkspaceRoot: () => workspaceRootDir')
     expect(main.slice(mount, mount + 300)).toContain('getSignedInUserId: () => signedInUserId')
+  })
+
+  it('main.cjs lifts Node\'s five-minute limit, so a big add is not always cut off', () => {
+    expect(main).toContain('server.requestTimeout = 0;')
   })
 
   it('the signed-in id reaches main over one gated channel, and the app pushes and clears it', () => {

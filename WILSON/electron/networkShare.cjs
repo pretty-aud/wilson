@@ -15,8 +15,12 @@
 // database by network_share_space_folder, and checked here against the person signed
 // in. The renderer holds the launch token, so this check is not a wall against it: it
 // stops a stale or mistaken call from writing into somebody else's folder, on a server
-// where the only thing keeping that folder theirs is its name. The drive has to be the
-// one the signed-in renderer pushed, so a laptop with an old root writes nothing.
+// where the only thing keeping that folder theirs is its name. A page that is not WILSON's
+// cannot push the id (ipcGate) or call this (same origin, launch token), and sign-out
+// clears it; script running on WILSON's own page can still name someone else's id, which
+// is why the walk's route must take the id from a verified token before it ships. The
+// drive has to be the one the signed-in renderer pushed, so a laptop with an old root
+// writes nothing.
 //
 // File work is async and bounded: a dead SMB path can hang a synchronous call for the
 // OS timeout and freeze the window (bins, measured). The temp file sits beside its final
@@ -42,6 +46,13 @@ const PERSONAL_PARENT = '_WILSON_PERSONAL';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const REACH_WAIT_MS = 3000;
 const MAX_NAME_TRIES = 999;
+// An add takes as long as the server takes, so main.cjs lifts Node's request limit. What
+// ends a dead one is this: nothing moved on the connection for two minutes.
+const STALL_MS = 120000;
+// What a killed add left behind, removed at this person's next add. Young ones may be
+// another add's, still writing.
+const STALE_UPLOAD_MS = 24 * 60 * 60 * 1000;
+const LOCATOR_MAX_BYTES = 2000;
 
 // The two lists network_share_locator_ok holds: rabbit_money_segment's names, and the
 // suffixes of the folders a project's money sits in. networkShare.routes.test.js holds
@@ -54,6 +65,10 @@ const SHARE_REFUSED_SUFFIX = ['_RECEIPTS&INVOICES', '_CREWINVOICES', '_TALENTINV
 // the BOM, variation selectors and TAG code points. network_share_path_shape_ok's class.
 const REFUSED_CHARS = /[\\:*?"<>|\u0001-\u001f\u007f-\u009f\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufe00-\ufe0f\ufeff\u{e0000}-\u{e007f}\u{e0100}-\u{e01ef}]/u;
 
+// A short name: Windows and Samba can answer to '_WILSO~1' for a longer folder, and every
+// name test would read it as some other folder. network_share_path_shape_ok's.
+const SHORT_NAME = /(^|\/)[^./~]{1,6}~[0-9a-z]{1,3}([.][^./]{0,3})?(\/|$)/i;
+
 // Device names Windows opens as devices, with or without an extension. A walk could not
 // find a file called this; the add route must not make one.
 const DEVICE_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i;
@@ -62,11 +77,13 @@ const DEVICE_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i;
 function checkShareLocator(p) {
   if (typeof p !== 'string' || p === '') return false;
   if (Array.from(p).length > 1024) return false;
+  if (Buffer.byteLength(p, 'utf8') > LOCATOR_MAX_BYTES) return false;
   if (p.normalize('NFC') !== p) return false;
   if (/^\/|\/$|\/\//.test(p)) return false;
   if (REFUSED_CHARS.test(p)) return false;
   if (/(^|\/)\./.test(p)) return false;
   if (/[. ](\/|$)/.test(p)) return false;
+  if (SHORT_NAME.test(p)) return false;
   for (const seg of p.split('/')) {
     const upper = seg.toUpperCase();
     if (SHARE_REFUSED_EXACT.includes(upper)) return false;
@@ -99,12 +116,15 @@ function mountNetworkShare(expressApp, {
   createWriteStream = fs.createWriteStream,
   pathImpl = path,
   reachWaitMs = REACH_WAIT_MS,
+  stallMs = STALL_MS,
+  staleUploadMs = STALE_UPLOAD_MS,
   log = () => {},
 } = {}) {
   for (const [name, fn] of Object.entries({ getWorkspaceRoot, getSignedInUserId })) {
     if (typeof fn !== 'function') throw new Error(`mountNetworkShare: ${name} is required`);
   }
-  const { resolveContainedFilePath, isPathInside } = makeContainment(pathImpl);
+  const { resolveContainedFilePath } = makeContainment(pathImpl);
+  const samePath = (a, b) => pathImpl.resolve(a).toLowerCase() === pathImpl.resolve(b).toLowerCase();
 
   // Is the server there? The race bounds the wait, not the call: a dead SMB path can
   // hold a stat for the OS timeout, and nothing here waits for it.
@@ -116,6 +136,17 @@ function mountNetworkShare(expressApp, {
       return await Promise.race([stat, timedOut]);
     } finally {
       clearTimeout(timer);
+    }
+  }
+
+  // A killed add's temp file is dot-led, so no walk lists it and nothing else would ever
+  // remove it. Not waited on: an add does not depend on this.
+  async function sweepStaleUploads(dir) {
+    const cutoff = Date.now() - staleUploadMs;
+    for (const entry of await fsp.readdir(dir)) {
+      if (!entry.startsWith('.wilson-upload-') || !entry.endsWith('.tmp')) continue;
+      const stat = await fsp.stat(pathImpl.join(dir, entry));
+      if (stat.mtimeMs < cutoff) await fsp.unlink(pathImpl.join(dir, entry));
     }
   }
 
@@ -154,8 +185,6 @@ function mountNetworkShare(expressApp, {
       return refuse(res, 503, 'server_off', 'The office server cannot be reached from this computer right now.');
     }
 
-    // Strictly under the drive, as written and on disk: a link or a junction planted in
-    // the share must not carry the file somewhere else.
     const dir = resolveContainedFilePath(root, folder);
     if (!dir || pathImpl.resolve(dir).toLowerCase() === pathImpl.resolve(root).toLowerCase()) {
       return refuse(res, 403, 'not_your_folder', 'Files can be added only to your own personal space.');
@@ -163,21 +192,45 @@ function mountNetworkShare(expressApp, {
 
     let tmp = null;
     let reserved = null;
-    const removeQuietly = async (p) => { if (p) await fsp.unlink(p).catch(() => {}); };
+    // True when nothing is left at the path, so a sentence can say so honestly.
+    const removeQuietly = async (p) => {
+      if (!p) return true;
+      try {
+        await fsp.unlink(p);
+        return true;
+      } catch (err) {
+        return Boolean(err && err.code === 'ENOENT');
+      }
+    };
+    const LEFT_BEHIND = 'The file did not finish, and part of it may still be in your personal space on the office server. Try again.';
     try {
-      await fsp.mkdir(dir, { recursive: true });
-      const [realRoot, realDir] = await Promise.all([fsp.realpath(root), fsp.realpath(dir)]);
-      if (!isPathInside(realRoot, realDir) || realRoot.toLowerCase() === realDir.toLowerCase()) {
+      // Exactly this person's folder, on disk as well as written. A link or junction planted
+      // in the share must not carry the file anywhere else, inside the drive or out of it, and
+      // one on the parent must not get a folder made for it.
+      const realRoot = await fsp.realpath(root);
+      const realParent = await fsp.realpath(pathImpl.dirname(dir)).catch((err) => {
+        if (err && err.code === 'ENOENT') return null;
+        throw err;
+      });
+      if (realParent !== null && !samePath(realParent, pathImpl.join(realRoot, PERSONAL_PARENT))) {
         return refuse(res, 403, 'not_your_folder', 'Files can be added only to your own personal space.');
       }
+      await fsp.mkdir(dir, { recursive: true });
+      const realDir = await fsp.realpath(dir);
+      if (!samePath(realDir, pathImpl.join(realRoot, PERSONAL_PARENT, userId))) {
+        return refuse(res, 403, 'not_your_folder', 'Files can be added only to your own personal space.');
+      }
+      sweepStaleUploads(dir).catch(() => {});
 
       tmp = pathImpl.join(dir, `.wilson-upload-${crypto.randomUUID()}.tmp`);
       const out = createWriteStream(tmp, { flags: 'wx' });
+      req.setTimeout(stallMs, () => req.destroy(new Error('stalled')));
       await pipeline(req, out);
+      req.setTimeout(0);
       if (out.bytesWritten !== sizeBytes) {
-        await removeQuietly(tmp);
+        const clean = await removeQuietly(tmp);
         tmp = null;
-        return refuse(res, 400, 'size_mismatch', 'The file did not arrive whole. Nothing was kept. Try again.');
+        return refuse(res, 400, 'size_mismatch', clean ? 'The file did not arrive whole. Nothing was kept. Try again.' : LEFT_BEHIND);
       }
 
       // Never overwrite: an exclusive create reserves the name, and the rename replaces
@@ -197,18 +250,24 @@ function mountNetworkShare(expressApp, {
         }
       }
       if (!finalName) {
-        await removeQuietly(tmp);
+        const clean = await removeQuietly(tmp);
         tmp = null;
-        return refuse(res, 409, 'name_taken', 'Too many files here already have this name. Rename it and try again.');
+        return refuse(res, 409, 'name_taken', clean ? 'Too many files here already have this name. Rename it and try again.' : LEFT_BEHIND);
       }
 
       await fsp.rename(tmp, reserved);
       tmp = null;
+      // The folder could have been swapped for a link since the check above.
+      if (!samePath(await fsp.realpath(reserved), pathImpl.join(realDir, finalName))) {
+        const clean = await removeQuietly(reserved);
+        reserved = null;
+        return refuse(res, 403, 'not_your_folder', clean ? 'Files can be added only to your own personal space.' : LEFT_BEHIND);
+      }
       const stat = await fsp.stat(reserved);
       if (stat.size !== sizeBytes) {
-        await removeQuietly(reserved);
+        const clean = await removeQuietly(reserved);
         reserved = null;
-        return refuse(res, 500, 'size_mismatch', 'The file did not arrive whole. Nothing was kept. Try again.');
+        return refuse(res, 500, 'size_mismatch', clean ? 'The file did not arrive whole. Nothing was kept. Try again.' : LEFT_BEHIND);
       }
       reserved = null;
       return res.status(201).json({
@@ -218,12 +277,15 @@ function mountNetworkShare(expressApp, {
         modifiedAt: stat.mtime.toISOString(),
       });
     } catch (err) {
-      await removeQuietly(tmp);
-      await removeQuietly(reserved);
+      const [cleanTmp, cleanReserved] = await Promise.all([removeQuietly(tmp), removeQuietly(reserved)]);
       // Said without the file's name or the path.
       log(`[network-share] an add failed: ${err && err.code ? err.code : 'error'}`);
-      if (res.headersSent || req.destroyed) return undefined;
-      return refuse(res, 500, 'write_failed', 'The file could not be written to the office server. Nothing was kept.');
+      // The connection, not the request: a request read to its end is already destroyed, and
+      // whoever sent it is still waiting for an answer.
+      if (res.headersSent || res.destroyed || req.socket?.destroyed) return undefined;
+      return refuse(res, 500, 'write_failed', cleanTmp && cleanReserved
+        ? 'The file could not be written to the office server. Nothing was kept.'
+        : LEFT_BEHIND);
     }
   });
 }

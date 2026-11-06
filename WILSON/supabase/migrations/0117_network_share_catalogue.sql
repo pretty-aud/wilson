@@ -100,8 +100,12 @@ BEGIN
 
   -- What is restated below is what it was lifted from, or this file's. The others are named
   -- because this file rests on what they do.
+  SELECT md5(replace(prosrc, chr(13), '')) INTO v_md5 FROM pg_proc WHERE oid = 'public.purge_soft_deleted(interval)'::regprocedure;
+  IF v_md5 IS DISTINCT FROM 'a8dda2f3dc0b04eca7c216e6a4fcc8bf' AND v_md5 IS DISTINCT FROM 'f554aba88a2fbb933674b20ceb782486' THEN
+    RAISE EXCEPTION '0117 refused: purge_soft_deleted is neither 0067''s body nor this file''s (md5 %)', v_md5;
+  END IF;
   SELECT md5(replace(prosrc, chr(13), '')) INTO v_md5 FROM pg_proc WHERE oid = 'public.fn_projects_owner_guard()'::regprocedure;
-  IF v_md5 IS DISTINCT FROM 'ba4ac337fa62d309793dfd99af6f99c8' AND v_md5 IS DISTINCT FROM '6d2ebec7b52c016d557bbbebe64e84d5' THEN
+  IF v_md5 IS DISTINCT FROM 'ba4ac337fa62d309793dfd99af6f99c8' AND v_md5 IS DISTINCT FROM '49ebe6b9f996f75682982dfbe1c842e4' THEN
     RAISE EXCEPTION '0117 refused: fn_projects_owner_guard is neither 0114''s body nor this file''s (md5 %)', v_md5;
   END IF;
   SELECT md5(replace(prosrc, chr(13), '')) INTO v_md5 FROM pg_proc WHERE oid = 'public.fn_files_body_guard()'::regprocedure;
@@ -150,6 +154,8 @@ BEGIN
   RETURN p IS NOT NULL
     AND p <> ''
     AND length(p) <= 1024
+    -- The unique index holds bytes, and a btree refuses a row over about 2,700 of them.
+    AND octet_length(p) <= 2000
     AND p IS NFC NORMALIZED
     -- A leading or trailing slash, or an empty segment.
     AND p !~ '^/|/$|//'
@@ -160,7 +166,10 @@ BEGIN
     -- A dot-led segment, so '..' and '.wilson-bin' are never a locator.
     AND p !~ '(^|/)\.'
     -- A segment ending in a dot or a space, which Windows would quietly drop.
-    AND p !~ '[. ](/|$)';
+    AND p !~ '[. ](/|$)'
+    -- A short name: Windows and Samba can answer to '_WILSO~1' for a longer folder, and every
+    -- name test here would read it as some other folder. A real file called this is not listed.
+    AND p !~* '(^|/)[^./~]{1,6}~[0-9a-z]{1,3}([.][^./]{0,3})?(/|$)';
 END;
 $$;
 
@@ -264,6 +273,21 @@ $$;
 
 -- A stored folder_root, relative to the drive with forward slashes, or NULL when it does not
 -- sit strictly inside: 0049's own test, because 0049 never looks again after the drive moves.
+CREATE OR REPLACE FUNCTION public._network_share_inside(p_root text, p_folder_root text)
+RETURNS text
+LANGUAGE plpgsql
+IMMUTABLE
+SET search_path = public
+AS $$
+BEGIN
+  IF p_root IS NULL OR p_folder_root IS NULL
+     OR lower(left(p_folder_root, length(p_root) + 1)) <> lower(p_root) || chr(92) THEN
+    RETURN NULL;
+  END IF;
+  RETURN replace(substr(p_folder_root, length(p_root) + 2), chr(92), '/');
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION public._network_share_placed(p_root text, p_folder_root text)
 RETURNS text
 LANGUAGE plpgsql
@@ -271,13 +295,8 @@ IMMUTABLE
 SET search_path = public
 AS $$
 DECLARE
-  v text;
+  v text := public._network_share_inside(p_root, p_folder_root);
 BEGIN
-  IF p_root IS NULL OR p_folder_root IS NULL
-     OR lower(left(p_folder_root, length(p_root) + 1)) <> lower(p_root) || chr(92) THEN
-    RETURN NULL;
-  END IF;
-  v := replace(substr(p_folder_root, length(p_root) + 2), chr(92), '/');
   IF public.network_share_locator_ok(v) THEN
     RETURN v;
   END IF;
@@ -336,7 +355,9 @@ $$;
 
 -- Every folder taken in a company, by every project in any state, and the reserved parent
 -- under no project. A folder_root that no longer sits inside the drive is an unplaced claim:
--- nobody can say what it overlaps, so an apply refuses rather than skips. A slug claims its
+-- nobody can say what it overlaps, so an apply refuses rather than skips. One inside the drive
+-- under a name no catalogue may hold still claims its path: its own project reads no_folder and
+-- nobody else is stopped. A slug claims its
 -- segment only where there is no folder_root, and only if it could be a locator at all.
 -- The nesting arm and the apply read only this.
 CREATE OR REPLACE FUNCTION public.network_share_claims(p_ws uuid)
@@ -357,7 +378,7 @@ BEGIN
       FROM (
         SELECT p.id,
                CASE WHEN p.personal_owner_id IS NOT NULL THEN '_WILSON_PERSONAL/' || p.personal_owner_id::text
-                    WHEN p.folder_root IS NOT NULL THEN public._network_share_placed(v_root, p.folder_root)
+                    WHEN p.folder_root IS NOT NULL THEN public._network_share_inside(v_root, p.folder_root)
                     ELSE p.folder_slug
                END AS prefix
           FROM public.projects p
@@ -389,17 +410,85 @@ BEGIN
     RETURN false;
   END IF;
   IF p_folder_root IS NOT NULL THEN
-    v_prefix := public._network_share_placed(v_root, p_folder_root);
+    v_prefix := public._network_share_inside(v_root, p_folder_root);
   ELSIF public.network_share_locator_ok(p_folder_slug) THEN
     v_prefix := p_folder_slug;
   END IF;
   IF v_prefix IS NULL THEN
     RETURN false;
   END IF;
+  -- A project that has left a folder can still have rows, or an unsettled operation, there. Those
+  -- files are not a new tenant's yet: its trash or its walk would meet them.
   RETURN EXISTS (SELECT 1 FROM public.network_share_claims(p_ws) c
                   WHERE c.project_id IS DISTINCT FROM p_project
                     AND c.placed
-                    AND public._network_share_overlaps(c.prefix, v_prefix));
+                    AND public._network_share_overlaps(c.prefix, v_prefix))
+      OR EXISTS (SELECT 1 FROM public.files h
+                  WHERE h.workspace_id = p_ws
+                    AND h.storage_provider = 'network_share'
+                    AND h.deleted_at IS NULL
+                    AND h.project_id IS DISTINCT FROM p_project
+                    AND starts_with(lower(h.storage_path), 'nas:' || lower(v_prefix) || '/'))
+      OR EXISTS (SELECT 1 FROM public.network_share_ops o
+                  WHERE o.workspace_id = p_ws
+                    AND o.state = 'pending'
+                    AND o.project_id IS DISTINCT FROM p_project
+                    AND (starts_with(lower(o.from_locator), lower(v_prefix) || '/')
+                         OR starts_with(lower(o.to_locator), lower(v_prefix) || '/')));
+END;
+$$;
+
+-- Inside the company's drive, and under a name no catalogue may hold: its own root, a money or
+-- Legal name, a dot-led folder, a short name. It would never come up, so it is refused when it is
+-- set, where the person can still choose another.
+CREATE OR REPLACE FUNCTION public._network_share_folder_refused(p_ws uuid, p_folder_root text)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+SET row_security = off
+AS $$
+DECLARE
+  v_root text := public._network_share_drive(p_ws);
+  v_rel  text;
+BEGIN
+  IF v_root IS NULL OR p_folder_root IS NULL THEN
+    RETURN false;
+  END IF;
+  IF lower(p_folder_root) = lower(v_root) THEN
+    RETURN true;
+  END IF;
+  v_rel := public._network_share_inside(v_root, p_folder_root);
+  RETURN v_rel IS NOT NULL AND NOT public.network_share_locator_ok(v_rel);
+END;
+$$;
+
+-- This space's folder is its own: no claim nobody can place, and none over or under it. Every
+-- definer that names a real file asks this, not only the apply, because a desktop acts on what it
+-- returns. The reserved parent holds every personal folder by design, so it counts against
+-- everyone else.
+CREATE OR REPLACE FUNCTION public._network_share_assert_folder(p_ws uuid, p_project uuid, p_folder text)
+RETURNS void
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+SET row_security = off
+AS $$
+DECLARE
+  v_owner uuid;
+BEGIN
+  SELECT p.personal_owner_id INTO v_owner FROM public.projects p WHERE p.id = p_project;
+  IF EXISTS (SELECT 1 FROM public.network_share_claims(p_ws) c WHERE NOT c.placed) THEN
+    RAISE EXCEPTION 'network_share: folders_unplaced';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.network_share_claims(p_ws) c
+              WHERE c.project_id IS DISTINCT FROM p_project
+                AND public._network_share_overlaps(c.prefix, p_folder)
+                AND NOT (v_owner IS NOT NULL AND c.project_id IS NULL)) THEN
+    RAISE EXCEPTION 'network_share: folder_shared';
+  END IF;
 END;
 $$;
 
@@ -535,6 +624,13 @@ BEGIN
         RAISE EXCEPTION 'This folder is already used by another project or space on the company server.'
           USING ERRCODE = '42501';
       END IF;
+      IF v_ws = public.current_workspace_id()
+         AND public.has_active_membership(v_ws)
+         AND public.current_app_role() IN ('admin', 'manager')
+         AND public._network_share_folder_refused(v_ws, NEW.folder_root) THEN
+        RAISE EXCEPTION 'WILSON cannot keep a project''s files in this folder on the company server. Choose another.'
+          USING ERRCODE = '42501';
+      END IF;
     END IF;
     RETURN NEW;
   END IF;
@@ -585,6 +681,11 @@ BEGIN
     IF (NEW.folder_root IS DISTINCT FROM OLD.folder_root OR NEW.folder_slug IS DISTINCT FROM OLD.folder_slug)
        AND public._network_share_claim_taken(NEW.workspace_id, NEW.id, NEW.folder_root, NEW.folder_slug) THEN
       RAISE EXCEPTION 'This folder is already used by another project or space on the company server.'
+        USING ERRCODE = '42501';
+    END IF;
+    IF NEW.folder_root IS DISTINCT FROM OLD.folder_root
+       AND public._network_share_folder_refused(NEW.workspace_id, NEW.folder_root) THEN
+      RAISE EXCEPTION 'WILSON cannot keep a project''s files in this folder on the company server. Choose another.'
         USING ERRCODE = '42501';
     END IF;
   END IF;
@@ -860,6 +961,45 @@ $$;
 REVOKE ALL ON FUNCTION public.purge_network_share_ops(interval) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.purge_network_share_ops(interval) TO service_role;
 
+-- Restated from 0067, one arm. A trashed row whose operation has not settled stays past its 30
+-- days: its journal is the only record of where the file went, and a purge would certify a bin the
+-- file never reached, and the next walk would list the file again as new. It is purged the night
+-- after the operation settles. Its grants and its nightly job stand.
+CREATE OR REPLACE FUNCTION public.purge_soft_deleted(
+  p_retention INTERVAL DEFAULT INTERVAL '30 days'
+)
+RETURNS BIGINT
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  t TEXT;
+  v_count BIGINT;
+  v_total BIGINT := 0;
+BEGIN
+  -- Parents first so cascades do the bulk of the work; the remaining loops
+  -- catch individually soft-deleted children.
+  FOREACH t IN ARRAY ARRAY['projects','assets','tasks','phases','files',
+                           'comments','rate_cards','milestones']
+  LOOP
+    IF t = 'files' THEN
+      DELETE FROM public.files f
+       WHERE f.deleted_at < now() - p_retention
+         AND NOT EXISTS (SELECT 1 FROM public.network_share_ops o
+                          WHERE o.file_id = f.id AND o.state = 'pending');
+    ELSE
+      EXECUTE format(
+        'DELETE FROM public.%I WHERE deleted_at < now() - $1', t)
+        USING p_retention;
+    END IF;
+    GET DIAGNOSTICS v_count = ROW_COUNT;
+    v_total := v_total + v_count;
+  END LOOP;
+  RETURN v_total;
+END;
+$$;
+
 -- cron.schedule() upserts by job name, so a re-run is idempotent.
 DO $$
 BEGIN
@@ -894,7 +1034,8 @@ CREATE OR REPLACE FUNCTION public.network_share_catalogue_apply(
   p_dirs       jsonb,
   p_bin        jsonb DEFAULT '[]'::jsonb,
   p_final      boolean DEFAULT true,
-  p_stopped_at text DEFAULT NULL)
+  p_stopped_at text DEFAULT NULL,
+  p_first      boolean DEFAULT false)
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -909,9 +1050,9 @@ DECLARE
   v_root     text;
   v_folder   text;
   v_lf       text;
-  v_owner    uuid;
   v_n        bigint;
   v_check    public.network_share_checks;
+  v_run_open boolean;
   v_win_at   timestamptz;
   v_win_n    integer;
   -- The call, parsed.
@@ -925,6 +1066,14 @@ DECLARE
   v_mtime    timestamptz[];
   v_mime     text[];
   v_bin      uuid[];
+  -- What has gone, and how many of those one call marks: each row costs about 2 ms under its
+  -- triggers, and a call has 8 s. A call that could not mark them all is sent again.
+  v_hit      uuid[];
+  v_moved    uuid[];
+  v_todo     uuid[];
+  v_cap      CONSTANT integer := 1500;
+  v_room     integer;
+  v_more     boolean := false;
   -- The counts.
   v_found    bigint;
   v_updated  bigint;
@@ -945,7 +1094,6 @@ BEGIN
   IF NOT public._network_share_may_check(p_project_id) THEN
     RAISE EXCEPTION 'network_share: not allowed' USING ERRCODE = '42501';
   END IF;
-  SELECT p.personal_owner_id INTO v_owner FROM public.projects p WHERE p.id = p_project_id;
 
   -- (2) Which drive. A laptop with an old root must not re-list a company's server.
   v_root := public._network_share_drive(v_ws);
@@ -953,22 +1101,13 @@ BEGIN
     RAISE EXCEPTION 'network_share: drive_changed';
   END IF;
 
-  -- (3) Which folder, and that nobody else's overlaps it. The reserved parent holds every
-  -- personal folder by design, so it counts against everyone else.
+  -- (3) Which folder, and that nobody else's overlaps it.
   v_folder := public.network_share_space_folder(p_project_id);
   IF v_folder IS NULL OR p_folder IS DISTINCT FROM v_folder THEN
     RAISE EXCEPTION 'network_share: no_folder';
   END IF;
   v_lf := lower(v_folder);
-  IF EXISTS (SELECT 1 FROM public.network_share_claims(v_ws) c WHERE NOT c.placed) THEN
-    RAISE EXCEPTION 'network_share: folders_unplaced';
-  END IF;
-  IF EXISTS (SELECT 1 FROM public.network_share_claims(v_ws) c
-              WHERE c.project_id IS DISTINCT FROM p_project_id
-                AND public._network_share_overlaps(c.prefix, v_folder)
-                AND NOT (v_owner IS NOT NULL AND c.project_id IS NULL)) THEN
-    RAISE EXCEPTION 'network_share: folder_shared';
-  END IF;
+  PERFORM public._network_share_assert_folder(v_ws, p_project_id, v_folder);
 
   -- (4) How much. Sizes first, before any lock.
   IF jsonb_typeof(p_dirs) IS DISTINCT FROM 'array'
@@ -990,6 +1129,8 @@ BEGIN
   -- (5) One at a time on a project, and no more often than this.
   PERFORM public._network_share_lock_projects(ARRAY[p_project_id]);
   SELECT * INTO v_check FROM public.network_share_checks c WHERE c.project_id = p_project_id;
+  -- A walk's first call starts a new run, whatever a walk that stopped half way left open.
+  v_run_open := COALESCE(v_check.run_open, false) AND NOT COALESCE(p_first, false);
   IF v_check.window_started_at IS NULL OR v_now - v_check.window_started_at >= interval '10 minutes' THEN
     v_win_at := v_now;
     v_win_n := 1;
@@ -1110,21 +1251,54 @@ BEGIN
           OR (e.mime IS NOT NULL AND f.mime_type IS DISTINCT FROM e.mime));
   GET DIAGNOSTICS v_updated = ROW_COUNT;
 
-  -- (8) A rename: a row gone from a complete directory of this call and an entry nobody holds,
-  -- with the same name, size and time, each the only one of its kind. The row keeps its id.
+  -- (8) What has gone: a row directly in a complete directory and not seen, or under a subfolder
+  -- that directory no longer has. A row an unsettled operation holds has not gone (NS-D5). Each
+  -- ancestor is looked up rather than each directory walked, because a project may hold 50,000
+  -- rows and a call 2,000 directories.
+  WITH live AS (
+    SELECT f.id,
+           lower(substr(f.storage_path, 5)) AS lp,
+           string_to_array(lower(substr(f.storage_path, 5)), '/') AS segs
+      FROM public.files f
+     WHERE f.project_id = p_project_id
+       AND f.storage_provider = 'network_share'
+       AND f.deleted_at IS NULL
+       AND f.share_missing_since IS NULL
+       AND NOT EXISTS (SELECT 1 FROM public.network_share_ops o WHERE o.file_id = f.id AND o.state = 'pending')
+  ), up AS (
+    SELECT l.id, l.lp, cardinality(l.segs) AS depth, i,
+           array_to_string(l.segs[1:i], '/') AS dir,
+           array_to_string(l.segs[1:i + 1], '/') AS next
+      FROM live l
+     CROSS JOIN LATERAL generate_series(1, cardinality(l.segs) - 1) i
+  ), hit AS (
+    SELECT u.id
+      FROM up u
+      JOIN unnest(v_complete) c(dir) ON c.dir = u.dir
+      LEFT JOIN unnest(v_seen) s(lp) ON s.lp = u.lp
+      LEFT JOIN unnest(v_subkeys) k(key) ON k.key = u.next
+     WHERE (u.i = u.depth - 1 AND s.lp IS NULL)
+        OR (u.i < u.depth - 1 AND k.key IS NULL)
+  )
+  SELECT COALESCE(array_agg(DISTINCT h.id), '{}'::uuid[]) INTO v_hit FROM hit h;
+
+  -- A rename: a row that has gone, or that an earlier call of the walk marked (a folder's rows can
+  -- go in one call and come up in the next), and an entry nobody holds, with the same name, size
+  -- and time, each the only one of its kind. The row keeps its id.
   WITH gone AS (
     SELECT f.id,
            lower(regexp_replace(f.storage_path, '^.*/', '')) AS leaf,
            f.size_bytes AS size,
            f.source_modified_at AS mtime
       FROM public.files f
-      JOIN unnest(v_complete) c(dir) ON c.dir = lower(regexp_replace(substr(f.storage_path, 5), '/[^/]*$', ''))
+      LEFT JOIN unnest(v_hit) g(id) ON g.id = f.id
       LEFT JOIN unnest(v_seen) s(lp) ON 'nas:' || s.lp = lower(f.storage_path)
      WHERE f.project_id = p_project_id
        AND f.storage_provider = 'network_share'
        AND f.deleted_at IS NULL
        AND f.source_modified_at IS NOT NULL
        AND s.lp IS NULL
+       AND (g.id IS NOT NULL OR f.share_missing_since IS NOT NULL)
        AND NOT EXISTS (SELECT 1 FROM public.network_share_ops o WHERE o.file_id = f.id AND o.state = 'pending')
   ), free AS (
     SELECT e.loc,
@@ -1147,15 +1321,17 @@ BEGIN
   ), fo AS (
     SELECT lower(x.path) AS lp, (array_agg(x.id ORDER BY x.id))[1] AS id
       FROM public.folders x WHERE x.project_id = p_project_id GROUP BY 1
+  ), moved AS (
+    UPDATE public.files f
+       SET storage_path = 'nas:' || p.loc,
+           folder_id = fo.id,
+           share_missing_since = NULL
+      FROM pair p
+      LEFT JOIN fo ON fo.lp = NULLIF(substr(lower(regexp_replace(p.loc, '/?[^/]*$', '')), length(v_lf) + 2), '')
+     WHERE f.id = p.id
+    RETURNING f.id
   )
-  UPDATE public.files f
-     SET storage_path = 'nas:' || p.loc,
-         folder_id = fo.id,
-         share_missing_since = NULL
-    FROM pair p
-    LEFT JOIN fo ON fo.lp = NULLIF(substr(lower(regexp_replace(p.loc, '/?[^/]*$', '')), length(v_lf) + 2), '')
-   WHERE f.id = p.id;
-  GET DIAGNOSTICS v_renamed = ROW_COUNT;
+  SELECT count(*), COALESCE(array_agg(m.id), '{}'::uuid[]) INTO v_renamed, v_moved FROM moved m;
 
   -- (9) New files. Local Server's '<uuid>-' prefix comes off the name. NS-X15: a folder is found
   -- by its path. ON CONFLICT: a racing writer's row stands.
@@ -1188,67 +1364,52 @@ BEGIN
     RAISE EXCEPTION 'network_share: too_many';
   END IF;
 
-  -- (10) What has gone: a row directly in a complete directory and not seen, or under a subfolder
-  -- that directory no longer has. Nothing is deleted by a check, and a row an unsettled operation
-  -- holds is never marked (NS-D5). Each ancestor is looked up rather than each directory walked,
-  -- because a project may hold 50,000 rows and a call 2,000 directories.
-  WITH live AS (
-    SELECT f.id,
-           lower(substr(f.storage_path, 5)) AS lp,
-           string_to_array(lower(substr(f.storage_path, 5)), '/') AS segs
-      FROM public.files f
-     WHERE f.project_id = p_project_id
-       AND f.storage_provider = 'network_share'
-       AND f.deleted_at IS NULL
-       AND f.share_missing_since IS NULL
-       AND NOT EXISTS (SELECT 1 FROM public.network_share_ops o WHERE o.file_id = f.id AND o.state = 'pending')
-  ), up AS (
-    SELECT l.id, l.lp, cardinality(l.segs) AS depth, i,
-           array_to_string(l.segs[1:i], '/') AS dir,
-           array_to_string(l.segs[1:i + 1], '/') AS next
-      FROM live l
-     CROSS JOIN LATERAL generate_series(1, cardinality(l.segs) - 1) i
-  ), hit AS (
-    SELECT u.id
-      FROM up u
-      JOIN unnest(v_complete) c(dir) ON c.dir = u.dir
-      LEFT JOIN unnest(v_seen) s(lp) ON s.lp = u.lp
-      LEFT JOIN unnest(v_subkeys) k(key) ON k.key = u.next
-     WHERE (u.i = u.depth - 1 AND s.lp IS NULL)
-        OR (u.i < u.depth - 1 AND k.key IS NULL)
-  )
+  -- (10) Mark what has gone and was not renamed. Nothing is deleted by a check. No more than the
+  -- cap in a call: the rest are marked when the desktop sends the call again.
+  v_todo := ARRAY(SELECT x.id
+                    FROM (SELECT unnest(v_hit) AS id EXCEPT SELECT unnest(v_moved)) x
+                   ORDER BY x.id);
+  v_more := cardinality(v_todo) > v_cap;
   UPDATE public.files f
      SET share_missing_since = now()
-   WHERE f.id IN (SELECT h.id FROM hit h);
+   WHERE f.id = ANY (v_todo[1:v_cap]);
   GET DIAGNOSTICS v_missing = ROW_COUNT;
 
   -- A row its folder has left behind: folder_root was pointed elsewhere after it was listed. It
   -- cannot be walked from here, so it reads as not found rather than as there. Seen again if the
   -- folder comes back.
   IF v_final THEN
+    v_room := v_cap - v_missing;
+    v_todo := ARRAY(SELECT f.id
+                      FROM public.files f
+                     WHERE f.project_id = p_project_id
+                       AND f.storage_provider = 'network_share'
+                       AND f.deleted_at IS NULL
+                       AND f.share_missing_since IS NULL
+                       AND NOT starts_with(lower(substr(f.storage_path, 5)), v_lf || '/')
+                       AND NOT EXISTS (SELECT 1 FROM public.network_share_ops o WHERE o.file_id = f.id AND o.state = 'pending')
+                     ORDER BY f.id
+                     LIMIT v_room + 1);
+    v_more := v_more OR cardinality(v_todo) > v_room;
     UPDATE public.files f
        SET share_missing_since = now()
-     WHERE f.project_id = p_project_id
-       AND f.storage_provider = 'network_share'
-       AND f.deleted_at IS NULL
-       AND f.share_missing_since IS NULL
-       AND NOT starts_with(lower(substr(f.storage_path, 5)), v_lf || '/')
-       AND NOT EXISTS (SELECT 1 FROM public.network_share_ops o WHERE o.file_id = f.id AND o.state = 'pending');
+     WHERE f.id = ANY (v_todo[1:v_room]);
     GET DIAGNOSTICS v_extra = ROW_COUNT;
     v_missing := v_missing + v_extra;
   END IF;
 
-  -- (11) The check's row. Only the final call of a walk moves "last checked".
+  -- (11) The check's row. Only the final call of a walk moves "last checked". A call with more to
+  -- mark is sent again, so it adds nothing to the run until the send that finishes.
   v_all_done := v_valid_d = jsonb_array_length(p_dirs)
     AND cardinality(v_complete) = v_valid_d
     AND p_stopped_at IS NULL;
-  IF COALESCE(v_check.run_open, false) THEN
+  IF v_run_open THEN
     v_all_done := v_all_done AND v_check.complete;
   ELSE
     -- A walk that sent no directory has checked nothing.
     v_all_done := v_all_done AND v_valid_d > 0;
   END IF;
-  IF COALESCE(v_check.run_open, false) THEN
+  IF v_run_open THEN
     v_run_d := v_check.dirs_checked + v_valid_d;
     v_run_f := v_check.files_seen + cardinality(v_seen);
   ELSE
@@ -1265,23 +1426,25 @@ BEGIN
      dirs_checked, files_seen, missing_count, next_start, run_open, window_started_at, calls_in_window)
   VALUES
     (p_project_id, v_ws, v_folder,
-     CASE WHEN v_final THEN clock_timestamp() END,
-     CASE WHEN v_final THEN v_uid END,
-     v_all_done, v_run_d, v_run_f,
+     CASE WHEN v_final AND NOT v_more THEN clock_timestamp() END,
+     CASE WHEN v_final AND NOT v_more THEN v_uid END,
+     v_all_done AND NOT v_more,
+     CASE WHEN v_more THEN 0 ELSE v_run_d END,
+     CASE WHEN v_more THEN 0 ELSE v_run_f END,
      (SELECT count(*) FROM public.files f
        WHERE f.project_id = p_project_id AND f.storage_provider = 'network_share'
          AND f.deleted_at IS NULL AND f.share_missing_since IS NOT NULL),
-     v_next, NOT v_final, v_win_at, v_win_n)
+     v_next, NOT v_final AND NOT v_more, v_win_at, v_win_n)
   ON CONFLICT (project_id) DO UPDATE
     SET folder_locator = EXCLUDED.folder_locator,
-        last_checked_at = CASE WHEN v_final THEN EXCLUDED.last_checked_at ELSE c.last_checked_at END,
-        last_checked_by = CASE WHEN v_final THEN EXCLUDED.last_checked_by ELSE c.last_checked_by END,
-        complete = EXCLUDED.complete,
-        dirs_checked = EXCLUDED.dirs_checked,
-        files_seen = EXCLUDED.files_seen,
+        last_checked_at = CASE WHEN v_final AND NOT v_more THEN EXCLUDED.last_checked_at ELSE c.last_checked_at END,
+        last_checked_by = CASE WHEN v_final AND NOT v_more THEN EXCLUDED.last_checked_by ELSE c.last_checked_by END,
+        complete = CASE WHEN v_more THEN c.complete ELSE EXCLUDED.complete END,
+        dirs_checked = CASE WHEN v_more THEN c.dirs_checked ELSE EXCLUDED.dirs_checked END,
+        files_seen = CASE WHEN v_more THEN c.files_seen ELSE EXCLUDED.files_seen END,
         missing_count = EXCLUDED.missing_count,
-        next_start = CASE WHEN v_final THEN EXCLUDED.next_start ELSE c.next_start END,
-        run_open = EXCLUDED.run_open,
+        next_start = CASE WHEN v_final AND NOT v_more THEN EXCLUDED.next_start ELSE c.next_start END,
+        run_open = CASE WHEN v_more THEN c.run_open ELSE EXCLUDED.run_open END,
         window_started_at = EXCLUDED.window_started_at,
         calls_in_window = EXCLUDED.calls_in_window;
 
@@ -1307,6 +1470,7 @@ BEGIN
      AND f.project_id = p_project_id
      AND f.storage_provider = 'network_share'
      AND f.deleted_at IS NULL
+     AND starts_with(lower(substr(f.storage_path, 5)), v_lf || '/')
      AND NOT EXISTS (SELECT 1 FROM public.network_share_ops o WHERE o.file_id = f.id AND o.state = 'pending');
 
   SELECT COALESCE(jsonb_agg(jsonb_build_object('op_id', o.id, 'op', o.op, 'from', o.from_locator, 'to', o.to_locator)), '[]'::jsonb)
@@ -1328,14 +1492,15 @@ BEGIN
     'renamed', v_renamed,
     'found_again', v_found,
     'newly_missing', v_missing,
+    'more_missing', v_more,
     'purge_ok', v_purge,
     'restore_back', v_back,
     'stale', v_stale,
     'checked_at', v_now);
 END;
 $$;
-REVOKE ALL ON FUNCTION public.network_share_catalogue_apply(uuid, text, text, jsonb, jsonb, boolean, text) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.network_share_catalogue_apply(uuid, text, text, jsonb, jsonb, boolean, text) TO authenticated;
+REVOKE ALL ON FUNCTION public.network_share_catalogue_apply(uuid, text, text, jsonb, jsonb, boolean, text, boolean) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.network_share_catalogue_apply(uuid, text, text, jsonb, jsonb, boolean, text, boolean) TO authenticated;
 
 
 -- §7 The file manager -------------------------------------------------------------------
@@ -1372,6 +1537,7 @@ BEGIN
   IF v_folder IS NULL THEN
     RAISE EXCEPTION 'network_share: no_folder';
   END IF;
+  PERFORM public._network_share_assert_folder(p_ws, p_dest_project, v_folder);
   IF p_dest_folder IS NOT NULL THEN
     SELECT fo.path INTO v_path FROM public.folders fo
      WHERE fo.id = p_dest_folder AND fo.project_id = p_dest_project;
@@ -1515,6 +1681,7 @@ DECLARE
   v_from   text;
   v_bin    text;
   v_op     uuid;
+  v_seen   uuid;
   v_out    jsonb := '[]'::jsonb;
 BEGIN
   IF cardinality(v_ids) NOT BETWEEN 1 AND 500 THEN
@@ -1547,6 +1714,15 @@ BEGIN
     v_folder := public.network_share_space_folder(r.project_id);
     IF v_folder IS NULL THEN
       RAISE EXCEPTION 'network_share: no_folder';
+    END IF;
+    -- A desktop moves what this returns. A row its folder has left names a file that may be
+    -- somebody else's by now, and a folder inside another's holds that other project's files.
+    IF NOT starts_with(lower(substr(r.storage_path, 5)), lower(v_folder) || '/') THEN
+      RAISE EXCEPTION 'network_share: no_folder';
+    END IF;
+    IF r.project_id IS DISTINCT FROM v_seen THEN
+      PERFORM public._network_share_assert_folder(v_ws, r.project_id, v_folder);
+      v_seen := r.project_id;
     END IF;
     IF NOT public.network_share_bin_ok(v_folder || '/.wilson-bin/' || r.id::text || '/' || regexp_replace(r.storage_path, '^.*/', '')) THEN
       RAISE EXCEPTION 'network_share: bad_name';
@@ -1593,6 +1769,8 @@ DECLARE
   r      record;
   v_to   text;
   v_op   uuid;
+  v_lf   text;
+  v_seen uuid;
   v_out  jsonb := '[]'::jsonb;
 BEGIN
   IF cardinality(v_ids) NOT BETWEEN 1 AND 500 THEN
@@ -1622,6 +1800,17 @@ BEGIN
       RAISE EXCEPTION 'network_share: pending';
     END IF;
     v_to := substr(r.storage_path, 5);
+    -- As in trash: both ends must be this space's, and the space's folder its own.
+    v_lf := lower(public.network_share_space_folder(r.project_id));
+    IF v_lf IS NULL
+       OR NOT starts_with(lower(v_to), v_lf || '/')
+       OR NOT starts_with(lower(r.share_bin_path), v_lf || '/') THEN
+      RAISE EXCEPTION 'network_share: no_folder';
+    END IF;
+    IF r.project_id IS DISTINCT FROM v_seen THEN
+      PERFORM public._network_share_assert_folder(r.workspace_id, r.project_id, public.network_share_space_folder(r.project_id));
+      v_seen := r.project_id;
+    END IF;
     -- The batch's own earlier rows count: each is live by the time the next is read.
     IF EXISTS (SELECT 1 FROM public.files h
                 WHERE h.workspace_id = r.workspace_id
@@ -1736,13 +1925,15 @@ BEGIN
       ELSIF r.op = 'adopt' THEN
         -- The desktop has verified its copy. What it read off the server goes on the row.
         v_fact := p_facts -> r.id::text;
+        -- The size must be good. A time this cannot store (a file dated before 1980, a server's
+        -- clock ahead) leaves the row's own: the copy is verified, and refusing would strand it.
         v_m := public._network_share_mtime(v_fact ->> 'm');
-        IF COALESCE(v_fact ->> 's', '') !~ '^[0-9]{1,15}$' OR v_m IS NULL THEN
+        IF COALESCE(v_fact ->> 's', '') !~ '^[0-9]{1,15}$' THEN
           RAISE EXCEPTION 'network_share: bad_facts';
         END IF;
         PERFORM set_config('wilson.network_share_writer', 'op:' || r.file_id::text, true);
         UPDATE public.files
-           SET size_bytes = (v_fact ->> 's')::bigint, source_modified_at = v_m
+           SET size_bytes = (v_fact ->> 's')::bigint, source_modified_at = COALESCE(v_m, source_modified_at)
          WHERE id = r.file_id;
       END IF;
       UPDATE public.network_share_ops SET state = 'done', settled_at = clock_timestamp() WHERE id = r.id;
@@ -1820,7 +2011,9 @@ GRANT EXECUTE ON FUNCTION public.network_share_pending_mine() TO authenticated;
 -- The two cores 0118's fn_moth_apply_moves calls. They judge the row and the destination and
 -- journal the operation; they write no file row. That is fn_moth_apply_moves' one UPDATE, under the
 -- move journal's marker, which is what admits a project change. p_write false is its plan phase.
--- Authority is the caller's: these are closed to clients.
+-- Authority is the caller's: these are closed to clients. They take the projects' advisory locks,
+-- so fn_moth_apply_moves must take _network_share_lock_projects over every source and the
+-- destination before any file row lock, or it deadlocks against a walk, which locks the other way.
 CREATE OR REPLACE FUNCTION public._network_share_move_core(
   p_file uuid, p_dest_project uuid, p_dest_folder uuid, p_origin jsonb, p_write boolean DEFAULT true)
 RETURNS jsonb
@@ -1832,6 +2025,7 @@ AS $$
 DECLARE
   r      record;
   v_from text;
+  v_src  text;
   v_to   text;
   v_op   uuid;
 BEGIN
@@ -1845,6 +2039,11 @@ BEGIN
     RAISE EXCEPTION 'network_share: pending';
   END IF;
   v_from := substr(r.storage_path, 5);
+  v_src := public.network_share_space_folder(r.project_id);
+  IF v_src IS NULL OR NOT starts_with(lower(v_from), lower(v_src) || '/') THEN
+    RAISE EXCEPTION 'network_share: no_folder';
+  END IF;
+  PERFORM public._network_share_assert_folder(r.workspace_id, r.project_id, v_src);
   v_to := public._network_share_target(r.workspace_id, p_dest_project, p_dest_folder, regexp_replace(v_from, '^.*/', ''), p_file);
   IF NOT COALESCE(p_write, false) THEN
     RETURN jsonb_build_object('id', p_file, 'from', v_from, 'to', v_to);
@@ -1898,7 +2097,10 @@ REVOKE ALL ON FUNCTION public.network_share_space_folder(uuid) FROM PUBLIC, anon
 REVOKE ALL ON FUNCTION public.network_share_claims(uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public._network_share_mtime(text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public._network_share_drive(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public._network_share_inside(text, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public._network_share_placed(text, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public._network_share_folder_refused(uuid, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public._network_share_assert_folder(uuid, uuid, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public._network_share_overlaps(text, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public._network_share_claim_taken(uuid, uuid, text, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public._network_share_may_check(uuid) FROM PUBLIC, anon, authenticated;
@@ -1927,7 +2129,7 @@ COMMENT ON FUNCTION public.network_share_claims(uuid) IS
   'Every folder taken in a company, by every project in any state, and the reserved personal parent. A folder_root outside the drive is an unplaced claim.';
 COMMENT ON FUNCTION public.fn_files_network_share_delete_guard() IS
   'A client never hard-deletes an office-server row: its real file would be left behind with no bin path. 0114''s guard judges updates only.';
-COMMENT ON FUNCTION public.network_share_catalogue_apply(uuid, text, text, jsonb, jsonb, boolean, text) IS
+COMMENT ON FUNCTION public.network_share_catalogue_apply(uuid, text, text, jsonb, jsonb, boolean, text, boolean) IS
   'What a walk of a space''s folder found. Needs the roster seat, or to be the owner of a personal space. Writes under the check: marker, so one signal goes out and the events say catalogued.';
 COMMENT ON FUNCTION public.network_share_record_added(uuid, text, uuid, jsonb) IS
   'A file the desktop has copied into a space''s folder. Judges its own rows: 0114''s guard does not judge a definer''s INSERT.';
@@ -1987,8 +2189,12 @@ BEGIN
       RAISE EXCEPTION '0117 post-condition: fn_projects_owner_guard has lost %', v_name;
     END IF;
   END LOOP;
+  IF (SELECT md5(replace(prosrc, chr(13), '')) FROM pg_proc WHERE oid = 'public.purge_soft_deleted(interval)'::regprocedure)
+     IS DISTINCT FROM 'f554aba88a2fbb933674b20ceb782486' THEN
+    RAISE EXCEPTION '0117 post-condition: purge_soft_deleted is not this file''s body';
+  END IF;
   IF (SELECT md5(replace(prosrc, chr(13), '')) FROM pg_proc WHERE oid = 'public.fn_projects_owner_guard()'::regprocedure)
-     IS DISTINCT FROM '6d2ebec7b52c016d557bbbebe64e84d5' THEN
+     IS DISTINCT FROM '49ebe6b9f996f75682982dfbe1c842e4' THEN
     RAISE EXCEPTION '0117 post-condition: fn_projects_owner_guard is not this file''s body';
   END IF;
 
@@ -2027,7 +2233,7 @@ BEGIN
     END IF;
   END LOOP;
   FOREACH v_def IN ARRAY ARRAY[
-    'public.network_share_catalogue_apply(uuid,text,text,jsonb,jsonb,boolean,text)',
+    'public.network_share_catalogue_apply(uuid,text,text,jsonb,jsonb,boolean,text,boolean)',
     'public.network_share_record_added(uuid,text,uuid,jsonb)',
     'public.network_share_trash(uuid[])',
     'public.network_share_restore(uuid[])',
@@ -2041,7 +2247,9 @@ BEGIN
   FOREACH v_def IN ARRAY ARRAY[
     'public.network_share_space_folder(uuid)', 'public.network_share_claims(uuid)',
     'public._network_share_mtime(text)', 'public._network_share_drive(uuid)',
-    'public._network_share_placed(text,text)', 'public._network_share_overlaps(text,text)',
+    'public._network_share_inside(text,text)', 'public._network_share_placed(text,text)',
+    'public._network_share_folder_refused(uuid,text)', 'public._network_share_assert_folder(uuid,uuid,text)',
+    'public._network_share_overlaps(text,text)',
     'public._network_share_claim_taken(uuid,uuid,text,text)',
     'public._network_share_may_check(uuid)', 'public._network_share_may_write(uuid)',
     'public._network_share_lock_projects(uuid[])', 'public._network_share_target(uuid,uuid,uuid,text,uuid)',
@@ -2072,7 +2280,7 @@ BEGIN
     RAISE EXCEPTION '0117 post-condition: the marker is named by something else';
   END IF;
   FOREACH v_def IN ARRAY ARRAY[
-    'public.network_share_catalogue_apply(uuid,text,text,jsonb,jsonb,boolean,text)',
+    'public.network_share_catalogue_apply(uuid,text,text,jsonb,jsonb,boolean,text,boolean)',
     'public.network_share_record_added(uuid,text,uuid,jsonb)',
     'public.network_share_trash(uuid[])', 'public.network_share_restore(uuid[])',
     'public.network_share_settle(uuid[],text,jsonb)'] LOOP

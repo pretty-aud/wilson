@@ -16,6 +16,8 @@
 --   I  a purge: the certificate, the queue, the meter and purge_ok
 --   J  a personal space on the office server (PS-7)
 --   K  who may call what, and who names the marker
+--   M  what the first review found: gates, a row its folder has left, nested folders, a split
+--      walk, a capped sweep, a rename across calls, a held purge, and the sentence of each refusal
 --   L  the row cap (last: it drops the CHECKs and triggers inside this transaction)
 --
 -- user_a is the admin (rls_setup); user_b the other company's admin; user_c a plain user
@@ -32,7 +34,7 @@
 
 BEGIN;
 
-SELECT plan(278);
+SELECT plan(369);
 
 SELECT * FROM tests.rls_setup();
 
@@ -365,7 +367,7 @@ CREATE TEMP TABLE t118_keep ON COMMIT DROP AS SELECT id, storage_path FROM publi
 
 SET LOCAL ROLE authenticated;
 SELECT is((SELECT public.t118_top() - 'checked_at'),
-  '{"added":0,"stale":[],"renamed":0,"updated":0,"purge_ok":[],"found_again":0,"restore_back":[],"newly_missing":0}'::jsonb,
+  '{"added":0,"stale":[],"renamed":0,"updated":0,"purge_ok":[],"found_again":0,"restore_back":[],"more_missing": false, "newly_missing":0}'::jsonb,
   'the same walk again, in the same transaction, changes nothing');
 RESET ROLE;
 SELECT is((SELECT count(*)::int FROM public.files f JOIN t118_keep k ON k.id = f.id AND k.storage_path = f.storage_path), 3, 'and the ids stand');
@@ -505,7 +507,7 @@ RESET ROLE;
 SELECT ok((SELECT share_missing_since IS NOT NULL FROM public.files WHERE id = '11800000-0000-0000-0000-000000000307'), 'and the row says so');
 DELETE FROM public.files WHERE id = '11800000-0000-0000-0000-000000000307';
 
--- A private project's catalogue writes history. Who reads it: the creator, not a manager.
+-- A private project's catalogue writes history. A manager who did not create it reads none of it.
 SELECT public.t118_e();
 SET LOCAL ROLE authenticated;
 SELECT public.t118_apply('aaaa1111-0000-0000-0000-000000011802', 'Quiet-Room',
@@ -674,7 +676,7 @@ RESET ROLE;
 SELECT is((SELECT folder_id FROM public.files WHERE id = '11800000-0000-0000-0000-000000000310'), NULL, 'and the row just loses its folder');
 -- rekey_file_body is not a way in: the namespace CHECK stands after its own refusals.
 SET LOCAL ROLE authenticated;
-SELECT throws_ok($$ SELECT public.rekey_file_body(public.t118_id('Salt-Hours/a.mov'), 'nas:Salt-Hours/a.mov', 'projects/aaaa1111-0000-0000-0000-000000011801/files/x/a.mov', NULL, NULL) $$, NULL, NULL, 'rekey_file_body cannot give an office-server row a key');
+SELECT throws_ok($$ SELECT public.rekey_file_body(public.t118_id('Salt-Hours/a.mov'), 'nas:Salt-Hours/a.mov', 'projects/aaaa1111-0000-0000-0000-000000011801/files/x/a.mov', NULL, NULL) $$, '42501', 'file not found or not writable', 'rekey_file_body cannot give an office-server row a key');
 RESET ROLE;
 
 
@@ -891,13 +893,15 @@ RESET ROLE;
 UPDATE public.files SET deleted_at = now() - interval '31 days' WHERE id = '11800000-0000-0000-0000-000000000501';
 UPDATE public.files SET deleted_at = now() - interval '31 days' WHERE id = '11800000-0000-0000-0000-000000000502';
 
-CREATE TEMP TABLE t118_gc ON COMMIT DROP AS SELECT count(*)::int AS n FROM public.storage_gc_queue;
 SELECT public.purge_soft_deleted();
 
 SELECT is((SELECT count(*)::int FROM public.files WHERE id IN ('11800000-0000-0000-0000-000000000501', '11800000-0000-0000-0000-000000000502')), 0, 'the nightly purge removes them at 30 days');
 SELECT is((SELECT details ->> 'body' FROM public.file_events WHERE file_id = '11800000-0000-0000-0000-000000000501' AND event = 'purged'), 'company server bin', 'the certificate says the file is in the bin');
 SELECT is((SELECT details ->> 'body' FROM public.file_events WHERE file_id = '11800000-0000-0000-0000-000000000502' AND event = 'purged'), 'left on the company server', 'or left where it was');
-SELECT is((SELECT count(*)::int FROM public.storage_gc_queue), (SELECT n FROM t118_gc), 'and nothing is queued: the server''s files are not the cloud''s to remove');
+SELECT is((SELECT count(*)::int FROM public.storage_gc_queue
+            WHERE object_path LIKE 'nas:%'
+               OR file_id IN ('11800000-0000-0000-0000-000000000501', '11800000-0000-0000-0000-000000000502')), 0,
+  'and nothing is queued: the server''s files are not the cloud''s to remove');
 SELECT is((SELECT count(*)::int FROM public.network_share_ops WHERE file_id = '11800000-0000-0000-0000-000000000501'), 0, 'its journal goes with it');
 
 SET LOCAL ROLE authenticated;
@@ -951,14 +955,14 @@ RESET ROLE;
 
 
 -- ── K. Who may call what, and who names the marker ───────────────────────────
-SELECT ok(NOT has_function_privilege('anon', 'public.network_share_catalogue_apply(uuid,text,text,jsonb,jsonb,boolean,text)', 'EXECUTE')
+SELECT ok(NOT has_function_privilege('anon', 'public.network_share_catalogue_apply(uuid,text,text,jsonb,jsonb,boolean,text,boolean)', 'EXECUTE')
           AND NOT has_function_privilege('anon', 'public.network_share_record_added(uuid,text,uuid,jsonb)', 'EXECUTE')
           AND NOT has_function_privilege('anon', 'public.network_share_trash(uuid[])', 'EXECUTE')
           AND NOT has_function_privilege('anon', 'public.network_share_restore(uuid[])', 'EXECUTE')
           AND NOT has_function_privilege('anon', 'public.network_share_settle(uuid[],text,jsonb)', 'EXECUTE')
           AND NOT has_function_privilege('anon', 'public.network_share_pending_mine()', 'EXECUTE'),
   'anon may call none of the six');
-SELECT ok(has_function_privilege('authenticated', 'public.network_share_catalogue_apply(uuid,text,text,jsonb,jsonb,boolean,text)', 'EXECUTE')
+SELECT ok(has_function_privilege('authenticated', 'public.network_share_catalogue_apply(uuid,text,text,jsonb,jsonb,boolean,text,boolean)', 'EXECUTE')
           AND has_function_privilege('authenticated', 'public.network_share_record_added(uuid,text,uuid,jsonb)', 'EXECUTE')
           AND has_function_privilege('authenticated', 'public.network_share_trash(uuid[])', 'EXECUTE')
           AND has_function_privilege('authenticated', 'public.network_share_restore(uuid[])', 'EXECUTE')
@@ -968,7 +972,9 @@ SELECT ok(has_function_privilege('authenticated', 'public.network_share_catalogu
 SELECT is((SELECT array_agg(x) FROM unnest(ARRAY[
     'public.network_share_space_folder(uuid)', 'public.network_share_claims(uuid)',
     'public._network_share_mtime(text)', 'public._network_share_drive(uuid)',
-    'public._network_share_placed(text,text)', 'public._network_share_overlaps(text,text)',
+    'public._network_share_inside(text,text)', 'public._network_share_placed(text,text)',
+    'public._network_share_folder_refused(uuid,text)', 'public._network_share_assert_folder(uuid,uuid,text)',
+    'public._network_share_overlaps(text,text)',
     'public._network_share_claim_taken(uuid,uuid,text,text)',
     'public._network_share_may_check(uuid)', 'public._network_share_may_write(uuid)',
     'public._network_share_lock_projects(uuid[])', 'public._network_share_target(uuid,uuid,uuid,text,uuid)',
@@ -994,6 +1000,415 @@ SELECT is((SELECT array_agg(p.proname::text ORDER BY p.proname) FROM pg_proc p
             WHERE p.proname IN ('network_share_catalogue_apply', 'network_share_record_added', 'network_share_restore', 'network_share_settle', 'network_share_trash')
               AND p.prosrc NOT LIKE '%set_config(''wilson.network_share_writer'', '''', true)%'), NULL::text[],
   'and each writer resets it');
+
+
+-- ── M. What the first review found ──────────────────────────────────────────
+RESET ROLE;
+SELECT public.t118_a();
+
+-- These folders could not be set by anyone bound: that is what is being proved.
+CREATE FUNCTION public.t118_repoint(p_project uuid, p_folder text) RETURNS void LANGUAGE plpgsql AS $f$
+BEGIN
+  ALTER TABLE public.projects DISABLE TRIGGER USER;
+  UPDATE public.projects SET folder_root = public.t118_folder(p_folder) WHERE id = p_project;
+  ALTER TABLE public.projects ENABLE TRIGGER USER;
+END;
+$f$;
+CREATE FUNCTION public.t118_trashed(p_id uuid, p_project uuid, p_loc text, p_folder text) RETURNS void LANGUAGE sql AS $f$
+  INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, size_bytes, source_modified_at, deleted_at, share_bin_path)
+  VALUES (p_id, p_project, regexp_replace(p_loc, '^.*/', ''), 'network_share', 'nas:' || p_loc, 1, '2026-10-01T10:00:00Z', now(),
+          p_folder || '/.wilson-bin/' || p_id::text || '/' || regexp_replace(p_loc, '^.*/', ''));
+$f$;
+CREATE FUNCTION public.t118_add(p_project uuid, p_folder_id uuid, p_name text) RETURNS jsonb LANGUAGE sql AS $f$
+  SELECT public.network_share_record_added(p_project, public.t118_root(), p_folder_id,
+    jsonb_build_array(jsonb_build_object('n', p_name, 's', '3')));
+$f$;
+CREATE FUNCTION public.t118_walk(p_project uuid, p_folder text, p_dirs jsonb, p_final boolean, p_first boolean) RETURNS jsonb LANGUAGE sql AS $f$
+  SELECT public.network_share_catalogue_apply(p_project, public.t118_root(), p_folder, p_dirs, '[]'::jsonb, p_final, NULL, p_first);
+$f$;
+CREATE FUNCTION public.t118_op(p_key text) RETURNS uuid LANGUAGE sql STABLE AS
+$f$ SELECT COALESCE(v -> 0 ->> 'op_id', v ->> 'op_id')::uuid FROM t118_ret WHERE k = p_key $f$;
+-- As suite 112: a stack may have no realtime schema, or no partition for today.
+CREATE FUNCTION public.t118_rt_env() RETURNS text LANGUAGE plpgsql AS $f$
+DECLARE
+  n bigint;
+BEGIN
+  IF to_regclass('realtime.messages') IS NULL
+     OR NOT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
+                     WHERE ns.nspname = 'realtime' AND p.proname = 'send') THEN
+    RETURN 'no-schema';
+  END IF;
+  PERFORM realtime.send('{"probe":true}'::jsonb, 'PGTAP-PROBE', 'rabbit:pgtap:118-partition-probe', true);
+  EXECUTE 'SELECT count(*) FROM realtime.messages WHERE topic = ''rabbit:pgtap:118-partition-probe''' INTO n;
+  RETURN CASE WHEN n = 0 THEN 'no-partition' ELSE 'ok' END;
+END;
+$f$;
+CREATE FUNCTION public.t118_msgs(p_project uuid) RETURNS integer LANGUAGE plpgsql AS $f$
+DECLARE
+  n integer;
+BEGIN
+  EXECUTE 'SELECT count(*)::int FROM realtime.messages WHERE topic = $1 AND payload ->> ''table'' = ''network_share_checks'''
+    INTO n USING public.project_topic(p_project);
+  RETURN n;
+END;
+$f$;
+CREATE TEMP TABLE t118_rt ON COMMIT DROP AS SELECT public.t118_rt_env() AS env;
+GRANT ALL ON t118_rt TO authenticated;
+
+ALTER TABLE public.projects DISABLE TRIGGER USER;
+INSERT INTO public.projects (id, workspace_id, title, created_by, is_private, folder_root, deleted_at) VALUES
+  ('aaaa1111-0000-0000-0000-000000011811', '11111111-1111-1111-1111-111111111111', 'Round', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', false, public.t118_folder('Round'), NULL),
+  ('aaaa1111-0000-0000-0000-000000011812', '11111111-1111-1111-1111-111111111111', 'Gone Round', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', false, public.t118_folder('Gone-Round'), now()),
+  ('aaaa1111-0000-0000-0000-000000011814', '11111111-1111-1111-1111-111111111111', 'Tree', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', false, public.t118_folder('Tree'), NULL),
+  ('aaaa1111-0000-0000-0000-000000011815', '11111111-1111-1111-1111-111111111111', 'Branch', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true, public.t118_folder('Tree/Branch'), NULL),
+  ('aaaa1111-0000-0000-0000-000000011816', '11111111-1111-1111-1111-111111111111', 'Claimer', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', false, NULL, NULL),
+  ('aaaa1111-0000-0000-0000-000000011817', '11111111-1111-1111-1111-111111111111', 'Third', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', false, public.t118_folder('Round3'), NULL),
+  ('aaaa1111-0000-0000-0000-000000011818', '11111111-1111-1111-1111-111111111111', 'Finance', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', false, public.t118_folder('Finance'), NULL),
+  ('aaaa1111-0000-0000-0000-000000011819', '11111111-1111-1111-1111-111111111111', 'Walker', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', false, public.t118_folder('Walker'), NULL),
+  ('aaaa1111-0000-0000-0000-000000011813', '22222222-2222-2222-2222-222222222222', 'Other', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', false, NULL, NULL);
+ALTER TABLE public.projects ENABLE TRIGGER USER;
+INSERT INTO public.project_members (project_id, user_id, workspace_id, project_role) VALUES
+  ('aaaa1111-0000-0000-0000-000000011811', 'cccccccc-cccc-cccc-cccc-cccccccccccc', '11111111-1111-1111-1111-111111111111', 'member'), ('aaaa1111-0000-0000-0000-000000011811', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', '11111111-1111-1111-1111-111111111111', 'manager'),
+  ('aaaa1111-0000-0000-0000-000000011814', 'cccccccc-cccc-cccc-cccc-cccccccccccc', '11111111-1111-1111-1111-111111111111', 'member'), ('aaaa1111-0000-0000-0000-000000011817', 'cccccccc-cccc-cccc-cccc-cccccccccccc', '11111111-1111-1111-1111-111111111111', 'member'), ('aaaa1111-0000-0000-0000-000000011819', 'cccccccc-cccc-cccc-cccc-cccccccccccc', '11111111-1111-1111-1111-111111111111', 'member')
+ON CONFLICT DO NOTHING;
+INSERT INTO public.folders (id, project_id, parent_id, kind, slug, path) VALUES
+  ('11800000-0000-0000-0000-0000000000f8', 'aaaa1111-0000-0000-0000-000000011814', NULL, 'root', 'tree', ''),
+  ('11800000-0000-0000-0000-0000000000f9', 'aaaa1111-0000-0000-0000-000000011814', '11800000-0000-0000-0000-0000000000f8', 'category', 'branch', 'Branch');
+SELECT public.t118_row('11800000-0000-0000-0000-000000000901'::uuid, 'aaaa1111-0000-0000-0000-000000011811', 'Round/k.mov');
+SELECT public.t118_row('11800000-0000-0000-0000-000000000902'::uuid, 'aaaa1111-0000-0000-0000-000000011802', 'Quiet-Room/z.mov');
+SELECT public.t118_row('11800000-0000-0000-0000-000000000903'::uuid, 'aaaa1111-0000-0000-0000-000000011814', 'Tree/k.mov');
+SELECT public.t118_trashed('11800000-0000-0000-0000-000000000904'::uuid, 'aaaa1111-0000-0000-0000-000000011814', 'Tree/t.mov', 'Tree');
+SELECT public.t118_row('11800000-0000-0000-0000-000000000905'::uuid, 'aaaa1111-0000-0000-0000-000000011811', 'Round/ops/t1.mov');
+SELECT public.t118_row('11800000-0000-0000-0000-000000000906'::uuid, 'aaaa1111-0000-0000-0000-000000011811', 'Round/ops/t2.mov');
+SELECT public.t118_row('11800000-0000-0000-0000-000000000907'::uuid, 'aaaa1111-0000-0000-0000-000000011811', 'Round/ops/t3.mov');
+
+-- What every read of zero above is measured against: somebody does read these.
+SET LOCAL ROLE authenticated;
+SELECT public.t118_a();
+SELECT ok((SELECT count(*) FROM public.edit_history WHERE entity_type = 'files' AND project_id = 'aaaa1111-0000-0000-0000-000000011802') >= 1, 'an admin reads a private project''s catalogue history');
+SELECT public.t118_e();
+SELECT ok((SELECT count(*) FROM public.file_events WHERE project_id = 'aaaa1111-0000-0000-0000-000000011802') >= 1, 'the creator reads its events');
+SELECT ok((SELECT count(*) FROM public.files WHERE project_id = 'aaaa1111-0000-0000-0000-000000011802') >= 1, 'and its rows');
+SELECT public.t118_c();
+SELECT ok((SELECT count(*) FROM public.files WHERE project_id = 'aaaa1111-0000-0000-0000-000000011804') >= 1, 'the owner reads their personal space''s rows');
+
+-- _network_share_may_write's own gates, one sentence each.
+SELECT public.t118_d();
+SELECT throws_ok($$ SELECT public.t118_add('aaaa1111-0000-0000-0000-000000011802', NULL, 'no.mov') $$, '42501', 'network_share: not allowed', 'a manager with no seat on a private project cannot add');
+SELECT throws_ok($$ SELECT public.network_share_trash(ARRAY['11800000-0000-0000-0000-000000000902'::uuid]) $$, '42501', 'network_share: not allowed', 'nor delete');
+SELECT public.t118_as('ffffffff-ffff-ffff-ffff-ffffffffffff', 'admin');
+SELECT throws_ok($$ SELECT public.t118_add('aaaa1111-0000-0000-0000-000000011811', NULL, 'no.mov') $$, '42501', 'network_share: not allowed', 'an inactive member with an admin''s token cannot add');
+SELECT throws_ok($$ SELECT public.network_share_trash(ARRAY['11800000-0000-0000-0000-000000000901'::uuid]) $$, '42501', 'network_share: not allowed', 'nor delete');
+SELECT public.t118_as('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'admin', '22222222-2222-2222-2222-222222222222');
+SELECT throws_ok($$ SELECT public.t118_add('aaaa1111-0000-0000-0000-000000011811', NULL, 'no.mov') $$, '42501', 'network_share: not allowed', 'another company''s admin cannot add');
+SELECT public.t118_a();
+SELECT throws_ok($$ SELECT public.t118_add('aaaa1111-0000-0000-0000-000000011812', NULL, 'no.mov') $$, '42501', 'network_share: not allowed', 'nobody adds to a project in the bin');
+SELECT lives_ok($$ SELECT public.t118_add('aaaa1111-0000-0000-0000-000000011811', NULL, 'yes.mov') $$, 'and the admin adds to a live one');
+RESET ROLE;
+SELECT is((SELECT count(*)::int FROM public.files WHERE storage_path = 'nas:Round/yes.mov'), 1, 'one row, in its folder');
+
+-- Never a slug: a member-writable column never names a folder a walk or an add reads.
+UPDATE public.projects SET folder_slug = 'New-Slug' WHERE id = 'aaaa1111-0000-0000-0000-000000011803';
+SELECT is(public.network_share_space_folder('aaaa1111-0000-0000-0000-000000011803'), NULL, 'a slug is never a project''s folder');
+SELECT throws_ok($$ SELECT public._network_share_move_core('11800000-0000-0000-0000-000000000901'::uuid, 'aaaa1111-0000-0000-0000-000000011803', NULL, '{}'::jsonb, false) $$, 'P0001', 'network_share: no_folder', 'nor a place a file can land');
+SET LOCAL ROLE authenticated;
+SELECT public.t118_a();
+SELECT throws_ok($$ SELECT public.t118_apply('aaaa1111-0000-0000-0000-000000011803', 'New-Slug', '[]'::jsonb) $$, 'P0001', 'network_share: no_folder', 'nor what an apply may walk');
+RESET ROLE;
+UPDATE public.projects SET folder_slug = NULL WHERE id = 'aaaa1111-0000-0000-0000-000000011803';
+
+-- A live row with an unsettled operation is walked past (NS-D5).
+SET LOCAL ROLE authenticated;
+SELECT public.t118_c();
+INSERT INTO t118_ret SELECT 'm-t', public.network_share_trash(ARRAY['11800000-0000-0000-0000-000000000905'::uuid]);
+SELECT public.network_share_settle(ARRAY[public.t118_op('m-t')], 'done');
+INSERT INTO t118_ret SELECT 'm-r', public.network_share_restore(ARRAY['11800000-0000-0000-0000-000000000905'::uuid]);
+SELECT public.t118_e();
+INSERT INTO t118_ret SELECT 'm-w', public.t118_apply('aaaa1111-0000-0000-0000-000000011811', 'Round',
+  jsonb_build_array(public.t118_dir('Round/ops', true, '{}', '[["t2.mov","1"],["t3.mov","1"]]')), jsonb_build_array('11800000-0000-0000-0000-000000000905'::uuid), false);
+SELECT is((SELECT v ->> 'newly_missing' FROM t118_ret WHERE k = 'm-w'), '0', 'a walk does not mark a row an unsettled restore holds');
+SELECT is((SELECT v -> 'restore_back' FROM t118_ret WHERE k = 'm-w'), '[]'::jsonb, 'nor ask for its file back');
+RESET ROLE;
+SELECT is((SELECT share_missing_since FROM public.files WHERE id = '11800000-0000-0000-0000-000000000905'::uuid), NULL, 'it reads as there');
+UPDATE public.files SET share_missing_since = now() WHERE id = '11800000-0000-0000-0000-000000000905'::uuid;
+SET LOCAL ROLE authenticated;
+SELECT is((SELECT public.t118_apply('aaaa1111-0000-0000-0000-000000011811', 'Round',
+    jsonb_build_array(public.t118_dir('Round/ops', true, '{}', '[["t1.mov","1"],["t2.mov","1"],["t3.mov","1"]]')), '[]'::jsonb, false) ->> 'found_again'), '0',
+  'a walk that finds it does not clear it either');
+SELECT is((SELECT public.t118_apply('aaaa1111-0000-0000-0000-000000011811', 'Round',
+    jsonb_build_array(public.t118_dir('Round/ops', true, '{}', '[["t2.mov","1"],["t3.mov","1"]]'),
+                      public.t118_dir('Round/ops2', true, '{}', '[["t1.mov","1"]]')), '[]'::jsonb, false) ->> 'renamed'), '0',
+  'and a row an operation holds is not renamed, even one marked');
+RESET ROLE;
+SELECT is((SELECT storage_path FROM public.files WHERE id = '11800000-0000-0000-0000-000000000905'::uuid), 'nas:Round/ops/t1.mov', 'it stays where the journal says');
+UPDATE public.files SET share_missing_since = NULL WHERE id = '11800000-0000-0000-0000-000000000905'::uuid;
+-- The left-behind arm, on a final call.
+SELECT public.t118_repoint('aaaa1111-0000-0000-0000-000000011811', 'Round2');
+SET LOCAL ROLE authenticated;
+SELECT public.t118_apply('aaaa1111-0000-0000-0000-000000011811', 'Round2', '[]'::jsonb);
+RESET ROLE;
+SELECT is((SELECT share_missing_since FROM public.files WHERE id = '11800000-0000-0000-0000-000000000905'::uuid), NULL, 'a row its folder has left is not marked while an operation holds it');
+SELECT ok((SELECT share_missing_since IS NOT NULL FROM public.files WHERE id = '11800000-0000-0000-0000-000000000906'::uuid), 'and its neighbour is');
+SELECT public.t118_repoint('aaaa1111-0000-0000-0000-000000011811', 'Round');
+UPDATE public.files SET share_missing_since = NULL WHERE project_id = 'aaaa1111-0000-0000-0000-000000011811';
+
+-- Renames: beside a trashed twin, across directories in one call, across a walk's calls, and two
+-- candidates for one row.
+SELECT public.t118_row('11800000-0000-0000-0000-000000000910'::uuid, 'aaaa1111-0000-0000-0000-000000011819', 'Walker/old/m.mov', 5);
+SELECT public.t118_trashed('11800000-0000-0000-0000-000000000911'::uuid, 'aaaa1111-0000-0000-0000-000000011819', 'Walker/new/m.mov', 'Walker');
+SELECT public.t118_row('11800000-0000-0000-0000-000000000912'::uuid, 'aaaa1111-0000-0000-0000-000000011819', 'Walker/ga/x2.mov', 6);
+SELECT public.t118_row('11800000-0000-0000-0000-000000000913'::uuid, 'aaaa1111-0000-0000-0000-000000011819', 'Walker/ha/y.mov', 7);
+SELECT public.t118_a();
+SET LOCAL ROLE authenticated;
+INSERT INTO t118_ret SELECT 'm-rn1', public.t118_apply('aaaa1111-0000-0000-0000-000000011819', 'Walker',
+  jsonb_build_array(public.t118_dir('Walker', true, ARRAY['new','ga','ha'], '[]'),
+                    public.t118_dir('Walker/new', true, '{}', '[["m.mov","5"]]')));
+SELECT is((SELECT v ->> 'renamed' FROM t118_ret WHERE k = 'm-rn1'), '1', 'a folder renamed on the server: the row beside a trashed twin keeps its id');
+SELECT is((SELECT v ->> 'added' FROM t118_ret WHERE k = 'm-rn1'), '0', 'and nothing comes up as new');
+RESET ROLE;
+SELECT is((SELECT storage_path FROM public.files WHERE id = '11800000-0000-0000-0000-000000000910'::uuid), 'nas:Walker/new/m.mov', 'at its new place');
+SELECT is((SELECT size_bytes::int FROM public.files WHERE id = '11800000-0000-0000-0000-000000000911'::uuid), 1, 'and the trashed twin is left exactly as it was');
+SET LOCAL ROLE authenticated;
+SELECT public.t118_apply('aaaa1111-0000-0000-0000-000000011819', 'Walker',
+  jsonb_build_array(public.t118_dir('Walker', true, ARRAY['new','gb','ha'], '[]')), '[]'::jsonb, false);
+RESET ROLE;
+SELECT ok((SELECT share_missing_since IS NOT NULL FROM public.files WHERE id = '11800000-0000-0000-0000-000000000912'::uuid), 'a walk''s first call marks the rows of a folder that has gone');
+SET LOCAL ROLE authenticated;
+SELECT is((SELECT public.t118_apply('aaaa1111-0000-0000-0000-000000011819', 'Walker',
+    jsonb_build_array(public.t118_dir('Walker/gb', true, '{}', '[["x2.mov","6"]]'))) ->> 'renamed'), '1', 'and its next call finds them at the new name');
+RESET ROLE;
+SELECT ok((SELECT storage_path = 'nas:Walker/gb/x2.mov' AND share_missing_since IS NULL FROM public.files WHERE id = '11800000-0000-0000-0000-000000000912'::uuid), 'the same row, no longer missing');
+SET LOCAL ROLE authenticated;
+INSERT INTO t118_ret SELECT 'm-rn2', public.t118_apply('aaaa1111-0000-0000-0000-000000011819', 'Walker',
+  jsonb_build_array(public.t118_dir('Walker', true, ARRAY['new','gb','hb','hc'], '[]'),
+                    public.t118_dir('Walker/hb', true, '{}', '[["y.mov","7"]]'),
+                    public.t118_dir('Walker/hc', true, '{}', '[["y.mov","7"]]')));
+SELECT is((SELECT (v ->> 'renamed') || '/' || (v ->> 'added') FROM t118_ret WHERE k = 'm-rn2'), '0/2', 'two equal entries and one gone row: not a rename');
+RESET ROLE;
+-- A trashed row keeps its facts, whatever a walk reports at its old place.
+UPDATE public.files SET deleted_at = now(), share_bin_path = 'Walker/.wilson-bin/' || '11800000-0000-0000-0000-000000000913'::uuid::text || '/y.mov' WHERE id = '11800000-0000-0000-0000-000000000913'::uuid;
+SET LOCAL ROLE authenticated;
+SELECT public.t118_apply('aaaa1111-0000-0000-0000-000000011819', 'Walker', jsonb_build_array(public.t118_dir('Walker/ha', true, '{}', '[["y.mov","99"]]')), '[]'::jsonb, false);
+RESET ROLE;
+SELECT is((SELECT size_bytes::int FROM public.files WHERE id = '11800000-0000-0000-0000-000000000913'::uuid), 7, 'a trashed row''s facts do not move');
+
+-- After 24 hours: a check seat settles what began and ends in its own folder, and nothing else.
+SELECT public.t118_row('11800000-0000-0000-0000-000000000920'::uuid, 'aaaa1111-0000-0000-0000-000000011811', 'Round/ad.mov');
+SELECT public.t118_row('11800000-0000-0000-0000-000000000921'::uuid, 'aaaa1111-0000-0000-0000-000000011811', 'Round/mv.mov');
+SELECT public.t118_row('11800000-0000-0000-0000-000000000922'::uuid, 'aaaa1111-0000-0000-0000-000000011806', 'Moon-Film/mv2.mov');
+SELECT public.t118_row('11800000-0000-0000-0000-000000000923'::uuid, 'aaaa1111-0000-0000-0000-000000011811', 'Round/old.mov');
+INSERT INTO public.network_share_ops (id, workspace_id, file_id, project_id, dest_project_id, op, from_locator, to_locator, origin, created_by, created_at) VALUES
+  ('11800000-0000-0000-0000-00000000a920', '11111111-1111-1111-1111-111111111111', '11800000-0000-0000-0000-000000000920'::uuid, 'aaaa1111-0000-0000-0000-000000011811', 'aaaa1111-0000-0000-0000-000000011811', 'adopt', NULL, 'Round/ad.mov', '{}', 'cccccccc-cccc-cccc-cccc-cccccccccccc', now() - interval '25 hours'),
+  ('11800000-0000-0000-0000-00000000a921', '11111111-1111-1111-1111-111111111111', '11800000-0000-0000-0000-000000000921'::uuid, 'aaaa1111-0000-0000-0000-000000011811', 'aaaa1111-0000-0000-0000-000000011806', 'move', 'Round/mv.mov', 'Moon-Film/mv.mov', '{}', 'cccccccc-cccc-cccc-cccc-cccccccccccc', now() - interval '25 hours'),
+  ('11800000-0000-0000-0000-00000000a922', '11111111-1111-1111-1111-111111111111', '11800000-0000-0000-0000-000000000922'::uuid, 'aaaa1111-0000-0000-0000-000000011811', 'aaaa1111-0000-0000-0000-000000011806', 'move', 'Round/mv2.mov', 'Moon-Film/mv2.mov', '{}', 'cccccccc-cccc-cccc-cccc-cccccccccccc', now() - interval '25 hours'),
+  ('11800000-0000-0000-0000-00000000a923', '11111111-1111-1111-1111-111111111111', '11800000-0000-0000-0000-000000000923'::uuid, 'aaaa1111-0000-0000-0000-000000011811', 'aaaa1111-0000-0000-0000-000000011811', 'adopt', NULL, 'Round/old.mov', '{}', 'cccccccc-cccc-cccc-cccc-cccccccccccc', now());
+SET LOCAL ROLE authenticated;
+SELECT public.t118_a();
+SELECT throws_ok($$ SELECT public.network_share_settle(ARRAY['11800000-0000-0000-0000-00000000a920'::uuid], 'done') $$, '42501', 'network_share: not allowed', 'a check seat cannot settle somebody''s adopt, however old');
+SELECT throws_ok($$ SELECT public.network_share_settle(ARRAY['11800000-0000-0000-0000-00000000a921'::uuid], 'not_moved') $$, '42501', 'network_share: not allowed', 'nor a cross-project move, with the row at its source');
+SELECT throws_ok($$ SELECT public.network_share_settle(ARRAY['11800000-0000-0000-0000-00000000a922'::uuid], 'done') $$, '42501', 'network_share: not allowed', 'nor one with the row at its destination');
+INSERT INTO t118_ret SELECT 'm-st', public.t118_apply('aaaa1111-0000-0000-0000-000000011811', 'Round', '[]'::jsonb, '[]'::jsonb, false);
+SELECT is((SELECT count(*)::int FROM t118_ret, jsonb_array_elements(v -> 'stale') e WHERE k = 'm-st' AND e ->> 'op_id' LIKE '11800000-0000-0000-0000-00000000a92%'), 0, 'and none of them is offered to it as stale');
+-- A verified copy with a date this cannot store: the size goes on, the row's time stays.
+SELECT public.t118_c();
+SELECT lives_ok($$ SELECT public.network_share_settle(ARRAY['11800000-0000-0000-0000-00000000a923'::uuid], 'done',
+    '{"11800000-0000-0000-0000-00000000a923":{"s":"44","m":"1970-01-01T00:00:00Z"}}'::jsonb) $$, 'an adopt of a file dated before 1980 can settle');
+RESET ROLE;
+SELECT ok((SELECT size_bytes = 44 AND source_modified_at = '2026-10-01T10:00:00Z' FROM public.files WHERE id = '11800000-0000-0000-0000-000000000923'::uuid), 'with its size, and the row''s own time');
+DELETE FROM public.network_share_ops WHERE file_id IN ('11800000-0000-0000-0000-000000000920'::uuid, '11800000-0000-0000-0000-000000000921'::uuid, '11800000-0000-0000-0000-000000000922'::uuid, '11800000-0000-0000-0000-000000000923'::uuid);
+
+-- A client's hard delete: a trashed row is guarded too, on its own.
+SELECT public.t118_row('11800000-0000-0000-0000-000000000930'::uuid, 'aaaa1111-0000-0000-0000-000000011813', 'Other/t.mov');
+UPDATE public.files SET deleted_at = now(), share_bin_path = 'Other/.wilson-bin/' || '11800000-0000-0000-0000-000000000930'::uuid::text || '/t.mov' WHERE id = '11800000-0000-0000-0000-000000000930'::uuid;
+SELECT public.t118_as('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'admin', '22222222-2222-2222-2222-222222222222');
+SET LOCAL ROLE authenticated;
+SELECT throws_ok($$ DELETE FROM public.files $$, '42501', 'A file on your office server changes only through the desktop app.', 'a client cannot hard-delete a trashed office-server row');
+RESET ROLE;
+SELECT is((SELECT count(*)::int FROM public.files WHERE id = '11800000-0000-0000-0000-000000000930'::uuid), 1, 'it is still there');
+
+-- A walk across calls: only the last moves "last checked", and it reads complete only if all were.
+SELECT public.t118_a();
+INSERT INTO t118_ret SELECT 'm-lc', to_jsonb(last_checked_at) FROM public.network_share_checks WHERE project_id = 'aaaa1111-0000-0000-0000-000000011819';
+SET LOCAL ROLE authenticated;
+SELECT public.t118_walk('aaaa1111-0000-0000-0000-000000011819', 'Walker', jsonb_build_array(public.t118_dir('Walker/gb', true, '{}', '[["x2.mov","6"]]')), false, true);
+RESET ROLE;
+SELECT is((SELECT to_jsonb(last_checked_at) FROM public.network_share_checks WHERE project_id = 'aaaa1111-0000-0000-0000-000000011819'), (SELECT v FROM t118_ret WHERE k = 'm-lc'), 'a call that is not the last leaves last checked alone');
+SELECT ok((SELECT run_open FROM public.network_share_checks WHERE project_id = 'aaaa1111-0000-0000-0000-000000011819'), 'and holds the run open');
+SET LOCAL ROLE authenticated;
+SELECT public.t118_walk('aaaa1111-0000-0000-0000-000000011819', 'Walker', jsonb_build_array(public.t118_dir('Walker/new', true, '{}', '[["m.mov","5"]]')), true, false);
+RESET ROLE;
+SELECT ok((SELECT complete AND NOT run_open AND dirs_checked = 2 AND files_seen = 2
+             AND to_jsonb(last_checked_at) IS DISTINCT FROM (SELECT v FROM t118_ret WHERE k = 'm-lc')
+             FROM public.network_share_checks WHERE project_id = 'aaaa1111-0000-0000-0000-000000011819'), 'the last call closes it, adds up the run and moves last checked');
+SET LOCAL ROLE authenticated;
+SELECT public.t118_walk('aaaa1111-0000-0000-0000-000000011819', 'Walker', jsonb_build_array(public.t118_dir('Walker/gb', false, '{}', '[]')), false, true);
+SELECT public.t118_walk('aaaa1111-0000-0000-0000-000000011819', 'Walker', jsonb_build_array(public.t118_dir('Walker/new', true, '{}', '[["m.mov","5"]]')), true, false);
+RESET ROLE;
+SELECT ok((SELECT NOT complete FROM public.network_share_checks WHERE project_id = 'aaaa1111-0000-0000-0000-000000011819'), 'one incomplete call and the walk is not complete, though its last was');
+SET LOCAL ROLE authenticated;
+SELECT public.t118_walk('aaaa1111-0000-0000-0000-000000011819', 'Walker', '[]'::jsonb, true, true);
+RESET ROLE;
+SELECT ok((SELECT NOT complete FROM public.network_share_checks WHERE project_id = 'aaaa1111-0000-0000-0000-000000011819'), 'a walk that sent no directory has checked nothing');
+SET LOCAL ROLE authenticated;
+SELECT public.t118_walk('aaaa1111-0000-0000-0000-000000011819', 'Walker', '[{"d":"../x","complete":true,"files":[]}]'::jsonb || jsonb_build_array(public.t118_dir('Walker/new', true, '{}', '[["m.mov","5"]]')), true, true);
+RESET ROLE;
+SELECT ok((SELECT NOT complete FROM public.network_share_checks WHERE project_id = 'aaaa1111-0000-0000-0000-000000011819'), 'a walk with a directory it could not use is not complete');
+-- A walk that stopped half way does not spoil the next one.
+SET LOCAL ROLE authenticated;
+SELECT public.t118_walk('aaaa1111-0000-0000-0000-000000011819', 'Walker', jsonb_build_array(public.t118_dir('Walker/gb', false, '{}', '[]')), false, true);
+SELECT public.t118_walk('aaaa1111-0000-0000-0000-000000011819', 'Walker', jsonb_build_array(public.t118_dir('Walker/new', true, '{}', '[["m.mov","5"]]')), true, true);
+RESET ROLE;
+SELECT ok((SELECT complete AND dirs_checked = 1 AND files_seen = 1 FROM public.network_share_checks WHERE project_id = 'aaaa1111-0000-0000-0000-000000011819'), 'a walk''s first call starts afresh: an abandoned walk is forgotten');
+
+-- The thin broadcast: one signal for a check, on the project's own topic.
+INSERT INTO t118_ret SELECT 'm-b0', to_jsonb(CASE WHEN (SELECT env FROM t118_rt) = 'ok' THEN public.t118_msgs('aaaa1111-0000-0000-0000-000000011819') ELSE 0 END);
+SET LOCAL ROLE authenticated;
+SELECT public.t118_walk('aaaa1111-0000-0000-0000-000000011819', 'Walker', jsonb_build_array(public.t118_dir('Walker/new', true, '{}', '[["m.mov","5"]]')), false, true);
+RESET ROLE;
+SELECT CASE WHEN (SELECT env FROM t118_rt) = 'ok'
+  THEN is(public.t118_msgs('aaaa1111-0000-0000-0000-000000011819'), (SELECT (v #>> '{}')::int FROM t118_ret WHERE k = 'm-b0'), 'a call that is not the last sends nothing')
+  ELSE ok(true, 'a call that is not the last sends nothing (no realtime here)') END;
+SET LOCAL ROLE authenticated;
+SELECT public.t118_walk('aaaa1111-0000-0000-0000-000000011819', 'Walker', jsonb_build_array(public.t118_dir('Walker/gb', true, '{}', '[["x2.mov","6"]]')), true, false);
+RESET ROLE;
+SELECT CASE WHEN (SELECT env FROM t118_rt) = 'ok'
+  THEN is(public.t118_msgs('aaaa1111-0000-0000-0000-000000011819'), (SELECT (v #>> '{}')::int + 1 FROM t118_ret WHERE k = 'm-b0'), 'the last sends one')
+  ELSE ok(true, 'the last sends one (no realtime here)') END;
+INSERT INTO t118_ret SELECT 'm-b1', to_jsonb(CASE WHEN (SELECT env FROM t118_rt) = 'ok' THEN public.t118_msgs('aaaa1111-0000-0000-0000-000000011802') ELSE 0 END);
+SELECT public.t118_e();
+SET LOCAL ROLE authenticated;
+SELECT public.t118_apply('aaaa1111-0000-0000-0000-000000011802', 'Quiet-Room', jsonb_build_array(public.t118_dir('Quiet-Room', true, '{}', '[["q.mov","1"],["z.mov","1"]]')));
+RESET ROLE;
+SELECT CASE WHEN (SELECT env FROM t118_rt) = 'ok'
+  THEN is(public.t118_msgs('aaaa1111-0000-0000-0000-000000011802'), (SELECT (v #>> '{}')::int + 1 FROM t118_ret WHERE k = 'm-b1'), 'a private project''s goes to its own topic')
+  ELSE ok(true, 'a private project''s goes to its own topic (no realtime here)') END;
+
+-- The refusal arms nothing else reaches.
+SELECT public.t118_row('11800000-0000-0000-0000-000000000940'::uuid, 'aaaa1111-0000-0000-0000-000000011811', 'Round/q.mov');
+SELECT public.t118_trashed('11800000-0000-0000-0000-000000000942'::uuid, 'aaaa1111-0000-0000-0000-000000011811', 'Round/u.mov', 'Round');
+SET LOCAL ROLE authenticated;
+SELECT public.t118_c();
+INSERT INTO t118_ret SELECT 'm-q', public.network_share_trash(ARRAY['11800000-0000-0000-0000-000000000940'::uuid]);
+SELECT throws_ok($$ SELECT public.t118_add('aaaa1111-0000-0000-0000-000000011811', NULL, 'q.mov') $$, 'P0001', 'network_share: occupied', 'a name freed by a pending delete cannot be added while the file still sits there');
+SELECT throws_ok($$ SELECT public.network_share_restore(ARRAY['11800000-0000-0000-0000-000000000940'::uuid]) $$, 'P0001', 'network_share: pending', 'nor can a row with a pending delete be restored');
+RESET ROLE;
+SELECT public.t118_row('11800000-0000-0000-0000-000000000941'::uuid, 'aaaa1111-0000-0000-0000-000000011811', 'Round/q.mov');
+SET LOCAL ROLE authenticated;
+SELECT throws_ok($$ SELECT public.network_share_settle(ARRAY[public.t118_op('m-q')], 'not_moved') $$, 'P0001', 'network_share: occupied', 'a delete that did not happen, with a live row at its name: refused, not a raw error');
+RESET ROLE;
+DELETE FROM public.files WHERE id = '11800000-0000-0000-0000-000000000941'::uuid;
+SET LOCAL ROLE authenticated;
+SELECT lives_ok($$ SELECT public.network_share_settle(ARRAY[public.t118_op('m-q')], 'not_moved') $$, 'and with the name free it settles');
+RESET ROLE;
+UPDATE public.workspace_storage SET mode = 'central' WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
+SET LOCAL ROLE authenticated;
+SELECT throws_ok($$ SELECT public.network_share_trash(ARRAY['11800000-0000-0000-0000-000000000901'::uuid]) $$, 'P0001', 'network_share: drive_changed', 'a company that has left its server: no delete');
+SELECT throws_ok($$ SELECT public.network_share_restore(ARRAY['11800000-0000-0000-0000-000000000942'::uuid]) $$, 'P0001', 'network_share: drive_changed', 'and no restore');
+RESET ROLE;
+UPDATE public.workspace_storage SET mode = 'byos' WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
+SELECT public.t118_e();
+SET LOCAL ROLE authenticated;
+SELECT throws_ok($$ SELECT public.t118_apply('aaaa1111-0000-0000-0000-000000011811', 'Round', jsonb_build_array(jsonb_build_object('d', 'Round', 'complete', false, 'subdirs',
+    (SELECT jsonb_agg('s' || g) FROM generate_series(1, 20001) g)))) $$, 'P0001', 'network_share: too_large', 'more than 20,000 subfolders in a call');
+RESET ROLE;
+
+-- A row its folder has left names a file that may be somebody else's by now.
+SELECT public.t118_row('11800000-0000-0000-0000-000000000943'::uuid, 'aaaa1111-0000-0000-0000-000000011811', 'Round/z.mov');
+SELECT public.t118_trashed('11800000-0000-0000-0000-000000000944'::uuid, 'aaaa1111-0000-0000-0000-000000011811', 'Round/y.mov', 'Round');
+SELECT public.t118_repoint('aaaa1111-0000-0000-0000-000000011811', 'Round2');
+SELECT throws_ok($$ SELECT public._network_share_move_core('11800000-0000-0000-0000-000000000943'::uuid, 'aaaa1111-0000-0000-0000-000000011806', NULL, '{}'::jsonb, false) $$, 'P0001', 'network_share: no_folder', 'a row its folder has left cannot be moved');
+SET LOCAL ROLE authenticated;
+SELECT public.t118_c();
+SELECT throws_ok($$ SELECT public.network_share_trash(ARRAY['11800000-0000-0000-0000-000000000943'::uuid]) $$, 'P0001', 'network_share: no_folder', 'nor deleted');
+SELECT throws_ok($$ SELECT public.network_share_restore(ARRAY['11800000-0000-0000-0000-000000000944'::uuid]) $$, 'P0001', 'network_share: no_folder', 'nor a trashed one restored');
+SELECT public.t118_e();
+SELECT is((SELECT public.t118_apply('aaaa1111-0000-0000-0000-000000011811', 'Round2', '[]'::jsonb, jsonb_build_array('11800000-0000-0000-0000-000000000943'::uuid), false) -> 'restore_back'), '[]'::jsonb, 'nor asked back from the bin');
+SELECT public.t118_a();
+SELECT throws_ok($$ UPDATE public.projects SET folder_root = public.t118_folder('Round') WHERE id = 'aaaa1111-0000-0000-0000-000000011816' $$, '42501', 'This folder is already used by another project or space on the company server.', 'and nobody else can take a folder another project''s rows are still in');
+RESET ROLE;
+SELECT public.t118_repoint('aaaa1111-0000-0000-0000-000000011811', 'Round');
+UPDATE public.files SET share_missing_since = NULL WHERE project_id = 'aaaa1111-0000-0000-0000-000000011811';
+-- Nor one an unsettled operation still names, with no live row there at all.
+SELECT public.t118_row('11800000-0000-0000-0000-000000000945'::uuid, 'aaaa1111-0000-0000-0000-000000011817', 'Round3/p.mov');
+SET LOCAL ROLE authenticated;
+SELECT public.t118_c();
+INSERT INTO t118_ret SELECT 'm-p', public.network_share_trash(ARRAY['11800000-0000-0000-0000-000000000945'::uuid]);
+RESET ROLE;
+SELECT public.t118_repoint('aaaa1111-0000-0000-0000-000000011817', 'Round4');
+SET LOCAL ROLE authenticated;
+SELECT public.t118_a();
+SELECT throws_ok($$ UPDATE public.projects SET folder_root = public.t118_folder('Round3') WHERE id = 'aaaa1111-0000-0000-0000-000000011816' $$, '42501', 'This folder is already used by another project or space on the company server.', 'nor one an unsettled operation still names');
+RESET ROLE;
+SELECT public.t118_repoint('aaaa1111-0000-0000-0000-000000011817', 'Round3');
+SET LOCAL ROLE authenticated;
+SELECT public.t118_c();
+SELECT public.network_share_settle(ARRAY[public.t118_op('m-p')], 'done');
+
+-- Nested folders, set before the company moved to its server: every call that names a real file
+-- refuses, not only the apply.
+SELECT throws_ok($$ SELECT public.t118_add('aaaa1111-0000-0000-0000-000000011814', '11800000-0000-0000-0000-0000000000f9', 'cut.mov') $$, 'P0001', 'network_share: folder_shared', 'no add into a folder inside which another project lives');
+SELECT throws_ok($$ SELECT public.network_share_trash(ARRAY['11800000-0000-0000-0000-000000000903'::uuid]) $$, 'P0001', 'network_share: folder_shared', 'no delete');
+SELECT throws_ok($$ SELECT public.network_share_restore(ARRAY['11800000-0000-0000-0000-000000000904'::uuid]) $$, 'P0001', 'network_share: folder_shared', 'no restore');
+RESET ROLE;
+SELECT throws_ok($$ SELECT public._network_share_move_core('11800000-0000-0000-0000-000000000903'::uuid, 'aaaa1111-0000-0000-0000-000000011806', NULL, '{}'::jsonb, false) $$, 'P0001', 'network_share: folder_shared', 'no move out of it');
+SELECT throws_ok($$ SELECT public._network_share_move_core('11800000-0000-0000-0000-000000000901'::uuid, 'aaaa1111-0000-0000-0000-000000011814', NULL, '{}'::jsonb, false) $$, 'P0001', 'network_share: folder_shared', 'and no move into it');
+SELECT public.t118_repoint('aaaa1111-0000-0000-0000-000000011815', 'Branch-Free');
+SET LOCAL ROLE authenticated;
+SELECT lives_ok($$ SELECT public.t118_add('aaaa1111-0000-0000-0000-000000011814', '11800000-0000-0000-0000-0000000000f9', 'cut.mov') $$, 'and once the folders are apart, the add goes in');
+
+-- A folder inside the drive under a name no catalogue may hold: refused when it is set, and one
+-- already there stops only its own project.
+SELECT public.t118_a();
+SELECT throws_ok($$ UPDATE public.projects SET folder_root = public.t118_folder('Legal') WHERE id = 'aaaa1111-0000-0000-0000-000000011816' $$, '42501', 'WILSON cannot keep a project''s files in this folder on the company server. Choose another.', 'a money or Legal folder is refused when it is set');
+SELECT throws_ok($$ UPDATE public.projects SET folder_root = public.t118_folder('.archive') WHERE id = 'aaaa1111-0000-0000-0000-000000011816' $$, '42501', 'WILSON cannot keep a project''s files in this folder on the company server. Choose another.', 'and a dot-led one');
+SELECT throws_ok($$ UPDATE public.projects SET folder_root = public.t118_folder('_WILSO~1') WHERE id = 'aaaa1111-0000-0000-0000-000000011816' $$, '42501', 'WILSON cannot keep a project''s files in this folder on the company server. Choose another.', 'and a short name');
+SELECT throws_ok($$ INSERT INTO public.projects (id, workspace_id, title, created_by, folder_root) VALUES ('aaaa1111-0000-0000-0000-00000001181a', '11111111-1111-1111-1111-111111111111', 'New', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', public.t118_folder('Invoices')) $$, '42501', 'WILSON cannot keep a project''s files in this folder on the company server. Choose another.', 'at an INSERT too');
+SELECT throws_ok($$ UPDATE public.projects SET folder_root = public.t118_folder('Finance/sub') WHERE id = 'aaaa1111-0000-0000-0000-000000011816' $$, '42501', 'This folder is already used by another project or space on the company server.', 'a refused name still claims its path');
+SELECT throws_ok($$ SELECT public.t118_apply('aaaa1111-0000-0000-0000-000000011818', 'Finance', '[]'::jsonb) $$, 'P0001', 'network_share: no_folder', 'one already there reads no_folder for its own project');
+SELECT lives_ok($$ SELECT public.t118_apply('aaaa1111-0000-0000-0000-000000011811', 'Round', '[]'::jsonb, '[]'::jsonb, false) $$, 'and stops nobody else');
+RESET ROLE;
+SELECT ok((SELECT c.placed AND c.prefix = 'Finance' FROM public.network_share_claims('11111111-1111-1111-1111-111111111111') c WHERE c.project_id = 'aaaa1111-0000-0000-0000-000000011818'), 'it is a placed claim, on its path');
+SELECT is(public._network_share_folder_refused('11111111-1111-1111-1111-111111111111', public.t118_root()), true, 'the drive itself is refused');
+SELECT is(public._network_share_folder_refused('11111111-1111-1111-1111-111111111111', public.t118_folder('Fine')), false, 'a good folder is not');
+SELECT is(public._network_share_folder_refused('11111111-1111-1111-1111-111111111111', 'C:/elsewhere'), false, 'nor one outside the drive: that is the apply''s unplaced claim');
+
+-- The sweep: no more than the cap in a call, and the walk finishes by sending it again.
+INSERT INTO public.files (project_id, name, storage_provider, storage_path, size_bytes)
+SELECT 'aaaa1111-0000-0000-0000-000000011817', 'f' || g, 'network_share', 'nas:Round3/big/f' || g || '.mov', 1 FROM generate_series(1, 1501) g;
+SELECT public.t118_a();
+SET LOCAL ROLE authenticated;
+INSERT INTO t118_ret SELECT 'm-s1', public.t118_apply('aaaa1111-0000-0000-0000-000000011817', 'Round3', jsonb_build_array(public.t118_dir('Round3/big', true, '{}', '[]')));
+SELECT is((SELECT (v ->> 'newly_missing') || '/' || (v ->> 'more_missing') FROM t118_ret WHERE k = 'm-s1'), '1500/true', 'a sweep past the cap marks the cap and says there is more');
+RESET ROLE;
+SELECT ok((SELECT last_checked_at IS NULL AND NOT complete AND NOT run_open AND dirs_checked = 0 FROM public.network_share_checks WHERE project_id = 'aaaa1111-0000-0000-0000-000000011817'), 'and that send adds nothing to the run');
+SET LOCAL ROLE authenticated;
+INSERT INTO t118_ret SELECT 'm-s2', public.t118_apply('aaaa1111-0000-0000-0000-000000011817', 'Round3', jsonb_build_array(public.t118_dir('Round3/big', true, '{}', '[]')));
+SELECT is((SELECT (v ->> 'newly_missing') || '/' || (v ->> 'more_missing') FROM t118_ret WHERE k = 'm-s2'), '1/false', 'the same call again finishes it');
+RESET ROLE;
+SELECT ok((SELECT last_checked_at IS NOT NULL AND complete AND dirs_checked = 1 AND missing_count = 1501 FROM public.network_share_checks WHERE project_id = 'aaaa1111-0000-0000-0000-000000011817'), 'and moves last checked, once');
+
+-- A purge holds a row whose operation has not settled, and takes it the night after.
+SELECT public.t118_row('11800000-0000-0000-0000-000000000950'::uuid, 'aaaa1111-0000-0000-0000-000000011811', 'Round/pg.mov');
+SET LOCAL ROLE authenticated;
+SELECT public.t118_c();
+INSERT INTO t118_ret SELECT 'm-pg', public.network_share_trash(ARRAY['11800000-0000-0000-0000-000000000950'::uuid]);
+RESET ROLE;
+UPDATE public.files SET deleted_at = now() - interval '31 days' WHERE id = '11800000-0000-0000-0000-000000000950'::uuid;
+SELECT public.purge_soft_deleted();
+SELECT is((SELECT count(*)::int FROM public.files WHERE id = '11800000-0000-0000-0000-000000000950'::uuid), 1, 'a trashed row with an unsettled operation stays past its 30 days');
+SELECT is((SELECT state FROM public.network_share_ops WHERE file_id = '11800000-0000-0000-0000-000000000950'::uuid), 'pending', 'and so does its journal');
+SET LOCAL ROLE authenticated;
+SELECT public.network_share_settle(ARRAY[public.t118_op('m-pg')], 'done');
+RESET ROLE;
+UPDATE public.files SET deleted_at = now() - interval '31 days' WHERE id = '11800000-0000-0000-0000-000000000950'::uuid;
+SELECT public.purge_soft_deleted();
+SELECT is((SELECT count(*)::int FROM public.files WHERE id = '11800000-0000-0000-0000-000000000950'::uuid), 0, 'once it settles, the next purge takes it');
+
+-- What a locator may not be, from the review: bytes, and short names.
+SELECT is(public.network_share_locator_ok(repeat(chr(27721), 700)), false, 'a path under 1,024 characters and over 2,000 bytes');
+SELECT is(public.network_share_locator_ok('P_DATA~1/rates.json'), false, 'a short name for a folder');
+SELECT is(public.network_share_locator_ok('Salt-Hours/CLIP~12.MOV'), false, 'or for a file');
+SELECT is(public.network_share_locator_ok('Salt-Hours/shot~final/a.mov'), true, 'a tilde in an ordinary name is fine');
 
 
 -- ── L. The row cap ───────────────────────────────────────────────────────────

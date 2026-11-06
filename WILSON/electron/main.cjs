@@ -4922,6 +4922,10 @@ function startLocalServer(distPath) {
       resolve({ server, port, token: launchToken, origin: rendererOrigin });
     });
 
+    // Node ends a request after five minutes by default, and an add of a big clip over a slow
+    // link takes longer. This server is on 127.0.0.1 behind the launch token, so a slow client
+    // is no threat; the add route has its own stall watch (networkShare.cjs).
+    server.requestTimeout = 0;
     server.on('error', reject);
   });
 }
