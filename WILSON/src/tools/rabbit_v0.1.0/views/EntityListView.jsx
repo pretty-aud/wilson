@@ -1,0 +1,1773 @@
+// ============================================================
+// RABBIT — EntityListView (Levels and Experiences)
+// ============================================================
+//
+// The one list view LevelsView and ExperiencesView render: table and
+// gallery modes, inline editing, detail popup, create/delete workflows,
+// filters, saved views and bulk select. A flat list, no nested children:
+// each row has a name, status, description, and linked assets / tasks
+// counts.
+//
+// B4c folded the two views into this one (review R4-11). They were a
+// verbatim twin that differed only in the entity's words, icon, storage
+// key, ctx collection and methods; every such difference is now a field
+// of the `entity` config each thin view file defines, and the DOM each
+// view renders is unchanged.
+//
+// UI overhaul B4c, surface 6 (2026-09-25): the page is on the shared kit
+// (src/ui) and lane B4's sheet, rabbitFiles.css (`rb-ent-`), restyled once
+// for both views as the Assets page's twin (ProjectAssetsView): the kit
+// Toolbar, the kit Tabs over a named tabpanel, the kit Table at its 36px
+// row, a status the kit's StatusDot / StatusBadge / CellSelect on the one
+// STATUS map (R4-05), the kit's Card and EmptyState, and every question —
+// the row's delete, the bulk delete, New level — the kit Dialog, portalled
+// into <body>. Every state is a `data-*` attribute or a real :hover resolved
+// in the sheet. Step C put the detail popup on the kit as well: the kit
+// Dialog, portalled, the Assets page's AssetDetailPopup re-made, with the
+// task form inside it as its first column (EntityDetailPopup).
+//
+// ── The `entity` config ──
+//   type           entityType for RelationsPanel, NewTaskSidePopup and the
+//                  thumbnail IPC ('level' | 'experience'); the item kind
+//                  the Tasks count reads (VW1m)
+//   noun, nouns, Noun
+//                  the words: "New level", "No levels yet", "Level name",
+//                  the default name "Level 3"
+//   Icon           the lucide glyph (Gamepad2 | Sparkles)
+//   collection     the ctx list, and the thumbnail route's segment
+//                  ('levels': ctx.levels, /projects/:id/levels/:id/thumbnail)
+//   linkKey        a task's link to a row ('level_id'): the key ctx.addTask
+//                  links a new task by, and a file's link (the Files count)
+//   assetsKey      an asset's links to rows ('level_ids'), the field the
+//                  Assets tab writes: the Assets count (VW1b)
+//   addMethod, updateMethod, deleteMethod
+//                  the ctx writers ('addLevel', 'updateLevel', 'deleteLevel')
+//   savedViewsKey  the saved views' localStorage key
+// Words and wiring only: R4-11's one drift — the detail popup's date fields'
+// focus ring, ring-2 in Levels and ring-1 in Experiences — was a config field
+// until step C, and both fields take the kit's one focus treatment now.
+//
+// ── UX Laws applied ──
+// • Aesthetic-Usability Effect — polished dark stone surface
+// • Law of Common Region — rows as clearly bounded groups
+// • Law of Proximity — tight internal spacing, generous external gaps
+// • Von Restorff Effect — a status dot, the one colour a row carries
+
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
+import {
+  Plus, Search, X, Filter,
+  ChevronDown, ChevronRight, Trash2, FileText,
+  ArrowUpDown, Group, Save,
+  CheckSquare, Square, MinusSquare, Upload,
+  ImagePlus, ImageOff,
+} from 'lucide-react'
+import {
+  Toolbar, Button, IconButton, Tabs, Table, Th, Td, Row, Dialog, Field,
+  Card, HoverActions, RowTitle, EmptyState, StatusDot, StatusBadge, StatusBanner, CellSelect, statusMeta,
+  Banner, Loading, MenuButton, useToast,
+} from '../../../ui'
+import './rabbitFiles.css'
+// VW1e (2026-10-25): the custom views on the Levels and Experiences tables
+// (the design's §7 step 5): the shared piece (views/tableViews/) given the
+// table's description; combination groups by asset with Create grouping (her
+// Q-M3); the seat (step 0, finding 4); the old saved views removed (Q17).
+import { usePermissions } from '../../../permissions/usePermissions'
+import { canOnProject, projectActionDeniedReason } from '../../../permissions/projectRoleMatrix'
+import { useRosterMembers } from '../../../components/TeamMembers/useRosterMembers'
+import { buildItemLookup, KIND_LABEL, KIND_LABEL_PLURAL } from '../state/taskItemsModel'
+import { isGroupingLive } from '../state/tableViewsModel'
+import { GROUPINGS_GATE_WORDS } from '../state/tableViewsState'
+import { useTableView } from './tableViews/useTableView'
+import { TableViewsMenu } from './tableViews/TableViewsMenu'
+import { ViewBar } from './tableViews/ViewBar'
+import { ViewFilterRow } from './tableViews/ViewFilterRow'
+import { CreateGroupingDialog } from './tableViews/CreateGroupingDialog'
+import { useAsk } from './tableViews/useAsk'
+import { combinationGroupsOf } from './tableViews/combinationGroups'
+import { entityDescription, entityTableColumns, entityTableWidths, assetsByEntity } from './tableViews/entityTableView'
+import { ASSET_LINKS_ABSENT_REASON, linksKept } from './tableViews/assetsTableView'
+import GatedAction, { WriteReasonProvider } from '../../../permissions/GatedAction'
+import {
+  applyViewFilters, applyViewSorts, effectiveFields, filterCount, withFirstSort, withFirstSortReversed,
+} from './tableViews/viewScreenModel'
+import { useRabbit } from '../state/RabbitProvider'
+import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
+import { useRateCard } from '../../../components/RateCard/useRateCard'
+import TaskDetailPopup from '../components/TaskDetailPopup'
+import RelationsPanel, { NewTaskSidePopup } from '../components/RelationsPanel'
+// Post-overhaul S4c (Audrey, 2026-10-05: "levels and experiences dont allow
+// for me to add files to a them … when i open an experience or level im not
+// seeing a way to see the files"): the detail popup gains the Files section
+// the scene and shot popups have — FileManager, one component over the two
+// stores (ctx.supportsManagedFiles decides), mounted with levelId or
+// experienceId — and the create form's picked files are really uploaded
+// (addFilesToEntity), which nothing did before.
+import FileManager from '../components/FileManager'
+import { addFilesToEntity } from '../components/entityFiles'
+import { taskCountsByEntity } from '../state/taskItemsModel'
+
+// ── Status config ──
+const STATUSES = [
+  'not_started', 'in_progress', 'pending_review', 'needs_revisions',
+  'approved', 'final', 'blocked', 'on_hold', 'omitted',
+]
+
+// ── Status words and options ──
+// A status's words come from the kit's one status source (src/ui/StatusDot),
+// so these pages, Assets, Tasks and the Dashboard say the same thing, in
+// sentence case (Q2); `fmt()` lower-cased every one of them. Its colour is
+// the kit's too: a StatusDot beside the words, never the words' own ink
+// (R4-05).
+const STATUS_LABELS = Object.fromEntries(STATUSES.map(s => [s, statusMeta(s).label]))
+const STATUS_OPTIONS = STATUSES.map(s => ({ value: s, label: STATUS_LABELS[s] }))
+
+// VW1e (2026-10-25): the sorts, groupings and filters are the view's, read
+// through the table's description (views/tableViews/entityTableView.js); the
+// old lists here went with the old saved views (her Q17, "Start fresh").
+
+// The kit toast stack, or nothing where no ToastProvider is mounted (a test
+// that mounts the tab alone): a passing message, never a failure.
+function useOptionalToast() {
+  try { return useToast() } catch { return null }
+}
+
+// ── Gallery card sizes ──
+// The three card widths — 160, 220 and 300px, the picture 0.6 of each, as
+// they were — live in rabbitFiles.css, keyed on the gallery's `data-card`.
+// R4-35's one preview geometry is recorded, not applied (C1).
+const CARD_SIZES = ['sm', 'md', 'lg']
+
+// The body the Table / Gallery tabs switch (the kit's Tabs wants its panel).
+const BODY_ID = 'rb-ent-body'
+
+// ── The detail popup's width ──
+// Its old max-w-4xl, 896px: a real geometry, which the kit Dialog takes as a
+// number. While the task form is open it is the Dialog's first column, and
+// the Dialog is wider by the form's 400px and the hairline after it
+// (rabbitFiles.css, `.rb-rel-task` and `.rb-ent-detail-task`).
+const DETAIL_WIDTH = 896
+const DETAIL_TASK_WIDTH = 400 + 1
+
+function fmt(s) { return (s || '').replace(/_/g, ' ') }
+
+
+// ─────────────────────────────────────────────────────
+// MAIN COMPONENT
+// ─────────────────────────────────────────────────────
+export default function EntityListView({ entity }) {
+  const ctx = useRabbit()
+  const project = ctx?.project
+  const items = ctx?.[entity.collection] || []
+  const assets = ctx?.assets || []
+  const tasks = ctx?.tasks || []
+
+  const tm = useTeamMembers()
+  const rc = useRateCard()
+  const teamAssignments = ctx?.teamAssignments || []
+  const memberById = useMemo(() => { const m = {}; for (const mb of tm.members) m[mb.id] = mb; return m }, [tm.members])
+  const projectMembers = useMemo(() => teamAssignments.map(a => memberById[a.member_id]).filter(Boolean), [teamAssignments, memberById])
+  const roleEntries = useMemo(() => { const seen = new Set(); return (rc.entries || []).filter(e => { if (!e.role_slug || seen.has(e.role_slug)) return false; seen.add(e.role_slug); return true }) }, [rc.entries])
+  const [thumbRevision, setThumbRevision] = useState(0)
+
+  // ── The tab's own (VW1e): the search and the card size are never part of
+  // a view (her Q8). The layout, filters, sorts, grouping and fields are the
+  // view's (useTableView, below).
+  const [search, setSearch]         = useState('')
+  const [gallerySize, setGallerySize] = useState('md')
+  const [showFilterPanel, setShowFilterPanel] = useState(false)
+  const [collapsedGroups, setCollapsedGroups] = useState(new Set())
+
+  // ── The seat (VW1e step 0, finding 4) ──
+  // The Tasks and Assets tables' rule (Q2: anyone who can edit the project
+  // saves views; Q-F: a seat that cannot write sees no editing control), for
+  // the views, the drag and Create grouping.
+  // R1 (2026-10-27, night 2; OUTSTANDING's "Levels and Experiences have no
+  // write gate"): and for every other write control of the two pages, as the
+  // Scenes rows draw it (Session 29, "keep button gray and explain why"): New,
+  // a row's Delete and the bulk bar's verbs greyed in GatedAction with the
+  // reason (WriteReasonProvider below); a name or description the words alone;
+  // the status select and the window's dates disabled; and every funnel —
+  // the delete question, the create window, a row's or the window's update —
+  // refuses, so the provider's optimistic writes are never reached.
+  const { role, ready: permsReady } = usePermissions()
+  const writeGateCtx = { appRole: role, projectRole: ctx?.myProjectRole, isStaffed: ctx?.projectIsStaffed, ready: permsReady }
+  const canWrite = canOnProject(writeGateCtx, 'project.entity.write')
+  const writeReason = projectActionDeniedReason(writeGateCtx, 'project.entity.write')
+
+  // ── Popup state ──
+  const [detailId, setDetailId] = useState(null)
+  const [confirmDelete, setConfirmDelete]   = useState(null) // { id, name }
+  const [showCreatePopup, setShowCreatePopup] = useState(false)
+
+  function toggleGroup(key) {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev)
+      next.has(key) ? next.delete(key) : next.add(key)
+      return next
+    })
+  }
+
+  // ── Lookups ──
+  // VW1b (2026-10-17; her Q12, "Fix counts, no new columns"; the design's
+  // §4.7, OUTSTANDING P1-26's assets half): an asset is in a level (or an
+  // experience) when its `level_ids` (`experience_ids`) hold the row — the
+  // field the Assets tab writes and the window's Assets list reads. It
+  // counted `level_id`, which no asset carries, so every level read 0 assets
+  // while its window listed them. Each asset counts once per row. On the
+  // cloud assets carry no level or experience links yet (the adapter leaves
+  // them out): there the count is 0 by data, until VW1e carries them.
+  const assetCountById = useMemo(() => {
+    const map = {}
+    for (const a of assets) {
+      const ids = Array.isArray(a?.[entity.assetsKey]) ? a[entity.assetsKey] : []
+      for (const id of new Set(ids.filter(x => x != null && x !== '').map(String))) map[id] = (map[id] || 0) + 1
+    }
+    return map
+  }, [assets, entity.assetsKey])
+
+  // VW1m (2026-10-16): a task counts under every level (or experience) it is
+  // about, not only its first (OUTSTANDING P1-26, the tasks half): the
+  // model's count, the one the Assets table and the windows' Tasks (n) read.
+  // Where the backend keeps no items, the task's own field, as before.
+  const taskCountById = useMemo(
+    () => taskCountsByEntity(tasks, ctx?.taskItems, entity.type, ctx?.taskItemsAvailable === true),
+    [tasks, ctx?.taskItems, ctx?.taskItemsAvailable, entity.type],
+  )
+
+  // ── CRUD handlers ──
+  const handleDelete = useCallback(async (id) => {
+    // R1: a seat that cannot write deletes nothing, however the question came.
+    if (!canWrite) { setConfirmDelete(null); return }
+    try {
+      await ctx?.[entity.deleteMethod]?.(id)
+    } catch (err) { console.error(`Failed to delete ${entity.noun}:`, err) }
+    setConfirmDelete(null)
+    if (detailId === id) setDetailId(null)
+  }, [ctx, detailId, entity, canWrite])
+  // R1: and the question opens only for a seat that may write.
+  const requestDelete = useCallback((target) => { if (canWrite) setConfirmDelete(target) }, [canWrite])
+
+  // ── The view (VW1e, 2026-10-25): what Filter, Sort, Group, the layout
+  // tabs and the Views dropdown's cards change, for the moment (her Q3),
+  // until the bar saves it (Q3a); the shared piece (views/tableViews/) reads
+  // the table through its description (entityTableView.js).
+  const tableKey = entity.collection
+  const lookup = useMemo(() => buildItemLookup({ items: [], available: false, assets }), [assets])
+  const assetsOf = useMemo(() => assetsByEntity(assets, entity.assetsKey), [assets, entity.assetsKey])
+  const taskCountOf = useCallback((row) => taskCountById[row.id] || 0, [taskCountById])
+  const description = useMemo(() => entityDescription({ tableKey, assets, lookup, assetsOf, taskCountOf }),
+    [tableKey, assets, lookup, assetsOf, taskCountOf])
+  const { members: rosterMembers } = useRosterMembers()
+  const rosterById = useMemo(() => { const m = {}; for (const mb of rosterMembers || []) m[mb.id] = mb; return m }, [rosterMembers])
+  const nameOf = useCallback((id) => {
+    const m = Object.prototype.hasOwnProperty.call(rosterById, id) ? rosterById[id] : null
+    return m ? (m.name || m.display_name || m.username || null) : null
+  }, [rosterById])
+  const toast = useOptionalToast()
+  const notify = useCallback((words) => { toast?.push({ tone: 'info', title: words }) }, [toast])
+  const { ask, dialog: askDialog } = useAsk()
+  const [announcement, setAnnouncement] = useState({ words: '', n: 0 })
+  const announce = useCallback((words) => setAnnouncement(a => ({ words, n: a.n + 1 })), [])
+  const [dropFailure, setDropFailure] = useState(null)
+  const [groupingKind, setGroupingKind] = useState(null)
+  const [focusGroupMenu, setFocusGroupMenu] = useState(false)
+  useEffect(() => {
+    if (!focusGroupMenu) return
+    document.querySelector('.rb-ent-toolbar select[aria-label="Group"]')?.focus({ preventScroll: true })
+    setFocusGroupMenu(false)
+  }, [focusGroupMenu])
+  const focusViews = useCallback(() => {
+    document.querySelector('.rb-ent-toolbar .rb-tv-button')?.focus({ preventScroll: true })
+  }, [])
+
+  // Q17 (her "Start fresh"): this browser's old saved views go, once.
+  useEffect(() => {
+    try { localStorage.removeItem(entity.savedViewsKey) } catch { /* storage unavailable: nothing kept to remove */ }
+  }, [entity.savedViewsKey])
+
+  const tv = useTableView({ ctx, tableKey, description, canWrite, nameOf, notify })
+  const config = tv.config
+  const viewMode = config.layout === 'gallery' ? 'gallery' : 'table'
+  const filters = config.filters || []
+  const sorts = config.sorts || []
+  const firstSort = sorts.find(s => s && description.field(s.field)?.sortable) || null
+  const sortField = firstSort?.field || ''
+  const sortDir = firstSort?.dir === 'desc' ? 'desc' : 'asc'
+  const storedGroup = config.group?.field || ''
+  const groupBy = description.groupFields.some(f => f.key === storedGroup) ? storedGroup : ''
+  const hideEmpty = config.group ? config.group.hideEmpty !== false : true
+  const groupedKind = groupBy === 'asset' ? 'asset' : null
+  const setViewMode = (mode) => tv.update(c => ({ ...c, layout: mode === 'gallery' ? 'gallery' : 'table' }))
+  const setGroupBy = (value) => tv.update(c => ({ ...c, group: value ? { field: value, hideEmpty: description.hideEmptyDefault(viewMode, value) } : null }))
+  const setSortField = (field) => tv.update(c => ({ ...c, sorts: withFirstSort(c.sorts, field) }))
+  const reverseSort = () => tv.update(c => ({ ...c, sorts: withFirstSortReversed(c.sorts, s => !!description.field(s.field)?.sortable) }))
+
+  // ── The Filter strip: the shared row; a new row filters nothing until it
+  // has a value (defect 1).
+  function addFilter() {
+    const first = description.filterFields[0]
+    tv.update(c => ({ ...c, filters: [...(c.filters || []), { field: first.key, op: description.filterOps(first)[0].value, values: [] }] }))
+  }
+  function updateFilter(idx, row) { tv.update(c => ({ ...c, filters: (c.filters || []).map((f, i) => (i === idx ? row : f)) })) }
+  function removeFilter(idx) { tv.update(c => ({ ...c, filters: (c.filters || []).filter((_, i) => i !== idx) })) }
+
+  // ── Filtering (the tab's search, then the view's filters) and the view's
+  // sorts (several, in order, Q14); no sort: the table's own order.
+  const sorted = useMemo(() => {
+    const s = search.trim().toLowerCase()
+    const base = [...items].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+    const searched = s ? base.filter(item => (item.name || '').toLowerCase().includes(s)) : base
+    return applyViewSorts(applyViewFilters(searched, filters, description), sorts, description)
+  }, [items, search, filters, sorts, description])
+
+  // ── Grouping ── by status, or (her Q-M3) by the assets that name a row:
+  // one group per combination (combinationGroups.js), the project's
+  // groupings among them (Q-D2); with *Hide empty groups* off every option.
+  // Every live asset's own group in the Assets table's order (§4.3; code
+  // review round 1, R1-6): its sort_order, on a copy, as that table sorts.
+  const assetsInOrder = useMemo(() => [...assets].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)), [assets])
+  const savedOf = useCallback(() => {
+    const list = typeof ctx?.groupingsOf === 'function' ? ctx.groupingsOf(tableKey, 'asset') : []
+    return list.filter(g => isGroupingLive(g, lookup.isLive)).map(g => ({ id: g.id, ids: g.entity_ids }))
+  }, [ctx, tableKey, lookup])
+  const groups = useMemo(() => {
+    if (!groupBy) return null
+    if (groupedKind) {
+      return combinationGroupsOf({
+        kind: 'asset', rows: sorted, combinationOf: (row) => description.combinationOf(row), lookup,
+        singles: assetsInOrder, everySingle: !hideEmpty, saved: savedOf(), hideEmpty, as: 'items',
+      })
+    }
+    const map = {}
+    for (const item of sorted) {
+      const key = item.status || 'not_started'
+      if (!map[key]) map[key] = []
+      map[key].push(item)
+    }
+    const keys = hideEmpty ? STATUSES.filter(s => map[s]) : STATUSES
+    // A status group says its status in the kit's words (Q2).
+    return keys.map(key => ({ key, label: STATUS_LABELS[key] || fmt(key), items: map[key] || [] }))
+  }, [sorted, groupBy, groupedKind, hideEmpty, description, lookup, assetsInOrder, savedOf])
+  // (The group's accent colour, computed here per status, is gone: a status
+  // group carries the kit's StatusDot — R4-33, as the Assets page's.)
+
+  // ── Dragging a row into an asset group (her Q-D1; VW1e step 0, finding
+  // 3). The link lives on the ASSETS: the row goes into the group's assets'
+  // `assetsKey` and out of every other live asset's that held it (an asset in
+  // the trash is not loaded, so it keeps its link: Q-N4) — every write in
+  // ONE batch inside the shell's undo toast, so one Undo takes the whole move
+  // back, and a move stopped part way says so and holds its toast.
+  function dropOnGroup(rowId, group) {
+    if (!canWrite || !groupedKind || typeof ctx?.updateAsset !== 'function') return
+    const row = items.find(x => String(x.id) === String(rowId))
+    if (!row || group.items.some(x => x.id === row.id)) return
+    const key = entity.assetsKey
+    const want = new Set(group.ids.map(String))
+    const writes = []
+    for (const a of assets) {
+      const now = Array.isArray(a?.[key]) ? a[key] : []
+      const has = now.some(x => String(x) === String(row.id))
+      if (want.has(String(a.id)) && !has) writes.push([a.id, [...now, row.id]])
+      else if (!want.has(String(a.id)) && has) writes.push([a.id, now.filter(x => String(x) !== String(row.id))])
+    }
+    if (writes.length === 0) return
+    const name = row.name || `Untitled ${entity.noun}`
+    const step = ctx.runWithUndoToast || ((run) => run())
+    const batch = ctx.runBatch || ((fn) => fn())
+    Promise.resolve(step(() => batch(async () => {
+      for (const [id, ids] of writes) await ctx.updateAsset(id, { [key]: ids })
+    }), `Moved "${name}" to ${group.label}`))
+      .catch((err) => setDropFailure(`Could not move “${name}”: ${err?.message || err}`))
+  }
+
+  // ── The project's groupings (her Q-D2, Q-D3, Q-D5) ──
+  async function createGrouping(ids) {
+    await ctx.addItemGrouping({ tableKey, kind: 'asset', entityIds: ids })
+  }
+  async function removeGrouping(group) {
+    const yes = await ask({
+      title: `Remove the grouping ${group.label}?`,
+      body: `Its ${entity.nouns} keep their assets. The group stays while ${entity.nouns} are in it.`,
+      confirm: 'Remove grouping',
+      danger: true,
+    })
+    if (!yes) return
+    try {
+      const res = await ctx.removeItemGrouping(group.groupingId)
+      if (res && res.removed === false && res.status === 'filtered') setDropFailure(GROUPINGS_GATE_WORDS)
+      else setFocusGroupMenu(true)
+    } catch (err) {
+      setDropFailure(`Could not remove the grouping ${group.label}: ${err?.message || err}`)
+    }
+  }
+
+  // ── What the view shows ──
+  const activeFilters = filterCount(filters, description)
+  const fieldList = useMemo(() => effectiveFields(config.fields, description.fieldKeys, { fixed: description.fixed }), [config.fields, description])
+  const columns = useMemo(() => fieldList.filter(f => f.visible).map(f => description.columns.find(c => c.key === f.key)).filter(Boolean), [fieldList, description])
+  const cardShows = useMemo(() => new Set(fieldList.filter(f => f.visible && description.cardFields.includes(f.key)).map(f => f.key)), [fieldList, description])
+  // The link lives on the assets (`level_ids` / `experience_ids`): on a cloud
+  // without 0099 they are not kept, so no drop and no Create grouping (R1-9).
+  const kindKept = linksKept(ctx, entity.type)
+  const canDrag = canWrite && !!groupedKind && kindKept
+  // Said as well as greyed (code review round 2, R2-5).
+  useEffect(() => { if (groupedKind && !kindKept) announce(ASSET_LINKS_ABSENT_REASON) }, [groupedKind, kindKept, announce])
+
+  // ── Render ──
+  // P1-74: the kit EmptyState in sentence case, as Scenes, Assets, Tasks,
+  // Team and the Timeline draw it; it was a capitalised Label-step span.
+  if (!project) {
+    return (
+      <div className="rb-ent-view h-full flex items-center justify-center">
+        <EmptyState Icon={entity.Icon} title="No project loaded" />
+      </div>
+    )
+  }
+
+  return (
+    // R1: the reason every greyed control below shows on hover (GatedAction
+    // reads it from here), as on the Scenes page.
+    <WriteReasonProvider reason={writeReason}>
+    <div className="rb-ent-view h-full flex flex-col">
+      {/* ── The table's one polite live region (VW1e, design §4.9). ── */}
+      <p className="sr-only" role="status" aria-live="polite">
+        <span key={announcement.n}>{announcement.words}</span>
+      </p>
+
+      {/* ── Toolbar: the kit's, composed as the Assets toolbar is — every
+          control the 28px sm height on one baseline (R4-16), the same
+          controls in the same order (R4-37's regrouping is recorded, not
+          made: C1). It wraps rather than clipping at Electron's 1024px. ── */}
+      <Toolbar
+        wrap
+        className="rb-ent-toolbar"
+        right={(
+          <>
+            <span className="rb-ent-count">
+              {sorted.length}/{items.length}
+            </span>
+
+            {/* The one filled button: the kit primary, white on the signal
+                fill (#c2410c, 5.17:1) — the kit's own. R1: greyed with the
+                reason for a seat that cannot write. */}
+            <GatedAction allowed={canWrite}>
+              <Button size="sm" variant="primary" Icon={Plus} onClick={() => { if (canWrite) setShowCreatePopup(true) }}>
+                {`New ${entity.noun}`}
+              </Button>
+            </GatedAction>
+          </>
+        )}
+      >
+        {/* Filter: counts only the rows that filter (defect 1). */}
+        <Button
+          size="sm"
+          Icon={Filter}
+          className="rb-ent-tool"
+          data-active={activeFilters > 0 ? 'true' : 'false'}
+          aria-expanded={showFilterPanel}
+          onClick={() => setShowFilterPanel(!showFilterPanel)}
+        >
+          Filter{activeFilters > 0 ? ` (${activeFilters})` : ''}
+        </Button>
+
+        {/* Sort: the view's FIRST sort (her Q14), then its direction. VW1e:
+            the direction is that sort's, so its button shows with a sort, as
+            on the Assets and Tasks toolbars; it says what a click does. */}
+        <span className="rb-ent-sort">
+          <select value={sortField} onChange={e => setSortField(e.target.value)}
+            aria-label="Sort"
+            className="ui-input rb-ent-tool"
+            data-size="sm"
+            data-active={sortField ? 'true' : 'false'}>
+            <option value="">Sort…</option>
+            {description.sortFields.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
+          </select>
+          {sortField && (
+            <IconButton
+              size="sm"
+              Icon={ArrowUpDown}
+              title={sortDir === 'asc' ? 'Sorted ascending — reverse' : 'Sorted descending — reverse'}
+              onClick={reverseSort}
+            />
+          )}
+        </span>
+
+        <span className="rb-ent-divider" aria-hidden="true" />
+
+        {/* Group: status, or (her Q-M3) the assets that name the row. */}
+        <select value={groupBy}
+          onChange={e => setGroupBy(e.target.value)}
+          aria-label="Group"
+          className="ui-input rb-ent-tool"
+          data-size="sm"
+          data-active={groupBy ? 'true' : 'false'}>
+          <option value="">No grouping</option>
+          {description.groupFields.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
+        </select>
+
+        {/* Her Q-D3: Create grouping while grouped by asset, for a seat
+            that may save views (Q-F). */}
+        {groupedKind && tv.canEdit && (
+          <GatedAction allowed={kindKept} reason={ASSET_LINKS_ABSENT_REASON}>
+            <Button size="sm" Icon={Group} onClick={() => { if (kindKept) setGroupingKind('asset') }}>
+              Create grouping
+            </Button>
+          </GatedAction>
+        )}
+
+        <span className="rb-ent-divider" aria-hidden="true" />
+
+        {/* Table / Gallery — the kit's Tabs: one underline, no orange fill
+            under small text (C6; R4-07, the same switch the Assets page
+            and FileManager draw). VW1e: the layout is the view's (Q8). */}
+        <Tabs
+          label="Layout"
+          panelId={BODY_ID}
+          items={[{ id: 'table', label: 'Table' }, { id: 'gallery', label: 'Gallery' }]}
+          value={viewMode}
+          onChange={setViewMode}
+        />
+
+        {/* Card size (gallery mode): three kit ghost buttons, their square
+            growing with the size as before; the chosen one carries the
+            signal edge, the one active treatment. */}
+        {viewMode === 'gallery' && (
+          <span className="rb-ent-sizes">
+            {CARD_SIZES.map(key => (
+              <Button key={key} size="sm" variant="ghost"
+                className="rb-ent-size"
+                title={`${key} cards`}
+                aria-pressed={gallerySize === key}
+                data-active={gallerySize === key ? 'true' : 'false'}
+                onClick={() => setGallerySize(key)}>
+                <Square aria-hidden="true" className="rb-ent-size-glyph" data-card={key} />
+              </Button>
+            ))}
+          </span>
+        )}
+
+        {/* VW1e: the Views button and its dropdown (design §4.1, §4.2), in
+            the old Views menu's place; 136px, as on every table (Q-P1). */}
+        <TableViewsMenu tv={tv} description={description} ask={ask} announce={announce}
+          onRetry={typeof ctx?.reloadActiveProject === 'function' ? () => ctx.reloadActiveProject() : null} />
+
+        <span className="rb-ent-divider" aria-hidden="true" />
+
+        {/* Search */}
+        <span className="rb-ent-search">
+          <Search className="rb-ent-search-icon" aria-hidden="true" />
+          <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Search…"
+            aria-label={`Search ${entity.nouns}`}
+            className="ui-input rb-ent-search-input"
+            data-size="sm" />
+          {search && (
+            <IconButton size="sm" Icon={X} title="Clear search" className="rb-ent-search-clear" onClick={() => setSearch('')} />
+          )}
+        </span>
+      </Toolbar>
+
+      {/* ── The Filter strip: the view's filters in the shared row (VW1e;
+          the Filters card draws the same row). ── */}
+      {showFilterPanel && (
+        <div className="rb-ent-filters">
+          {filters.map((f, i) => (
+            <ViewFilterRow key={i} row={f} index={i} description={description}
+              onChange={(row) => updateFilter(i, row)} onRemove={() => removeFilter(i)} />
+          ))}
+          <div className="rb-ent-filter-actions">
+            <Button size="sm" Icon={Plus} onClick={addFilter}>Add filter</Button>
+            {filters.length > 0 && (
+              <Button size="sm" variant="ghost" onClick={() => setShowFilterPanel(false)}>Done</Button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── A drop or a grouping's removal that did not land, said ── */}
+      {dropFailure && (
+        <Banner
+          tone="danger"
+          action={<IconButton size="sm" Icon={X} title="Dismiss" onClick={() => setDropFailure(null)} />}
+        >
+          {dropFailure}
+        </Banner>
+      )}
+
+      {/* ── The *changed for now* bar (design §4.4). ── */}
+      <ViewBar tv={tv} ask={ask} announce={announce} focusViews={focusViews} />
+
+      {/* ── Body: the one region the layout Tabs switch ── */}
+      <div className="rb-ent-body" id={BODY_ID} role="tabpanel" aria-label={viewMode === 'table' ? 'Table' : 'Gallery'}>
+        {tv.waiting ? (
+          // The last used view not known yet (its 2s wait, design §4.5).
+          <div className="rb-ent-waiting"><Loading label="Loading views" /></div>
+        ) : groups ? (
+          // Grouped: each group's band, then its own table — its own head
+          // and its own selection, as it always was — or, in the Gallery
+          // (VW1e step 0, finding 6), its own cards: every Gallery shows the
+          // view's groups. Grouped by asset, a group takes a dropped row.
+          groups.map(g => (
+            <EntityGroup key={g.key} group={g} groupBy={groupBy}
+              collapsed={collapsedGroups.has(g.key)} onToggle={() => toggleGroup(g.key)}
+              canDrop={canDrag} onDropOnGroup={dropOnGroup}
+              canEditViews={tv.canEdit} onRemoveGrouping={removeGrouping}>
+              {viewMode === 'table' ? (
+                <EntityTable entity={entity} items={g.items} columns={columns} assetCountById={assetCountById} taskCountById={taskCountById}
+                  ctx={ctx} canWrite={canWrite} canDrag={canDrag} onOpenDetail={setDetailId} onRequestDelete={requestDelete} />
+              ) : (
+                <EntityGallery entity={entity} items={g.items} gallerySize={gallerySize} cardShows={cardShows}
+                  canWrite={canWrite} onOpenDetail={setDetailId} onRequestDelete={requestDelete} />
+              )}
+            </EntityGroup>
+          ))
+        ) : viewMode === 'table' ? (
+          <EntityTable entity={entity} items={sorted} columns={columns} assetCountById={assetCountById} taskCountById={taskCountById}
+            ctx={ctx} canWrite={canWrite} canDrag={false} onOpenDetail={setDetailId} onRequestDelete={requestDelete} />
+        ) : (
+          <EntityGallery entity={entity} items={sorted} gallerySize={gallerySize} cardShows={cardShows}
+            canWrite={canWrite} onOpenDetail={setDetailId} onRequestDelete={requestDelete} />
+        )}
+      </div>
+
+      {/* ── The views' questions, at the view's root (design §4.2). ── */}
+      {askDialog}
+
+      {/* ── Create grouping (design §4.11): its kit Dialog. ── */}
+      {groupingKind && (
+        <CreateGroupingDialog
+          tableKey={tableKey}
+          kind="asset"
+          singular={KIND_LABEL.asset}
+          plural={KIND_LABEL_PLURAL.asset}
+          rowsNoun={entity.nouns}
+          options={description.options('asset')}
+          orderOf={lookup.orderOf}
+          nameOf={lookup.nameOf}
+          groupings={typeof ctx?.groupingsOf === 'function' ? ctx.groupingsOf(tableKey, 'asset') : []}
+          onCreate={(ids) => createGrouping(ids)}
+          onClose={() => setGroupingKind(null)}
+        />
+      )}
+
+      {/* ── Detail popup ── */}
+      {detailId && (
+        <EntityDetailPopup
+          entity={entity}
+          itemId={detailId}
+          ctx={ctx}
+          assetCountById={assetCountById}
+          taskCountById={taskCountById}
+          projectMembers={projectMembers}
+          roleEntries={roleEntries}
+          thumbRevision={thumbRevision}
+          onThumbChanged={() => setThumbRevision(r => r + 1)}
+          onClose={() => setDetailId(null)}
+          onRequestDelete={requestDelete}
+          canWrite={canWrite}
+          writeReason={writeReason}
+        />
+      )}
+
+      {/* ── Create popup ── (R1: a seat that cannot write never has it) */}
+      {showCreatePopup && canWrite && (
+        <CreateEntityPopup entity={entity} ctx={ctx} count={items.length} onClose={() => setShowCreatePopup(false)} />
+      )}
+
+      {/* ── Delete confirmation ── */}
+      {confirmDelete && (
+        <ConfirmDialog
+          title={`Delete ${entity.noun}?`}
+          message={`This will permanently delete "${confirmDelete.name}".`}
+          onConfirm={() => handleDelete(confirmDelete.id)}
+          onCancel={() => setConfirmDelete(null)}
+          returnTo={confirmDelete.returnTo}
+        />
+      )}
+    </div>
+    </WriteReasonProvider>
+  )
+}
+
+
+// ─── Table ───
+// The kit's Table: a real <table> with a fixed layout and 36px rows, so the
+// header and the cells share one grid (R4-01, R4-42). Its columns are the
+// ones it always had, in the same order: the checkbox, Name (the row's
+// anchor, its buttons right after its words since FX8 — the actions column
+// is gone), Status, the two counts (numeric cells, R4-17) and Description.
+// The fixed widths are rabbitFiles.css's custom properties, read by the
+// header cells; Name takes what is left up to its maximum (360px) and
+// Description the rest (FX8; the two had shared it).
+// VW1e (2026-10-25): the columns are the view's (`columns`, the visible
+// fields in its order; the name first and always shown, Q6); the fixed sum
+// is the columns on screen's (§4.10); a selection holds only the rows the
+// table shows (defect 4); grouped by asset a row drags (`canDrag`, Q-D1).
+const DEFAULT_COLUMNS = entityTableColumns()
+function EntityTable({ entity, items, columns = DEFAULT_COLUMNS, assetCountById, taskCountById, ctx, canWrite = false, canDrag = false, onOpenDetail, onRequestDelete }) {
+  const [selected, setSelected] = useState(new Set())
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
+  const allIds = useMemo(() => items.map(item => item.id), [items])
+  const allSelected = allIds.length > 0 && allIds.every(id => selected.has(id))
+  const someSelected = selected.size > 0
+  const widths = entityTableWidths(columns)
+  // Defect 4 (Q21; VW1e step 0, finding 9): a row a filter or the search
+  // hides leaves the selection (the Scenes tables' R1-05 rule).
+  useEffect(() => {
+    const shown = new Set(allIds)
+    setSelected(prev => {
+      const keep = new Set([...prev].filter(id => shown.has(id)))
+      return keep.size === prev.size ? prev : keep
+    })
+  }, [allIds])
+
+  function toggleOne(id) { setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s }) }
+  function toggleAll() { allSelected ? setSelected(new Set()) : setSelected(new Set(allIds)) }
+  function clearSelection() { setSelected(new Set()) }
+  // R1: the bulk verbs, like a row's, refuse a seat that cannot write.
+  function bulkUpdate(patch) { if (!canWrite) return; for (const id of selected) ctx?.[entity.updateMethod]?.(id, patch); clearSelection() }
+  // W9: the bulk question is the kit's Dialog, not window.confirm — the same
+  // words, Cancel leaves every row where it was, and Delete does exactly
+  // what OK did.
+  function bulkDelete() { if (canWrite) setConfirmBulkDelete(true) }
+  function confirmedBulkDelete() {
+    setConfirmBulkDelete(false)
+    if (!canWrite) return
+    for (const id of selected) ctx?.[entity.deleteMethod]?.(id)
+    clearSelection()
+  }
+
+  if (items.length === 0) {
+    // The kit's empty state (R4-13), in sentence case.
+    return <EmptyState Icon={entity.Icon} title={`No ${entity.nouns} yet`} />
+  }
+
+  return (
+    <div className="rb-ent-table-wrap" data-grow={widths.grow > 0 ? 'some' : 'none'}
+      style={{ '--rb-ent-fixed': widths.fixed }}>
+      {/* ── Bulk-action bar: over the head, right of the checkbox column (the
+          controls appear where the selection was made), as the Assets
+          page's. ── */}
+      {someSelected && (
+        <div className="rb-ent-bulk">
+          <span className="rb-ent-bulk-count">{selected.size} selected</span>
+          <span className="rb-ent-divider" aria-hidden="true" />
+          <GatedAction allowed={canWrite}>
+            <BulkSelect label="Status" options={STATUSES} labels={STATUS_LABELS} onPick={v => bulkUpdate({ status: v })} />
+          </GatedAction>
+          <span className="rb-ent-divider" aria-hidden="true" />
+          <GatedAction allowed={canWrite}>
+            <Button size="sm" variant="danger" Icon={Trash2} onClick={bulkDelete}>
+              Delete
+            </Button>
+          </GatedAction>
+          <IconButton size="sm" Icon={X} title="Clear the selection" onClick={clearSelection} />
+        </div>
+      )}
+
+      <Table
+        className="rb-ent-table"
+        head={(
+          <Row>
+            {/* Checkbox column */}
+            <Th width="var(--rb-ent-check)" className="rb-ent-check-cell">
+              <button type="button" onClick={toggleAll}
+                className="rb-ent-check"
+                data-checked={allSelected ? 'all' : someSelected ? 'some' : 'none'}
+                aria-label={allSelected ? 'Clear the selection' : `Select every ${entity.noun}`}
+                title={allSelected ? 'Clear the selection' : `Select every ${entity.noun}`}>
+                {allSelected
+                  ? <CheckSquare aria-hidden="true" />
+                  : someSelected
+                    ? <MinusSquare aria-hidden="true" />
+                    : <Square aria-hidden="true" />}
+              </button>
+            </Th>
+            {/* FX8: the name takes what the others leave up to its maximum,
+                Description the rest (the sheet's widths); a row's buttons sit
+                in the name cell, right after its words — no actions column.
+                VW1e: the view's columns, in its order. */}
+            {columns.map(c => <Th key={c.key} width={c.width} numeric={c.numeric}>{c.label}</Th>)}
+          </Row>
+        )}
+      >
+        {items.map(item => (
+          <EntityRow
+            key={item.id}
+            entity={entity}
+            item={item}
+            columns={columns}
+            draggable={canDrag}
+            canWrite={canWrite}
+            assetCount={assetCountById[item.id] || 0}
+            taskCount={taskCountById[item.id] || 0}
+            onUpdate={patch => { if (canWrite) ctx?.[entity.updateMethod]?.(item.id, patch) }}
+            onOpenDetail={() => onOpenDetail(item.id)}
+            onRequestDelete={() => onRequestDelete({ id: item.id, name: item.name || 'Untitled' })}
+            isSelected={selected.has(item.id)}
+            onToggleSelect={() => toggleOne(item.id)}
+          />
+        ))}
+      </Table>
+
+      {/* W9: the bulk question on the kit Dialog, 🚨 PORTALLED into <body> as
+          FileManager's delete question is (the kit Dialog does not portal,
+          B4-KR-2). React events still bubble through this tree. */}
+      {confirmBulkDelete && createPortal(
+        <Dialog
+          width="confirm"
+          title={`Delete ${entity.nouns}`}
+          onClose={() => setConfirmBulkDelete(false)}
+          footer={(
+            <>
+              <Button autoFocus onClick={() => setConfirmBulkDelete(false)}>Cancel</Button>
+              <Button variant="danger" onClick={confirmedBulkDelete}>Delete</Button>
+            </>
+          )}
+        >
+          <p className="rb-ent-confirm">
+            {`Delete ${selected.size} ${entity.noun}${selected.size === 1 ? '' : 's'}?`}
+          </p>
+        </Dialog>,
+        document.body,
+      )}
+    </div>
+  )
+}
+
+// ── One row: the kit's Row, the one hairline row language (R4-22). The 3px
+// status-colour spine on its left edge is gone with the colours (R4-05):
+// the status is the kit's StatusDot beside the kit's CellSelect, its words
+// in the one ink. A ticked row is the Row's own selection.
+function EntityRow({ entity, item, columns = DEFAULT_COLUMNS, draggable = false, canWrite = false, assetCount, taskCount, onUpdate, onOpenDetail, onRequestDelete, isSelected, onToggleSelect }) {
+  // What the row's own controls are named for.
+  const name = item.name || `Untitled ${entity.noun}`
+  const status = item.status || 'not_started'
+  // VW1e: each cell by its column's key, in the view's order. R1: a seat that
+  // cannot write sees Delete greyed with the reason, the name and the
+  // description as words, the status select disabled (the Scenes rows').
+  const cell = (key) => {
+    switch (key) {
+      case 'name': return (
+        <Td key={key} className="rb-ent-ctl-cell">
+          <RowTitle actions={<>
+            <IconButton size="sm" Icon={FileText} title={`Open ${name}`} onClick={onOpenDetail} />
+            <GatedAction allowed={canWrite}>
+              <IconButton size="sm" Icon={Trash2} danger title={`Delete ${name}`} onClick={onRequestDelete} />
+            </GatedAction>
+          </>}>
+            <InlineText value={item.name || ''} placeholder={`Untitled ${entity.noun}`} label="Name" readOnly={!canWrite} onCommit={v => onUpdate({ name: v })} />
+          </RowTitle>
+        </Td>
+      )
+      case 'status': return (
+        <Td key={key} className="rb-ent-ctl-cell">
+          <span className="rb-ent-status">
+            <StatusDot status={status} aria-hidden="true" role={undefined} aria-label={undefined} title="" />
+            <CellSelect className="rb-ent-status-select" value={status} onChange={v => onUpdate({ status: v })}
+              options={STATUS_OPTIONS} disabled={!canWrite} aria-label={`Status for ${name}`} />
+          </span>
+        </Td>
+      )
+      case 'assets': return <Td key={key} numeric className="rb-ent-num">{assetCount}</Td>
+      case 'tasks': return <Td key={key} numeric className="rb-ent-num">{taskCount}</Td>
+      case 'description': return (
+        <Td key={key} className="rb-ent-ctl-cell">
+          <InlineText value={item.description || ''} placeholder="—" label="Description" quiet readOnly={!canWrite} onCommit={v => onUpdate({ description: v })} />
+        </Td>
+      )
+      default: return null
+    }
+  }
+  return (
+    <Row className="rb-ent-row" selected={isSelected} data-ticked={isSelected ? 'true' : 'false'}
+      data-draggable={draggable ? 'true' : 'false'}
+      draggable={draggable}
+      onDragStart={draggable ? (e) => { e.dataTransfer.setData('text/plain', String(item.id)); e.dataTransfer.effectAllowed = 'move' } : undefined}>
+      {/* Checkbox: shown on hover, on focus and while ticked, as the Assets
+          page's (R4-34); the column keeps its width at rest. */}
+      <Td className="rb-ent-check-cell">
+        <button type="button" onClick={onToggleSelect}
+          className="rb-ent-check"
+          data-checked={isSelected ? 'all' : 'none'}
+          aria-pressed={isSelected}
+          aria-label={`Select ${name}`}
+          title={`Select ${name}`}>
+          {isSelected
+            ? <CheckSquare aria-hidden="true" />
+            : <Square aria-hidden="true" />}
+        </button>
+      </Td>
+
+      {/* The view's columns, in its order (VW1e): the name — inline
+          editable, the row's anchor (R4-03), its buttons right after its
+          words (FX8) — the status, the two counts and the description. */}
+      {columns.map(c => cell(c.key))}
+
+    </Row>
+  )
+}
+
+// ── A group: its band, then its table or its cards (VW1e) ──
+// One drop target, the Tasks table's group shape (VW1e step 0, finding 3):
+// entering any part of the group counts, leaving the last un-counts, and a
+// drop carries the dragged row's id (text/plain). Only while grouped by
+// asset and the seat may write (`canDrop`). A project grouping's band has
+// its *…* (her Q-D5).
+function EntityGroup({ group, groupBy, collapsed, onToggle, canDrop = false, onDropOnGroup, canEditViews = false, onRemoveGrouping, children }) {
+  const [dragOver, setDragOver] = useState(false)
+  const countRef = useRef(0)
+  const enter = canDrop ? (e) => { e.preventDefault(); countRef.current++; if (countRef.current === 1) setDragOver(true) } : undefined
+  const over = canDrop ? (e) => { e.preventDefault() } : undefined
+  const leave = canDrop ? () => { countRef.current--; if (countRef.current <= 0) { countRef.current = 0; setDragOver(false) } } : undefined
+  const drop = canDrop ? (e) => {
+    e.preventDefault()
+    countRef.current = 0
+    setDragOver(false)
+    let id = null
+    try { id = e.dataTransfer?.getData?.('text/plain') || null } catch { id = null }
+    if (id) onDropOnGroup?.(id, group)
+  } : undefined
+  return (
+    <div className="rb-ent-group" data-drag-over={dragOver ? 'true' : 'false'}
+      onDragEnter={enter} onDragOver={over} onDragLeave={leave} onDrop={drop}>
+      <div className="rb-ent-group-head ui-hover-host">
+        <EntityGroupToggle group={group} groupBy={groupBy} collapsed={collapsed} onToggle={onToggle} />
+        {group.groupingId && canEditViews && onRemoveGrouping && (
+          <HoverActions>
+            <MenuButton title={`More for ${group.label}`} minWidth={180}
+              items={[{ label: 'Remove grouping', danger: true, onClick: () => onRemoveGrouping(group) }]} />
+          </HoverActions>
+        )}
+      </div>
+      {!collapsed && children}
+    </div>
+  )
+}
+
+// ── A group's band ──
+// One button, the whole band: it was a clickable row with no keyboard way
+// in. A status group carries the kit's StatusDot; the per-status accent
+// colours are gone, and every group reads in the one ink (R4-33).
+function EntityGroupToggle({ group, groupBy, collapsed, onToggle }) {
+  const Chevron = collapsed ? ChevronRight : ChevronDown
+  return (
+    <button type="button" onClick={onToggle} aria-expanded={!collapsed}
+      className="rb-ent-group-toggle">
+      <Chevron aria-hidden="true" className="rb-ent-group-chevron" />
+      {groupBy === 'status' && <StatusDot status={group.key} aria-hidden="true" role={undefined} aria-label={undefined} title="" />}
+      <span className="rb-ent-group-label">{group.label}</span>
+      <span className="rb-ent-group-count">{group.items.length}</span>
+    </button>
+  )
+}
+
+
+// ─── Gallery ───
+// VW1e: `cardShows`, the card's own lines the view shows (her Q-E; Q-P2:
+// status, description); null shows every line.
+function EntityGallery({ entity, items, gallerySize, cardShows = null, canWrite = false, onOpenDetail, onRequestDelete }) {
+  if (items.length === 0) {
+    // The kit's empty state (R4-13), in sentence case.
+    return <EmptyState Icon={entity.Icon} title={`No ${entity.nouns} yet`} />
+  }
+
+  return (
+    <div className="rb-ent-gallery" data-entity-view="gallery" data-card={gallerySize}>
+      {items.map(item => (
+        <EntityCard
+          key={item.id}
+          entity={entity}
+          item={item}
+          shows={cardShows}
+          canWrite={canWrite}
+          onOpenDetail={() => onOpenDetail(item.id)}
+          onRequestDelete={() => onRequestDelete({ id: item.id, name: item.name || 'Untitled' })}
+        />
+      ))}
+    </div>
+  )
+}
+
+// The kit's Card (raised paper, one hairline, 3px), at the width its size
+// gives it: the entity's glyph in the paper well, the delete on hover (the
+// kit's HoverActions — and named now), then the name at 600, the status the
+// kit's StatusBadge (its words and tone from the one STATUS map; the badge's
+// status-colour border and ink are gone) and the description in the second
+// ink. The whole card opens the detail popup, as it did.
+function EntityCard({ entity, item, shows = null, canWrite = false, onOpenDetail, onRequestDelete }) {
+  const { Icon } = entity
+  // VW1e: which of the card's own lines the view shows (finding 6's rule).
+  const show = (key) => !shows || shows.has(key)
+  // What the card's delete is named for — the name its question will say.
+  const name = item.name || 'Untitled'
+  return (
+    <Card pad={false} className="rb-ent-card ui-hover-host" onClick={onOpenDetail}>
+      <div className="rb-ent-card-media">
+        <Icon aria-hidden="true" className="rb-ent-card-icon" />
+        <HoverActions className="rb-ent-card-acts">
+          {/* R1: greyed with the reason for a seat that cannot write. */}
+          <GatedAction allowed={canWrite}>
+            <IconButton size="sm" Icon={Trash2} danger
+              title={`Delete ${name}`}
+              onClick={e => { e.stopPropagation(); onRequestDelete() }} />
+          </GatedAction>
+        </HoverActions>
+      </div>
+      <div className="rb-ent-card-body">
+        <span className="rb-ent-card-name">
+          {item.name || `Untitled ${entity.noun}`}
+        </span>
+        {show('status') && (
+          <div className="rb-ent-card-status">
+            <StatusBadge status={item.status || 'not_started'} />
+          </div>
+        )}
+        {show('description') && item.description && (
+          <span className="rb-ent-card-desc">
+            {item.description}
+          </span>
+        )}
+      </div>
+    </Card>
+  )
+}
+
+
+// ─── Detail popup ───
+// The kit's Dialog at the popup's old width, 896px (its max-w-4xl: a real
+// geometry, so a number), 🚨 PORTALLED into <body> as the Assets page's
+// AssetDetailPopup is — the kit Dialog does not portal (B4-KR-2). It is
+// that popup re-made in this lane's classes. The header keeps the entity's
+// glyph and name: the name is the H2 title, read-only, and the "<Noun> name"
+// field below is still where it is edited (C1: the two stay two). The status
+// is the kit's StatusBanner across the popup under the title (FX3; a
+// StatusBadge from R4-05 until then). The kit brings the named ✕ (the old one had no
+// name), Escape (Q17) and the backdrop, which closed it before and still
+// does. The body keeps its two columns — RelationsPanel's sidebar, then the
+// properties — and every section, field and button in its old order: each
+// property the Assets popup's borderless in-place editor under the Label
+// step, each text edit's Escape reverting it first (W2), the footer the
+// kit's Buttons.
+//
+// 🚨 THE TASK FORM. "Add new task" in the sidebar opens NewTaskSidePopup to
+// the popup's LEFT, as it always did — now INSIDE the Dialog, as its first
+// column: the Dialog is one surface, and its focus trap would strand a panel
+// drawn beside it. The Dialog grows by the form's width and the hairline
+// after it (DETAIL_TASK_WIDTH); the kit caps a dialog at 94vw, and there the
+// properties column gives, as the old pair shrank the popup. A task opened
+// from the sidebar is TaskDetailPopup, itself a kit Dialog: it opens as this
+// Dialog's SIBLING, portalled, over it on the modal stack, so an Escape
+// there is its own and this popup stays.
+//
+// R4-26 — a related asset's click sets `nestedAssetId`, which nothing
+// renders — is RECORDED, not changed: the handler stays as it was.
+// R1 (2026-10-27): `canWrite` — a seat that cannot write sees the window's
+// Delete and thumbnail buttons greyed with the reason (`writeReason`, handed
+// to RelationsPanel too, which greys its own), the name, description and notes
+// as words, the status and dates disabled, and no Add new task (the scene
+// popup's R1-04); every write here goes through handleUpdate, which refuses.
+function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById, projectMembers, roleEntries, thumbRevision, onThumbChanged, onClose, onRequestDelete, canWrite = false, writeReason = null }) {
+  const { Icon } = entity
+  const item = (ctx?.[entity.collection] || []).find(x => x.id === itemId)
+  const project = ctx?.project
+
+  const [descDraft, setDescDraft] = useState(item?.description || '')
+  const [notesDraft, setNotesDraft] = useState(item?.notes || '')
+  const [editingDesc, setEditingDesc] = useState(false)
+  const [editingNotes, setEditingNotes] = useState(false)
+  const [showCreateTask, setShowCreateTask] = useState(false)
+  const [nestedTaskId, setNestedTaskId] = useState(null)
+  const [nestedAssetId, setNestedAssetId] = useState(null)
+  // What opened this popup — the row's Open — captured in render,
+  // as the kit Dialog captures it (an effect would read the popup's own
+  // focus). The delete question asked from here is handed it (below).
+  const openerRef = useRef(null)
+  if (openerRef.current === null && typeof document !== 'undefined') openerRef.current = document.activeElement
+
+  useEffect(() => { setDescDraft(item?.description || '') }, [item?.description])
+  useEffect(() => { setNotesDraft(item?.notes || '') }, [item?.notes])
+
+  if (!item) return null
+
+  // What the Dialog is named for: the name its title shows.
+  const name = item.name || `Untitled ${entity.noun}`
+  const status = item.status || 'not_started'
+  const hasThumbnail = !!item.thumbnail_image
+  // S4c: the files this row owns, counted from the store FileManager reads
+  // (the managed records on the Local Server, the cloud rows otherwise), by
+  // the same link the Files section filters on.
+  const managed = ctx?.supportsManagedFiles === true
+  const fileCount = ((managed ? ctx?.managedFiles : ctx?.files) || [])
+    .filter(f => f && !f.deleted_at && !f.is_financial && f[entity.linkKey] === item.id).length
+
+  function handleUpdate(patch) { if (canWrite) ctx?.[entity.updateMethod]?.(item.id, patch) }
+
+  async function handleSetThumbnail() {
+    if (!canWrite || !window.electronAPI?.rabbit?.pickImage) return
+    const imagePath = await window.electronAPI.rabbit.pickImage()
+    if (!imagePath) return
+    handleUpdate({ thumbnail_image: imagePath })
+    try {
+      await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: entity.type, entityId: item.id, sourcePath: imagePath })
+    } catch (e) { console.error(`${entity.noun} thumbnail gen failed:`, e) }
+    onThumbChanged?.()
+  }
+
+  async function handleClearThumbnail() {
+    if (!canWrite) return
+    handleUpdate({ thumbnail_image: null })
+    try { await window.electronAPI.rabbit.clearEntityThumbnail({ entityType: entity.type, entityId: item.id }) } catch {}
+    onThumbChanged?.()
+  }
+
+  async function handleCreateTask(draft) {
+    if (!canWrite) return
+    try {
+      await ctx?.addTask?.({ ...draft, [entity.linkKey]: item.id })
+      setShowCreateTask(false)
+    } catch (err) { console.error('Failed to create task:', err) }
+  }
+
+  return (
+    <>
+      {createPortal(
+        <Dialog
+          // Wider by the task form's column while it is open.
+          width={showCreateTask ? DETAIL_WIDTH + DETAIL_TASK_WIDTH : DETAIL_WIDTH}
+          className="rb-ent-detail"
+          // A title that is a node names nothing, so the Dialog carries the
+          // entity's name as its aria-label, as the Assets popup does.
+          aria-label={name}
+          title={(
+            <span className="rb-ent-detail-title">
+              <Icon aria-hidden="true" className="rb-ent-detail-icon" />
+              <span className="rb-ent-detail-name">{name}</span>
+            </span>
+          )}
+          band={<StatusBanner status={status} />}
+          dismissOnBackdrop
+          onClose={onClose}
+          footer={(
+            <>
+              {/* At the footer's left, where it was; Close at its right. The
+                  class on both: GatedAction draws its wrapper only when it
+                  greys (the scene popup's rb-scene-detail-delete). */}
+              <GatedAction allowed={canWrite} reason={writeReason} className="rb-ent-detail-delete">
+                <Button variant="danger" Icon={Trash2} className="rb-ent-detail-delete"
+                  onClick={() => { if (!canWrite) return; onClose(); onRequestDelete({ id: item.id, name: item.name || 'Untitled', returnTo: openerRef.current }) }}>
+                  {`Delete ${entity.noun}`}
+                </Button>
+              </GatedAction>
+              <Button onClick={onClose}>
+                Close
+              </Button>
+            </>
+          )}
+        >
+          <div className="rb-ent-detail-body">
+
+            {/* The task form: the first column, while it is open */}
+            {showCreateTask && (
+              <div className="rb-ent-detail-task">
+                <NewTaskSidePopup
+                  entityType={entity.type}
+                  entityId={item.id}
+                  assets={ctx?.assets || []}
+                  phases={ctx?.phases || []}
+                  scenes={ctx?.scenes || []}
+                  shots={ctx?.shots || []}
+                  levels={ctx?.levels || []}
+                  experiences={ctx?.experiences || []}
+                  projectMembers={projectMembers || []}
+                  roleEntries={roleEntries || []}
+                  project={project}
+                  onConfirm={handleCreateTask}
+                  onClose={() => setShowCreateTask(false)}
+                />
+              </div>
+            )}
+
+            {/* Relations: RelationsPanel's sidebar, the kit Panel */}
+            <div className="rb-ent-detail-side">
+              <RelationsPanel
+                entityType={entity.type}
+                entityId={item.id}
+                assets={ctx?.assets || []}
+                tasks={ctx?.tasks || []}
+                ctx={ctx}
+                onOpenAsset={id => setNestedAssetId(id)}
+                onOpenTask={id => setNestedTaskId(id)}
+                onCreateTask={canWrite ? () => setShowCreateTask(true) : undefined}
+                canWrite={canWrite}
+                writeReason={writeReason}
+              />
+            </div>
+
+            {/* Properties */}
+            <div className="rb-ent-detail-main">
+
+              {/* The thumbnail, then the name */}
+              <div className="rb-ent-detail-top">
+                <div className="rb-ent-thumb ui-hover-host">
+                  {hasThumbnail ? (
+                    <>
+                      <img
+                        className="rb-ent-thumb-img"
+                        src={`/api/rabbit/projects/${project?.id}/${entity.collection}/${item.id}/thumbnail?r=${thumbRevision}`}
+                        alt="" />
+                      {/* Change and remove over the picture: the kit's
+                          HoverActions, shown on hover as they were, and on
+                          keyboard focus now. */}
+                      <HoverActions className="rb-ent-thumb-acts">
+                        <GatedAction allowed={canWrite} reason={writeReason}>
+                          <IconButton size="sm" Icon={ImagePlus} className="rb-ent-thumb-act" title="Change thumbnail" onClick={handleSetThumbnail} />
+                        </GatedAction>
+                        <GatedAction allowed={canWrite} reason={writeReason}>
+                          <IconButton size="sm" Icon={ImageOff} danger className="rb-ent-thumb-act" title="Remove thumbnail" onClick={handleClearThumbnail} />
+                        </GatedAction>
+                      </HoverActions>
+                    </>
+                  ) : (
+                    // R1: greyed with the reason, the whole box (rb-ent-thumb-gate).
+                    <GatedAction allowed={canWrite} reason={writeReason} display="block" className="rb-ent-thumb-gate">
+                      <button type="button" onClick={handleSetThumbnail}
+                        className="rb-ent-thumb-set"
+                        title="Set thumbnail">
+                        <span className="rb-ent-thumb-hint">
+                          <ImagePlus aria-hidden="true" className="rb-ent-thumb-hint-icon" />
+                          Set thumbnail
+                        </span>
+                        <Icon aria-hidden="true" className="rb-ent-thumb-glyph" />
+                      </button>
+                    </GatedAction>
+                  )}
+                </div>
+                <div className="rb-ent-detail-field">
+                  <FieldLabel>{`${entity.Noun} name`}</FieldLabel>
+                  <PopupInlineText
+                    value={item.name || ''}
+                    placeholder={`Untitled ${entity.noun}`}
+                    label={`${entity.Noun} name`}
+                    readOnly={!canWrite}
+                    onCommit={v => handleUpdate({ name: v })}
+                  />
+                </div>
+              </div>
+
+              {/* The properties, two to a row: each control named for its
+                  label, which labels nothing by itself. */}
+              <div className="rb-ent-prop-grid">
+                <div className="rb-ent-prop">
+                  <FieldLabel>Status</FieldLabel>
+                  {/* The kit's StatusDot beside the kit's CellSelect, the
+                      words in the one ink (R4-05): the status colour on the
+                      select and on each option is gone. */}
+                  <span className="rb-ent-status">
+                    <StatusDot status={status} aria-hidden="true" role={undefined} aria-label={undefined} title="" />
+                    <CellSelect
+                      className="rb-ent-status-select"
+                      value={status}
+                      onChange={v => handleUpdate({ status: v })}
+                      options={STATUS_OPTIONS}
+                      disabled={!canWrite}
+                      aria-label="Status"
+                    />
+                  </span>
+                </div>
+                <div className="rb-ent-prop">
+                  <FieldLabel>Linked counts</FieldLabel>
+                  <span className="rb-ent-prop-value">
+                    {assetCountById[itemId] || 0} assets / {taskCountById[itemId] || 0} tasks / {fileCount} file{fileCount === 1 ? '' : 's'}
+                  </span>
+                </div>
+                <div className="rb-ent-prop">
+                  <FieldLabel>Start date</FieldLabel>
+                  <input
+                    type="date"
+                    value={item.start_date || ''}
+                    onChange={(e) => handleUpdate({ start_date: e.target.value || null })}
+                    disabled={!canWrite}
+                    aria-label="Start date"
+                    className="rb-ent-date"
+                    data-empty={item.start_date ? 'false' : 'true'}
+                  />
+                </div>
+                <div className="rb-ent-prop">
+                  <FieldLabel>Due date</FieldLabel>
+                  <input
+                    type="date"
+                    value={item.end_date || ''}
+                    onChange={(e) => handleUpdate({ end_date: e.target.value || null })}
+                    disabled={!canWrite}
+                    aria-label="Due date"
+                    className="rb-ent-date"
+                    data-empty={item.end_date ? 'false' : 'true'}
+                  />
+                </div>
+              </div>
+
+              {/* Description: the words open the kit's well; Save and Cancel
+                  are the kit's Buttons. Escape cancels, and is MARKED handled
+                  so the Dialog stays (W2). */}
+              <div className="rb-ent-detail-text">
+                <FieldLabel>Description</FieldLabel>
+                {editingDesc ? (
+                  <>
+                    <textarea value={descDraft} onChange={e => setDescDraft(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); setDescDraft(item.description || ''); setEditingDesc(false) } }}
+                      aria-label="Description"
+                      className="ui-input rb-ent-textarea"
+                      data-field="description"
+                      autoFocus />
+                    <div className="rb-ent-edit-acts">
+                      <Button size="sm" variant="primary" Icon={Save}
+                        onClick={() => { handleUpdate({ description: descDraft }); setEditingDesc(false) }}>
+                        Save
+                      </Button>
+                      <Button size="sm" variant="ghost"
+                        onClick={() => { setDescDraft(item.description || ''); setEditingDesc(false) }}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </>
+                ) : canWrite ? (
+                  <button type="button" onClick={() => setEditingDesc(true)}
+                    className="rb-ent-prop-text"
+                    data-empty={item.description ? 'false' : 'true'}>
+                    {item.description || 'Click to add a description...'}
+                  </button>
+                ) : (
+                  // R1: the words alone for a seat that cannot write; an
+                  // empty one a dash, not an "add" it could not do (Scenes').
+                  <span className="rb-ent-prop-text" data-static="true"
+                    data-empty={item.description ? 'false' : 'true'}>
+                    {item.description || '—'}
+                  </span>
+                )}
+              </div>
+
+              {/* Notes: the same editor */}
+              <div className="rb-ent-detail-text">
+                <FieldLabel>Notes</FieldLabel>
+                {editingNotes ? (
+                  <>
+                    <textarea value={notesDraft} onChange={e => setNotesDraft(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); setNotesDraft(item.notes || ''); setEditingNotes(false) } }}
+                      aria-label="Notes"
+                      className="ui-input rb-ent-textarea"
+                      data-field="notes"
+                      autoFocus />
+                    <div className="rb-ent-edit-acts">
+                      <Button size="sm" variant="primary" Icon={Save}
+                        onClick={() => { handleUpdate({ notes: notesDraft }); setEditingNotes(false) }}>
+                        Save
+                      </Button>
+                      <Button size="sm" variant="ghost"
+                        onClick={() => { setNotesDraft(item.notes || ''); setEditingNotes(false) }}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </>
+                ) : canWrite ? (
+                  <button type="button" onClick={() => setEditingNotes(true)}
+                    className="rb-ent-prop-text"
+                    data-empty={item.notes ? 'false' : 'true'}>
+                    {item.notes || 'Click to add notes...'}
+                  </button>
+                ) : (
+                  <span className="rb-ent-prop-text" data-static="true"
+                    data-empty={item.notes ? 'false' : 'true'}>
+                    {item.notes || '—'}
+                  </span>
+                )}
+              </div>
+
+              {/* Files (S4c): FileManager's own head says "Files (N)", as it
+                  does in the scene and shot popups (P1-24). Add files on
+                  both stores, the list, the player and download as
+                  elsewhere; a level's files go to LEVELS/<slug>, an
+                  experience's to EXPERIENCES/<slug>, on both backends. */}
+              <div className="rb-ent-detail-files">
+                <FileManager
+                  files={ctx?.managedFiles || []}
+                  levelId={entity.type === 'level' ? item.id : undefined}
+                  levelName={entity.type === 'level' ? (item.name || 'Untitled-Level') : undefined}
+                  experienceId={entity.type === 'experience' ? item.id : undefined}
+                  experienceName={entity.type === 'experience' ? (item.name || 'Untitled-Experience') : undefined}
+                  projectId={project?.id}
+                  project={project}
+                  mode="full"
+                  onFileAdded={() => ctx?.refreshManagedFiles?.()}
+                  onFileDeleted={() => ctx?.refreshManagedFiles?.()}
+                  onFileUpdated={() => ctx?.refreshManagedFiles?.()}
+                />
+              </div>
+            </div>
+          </div>
+        </Dialog>,
+        document.body,
+      )}
+
+      {/* A task opened from the sidebar: its own kit Dialog, portalled beside
+          this one and over it on the modal stack. Not while the task form is
+          open, as before. */}
+      {nestedTaskId && !showCreateTask && createPortal(
+        <TaskDetailPopup taskId={nestedTaskId} ctx={ctx} onClose={() => setNestedTaskId(null)} />,
+        document.body,
+      )}
+    </>
+  )
+}
+
+
+// ─── Shared sub-components ───
+
+// ─── The delete question: the kit's Dialog (W9's shape) ───
+// The row's delete, the card's and the detail popup's all ask here, in the
+// same words. Cancel and the backdrop keep the row, as they did; Escape does
+// too now (Q17). 🚨 PORTALLED into <body>, as FileManager's question is.
+//
+// 🚨 Cancel takes focus in an EFFECT, not only by `autoFocus`. From the
+// detail popup's Delete the popup closes in the same commit this opens:
+// `autoFocus` puts focus on Cancel during the commit, then the popup's
+// unmount hands focus back to what opened IT, and the kit Dialog's own
+// effect, finding focus outside, lands it on ✕ (B4c review round one). This
+// effect runs after both — a child's effects run before its parent's — so
+// the question opens on Cancel from every path, as it does from a row.
+//
+// 🚨 …and on close, focus goes back to `returnTo` when the popup asked (B4c
+// review round two). The kit Dialog hands it to what had it when the
+// question opened — the popup's own Delete, gone with the popup — so every
+// close from that path dropped focus to <body>. `returnTo` is what opened
+// the popup, the row's Open: taken while it is in the page and
+// focus has fallen to <body> (StrictMode's rehearsal of an unmount leaves it
+// on Cancel, so that does nothing). A delete takes the row, and its button,
+// with it — as a row's own delete question does.
+function ConfirmDialog({ title, message, onConfirm, onCancel, returnTo = null }) {
+  const cancelRef = useRef(null)
+  useEffect(() => {
+    cancelRef.current?.focus()
+    return () => {
+      const active = document.activeElement
+      if (returnTo && returnTo !== document.body && returnTo.isConnected && (!active || active === document.body)) returnTo.focus()
+    }
+  }, [])
+  return createPortal(
+    <Dialog
+      width="confirm"
+      title={title}
+      dismissOnBackdrop
+      onClose={onCancel}
+      footer={(
+        <>
+          <Button ref={cancelRef} autoFocus onClick={onCancel}>Cancel</Button>
+          <Button variant="danger" onClick={onConfirm}>Delete</Button>
+        </>
+      )}
+    >
+      <p className="rb-ent-confirm">{message}</p>
+    </Dialog>,
+    document.body,
+  )
+}
+
+// ─── Create popup ───
+// The kit's Dialog at the form width (560), laid out as the Assets page's
+// New asset: the kit Field (the Label step over a native `ui-input`), the
+// status the kit's dot inside its field, Cancel and Confirm & create the
+// kit's Buttons in its footer. The default name, every field and the files
+// picker are as they were. 🚨 PORTALLED into <body>, as NewAssetPopup is.
+// S4c: the picked files are UPLOADED once the row exists — into the level's
+// or the experience's own folder, through the same two paths FileManager's
+// Add files takes (entityFiles.addFilesToEntity): the cloud rows and the
+// bucket for a File from the browser's picker, the managed store and a
+// streamed copy for a path from the desktop's own picker. Before this the
+// list rode into the row as `files` and nothing read it. On the managed
+// store the browser's picker cannot give a path (Electron 32 took
+// `File.path` away), so there the button opens the desktop's picker and
+// keeps the paths; the rows are the same either way.
+function CreateEntityPopup({ entity, ctx, count, onClose }) {
+  const [name, setName] = useState(`${entity.Noun} ${count + 1}`)
+  const [status, setStatus] = useState('not_started')
+  const [description, setDescription] = useState('')
+  const [files, setFiles] = useState([]) // [{ name, file? (a File), path? (a desktop path) }]
+  const [fileNote, setFileNote] = useState('')
+  const fileInputRef = useRef(null)
+  const managed = ctx?.supportsManagedFiles === true
+  // One create per press (S4c review round 1, item 8): the buttons are
+  // disabled (React drops a click on a disabled button, whatever the DOM
+  // says) and the dialog cannot be dismissed while the row and its files
+  // are written, and a file that was not added is SAID — the row exists by
+  // then, so the dialog stays open with the sentence and one button, Close.
+  // The ref mirrors `busy` for the Dialog's own close (Escape, the
+  // backdrop), whose closure may be a render old.
+  const [busy, setBusy] = useState(false)
+  const [madeWithFailures, setMadeWithFailures] = useState(false)
+  // Which file is being added (round 2, item 9: a long copy showed
+  // "Creating…" for minutes with nothing said). The button names it, and a
+  // line under the list says the dialog closes when they are all added.
+  const [adding, setAdding] = useState(null) // { index, total, name }
+  const busyRef = useRef(false)
+  const closeUnlessBusy = () => { if (!busyRef.current) onClose() }
+
+  async function handleConfirm() {
+    busyRef.current = true
+    setBusy(true)
+    let row = null
+    try {
+      row = await ctx?.[entity.addMethod]({ name: name.trim() || `${entity.Noun} ${count + 1}`, status, description })
+    } catch (err) {
+      console.error(`Failed to create ${entity.noun}:`, err)
+      busyRef.current = false
+      setBusy(false)
+      setFileNote(`The ${entity.noun} was not created: ${err?.message || err}`)
+      return
+    }
+    let failed = []
+    if (row?.id && files.length > 0) {
+      try {
+        ({ failed } = await addFilesToEntity({ ctx, entityType: entity.type, entity: row, picked: files, onProgress: setAdding }))
+      } catch (err) { failed = [err?.message || String(err)] }
+    }
+    setAdding(null)
+    busyRef.current = false
+    setBusy(false)
+    if (failed.length > 0) {
+      console.error(`${entity.Noun} created; ${failed.length} file(s) were not added:`, failed.join('; '))
+      setMadeWithFailures(true)
+      setFileNote(`${entity.Noun} created. ${failed.length === 1 ? 'One file was' : `${failed.length} files were`} not added: ${failed.join('; ')}`)
+      return
+    }
+    onClose()
+  }
+
+  function handleFileSelect(e) {
+    const newFiles = Array.from(e.target.files || []).map(f => ({ name: f.name, file: f }))
+    setFiles(prev => [...prev, ...newFiles])
+    e.target.value = ''
+  }
+  async function pickFiles() {
+    if (!managed) { fileInputRef.current?.click(); return }
+    const api = window.electronAPI?.rabbit
+    if (!api?.pickFiles) { setFileNote('On this storage files are picked through the desktop app.'); return }
+    const paths = await api.pickFiles()
+    if (!paths || paths.length === 0) return
+    setFileNote('')
+    setFiles(prev => [...prev, ...paths.map(p => ({ name: String(p).replace(/\\/g, '/').split('/').pop(), path: p }))])
+  }
+
+  return createPortal(
+    <Dialog
+      width="form"
+      title={`New ${entity.noun}`}
+      // The backdrop closed it before and still does; Escape closes it too
+      // (Q17) — neither while the row is being written.
+      dismissOnBackdrop={!busy}
+      onClose={closeUnlessBusy}
+      footer={madeWithFailures ? (
+        <Button variant="primary" onClick={onClose}>Close</Button>
+      ) : (
+        <>
+          <Button onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button variant="primary" onClick={handleConfirm} disabled={!name.trim() || busy}>
+            {busy ? (adding ? `Adding ${adding.name} (${adding.index} of ${adding.total})…` : 'Creating…') : 'Confirm & create'}
+          </Button>
+        </>
+      )}
+    >
+      <div className="ui-field-stack">
+        <Field label="Name *">
+          <input type="text" value={name} onChange={e => setName(e.target.value)}
+            className="ui-input" autoFocus />
+        </Field>
+        <Field label="Status">
+          {/* The kit's dot inside the field and the words in the one ink,
+              where the words and every option were the status colour (R4-05). */}
+          <span className="rb-ent-form-status">
+            <StatusDot status={status} aria-hidden="true" role={undefined} aria-label={undefined} title="" />
+            <select value={status} onChange={e => setStatus(e.target.value)}
+              className="ui-input rb-ent-form-status-input">
+              {STATUSES.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
+            </select>
+          </span>
+        </Field>
+        <Field label="Description">
+          <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3}
+            className="ui-input rb-ent-form-text"
+            placeholder="Description..." />
+        </Field>
+        {/* Files: a group, not a <label> — a label around the picker would
+            open it from a click anywhere in the list. */}
+        <div className="ui-field">
+          <span className="ui-field-label">Files</span>
+          {!managed && <input ref={fileInputRef} type="file" multiple onChange={handleFileSelect} className="hidden" />}
+          <Button size="sm" Icon={Upload} className="rb-ent-files-add" onClick={pickFiles} title={`Added to the ${entity.noun}'s own folder once it is created`}>
+            Add files
+          </Button>
+          {(fileNote || adding) && (
+            <span className="rb-ent-files-note">
+              {adding ? `Adding ${adding.index} of ${adding.total} file${adding.total === 1 ? '' : 's'}; this closes when they are all added.` : fileNote}
+            </span>
+          )}
+          {files.length > 0 && (
+            <div className="rb-ent-files">
+              {files.map((f, i) => (
+                <div key={i} className="rb-ent-file">
+                  <span className="rb-ent-file-name">{f.name}</span>
+                  <IconButton size="sm" Icon={X} danger title={`Remove ${f.name}`}
+                    onClick={() => setFiles(prev => prev.filter((_, j) => j !== i))} />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </Dialog>,
+    document.body,
+  )
+}
+
+
+// (VW1e: the old filter panel and saved-views menu are gone: the shared
+// filter row and the Views dropdown replace them, views/tableViews/.)
+
+
+// ─── Bulk select dropdown ───
+// The floating bar's select, in the kit's small well (B2's BulkSelect).
+function BulkSelect({ label, options, labels, onPick }) {
+  return (
+    <select
+      defaultValue=""
+      aria-label={label}
+      onChange={e => { if (e.target.value !== '') { onPick(e.target.value); e.target.value = '' } }}
+      className="ui-input rb-ent-tool"
+      data-size="sm"
+    >
+      <option value="" disabled>{label}</option>
+      {options.map(o => <option key={o} value={o}>{(labels?.[o] || o).replace(/_/g, ' ')}</option>)}
+    </select>
+  )
+}
+
+
+// ─── The table's inline editor ───
+// A cell's own text until it is clicked, then a native field in the kit's
+// small well (not the kit Input, whose own Enter blurs; B3d-KR-2). Enter and
+// blur commit the trimmed draft and Escape reverts — unchanged. The name is
+// the row's anchor, Dense 600 in the full ink; a `quiet` cell (the
+// description) reads at 400 in the second ink (R4-03); an empty one shows
+// its placeholder in the third.
+// R1 (2026-10-27): `readOnly` — a seat that cannot write gets the words alone,
+// as the Scenes rows' InlineText does: no click, no hover fill, no field
+// (`data-static`); the name's placeholder or a dash when empty.
+function InlineText({ value, placeholder, label, onCommit, quiet = false, readOnly = false }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value)
+  const inputRef = useRef(null)
+  useEffect(() => { setDraft(value) }, [value])
+  useEffect(() => { if (editing && inputRef.current) inputRef.current.focus() }, [editing])
+  function commit() {
+    const trimmed = draft.trim()
+    if (trimmed !== value) onCommit(trimmed)
+    setEditing(false)
+  }
+  if (readOnly) {
+    return (
+      <span className="rb-ent-cell-text" data-static="true"
+        title={value || undefined}
+        aria-label={!value && placeholder === '—' ? `${label}, empty` : undefined}
+        data-quiet={quiet ? 'true' : 'false'}
+        data-empty={value ? 'false' : 'true'}>
+        {value || placeholder}
+      </span>
+    )
+  }
+  if (editing) {
+    return (
+      <input ref={inputRef} type="text" value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); setEditing(false) } }}
+        aria-label={label}
+        className="ui-input rb-ent-cell-input"
+        data-size="sm"
+        data-quiet={quiet ? 'true' : 'false'} />
+    )
+  }
+  return (
+    <button type="button" onClick={() => setEditing(true)}
+      className="rb-ent-cell-text"
+      title={value || undefined}
+      // An empty cell showing the app's one empty mark (P1-76) would be read
+      // as a dash: it is named by its field instead. A placeholder in words
+      // ("Untitled level") stays the name, so the visible words are in it.
+      aria-label={!value && placeholder === '—' ? `${label}, empty` : undefined}
+      data-quiet={quiet ? 'true' : 'false'}
+      data-empty={value ? 'false' : 'true'}>
+      {value || placeholder}
+    </button>
+  )
+}
+
+// ─── The popup's name field ───
+// Its words as a quiet button until clicked, the Assets popup's in-place
+// editor: no box, the kit's hover fill, an empty one's placeholder in the
+// third ink (it was #57534e, 2.29:1). Then a native field in the kit's small
+// well where the words were (not the kit Input, whose own Enter blurs;
+// B3d-KR-2), in the ink where it was orange. Enter and blur commit the
+// trimmed draft, as they did. Escape reverts it and is MARKED handled (K4's
+// mark), so the kit Dialog around it stands down: the first press reverts
+// the edit, the next one closes the popup (W2).
+// R1: `readOnly`, as InlineText's above.
+function PopupInlineText({ value, placeholder, label, onCommit, readOnly = false }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value)
+  const inputRef = useRef(null)
+  useEffect(() => { setDraft(value) }, [value])
+  useEffect(() => { if (editing && inputRef.current) inputRef.current.focus() }, [editing])
+  function commit() {
+    const trimmed = draft.trim()
+    if (trimmed !== value) onCommit(trimmed)
+    setEditing(false)
+  }
+  if (readOnly) {
+    return (
+      <span className="rb-ent-prop-text" data-static="true" data-empty={value ? 'false' : 'true'}>
+        {value || placeholder}
+      </span>
+    )
+  }
+  if (editing) {
+    return (
+      <input ref={inputRef} type="text" value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { e.preventDefault(); setDraft(value); setEditing(false) } }}
+        aria-label={label}
+        className="ui-input rb-ent-name-input"
+        data-size="sm" />
+    )
+  }
+  return (
+    <button type="button" onClick={() => setEditing(true)}
+      className="rb-ent-prop-text"
+      data-empty={value ? 'false' : 'true'}>
+      {value || placeholder}
+    </button>
+  )
+}
+
+// ─── A property's label: the Label step ───
+// The kit Field's own label class — 11px, 600, capitals at the kit's
+// tracking, the second ink (7.85:1 on the Dialog's raised paper, where
+// #78716c measured 3.16 on the old ground) — a block over its value. As
+// before it labels no control by itself: each control carries its own name.
+function FieldLabel({ children }) {
+  return (
+    <label className="ui-field-label rb-ent-label">
+      {children}
+    </label>
+  )
+}

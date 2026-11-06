@@ -24,7 +24,7 @@
  * @param {object} rabbitInterface  The value returned by `useRabbit()`.
  * @returns {Record<string, (args: object) => Promise<RabbitAgentToolResult>>}
  */
-export function createRabbitAgentTools(rabbitInterface) {
+function createRabbitAgentTools(rabbitInterface) {
   // Defensive: if a caller passes an empty interface, every action
   // becomes a clean no-op error rather than a runtime crash.
   const i = rabbitInterface || {}
@@ -216,21 +216,5 @@ export function createRabbitAgentTools(rabbitInterface) {
     summarize_project,
   }
 }
-
-/**
- * Resolve an agent action to a handler key. Used by the agent
- * runtime when the action object's `type` matches one of the
- * 8 known RABBIT actions.
- */
-export const RABBIT_TOOL_NAMES = [
-  'create_phase',
-  'create_asset',
-  'create_task',
-  'update_task',
-  'set_dependency',
-  'set_status',
-  'bulk_create_from_breakdown',
-  'summarize_project',
-]
 
 export default createRabbitAgentTools

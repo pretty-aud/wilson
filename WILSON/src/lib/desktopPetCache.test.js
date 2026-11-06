@@ -1,0 +1,290 @@
+// =============================================================================
+// desktopPetCache.test.js — Track A, bundle A3 (2026-09-07).
+//
+// A ROUTE REPLAY over electron/main.cjs, the instrument
+// desktopDeleteSweep.test.js and desktopMilestoneTrash.test.js already use and
+// for the same reason: vitest.config includes only `src/**`, so the main
+// process has no other coverage at all.
+//
+// What it pins. `getDataDir()` has no user segment, so the desktop pet cache
+// was one `pet.json` per INSTALL, and `resolveUserPet` read it to decide
+// whether to ADOPT it into the account — which hands person A's pet to person B
+// on a shared computer, underneath RLS, through the filesystem. The routes now
+// take `?user=<uuid>`.
+//
+// 🚨 THE SECURITY-SHAPED ASSERTION IS THE REFUSAL, NOT THE HAPPY PATH. The
+// parameter reaches `path.join`, so a value that is not exactly a UUID must be
+// REFUSED rather than cleaned up — a sanitiser is a list of the traversals
+// somebody happened to think of. The failing controls below feed it the shapes
+// a sanitiser typically misses.
+//
+// 🚨 AND THE 404 IS A FEATURE. The account arm must NOT mint an egg for an
+// account it has never seen: minting would hand resolveUserPet a pristine pet
+// to reason about on every first sign-in, and flash a blank egg on screen
+// before the account's real pet arrives. A route that mints instead of 404ing
+// looks completely healthy from the outside, so it is asserted directly.
+// =============================================================================
+
+import { describe, it, expect, beforeEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+
+const MAIN_CJS = readFileSync(new URL('../../electron/main.cjs', import.meta.url), 'utf-8')
+
+/** Lift `function name(...) { ... }` out of the source by brace matching. */
+function extractFunction(source, name) {
+  const start = source.indexOf(`function ${name}(`)
+  if (start < 0) throw new Error(`main.cjs no longer defines ${name}() — the replay cannot run`)
+  // Paren-match the parameter list FIRST — the A2 session 1 trap: a
+  // destructured or defaulted parameter otherwise supplies the "opening brace"
+  // and the extract is garbage.
+  let pd = 0
+  let i = source.indexOf('(', start)
+  for (; i < source.length; i++) {
+    if (source[i] === '(') pd++
+    else if (source[i] === ')') { pd--; if (pd === 0) break }
+  }
+  const open = source.indexOf('{', i)
+  let depth = 0
+  for (let j = open; j < source.length; j++) {
+    if (source[j] === '{') depth++
+    else if (source[j] === '}') {
+      depth--
+      if (depth === 0) return source.slice(start, j + 1)
+    }
+  }
+  throw new Error(`unbalanced braces extracting ${name}() from main.cjs`)
+}
+
+/** Lift `const NAME = <expr>;` (the expression may wrap onto the next line). */
+function extractConst(source, name) {
+  const start = source.indexOf(`const ${name} =`)
+  if (start < 0) throw new Error(`main.cjs no longer defines ${name} — the replay cannot run`)
+  const end = source.indexOf(';', start)
+  if (end < 0) throw new Error(`unterminated const ${name}`)
+  return source.slice(start, end + 1)
+}
+
+/** Lift one `expressApp.<verb>('<route>', (req, res) => { ... })` handler. */
+function extractRoute(source, verb, route) {
+  const needle = `expressApp.${verb}('${route}', (req, res) => {`
+  const start = source.indexOf(needle)
+  if (start < 0) throw new Error(`main.cjs no longer registers ${verb} ${route}`)
+  const open = source.indexOf('{', source.indexOf('=>', start))
+  let depth = 0
+  for (let j = open; j < source.length; j++) {
+    if (source[j] === '{') depth++
+    else if (source[j] === '}') {
+      depth--
+      if (depth === 0) return source.slice(open, j + 1)
+    }
+  }
+  throw new Error(`unbalanced braces extracting ${verb} ${route}`)
+}
+
+const DATA_DIR = path.join('C:', 'fake', 'otter-data')
+
+/**
+ * Rebuild petPathFor and the three handlers over an in-memory disk.
+ * `files` is the disk: absolute path -> parsed JSON.
+ */
+function build(files = new Map()) {
+  const removed = []
+  const written = []
+
+  const fakeFs = {
+    existsSync: (p) => files.has(p),
+    unlinkSync: (p) => { removed.push(p); files.delete(p) },
+  }
+  const readJSON = (p) => (files.has(p) ? files.get(p) : null)
+  const writeJSON = (p, v) => { written.push(p); files.set(p, v) }
+  const getDataDir = () => DATA_DIR
+  const defaultPet = () => ({ name: 'Ollie', form: 'egg', hunger: 0 })
+
+  const make = new Function(
+    'path', 'fs', 'readJSON', 'writeJSON', 'getDataDir', 'defaultPet',
+    `${extractConst(MAIN_CJS, 'PET_USER_RE')}
+     ${extractFunction(MAIN_CJS, 'petPathFor')}
+     const get = (req, res) => ${extractRoute(MAIN_CJS, 'get', '/api/pet')};
+     const post = (req, res) => ${extractRoute(MAIN_CJS, 'post', '/api/pet')};
+     const del = (req, res) => ${extractRoute(MAIN_CJS, 'delete', '/api/pet')};
+     return { petPathFor, get, post, del };`,
+  )(path, fakeFs, readJSON, writeJSON, getDataDir, defaultPet)
+
+  return { ...make, files, removed, written }
+}
+
+/** An Express `res` double that records what the handler answered. */
+function res() {
+  const out = { code: 200, body: null }
+  const api = {
+    status(c) { out.code = c; return api },
+    json(b) { out.body = b; return api },
+    _out: out,
+  }
+  return api
+}
+
+const UID = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
+const OTHER = 'dddddddd-dddd-dddd-dddd-dddddddddddd'
+const accountFile = (u) => path.join(DATA_DIR, `pet.${u}.json`)
+const sharedFile = path.join(DATA_DIR, 'pet.json')
+
+let api
+beforeEach(() => { api = build() })
+
+describe('petPathFor — the owner names the file', () => {
+  it('no owner → the historical shared file, unchanged', () => {
+    expect(api.petPathFor({ query: {} }, res())).toBe(sharedFile)
+    expect(api.petPathFor({ query: { user: '' } }, res())).toBe(sharedFile)
+    expect(api.petPathFor({}, res())).toBe(sharedFile)
+  })
+
+  it('an owner → that account\'s file', () => {
+    expect(api.petPathFor({ query: { user: UID } }, res())).toBe(accountFile(UID))
+  })
+
+  it('🚨 two accounts never resolve to one file', () => {
+    expect(api.petPathFor({ query: { user: UID } }, res()))
+      .not.toBe(api.petPathFor({ query: { user: OTHER } }, res()))
+  })
+
+  // ── the refusals ─────────────────────────────────────────────────────────
+  const REFUSED = [
+    ['a path traversal', '../../../etc/passwd'],
+    ['a bare traversal segment', '..'],
+    ['a separator', 'aaaa/bbbb'],
+    ['a backslash', 'aaaa\\bbbb'],
+    // 🚨 The one a substring check would pass: it CONTAINS a valid UUID.
+    ['a UUID with a traversal glued on', `../${UID}`],
+    ['a UUID with a suffix', `${UID}.bak`],
+    // 🚨 Written as an ESCAPE, not a raw byte. A literal 0x00 in the source
+    // makes git classify the whole file as binary — `git show` and every
+    // diff render `Bin 0 -> 11281 bytes` and nothing else, so this file was
+    // invisible to review. Same value to the test.
+    ['a null byte', `${UID}\u0000`],
+    ['a near-miss UUID (one character short)', UID.slice(0, -1)],
+    ['a non-hex character', UID.replace('c', 'z')],
+  ]
+
+  for (const [label, value] of REFUSED) {
+    it(`🚨 refuses ${label}`, () => {
+      const r = res()
+      expect(api.petPathFor({ query: { user: value } }, r)).toBeNull()
+      expect(r._out.code).toBe(400)
+    })
+  }
+
+  it('🚨 refuses a repeated query parameter, which Express gives as an ARRAY', () => {
+    // `?user=a&user=b` arrives as ['a','b']. Array.prototype.toString would
+    // have made 'a,b' — a string — if the check were a bare regex test.
+    const r = res()
+    expect(api.petPathFor({ query: { user: [UID, OTHER] } }, r)).toBeNull()
+    expect(r._out.code).toBe(400)
+  })
+
+  it('🚨 refuses an object, which is how a crafted query arrives', () => {
+    const r = res()
+    expect(api.petPathFor({ query: { user: { toString: () => UID } } }, r)).toBeNull()
+    expect(r._out.code).toBe(400)
+  })
+})
+
+describe('GET /api/pet', () => {
+  it('🚨 404s for an account it has never cached — it does NOT mint', () => {
+    const r = res()
+    api.get({ query: { user: UID } }, r)
+    expect(r._out.code).toBe(404)
+    // The failing control: a route that minted would have written a file.
+    expect(api.written).toHaveLength(0)
+    expect(api.files.has(accountFile(UID))).toBe(false)
+  })
+
+  it('returns that account\'s cached pet', () => {
+    api.files.set(accountFile(UID), { name: 'Ollie', form: 'ghost' })
+    const r = res()
+    api.get({ query: { user: UID } }, r)
+    expect(r._out.code).toBe(200)
+    expect(r._out.body.name).toBe('Ollie')
+  })
+
+  it('🚨 does not hand one account the other\'s cached pet', () => {
+    api.files.set(accountFile(OTHER), { name: 'Dee', form: 'adult' })
+    const r = res()
+    api.get({ query: { user: UID } }, r)
+    expect(r._out.code).toBe(404)
+  })
+
+  it('and the shared arm still mints, unchanged since Session 12', () => {
+    const r = res()
+    api.get({ query: {} }, r)
+    expect(r._out.code).toBe(200)
+    expect(r._out.body.form).toBe('egg')
+    expect(api.files.has(sharedFile)).toBe(true)
+  })
+
+  it('refuses a bad owner without touching the disk', () => {
+    const r = res()
+    api.get({ query: { user: '../x' } }, r)
+    expect(r._out.code).toBe(400)
+    expect(api.written).toHaveLength(0)
+  })
+})
+
+describe('POST /api/pet', () => {
+  it('writes under the owner\'s name', () => {
+    const r = res()
+    api.post({ query: { user: UID }, body: { name: 'Ollie' } }, r)
+    expect(api.files.get(accountFile(UID))).toEqual({ name: 'Ollie' })
+    // The failing control: it must not ALSO write the shared file, or the leak
+    // is exactly where it was.
+    expect(api.files.has(sharedFile)).toBe(false)
+  })
+
+  it('refuses a bad owner without writing anything', () => {
+    const r = res()
+    api.post({ query: { user: '..' }, body: { name: 'Ollie' } }, r)
+    expect(r._out.code).toBe(400)
+    expect(api.written).toHaveLength(0)
+  })
+})
+
+describe('DELETE /api/pet — sign-out', () => {
+  it('removes that account\'s copy and leaves the others', () => {
+    api.files.set(accountFile(UID), { name: 'Ollie' })
+    api.files.set(accountFile(OTHER), { name: 'Dee' })
+    api.files.set(sharedFile, { name: 'Legacy' })
+    const r = res()
+    api.del({ query: { user: UID } }, r)
+    expect(r._out.body).toEqual({ ok: true })
+    expect(api.files.has(accountFile(UID))).toBe(false)
+    expect(api.files.has(accountFile(OTHER))).toBe(true)
+    expect(api.files.has(sharedFile)).toBe(true)
+  })
+
+  it('🚨 REFUSES to delete the unattributed pet.json', () => {
+    // That file is nobody's account state, nothing reads it into an account any
+    // more, and Audrey's original Ollie lives in one of them. A sign-out has no
+    // business deleting a file it cannot attribute.
+    api.files.set(sharedFile, { name: 'Legacy' })
+    const r = res()
+    api.del({ query: {} }, r)
+    expect(r._out.code).toBe(400)
+    expect(api.removed).toHaveLength(0)
+    expect(api.files.has(sharedFile)).toBe(true)
+  })
+
+  it('is quiet when there is nothing cached — signing out twice is not an error', () => {
+    const r = res()
+    api.del({ query: { user: UID } }, r)
+    expect(r._out.body).toEqual({ ok: true })
+  })
+
+  it('refuses a bad owner without unlinking anything', () => {
+    api.files.set(sharedFile, { name: 'Legacy' })
+    const r = res()
+    api.del({ query: { user: `../${UID}` } }, r)
+    expect(r._out.code).toBe(400)
+    expect(api.removed).toHaveLength(0)
+  })
+})
