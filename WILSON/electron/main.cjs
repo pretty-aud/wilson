@@ -242,6 +242,11 @@ let signedInUserId = null;
 // Post-overhaul S4a: set inside startLocalServer (it needs the bundle
 // readers that live there) and read by the rabbit:open-path IPC.
 let rabbitFileLocator = null;
+// MO1 (MOTH NS-X06): the same for a file on the office server, an async question.
+let rabbitShareLocate = null;
+// MO1 (MOTH §1.8): files the person picked in rabbit:pick-files this session. MEMORY-ONLY: the
+// office-server put route copies from nothing else on this computer, but for a local media key.
+const userAuthorizedFiles = new Set();
 
 // F3 (wave 1 of docs/sessions/PLAN_WEEK_2026-11-04.md; OUTSTANDING REV-07):
 // every JSON file this process writes goes through one writer — the text whole
@@ -353,6 +358,10 @@ function folderRootRefusal(candidate) {
   const shape = demoRoot ? checkDemoFolderShape(candidate) : checkFolderRootShape(candidate);
   if (!shape.ok) return { error: shape.error };
   const resolved = shape.resolved;
+  // MO1 (MOTH NS-D8): people's personal spaces live under this name on a company's drive.
+  if (resolved.split(/[\\/]/).some((segment) => segment.toUpperCase() === '_WILSON_PERSONAL')) {
+    return { error: 'A project folder cannot sit in the personal spaces folder. Pick another folder.' };
+  }
   if (demoRoot) {
     if (resolved.toLowerCase() === demoRoot.toLowerCase()) {
       return { error: 'the project folder cannot be the demo folder itself — pick a folder inside it' };
@@ -1634,6 +1643,8 @@ function startLocalServer(distPath) {
       let dirty = false;
       if (!bundle.projectTeam)     { bundle.projectTeam     = []; dirty = true; }
       if (!bundle.managedFiles)    { bundle.managedFiles    = []; dirty = true; }
+      // Not dirty: an empty trash is no reason to write a bundle, and fileTrash.cjs reads a missing one as empty.
+      if (!bundle.trashedFiles)    { bundle.trashedFiles    = []; }
       if (!bundle.budgetLines)     { bundle.budgetLines     = []; dirty = true; }
       if (!bundle.budgetActuals)   { bundle.budgetActuals   = []; dirty = true; }
       if (!bundle.budgetVersions)  { bundle.budgetVersions  = []; dirty = true; }
@@ -1794,6 +1805,8 @@ function startLocalServer(distPath) {
         tableViews:      [],
         itemGroupings:   [],
         files:           [],
+        // MO1 (MOTH §1.8): this project's 30-day trash (fileTrash.cjs).
+        trashedFiles:    [],
         assetVersions:   [],
         comments:        [],
         ingestionRuns:   [],
@@ -2471,11 +2484,37 @@ function startLocalServer(distPath) {
     // below, so those stay as they were (several tests lift their bodies).
     mountPersonalSpace(expressApp, { space: personalSpace, emptyBundle, readRabbitBundle, writeRabbitBundle });
     // MO1 (PS-7): a company on an office server keeps a personal space's files there.
+    const { checkShareLocator, walkLists } = require('./networkShare.cjs');
+    const { isSameOriginRequest } = require('./fileReads.cjs');
+    const { makeVerifyBearer, readAuthPublic } = require('./authCheck.cjs');
     require('./networkShare.cjs').mountNetworkShare(expressApp, {
       getWorkspaceRoot: () => workspaceRootDir,
       getSignedInUserId: () => signedInUserId,
+      verifyBearer: makeVerifyBearer({ getAuthPublic: () => readAuthPublic({ distDir: distPath }) }),
       log: (line) => console.warn(line),
     });
+    // MO1 (MOTH §1.8): one reachability instance with the cloud bins below, so a server that went off
+    // for one is off for the other.
+    const shareReach = require('./rootReachable.cjs').makeRootQuestions();
+    const shareContain = require('./shareContain.cjs').makeShareContain({ reach: shareReach });
+    const shareDeps = { getWorkspaceRoot: () => workspaceRootDir, isSameOriginRequest, checkShareLocator, reach: shareReach };
+    require('./networkShareWalk.cjs').mountNetworkShareWalk(expressApp, { ...shareDeps, lists: walkLists });
+    const { mountNetworkShareOps, makeShareLocate } = require('./networkShareOps.cjs');
+    mountNetworkShareOps(expressApp, {
+      ...shareDeps,
+      contain: shareContain,
+      safeMediaContentType,
+      isAuthorizedFile: (picked) => userAuthorizedFiles.has(path.resolve(picked).toLowerCase()),
+      resolveMediaKey: (key) => {
+        const { checkMediaKey, insideByRealPath } = require('./localMedia.cjs');
+        const check = checkMediaKey(key);
+        if (!check.ok) return null;
+        const root = getLocalMediaRoot({ create: false });
+        const at = root ? resolveContainedFilePath(root, check.segments.join(path.sep)) : null;
+        return at && insideByRealPath(root, at) ? at : null;
+      },
+    });
+    rabbitShareLocate = makeShareLocate({ ...shareDeps, contain: shareContain });
 
     expressApp.get('/api/rabbit/projects/:id', (req, res) => {
       const bundle = readRabbitBundle(req.params.id);
@@ -4801,6 +4840,7 @@ function startLocalServer(distPath) {
       readRabbitBundle, writeRabbitBundle, rabbitTouch, rabbitUpsertInto, rabbitRemoveFrom, rabbitNotFound,
       getThumbCacheDir, generateVideoThumbOnce, safeMediaContentType,
       userAuthorizedDirs, dialog, shell, getMainWindow: () => mainWindow,
+      cloudBinsReach: shareReach,
       // BC2 (Bins on the cloud, the desktop signed in): B2's fallback — where
       // each of the company's footage locations is on THIS computer, when it
       // is seen as a drive letter. This computer's settings only, never the
@@ -4843,7 +4883,9 @@ function startLocalServer(distPath) {
     require('./localMedia.cjs').mountLocalMedia(expressApp, {
       getRoot: getLocalMediaRoot, resolveContainedFilePath, safeMediaContentType,
       log: (line) => console.info(line),
-    });
+      movesDir: () => path.join(getRabbitDataDir(), 'moves'),
+      writeJsonAtomic,
+    }).recoverRetires();
 
     // ── The connection dot's question (post-overhaul FX11) — electron/connectionProbe.cjs ──
     // GET /api/rabbit/connection: the data folder and the files root, each
@@ -5564,6 +5606,7 @@ ipcMain.handle('rabbit:pick-files', async () => {
     title: 'Select files to add',
   });
   if (result.canceled) return [];
+  for (const picked of result.filePaths) userAuthorizedFiles.add(path.resolve(picked).toLowerCase());
   return result.filePaths;
 });
 
@@ -5651,6 +5694,7 @@ ipcMain.handle('rabbit:open-path', async (_event, req = {}) => {
     fs,
     shell,
     locateRow: rabbitFileLocator,
+    shareLocate: rabbitShareLocate,
     mediaRoot: () => getLocalMediaRoot({ create: false }),
     checkMediaKey,
     resolveContainedFilePath,

@@ -131,6 +131,29 @@ describe("Moth's batch", () => {
   })
 })
 
+describe('a managed file', () => {
+  it('comes back, and one of a deleted asset stays gone', async () => {
+    bundle.managedFiles = [{ id: 'm1', asset_id: 'as', deleted_at: 'then' }, { id: 'm2', asset_id: 'gone', deleted_at: 'then' }, { id: 'm3', deleted_at: 'then' }]
+    bundle.assets = [{ id: 'as' }]
+    expect((await call('POST', `/api/rabbit/projects/${PID}/managed-files/m1/restore`)).body).toEqual({ done: 1, ops: [] })
+    expect(bundle.managedFiles[0].deleted_at).toBeUndefined()
+    expect((await call('POST', `/api/rabbit/projects/${PID}/managed-files/m1/restore`)).body.done).toBe(0)
+    expect((await call('POST', `/api/rabbit/projects/${PID}/managed-files/m2/restore`)).status).toBe(404)
+    expect((await call('POST', `/api/rabbit/projects/${PID}/managed-files/m3/restore`)).body.done).toBe(1)
+    expect((await call('POST', `/api/rabbit/projects/${PID}/managed-files/zz/restore`)).status).toBe(404)
+  })
+})
+
+describe('a relink', () => {
+  it('waits while a body in the trash would be left behind', async () => {
+    await call('DELETE', `/api/rabbit/projects/${PID}/files/a`)
+    expect((await call('POST', `/api/rabbit/projects/${PID}/files/relink-apply`, {})).body.error).toBe('trash_would_strand')
+    await call('POST', `/api/rabbit/projects/${PID}/files/a/restore`)
+    const through = await fetch(`${base}/api/rabbit/projects/${PID}/files/relink-apply`, { method: 'POST' })
+    expect(through.status).toBe(404) // on to the route in main.cjs, which this test does not mount
+  })
+})
+
 describe('the view and the purge', () => {
   it('the view hands out no path, and says when it goes', async () => {
     await call('DELETE', `/api/rabbit/projects/${PID}/files/a`)

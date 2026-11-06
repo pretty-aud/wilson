@@ -44,6 +44,7 @@ function start(options = {}) {
   mountNetworkShare(app, {
     getWorkspaceRoot: () => driveRoot,
     getSignedInUserId: () => signedIn,
+    verifyBearer: async () => ({ userId: signedIn }),
     isShareRoot: () => true,
     ...options,
   })
@@ -364,6 +365,20 @@ describe('POST /api/network-share/personal-space/files', () => {
     expect(fs.existsSync(path.join(root, '_WILSON_PERSONAL'))).toBe(false)
   })
 
+  it('🚨 refuses a token that is someone else\'s or nobody\'s, whatever the page pushed', async () => {
+    await new Promise((ok) => server.close(ok))
+    let verified = { userId: '99999999-9999-4999-8999-999999999999' }
+    await start({ verifyBearer: async () => verified })
+    expect((await send()).json.code).toBe('not_your_folder')
+    verified = { userId: null }
+    expect((await send()).json.code).toBe('not_your_folder')
+    verified = { unreachable: true }
+    const off = await send()
+    expect(off.status).toBe(503)
+    expect(off.json.code).toBe('cannot_check')
+    expect(fs.existsSync(path.join(root, '_WILSON_PERSONAL'))).toBe(false)
+  })
+
   it('refuses a drive that is not the company\'s', async () => {
     const res = await send({ query: { root: path.join(root, 'elsewhere') } })
     expect(res.status).toBe(409)
@@ -496,6 +511,19 @@ describe('the wiring', () => {
   const main = fs.readFileSync(path.join(APP, 'electron/main.cjs'), 'utf8')
   const preload = fs.readFileSync(path.join(APP, 'electron/preload.cjs'), 'utf8')
   const appJsx = fs.readFileSync(path.join(APP, 'src/App.jsx'), 'utf8')
+
+  it('main.cjs refuses a project folder inside the personal spaces folder', () => {
+    const at = main.indexOf('function folderRootRefusal(candidate) {')
+    expect(main.slice(at, at + 1200)).toContain("segment.toUpperCase() === '_WILSON_PERSONAL'")
+  })
+
+  it('main.cjs mounts the walk and the file routes, sharing one question with the cloud bins', () => {
+    expect(main).toContain('mountNetworkShareWalk(expressApp')
+    expect(main).toContain('mountNetworkShareOps(expressApp')
+    expect(main).toContain('cloudBinsReach: shareReach')
+    expect(main).toContain('shareLocate: rabbitShareLocate')
+    expect(main).toContain('userAuthorizedFiles.add(path.resolve(picked).toLowerCase())')
+  })
 
   it('main.cjs mounts the route behind the lock, with the memory-only root and user', () => {
     const lock = main.indexOf('applyLocalServerLock(expressApp, {')

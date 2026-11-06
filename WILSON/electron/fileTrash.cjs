@@ -126,6 +126,34 @@ function mountFileTrash(app, deps) {
   }
   app.post('/api/rabbit/projects/:projectId/files/restore', (req, res) =>
     restoreRoute(req, res, [...new Set(Array.isArray(req.body?.ids) ? req.body.ids : [])]));
+  // A managed file's delete marks its row and moves nothing, so its restore clears the mark. A row whose
+  // asset has gone stays gone: there is nothing for it to come back to.
+  app.post('/api/rabbit/projects/:projectId/managed-files/:id/restore', (req, res) => {
+    const bundle = readRabbitBundle(req.params.projectId);
+    if (!bundle) return rabbitNotFound(res);
+    const row = (bundle.managedFiles || []).find((f) => f.id === req.params.id);
+    if (!row) return rabbitNotFound(res, 'file');
+    const asset = (bundle.assets || []).find((a) => a.id === row.asset_id);
+    if (row.asset_id && (!asset || asset.deleted_at)) return rabbitNotFound(res, 'file');
+    if (!row.deleted_at) return res.json({ done: 0, ops: [] });
+    delete row.deleted_at;
+    writeRabbitBundle(req.params.projectId, bundle);
+    return res.json({ done: 1, ops: [] });
+  });
+
+  // Ahead of the route it guards, which stays in main.cjs: a relink rewrites where this project's files
+  // are, and the bodies in its trash would stay behind where a restore could not find them.
+  app.post('/api/rabbit/projects/:projectId/files/relink-apply', (req, res, next) => {
+    const bundle = readRabbitBundle(req.params.projectId);
+    if (bundle && trashOf(bundle).some((e) => e.moved)) {
+      return res.status(409).json({
+        error: 'trash_would_strand',
+        message: 'Empty or restore this project\'s deleted files first, so they are not left behind in the old folder.',
+      });
+    }
+    return next();
+  });
+
   app.post('/api/rabbit/projects/:projectId/files/:id/restore', (req, res) => restoreRoute(req, res, [req.params.id]));
 
   // Metadata only: no path goes out.

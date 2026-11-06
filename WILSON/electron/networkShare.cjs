@@ -13,12 +13,10 @@
 //
 // §1.2 item e settled the folder: _WILSON_PERSONAL/<owner uuid>, computed in the
 // database by network_share_space_folder, and checked here against the person signed
-// in. The renderer holds the launch token, so this check is not a wall against it: it
-// stops a stale or mistaken call from writing into somebody else's folder, on a server
-// where the only thing keeping that folder theirs is its name. A page that is not WILSON's
-// cannot push the id (ipcGate) or call this (same origin, launch token), and sign-out
-// clears it; script running on WILSON's own page can still name someone else's id, which
-// is why the walk's route must take the id from a verified token before it ships. The
+// in, on a server where the only thing keeping that folder theirs is its name. Who that
+// is comes from the call's own bearer token, checked with the auth server (authCheck.cjs):
+// script on WILSON's own page holds the launch token and could push any id, but it cannot
+// make a token for somebody else. The pushed id must agree, and sign-out clears it. The
 // drive has to be the one the signed-in renderer pushed, so a laptop with an old root
 // writes nothing.
 //
@@ -28,9 +26,9 @@
 // reserved with an exclusive create, which is atomic on both Windows and POSIX, and the
 // next free ' (2)' is taken instead.
 //
-// The rest of the design's routes (walk, file, op, put, purge) land with the client
-// changes that call them, in this module. A route or guard that runs ahead of a route in
-// main.cjs goes in its own module, because tests lift those bodies (hand-off §5).
+// The design's other routes are in networkShareOps.cjs (op, put, purge, file) and
+// networkShareWalk.cjs. A route or guard that runs ahead of a route in main.cjs goes in its
+// own module, because tests lift those bodies (hand-off §5).
 // =============================================================================
 'use strict';
 
@@ -131,6 +129,7 @@ function refuse(res, status, code, error) {
 function mountNetworkShare(expressApp, {
   getWorkspaceRoot,
   getSignedInUserId,
+  verifyBearer,
   // Seams for the tests: a UNC path cannot exist on the runner.
   isShareRoot = (root) => /^[\\/]{2}/.test(root),
   fsp = fs.promises,
@@ -141,7 +140,7 @@ function mountNetworkShare(expressApp, {
   staleUploadMs = STALE_UPLOAD_MS,
   log = () => {},
 } = {}) {
-  for (const [name, fn] of Object.entries({ getWorkspaceRoot, getSignedInUserId })) {
+  for (const [name, fn] of Object.entries({ getWorkspaceRoot, getSignedInUserId, verifyBearer })) {
     if (typeof fn !== 'function') throw new Error(`mountNetworkShare: ${name} is required`);
   }
   const { resolveContainedFilePath } = makeContainment(pathImpl);
@@ -191,6 +190,11 @@ function mountNetworkShare(expressApp, {
     const userId = getSignedInUserId();
     const folder = typeof q.folder === 'string' ? q.folder : '';
     if (!userId || !UUID_RE.test(userId) || folder !== `${PERSONAL_PARENT}/${userId}`) {
+      return refuse(res, 403, 'not_your_folder', 'Files can be added only to your own personal space.');
+    }
+    const verified = await verifyBearer(req.headers.authorization);
+    if (verified.unreachable) return refuse(res, 503, 'cannot_check', 'WILSON could not check who you are just now. Try again.');
+    if (verified.userId !== userId) {
       return refuse(res, 403, 'not_your_folder', 'Files can be added only to your own personal space.');
     }
 
@@ -317,4 +321,12 @@ module.exports = {
   checkShareLocator,
   SHARE_REFUSED_EXACT,
   SHARE_REFUSED_SUFFIX,
+  // What the walk's worker is told, as data: it cannot share this module's regexes.
+  walkLists: {
+    refusedChars: REFUSED_CHARS.source,
+    shortName: SHORT_NAME.source,
+    refusedExact: SHARE_REFUSED_EXACT,
+    refusedSuffix: SHARE_REFUSED_SUFFIX,
+    maxBytes: LOCATOR_MAX_BYTES,
+  },
 };

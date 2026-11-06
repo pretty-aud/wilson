@@ -7,6 +7,9 @@
 //
 // A journal holds no decision to re-take: it says which files, from where, to where. Recovery asks
 // only where each body is now.
+//
+// The same folder holds the journal of retiring a local original after a cloud copy-up, as
+// retire-<op>.json: localMedia.cjs writes and finishes those.
 
 const crypto = require('node:crypto');
 const { isMothExcluded } = require('./fileTrash.cjs');
@@ -103,7 +106,8 @@ function mountFileMoves(app, deps) {
     let recovered = 0;
     let left = 0;
     for (const name of fs.readdirSync(dir)) {
-      if (!name.endsWith('.json')) continue;
+      // A retire's journal (localMedia.cjs) sits here too, and is finished there.
+      if (!name.endsWith('.json') || name.startsWith('retire-')) continue;
       try {
         finish(JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')));
         recovered += 1;
