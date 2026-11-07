@@ -369,16 +369,20 @@ Deno.serve(async (req) => {
       const refColumn = (row as { kind?: string }).kind === 'thumbnail'
         ? 'thumbnail_url'
         : 'storage_path'
-      let { data: stillRef, error: refErr } = await ctx.admin
-        .from('files').select('id').eq(refColumn, row.object_path).limit(1)
       // MO1 (0120): in a company's own bucket a body and a picture share one namespace, and thumbnail_url
       // was client-writable once. So a legacy picture naming another file's body must not delete that
       // body: for s3 both columns answer. Petal's two buckets cannot hold each other's keys.
-      if (!refErr && !stillRef?.length && (row as { provider?: string }).provider === 's3') {
-        const other = refColumn === 'thumbnail_url' ? 'storage_path' : 'thumbnail_url'
-        const second = await ctx.admin.from('files').select('id').eq(other, row.object_path).limit(1)
-        stillRef = second.data
-        refErr = second.error
+      const refColumns: string[] = (row as { provider?: string }).provider === 's3'
+        ? ['storage_path', 'thumbnail_url']
+        : [refColumn]
+      let stillRef: unknown[] | null = null
+      let refErr: { message: string } | null = null
+      for (const column of refColumns) {
+        const answer = await ctx.admin
+          .from('files').select('id').eq(column, row.object_path).limit(1)
+        stillRef = answer.data
+        refErr = answer.error
+        if (refErr || stillRef?.length) break
       }
       // 🚨 A FAILED READ PUSHES NOTHING (S37's rule). supabase-js RESOLVES on
       // error with data:null, so an unchecked destructure turns a statement

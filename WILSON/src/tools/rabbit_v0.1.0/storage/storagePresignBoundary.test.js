@@ -276,10 +276,11 @@ describe('the wiring is real — every link in the presign chain has a caller', 
 
   it('🚨 the drain asks both columns of a key in a company\'s bucket, and a failed second read deletes nothing (0120)', () => {
     const fn = read('supabase', 'functions', 'storage-gc', 'index.ts')
-    expect(fn).toContain("const other = refColumn === 'thumbnail_url' ? 'storage_path' : 'thumbnail_url'")
-    expect(fn).toContain("(row as { provider?: string }).provider === 's3') {\n        const other")
-    expect(fn).toContain('refErr = second.error')
-    expect(fn.indexOf('refErr = second.error')).toBeLessThan(fn.indexOf('if (refErr) {'))
+    expect(fn).toContain("(row as { provider?: string }).provider === 's3'\n        ? ['storage_path', 'thumbnail_url']\n        : [refColumn]")
+    expect(fn).toContain('.eq(column, row.object_path)')
+    // The first read that fails or finds something ends the asking, and a failure deletes nothing.
+    expect(fn).toContain('if (refErr || stillRef?.length) break')
+    expect(fn.indexOf('if (refErr || stillRef?.length) break')).toBeLessThan(fn.indexOf('if (refErr) {'))
   })
 
   it('0051 widens the enqueue trigger by TEXT comparison (the same-transaction enum rule)', () => {
