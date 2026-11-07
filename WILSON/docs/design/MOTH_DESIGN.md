@@ -2006,3 +2006,122 @@ Three migrations: 0107 (A), 0108 (B), 0109 (C), with suites 110, 111 and 112, al
 - **money gate** (provides): can_access_project_money(uuid) now includes passes_project_privacy(p_project). Every money and Legal consumer in every area inherits it; the client mirror canSeeProjectMoney is unchanged (it runs only for visible projects).
 - **NAS network_share_checks** (needs): If authenticated can read it, its SELECT policy carries the project hop (S2); it joins fn_realtime_broadcast's project_id arm by restating 0109, which sends to project_topic(project_id).
 
+## 3. Session 2 (MO2), as built (2026-11-07)
+
+The graph, the glow, the HUD and navigation on the Moth page, on `po/moth2-graph`. The engine (MO2a, `b72c77ce`)
+landed in the merge commit `1d207f0d` together with everything that calls it (rule 19). PLAN_MOTH §5 Session 2 is
+the scope; her rulings in MOTH_PLANNING_BRIEF §12a are the shape.
+
+### 3.1 The database: 0122 and 0123
+
+- **`0122_moth_graph_reads`.** The two gates restated with seven kinds more (phase, asset, task, scene, shot, level,
+  experience). `phases` has no `workspace_id`, so a phase answers through its project's company, which the gate's last
+  clause asks of every kind. Three reads, each the caller's own (INVOKER), each asking Moth's project gate once:
+  `moth_project_items` (live items only: none trashed or set aside by a bid version; names cut to 300; at most 20,000
+  and says when cut), `moth_project_links` (stored relationships between two live ends, one line a pair, entity
+  folders through the folder gate; at most 60,000) and `moth_project_file_facts` (a page of at most 1,000 files on the
+  last id, the gate after the fence; an item id comes back only while it names a live item of the same project; the
+  person is the last editor, or the uploader where none was recorded).
+- **`0123_moth_views`.** `moth_views` (a person's own views across their projects, or a project's shared ones; a config
+  of at most 32 KB holding no id; a new revision on every config change; 200 a person or a project, counted under a
+  lock), `moth_layout_positions` (where each dot of a view is, open and focus; one typed reference per kind, id-only,
+  so a place goes with its thing and a moved file keeps its places; the key to its view composite with the company),
+  `user_settings.moth_prefs` with `set_moth_prefs` and `moth_prefs` (one company's entry, stamped with the membership's
+  start in milliseconds, so a person removed and added again starts afresh; read back trusting nothing stored).
+  Places are read through one policy and written only by `moth_put_positions`, `moth_clear_positions` and read in bulk
+  by `moth_view_positions`, each asking `rabbit_private.moth_view_access` once. A hidden or missing view is refused in
+  the words a missing key would give; the clear's count is of the places the caller could see.
+- **Beyond the design text.** `moth_view_access` pins `search_path` to `public` alone, as every `rabbit_private`
+  function must (suite 115 #14; found by the whole set on dev, corrected in `43e85ec8`, its body and so every md5 pin
+  unchanged). A view's places have one owner: a shared project view's are everyone's (owner NULL), an own view's and
+  a personal space's are its person's. `moth_view_positions` answers no place, rather than an error, for a view the
+  caller cannot use, so a stale last view opens empty.
+- **Proof.** Rehearsed on wilson-dev, rolled back, from the committed text: 0122 alone in 163 to 372 ms, twice in one
+  transaction 34 and 22 ms; 0123 on 0122 in 158 to 348 ms, twice 66 and 46 ms. The whole set with both prepended,
+  once: 120 suites, 6,493 planned = collected, 6,490 passed; red only suite 74 #34 and #35 (dev's own rows) and suite
+  115 #14 (above, then corrected; 115, 122, 35, 125, 126 and 124 again: 982 of 982). Planted breakages on a throwaway stack in GitHub Actions (the stack at 0121, as dev was), 206 plants in three runs (42417717836, 42418579905, 42419325427), the baseline green in all nine suites, with and without the post-conditions, each time. The final run: **99 caught by a failed probe, 69 refused by a rule (the post-conditions, the pre-flights, and a suite stopping on a refusal it did not expect, each read), 38 green, none without an answer.** The first run's 50 greens held 20 probes not written; they were added (124 F, 125 G, 126 F, 57 #62), and 125 G had to move ahead of section F, whose planted controls rewrite the read policy it tested from the suite's own copy. The branch is deleted. **Applied to wilson-dev on 2026-11-07**, from `cc2bec4a`, by the house method: 0122 at 22:17:29 UTC (history row 22:17:31), 0123 at 22:17:52 UTC (22:17:53), each 1.3 s; md5s `7ff60c5fa1629f0a19976b8d7e2e257d` and `a93901560fcddbb3e08755be814414ad` read back equal to the blobs; suites 124, 125, 126, 57, 110, 113, 115, 119, 122 and 35 on the applied schema, 1,674 of 1,674. Health before and after: 13 and 14 connections, no lock waits.
+- **Greens, each with the clause that does its job.** The project's own company check (an asset's company clause);
+  the read policies of `phases`, `assets` and `tasks`, which hide trashed rows from these INVOKER reads (six plants);
+  `trg_phases_same_project_refs`, `trg_shots_same_project_refs` and `trg_files_same_project_refs` (a parent, a shot's
+  scene, a file's shot in another project); the `entity_type` list (only entity folders carry one); both ends live in
+  this project (another project's task items); Supabase's default privileges, which give `authenticated` EXECUTE on a
+  new function in `public`, so the explicit grant restates it and the post-condition checks the result (two); the
+  column grants (no client insert of the company, no update of scope, project or owner: four); the views' pin trigger
+  (a project view's owner is NULL); the update's USING (its WITH CHECK reading); the update's WITH CHECK, which asks
+  the owner too, so a blanket rename touching another person's view is refused whole; Postgres orders NaN above every
+  number, so the bound refuses it; no client writes a place, and `moth_put_positions` checks each place's shape and
+  upserts position and marks only (three); the places' read policy's clauses cover each other (the view's own read
+  policy through EXISTS, the owner, the target gate: three); the composite view key (another company's view); a view's
+  places have one owner (focus, clear and read across owners: three); `member_since` is read only from an active
+  membership (an inactive member's settings).
+- **Limits, not probed by rows on a small database, each pinned by its function's md5:** the 20,001st item and 60,001st
+  line, a 1,001-file page, two saves at once against the cap, and the 20,001st place.
+
+### 3.2 The page
+
+- **One controller over the engine** (`state/mothWorld.js`): the scene and the layout's run in one turn (R1-11), its own
+  map of places fed by every tick and drag (R1-4, R1-8), a fly-to where a dot is going (R1-7) and at least close enough
+  to draw it alone (R1-6, `PICK_ZOOM` 0.9), a hand-placed dot kept on top of a radial layout (R1-25). Drag past 5 px; onto
+  a container that can take it, the target opens wider and the word "move into" follows the pointer, and the page moves
+  the file; near another dot it would link. **Links are not saved until Session 3**: a link drop puts the dot back where it
+  was, and the page says in one sentence that nothing was linked. Escape cancels. Half a second at rest blooms a preview; a press ends
+  it. Hidden, no frame is asked and the light stops.
+- **The catalogue** (`state/mothCatalogue.js`): every project read whole through Moth's own methods, three at a time,
+  files a thousand a page to at most 50 pages, the second look on every row, a failed read kept apart from an empty
+  one, only the newest read of a project lands, and the light follows only what is read whole.
+- **Views** (`state/mothViews.js`): the first visit asks what to map (two quick starts, or build your own); later visits
+  open the last view. A saved view's places are the server's; a quick start's last the visit. A reviewer arranges a
+  shared view on screen and nothing of it is saved. Save as offers a project's shared view only to those who may
+  change that project. On a database without 0123, or the signed-out desktop, views and settings last the visit and
+  the page says so.
+- **The HUD:** the view widget (view, New, Save, Save as, Reset, Lay out again, find and fly, What shows, focus, Look
+  back, Move to, Delete, Open in, Undo, Redo); the list with breadcrumbs; folder cards bottom left (five pinned at most,
+  a sixth refused with a sentence; the recent icon shows nothing until pressed); the preview bloom (an image, a video
+  muted, or the first lines of a text file read to 8 KB at most; never a file kept on the office server or one computer,
+  from a browser); Settings in a drawer (the light's colour, size by, colour by, lighter mode) and Help beside it. Pen
+  and touch switch to larger targets; a real mouse switches back.
+- **Tool jumps:** "Open in R.A.B.B.I.T." and "Open in Files" after a question (`wilson:open-rabbit-item`,
+  `wilson:open-project-file`); R.A.B.B.I.T. opens the project as its project bar does, asking first over an unsaved
+  edit, then the tab, whose view opens the item once its rows are there.
+- **Looking back:** the slider rebuilds the picture from the live graph and the record's rows, newest first; it reads
+  only, and says from when the record holds.
+
+### 3.3 Measured (her Q6)
+
+Her PC: Intel Core i9-13900K (24 cores, 32 threads), NVIDIA GeForce RTX 4080 (driver 32.0.16.1692), 64 GB, Windows 11
+Home 10.0.26200. Google Chrome 156.0.8078.81 headless through Playwright 1.59.1, a scratch profile, 1280x800 at scale 1;
+`chrome://gpu` in the same launch: canvas and rasterization hardware accelerated, ANGLE on the RTX 4080, D3D11. The dev
+server's development build (the fixtures and the replay are development only), so a load includes its module
+transforms. The PC was shared (34% CPU load from other work during the runs). Each case loaded fresh, answered the
+first visit, waited for every project, then 3 s of wheel zoom and 3 s of drag pans; the numbers are the page's own
+readout (`?mothFrames=1`): a frame as seen is the longest of its drawing, its lateness and the gap in continuous
+motion. Two runs each.
+
+| Case | View | Drawn | Frame as seen, p50 / p95 / max (ms) | Drawing p95 (ms) | Load | Heap |
+|---|---|---|---|---|---|---|
+| Debug sample, *Salt Hours* | Everything by folders | 6 dots, 4 lines | 0.2 / 0.3–0.4 / 86–87 | 0.3 | 2.05–2.21 s | 106 MB |
+| Debug sample, *Salt Hours* | Everything by tags | 39 dots, 50 lines | 0.2 / 0.4–0.5 / 89–90 | 0.4 | 2.08–2.13 s | 118–119 MB |
+| Replay, 1,000 | Everything by tags | 778 dots, 801–803 lines | 0.6 / 11.4–14.6 / 63–69 | 1.6 | 2.07–2.13 s | 108–119 MB |
+| Replay, 3,000 | Everything by tags | 3–5 dots, 164–177 clusters, 418–453 lines | 0.7–0.8 / 17.1–17.2 / 61–68 | 1.5–2.1 | 1.76–2.02 s | 113–136 MB |
+| Replay, 10,000 | Everything by tags | 1–2 dots, 218–219 clusters, 880–906 lines | 13.5–14.3 / 17.3–32.9 / 55–65 | 2.3–2.6 | 2.25–2.32 s | 152–177 MB |
+
+The plan's target, 1,000 dots and 2,000 lines at 60 frames a second with p95 at most 20 ms, is met by the 1,000 replay.
+Above the frame budget (1,000 dots, 2,000 lines) dots are drawn as clusters, as designed. The 10,000 replay's p95 was
+32.9 ms in one of three runs and 17.3 and 17.4 in the others; its drawing stayed under 3 ms, so the long frames were
+elsewhere (most likely the layout's ticks while it settles); not measured further. Each run's max is one or two
+frames; which frames was not recorded. Lighter mode and the 100 ms feedback target were measured on the engine by
+MO2a, not again here.
+
+Chunks, production build: the Moth page's lazy chunk 121.5 kB (42.8 kB compressed), about 26 kB before this session;
+the layout worker 26.1 kB (10.2 kB compressed), new; the main bundle 5,079 kB, 5,066 kB before.
+
+**Not measured:** her saved local test project (it lives in her own app data, which this session may not read; asked at its close); the desktop app; a real company's size. The debug sample
+is small (39 dots at the most), so the replays carry the size: a documented expanded replay of non-sensitive generated
+data, not a proof at production scale.
+
+### 3.4 Not built, and owed
+
+- Links between things are saved from Session 3; notes and courses are not dots until Session 3 brings workspace notes.
+- A desktop-only project keeps no saved view, place or setting (the signed-out desktop has no table for them).
+- **Before staging and production:** the runbook's 0122 and 0123 rows; time the three reads on the largest project
+  there (items, links, a facts page) before the page goes to people, as 0121's measurement was taken.

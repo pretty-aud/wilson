@@ -625,3 +625,19 @@ Plan §0, the four conditions, as boxes:
 - [ ] `[Cloud]` On a company on its own S3-compatible bucket (a real one: dev has none), move a file between two open projects. It moves at once, and opens, its picture with it. As someone in the old project only, it is gone and its link no longer opens.
 - [ ] `[Cloud]` On that company, move a file out of a private project into an open one. It takes a moment longer (a new copy, and WILSON's server checks it arrived), then opens from the new project; the old copy goes at the next Cleanup. Move ten at once: all ten land.
 - [ ] `[Cloud]` On that company, take away the bucket key's right to read (HeadObject) and move a file that needs a copy: it says the bucket refused WILSON's server a look, nothing moves, and the bucket holds no new copy. Put the right back.
+
+## §U. M.O.T.H.'s graph (20 min) `[Cloud][Desktop]`
+
+- [ ] `[Cloud]` Open M.O.T.H. for the first time on an account: it asks *What do you want to map?* Choose **Everything by folders**. Leave and come back: it opens the same view and asks nothing.
+- [ ] `[Cloud]` Your projects show as islands of light, each with its folders. The light is larger on a company with more files. Double-click a folder: it opens into its files.
+- [ ] `[Cloud]` Drag empty space to move around, scroll to zoom. Click a dot: it is ringed and the list on the right goes to it. Rest the mouse on an image or a video for half a second: a small preview appears beside it, and goes the moment you press or move away.
+- [ ] `[Cloud]` Drag a file onto a folder of the same project: the folder opens wider and *move into* follows the pointer. Let go: the file moves, as with **Move to…**, and **Undo** puts it back. Press Escape during a drag: it goes back and nothing changes.
+- [ ] `[Cloud]` Choose **Everything by tags**: files gather around their tags. Change what shows, then **Save as…** with a name: it is in the view list next time.
+- [ ] `[Cloud]` As a project's reviewer, open its shared view and drag a dot: it moves on screen. Reload: it is back where it was. **Save as…** offers only *Just me*.
+- [ ] `[Cloud]` Select a task and press **Open in R.A.B.B.I.T.**: it asks first. **Stay here** changes nothing. Say yes: R.A.B.B.I.T. opens that project at Tasks with the task open. Do the same for a file: Files, with it selected.
+- [ ] `[Cloud]` Open **M.O.T.H. settings** (the cog beside Help): change the light's colour and *Colour by*; reload, and they are kept. On a computer that asks for less motion, the light holds still.
+- [ ] `[Cloud]` Pin a folder card, then four more: a sixth is refused with *Five cards at most. Unpin one to pin this.* The clock icon bottom left lists the folders opened last, and shows nothing until pressed.
+- [ ] `[Cloud]` Drag **Look back** a week: the picture shows the projects as they were, says from when it is recorded, and changes nothing. **Back to now**.
+- [ ] `[Cloud]` On a tablet or with a pen, touch the graph: the controls grow. Move a real mouse: they shrink again.
+- [ ] `[Cloud]` Look for invoices, Legal files, a private project you are not on, and someone else's personal space: none is a dot, a line, a search result or a card, for any role.
+- [ ] `[Desktop]` Signed out, on a project kept on this computer: the graph shows it; saving a view says it lasts for this visit.
