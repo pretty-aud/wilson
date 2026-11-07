@@ -142,6 +142,8 @@ Exclude financial files/canonical locked-folder descendants, including Legal, fo
 
 ### Session 1 — Shared foundations, storage and security
 
+**Built and merged (the controller, 2026-11-07).** Branch `po/moth1-foundations-9l5hbg`, 2026-11-01 to 2026-11-07, merged into `feat/post-overhaul-edit-versioning` as `a70458a9` (its tip `fc93e2f4`, six CI checks green): migrations 0107 to 0119 and 0121 with their suites, all on wilson-dev; the Edge Function, desktop and client changes; the lazy Moth page; walkthrough 93; two whole-session review rounds on Opus 5.5. Not yet: 0120 (after `storage-presign` and `storage-read-urls` are verified deployed, asked separately; its own session), the beta and staging (one window, on her go), and the `rabbit:copy-file` fence (her own session). The record is `PLAN_TO_1_0.md`'s M.O.T.H. section; the as-built notes are `docs/design/MOTH_DESIGN.md`'s.
+
 **Model: Opus 5.5 for build, design and both review rounds. Stop if different.**
 
 **Goal:** establish secure Moth schemas and shared file operations. Deliver reachable minimal Moth entry/personal-space and Files workflows, with real production callers for foundational client exports.
