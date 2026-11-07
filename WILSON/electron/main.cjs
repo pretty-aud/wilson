@@ -5546,56 +5546,8 @@ ipcMain.handle('rabbit:pick-files', async () => {
   return result.filePaths;
 });
 
-// Streaming file copy: copies a file from source to destination using
-// streams for multi-GB support. Reports progress via IPC events.
-ipcMain.handle('rabbit:copy-file', async (event, { sourcePath, destDir, destFileName }) => {
-  if (!fs.existsSync(sourcePath)) throw new Error('source file does not exist');
-  if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
-  const finalPath = path.join(destDir, destFileName);
-
-  const stat = fs.statSync(sourcePath);
-  const totalBytes = stat.size;
-
-  return new Promise((resolve, reject) => {
-    const readStream = fs.createReadStream(sourcePath);
-    const writeStream = fs.createWriteStream(finalPath);
-    let bytesCopied = 0;
-    let lastProgressPct = 0;
-
-    readStream.on('data', (chunk) => {
-      bytesCopied += chunk.length;
-      const pct = Math.round((bytesCopied / totalBytes) * 100);
-      // Only send progress at each 1% increment to avoid flooding IPC
-      if (pct > lastProgressPct) {
-        lastProgressPct = pct;
-        try {
-          event.sender.send('rabbit:copy-progress', {
-            fileName: destFileName,
-            bytesCopied,
-            totalBytes,
-            percent: pct,
-          });
-        } catch { /* window may be closed */ }
-      }
-    });
-
-    readStream.on('error', (err) => {
-      writeStream.destroy();
-      reject(err);
-    });
-
-    writeStream.on('error', (err) => {
-      readStream.destroy();
-      reject(err);
-    });
-
-    writeStream.on('finish', () => {
-      resolve({ ok: true, finalPath, bytesWritten: bytesCopied });
-    });
-
-    readStream.pipe(writeStream);
-  });
-});
+// Streaming file copy (electron/copyFileFence.cjs).
+ipcMain.handle('rabbit:copy-file', require('./copyFileFence.cjs').createCopyFile({ fs }));
 
 // Get file stats without reading the file
 ipcMain.handle('rabbit:get-file-stats', (_event, { filePath }) => {
