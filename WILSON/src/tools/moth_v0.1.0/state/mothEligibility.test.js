@@ -3,7 +3,7 @@
 // of the classifier, arm by arm, and the migration's text held to the same arms.
 // =============================================================================
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { mothFileHidden } from './mothEligibility'
@@ -131,7 +131,7 @@ describe('0111\'s classifier, read from the migration', () => {
   })
 
   it('the gate calls the classifiers and has no admin leg on a personal space', () => {
-    const text = body('_moth_target_eligible')
+    const text = latestBody('_moth_target_eligible')
     expect(text).toContain('public.moth_file_row_locked(')
     expect(text).toContain('public.moth_folder_chain_locked(')
     expect(text).toContain('public.passes_project_privacy(p.id)')
@@ -139,4 +139,28 @@ describe('0111\'s classifier, read from the migration', () => {
     expect(text).not.toContain('current_app_role')
     expect(text).not.toContain('can_access_project_money')
   })
+
+  // MO2 (0122): the seven kinds of item, each its project's, each in this company, the trash keeping three out.
+  it("the latest gate is 0122's, and each item kind is its project's, in this company, out of the trash", () => {
+    expect(latestFile('_moth_target_eligible')).toBe('0122_moth_graph_reads.sql')
+    const text = latestBody('_moth_target_eligible')
+    for (const kind of ['phase', 'asset', 'task', 'scene', 'shot', 'level', 'experience']) expect(text).toContain(`p_kind = '${kind}'`)
+    for (const arm of ['a.workspace_id = v_ws', 't.workspace_id = v_ws', 's.workspace_id = v_ws', 'sh.workspace_id = v_ws',
+      'l.workspace_id = v_ws', 'e.workspace_id = v_ws']) expect(text).toContain(arm)
+    expect(text.match(/v_deleted IS NOT NULL AND NOT COALESCE\(p_allow_trashed, false\)/g)).toHaveLength(4)
+    expect(text).toContain('p.workspace_id = v_ws')
+  })
 })
+
+// The newest migration that defines a function, and that body (comments stripped): what the database runs.
+function latestFile(name) {
+  const dir = join(process.cwd(), 'supabase/migrations')
+  const files = readdirSync(dir).filter((f) => /^\d{4}_.*\.sql$/.test(f)).sort()
+  return files.filter((f) => readFileSync(join(dir, f), 'utf8').includes(`FUNCTION public.${name}(`)).pop()
+}
+function latestBody(name) {
+  const text = readFileSync(join(process.cwd(), 'supabase/migrations', latestFile(name)), 'utf8').replace(/--[^\n]*/g, '')
+  const start = text.lastIndexOf(`FUNCTION public.${name}(`)
+  const open = text.indexOf('$$', start)
+  return text.slice(open, text.indexOf('$$', open + 2))
+}
