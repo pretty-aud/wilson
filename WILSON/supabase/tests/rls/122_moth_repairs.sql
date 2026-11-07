@@ -14,7 +14,7 @@
 
 BEGIN;
 
-SELECT plan(123);
+SELECT plan(125);
 
 SELECT * FROM tests.rls_setup();
 
@@ -121,6 +121,13 @@ SELECT ok(NOT has_function_privilege('authenticated', 'rabbit_private.personal_s
 SELECT ok(NOT has_function_privilege('authenticated', 'public._network_share_may_call_off(uuid)', 'EXECUTE')
           AND NOT has_function_privilege('anon', 'public._network_share_may_call_off(uuid)', 'EXECUTE'),
   'and so is who may call off');
+
+-- Only these name the marker, and each asks the person again, or sets it around the one core.
+SELECT is((SELECT array_agg(proname::text ORDER BY proname) FROM pg_proc
+            WHERE prosrc LIKE '%wilson.moth_leaver_move%'
+              AND pronamespace IN ('public'::regnamespace, 'rabbit_private'::regnamespace)),
+  ARRAY['_moth_target_eligible', 'moth_can_write_target', 'moth_move_leaver_files'],
+  '🚨 the marker is named by the two gates that honour it and the one move that sets it, and by nothing else');
 
 -- ── B. The list ─────────────────────────────────────────────────────────────
 SET LOCAL ROLE authenticated;
@@ -391,6 +398,21 @@ SELECT is((SELECT count(*)::int FROM public.workspace_storage_plans), 0, 'nor ca
 SELECT public.t122_a();
 SELECT is((SELECT count(*)::int FROM public.workspace_storage_plans), 1, 'CONTROL: an admin can');
 RESET ROLE;
+-- A person in two companies: current_app_role() answers for the one they are signed into, and has_active_membership
+-- for the row's, so only the policy's company arm keeps the other company's plan from an admin of this one.
+INSERT INTO public.workspace_members (workspace_id, user_id, app_role, username, display_name, is_active)
+VALUES ('22222222-2222-2222-2222-222222222222', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'user', 'user_a_in_b', 'User A in B', true)
+ON CONFLICT (workspace_id, user_id) DO UPDATE SET app_role = 'user', is_active = true;
+INSERT INTO public.workspace_storage_plans (workspace_id, quota_bytes, status)
+VALUES ('22222222-2222-2222-2222-222222222222', 2000000, 'active')
+ON CONFLICT (workspace_id) DO UPDATE SET quota_bytes = 2000000, status = 'active';
+SET LOCAL ROLE authenticated;
+SELECT public.t122_a();
+SELECT is((SELECT count(*)::int FROM public.workspace_storage_plans WHERE workspace_id = '22222222-2222-2222-2222-222222222222'), 0,
+  '🚨 an admin of this company who is a plain member of another does not read that one''s plan');
+RESET ROLE;
+DELETE FROM public.workspace_storage_plans WHERE workspace_id = '22222222-2222-2222-2222-222222222222';
+DELETE FROM public.workspace_members WHERE workspace_id = '22222222-2222-2222-2222-222222222222' AND user_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 DELETE FROM public.workspace_storage_plans WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
 
 -- ── H. The office server ────────────────────────────────────────────────────
