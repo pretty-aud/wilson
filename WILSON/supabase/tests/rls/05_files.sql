@@ -240,7 +240,7 @@ SELECT is(
   1,
   '0043: deleting a scene clears files.scene_id and KEEPS the file row');
 
--- 14: and the same for the folder. This is also Audrey's requirement seen from
+-- 14: and the same for the folder. This is also the owner's requirement seen from
 -- the other side — "toggling a category off must never delete the folders"
 -- would mean little if removing a folder deleted the files that were in it.
 DELETE FROM public.folders WHERE id = 'aaaa1111-0000-0000-0000-0000000000d1';

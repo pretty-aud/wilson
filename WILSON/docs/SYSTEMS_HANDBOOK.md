@@ -565,7 +565,7 @@ in S22, each verified **by query** on all three, not by the CLI's success line.)
 > hand-offs, so read `supabase functions list --project-ref <ref>` before believing any line about what is deployed.
 
 **Anon keys are public by design and ship inside the web bundle.** This is not
-a leak: sign-ups are off, every table carries RLS — all but four with `FORCE`
+a leak: sign-ups are off, every table carries RLS — all but five with `FORCE`
 as well (the exceptions are `auth_attempt_log`, `edit_history`, `file_events`
 and `storage_gc_queue`, whose only writer is a service-role function or a
 DEFINER trigger; see §4.4) — and the policy set is pinned by 37 pgTAP suites in
@@ -773,10 +773,10 @@ seat.
 tables, `workspace_ai_keys`, `platform_audit`, `edge_rate_limits`. Migration
 post-conditions assert this.
 
-Four tables are `ENABLE`-only, each deliberately: `auth_attempt_log`,
-`edit_history`, `file_events` and `storage_gc_queue` — the first is written
-pre-auth by a service-role function, and the other three have a SECURITY
-DEFINER trigger as their sole writer and zero client write policies.
+Five tables are `ENABLE`-only, each deliberately: `auth_attempt_log`,
+`edit_history`, `file_events`, `moth_history` and `storage_gc_queue` — the first
+is written pre-auth by a service-role function, and the other four have a
+SECURITY DEFINER trigger as their sole writer and zero client write policies.
 
 #### Table inventory
 
@@ -1263,7 +1263,9 @@ arm, as they always could. `rabbit_thumbnails_delete_own` has no such clause:
 |---|---|---|---|
 | `wilson-purge-file-moves` | 04:41 | `file_moves` (MO1, 0113) | 30 days |
 | `wilson-purge-edit-history` | 04:43 | `edit_history` | 90 days |
-| `wilson-purge-soft-deleted` | 04:47 | Soft-deleted rows across 7 tables, cascading each subtree | 30 days |
+| `wilson-purge-moth-history` | 04:45 | `moth_history` (MO1, 0119) | 90 days |
+| `wilson-purge-soft-deleted` | 04:47 | Soft-deleted rows across 7 tables, cascading each subtree. An office-server operation left past the retention is closed first, so it does not hold a row or a project for ever (0121) | 30 days |
+| `wilson-purge-network-share-ops` | 04:50 | Settled `network_share_ops` (MO1, 0117) | 90 days |
 | `wilson-purge-app-events` | 04:51 | `app_events` | 90 days |
 | `wilson-purge-otter-trash` | 04:55 | Trashed O.T.T.E.R. subjects then courses | 30 days |
 | `wilson-purge-rate-limits` | 04:59 | `edge_rate_limits` windows | 1 day |
@@ -5054,9 +5056,15 @@ nothing checks them before executing an action.
 
 **Doing things.** `state/mothFileOps.js` writes and `state/mothHistory.js` holds the undo, in memory, ten each way, cleared on an account, workspace or adapter change. A cloud move asks a plan first. A rehome or a copy-up is copied before the commit and removed if it is refused. A move on the office server commits first and renames after, and a rename that fails settles `not_moved`, which puts the row back. A browser refuses from the plan, before anything is written.
 
-**The office server on the desktop.** All behind same origin and the launch token, on a UNC drive that answers, and refusing any path through a link: `networkShareWalk.cjs` (in a worker thread, whole directories, 5,000 files, 2,000 directories, depth 8, 60 s, a folder of one frame series as one entry), `networkShareOps.cjs` (renames, a copy in, the bin's purge, a file's bytes), `networkShare.cjs` (adding to your own space, whose bearer token is checked with the auth server by `authCheck.cjs`), `shareContain.cjs`, and `rootReachable.cjs`, whose one instance Bins shares. **The renderer's half** is `state/networkShareCatalogue.js`: at most about 1,000 entries a call, a directory over one call in parts marked not complete and then whole, and the same call again while the server says `more_missing`. A delete whose file has gone settles `done`, or its row could never leave.
+**The office server on the desktop.** All behind same origin and the launch token, on a UNC drive that answers (`isShareRoot`: not a device path, and no money folder as the root), and refusing any path through a link. A write in a personal folder, and a walk of one, also asks who is calling, by the bearer token checked with the auth server (`authCheck.cjs`): `networkShareWalk.cjs` (in a worker thread, whole directories, 5,000 files, 2,000 directories, depth 8, 60 s, a folder of one frame series as one entry), `networkShareOps.cjs` (renames, a copy in, the bin's purge, a file's bytes), `networkShare.cjs` (adding to your own space, whose bearer token is checked with the auth server by `authCheck.cjs`), `shareContain.cjs`, and `rootReachable.cjs`, whose one instance Bins shares. **The renderer's half** is `state/networkShareCatalogue.js`: at most about 1,000 entries a call, a directory over one call in parts marked not complete and then whole, and the same call again while the server says `more_missing`. A delete whose file has gone settles `done`, or its row could never leave.
 
-**A desktop project.** `fileTrash.cjs` keeps a deleted file 30 days under `<folder>/.trash`, and purges when the project opens. `fileMoves.cjs` moves between projects with a journal in `<rabbit-data>/moves/`, finished at start-up. After a copy-up to the cloud, `localMedia.cjs` keeps the local copy 30 days under `<local media root>/.trash`, journalled as `retire-<op>.json`.
+**A desktop project.** `fileTrash.cjs` keeps a deleted file 30 days under `<folder>/.trash`, and purges when the project opens, writing nothing unless something went. A restore and a purge ask the disk where a body is, so a crash or a file held open cannot strand one, and an entry whose body cannot be seen stays for 90 days: its drive may be away. Moth's exclusion there is the page's own rule (`isMothExcluded`, held to `moneyFolderChainLocked` by a test); a file's own restore is Undo from Files and does not ask it. `fileMoves.cjs` moves between projects with a durable journal in `<rabbit-data>/moves/`, one move at a time, its copies and hashes in a worker. A failure it sees puts the bodies back and answers that nothing moved; after a crash the next start asks where things are: with the row in the destination it rolls forward, without one the bodies go home. A way back returns a row's folder and links, and says what it could not. `GET /api/rabbit/files/pending-moves` is what M.O.T.H. reads to say a move did not finish. After a copy-up to the cloud, `localMedia.cjs` keeps the local copy 30 days under `<local media root>/.trash`, journalled as `retire-<op>.json`.
+
+**A former member's files (0121).** An admin opening someone else's personal space in Files is also asked `moth_leaver_files`: empty unless that person is no longer an active member. `moth_move_leaver_files` is `moth_move_items` under a marker that `_moth_target_eligible` and `moth_can_write_target` honour only after asking `rabbit_private.personal_space_of_a_leaver` of the person calling, so Moth's own reads still show no admin anyone else's space. Into a project only, one line in the admin activity list (WIL-4115), and no undo. A file in that person's folder on the office server is not moved: `in_their_server_folder`, because only its owner's token opens that folder.
+
+**The storage notice (0121).** `workspace_storage_usage()` gives anyone but an admin `fullness` (`ok`, `nearly_full` at nine parts in ten, `full`) and no figures, and `reserve_upload_bytes` refuses them in words with no amounts. An admin's Terminal and refusals keep the figures.
+
+**What is left unfinished on the office server.** A rename nobody can say happened stays pending (`failed`, `not_verified`, no answer) and `settlePending` looks again, at sign-in, on opening M.O.T.H. and before a check. A copy-up left over is looked at: a file there settles done, none settles not_moved. `network_share_pending_mine` holds back a refused project's operations only. After 24 hours an admin may call off what a person who has left began in their own space (`network_share_stale_moves` lists it), and may only say it did not happen. A folder change inside a project on the server is refused, because the row would move and the file would not.
 
 ## 14. Who talks to whom
 
