@@ -722,8 +722,11 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
           updated_at: p.updated_at,
         })))
     },
-    // The fixtures have no office server, so nothing here is listed from one.
-    async mothIslandFolder(projectId) { return { id: projectId, folder_root: null, personal_owner_id: null } },
+    // Where the open project is on the office server, for its banner: `?storage=network` gives it a folder.
+    async mothIslandFolder(projectId) {
+      const project = projectOf(projectId)
+      return { id: projectId, folder_root: project?.folder_root ?? null, personal_owner_id: project?.personal_owner_id ?? null }
+    },
     async listMothFolders(projectId) {
       if (!mothProjectVisible(projectOf(projectId))) return []
       const rows = store.folders.filter(f => f.project_id === projectId)
@@ -1124,12 +1127,21 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     async getAccessToken() { return null },
     async trashFiles() { throw devWriteRefused('Deleting a file') },
     async restoreFiles() { throw devWriteRefused('Restoring a file') },
-    async listTrashedFiles() { return [] },
+    // Only what `?storage=network` put there: the fixtures' other rows have no way into a trash.
+    async listTrashedFiles({ projectIds = [] } = {}) {
+      return clone(store.files
+        .filter(f => f.deleted_at && f.storage_provider === 'network_share' && projectIds.includes(f.project_id))
+        .map(f => ({
+          id: f.id, project_id: f.project_id, folder_id: f.folder_id, name: f.name, mime_type: f.mime_type, size_bytes: f.size_bytes,
+          kind: null, deleted_at: f.deleted_at, purges_at: new Date(Date.parse(f.deleted_at) + 30 * 86400000).toISOString(),
+          can_restore: true, needs_desktop: true,
+        })))
+    },
     async refreshNetworkShare() { throw devWriteRefused('Checking the office server') },
-    async getNetworkShareCheck() { return null },
+    async getNetworkShareCheck(projectId) { return clone(store.networkShareChecks?.[projectId] ?? null) },
     async settleNetworkShareOps() { throw devWriteRefused('Finishing an office-server move') },
     async networkSharePending() { return [] },
-    async networkShareStaleMoves() { return [] },
+    async networkShareStaleMoves() { return clone(store.networkShareStale ?? []) },
     async networkShareRecordAdded() { throw devWriteRefused('Adding a file') },
     async listFiles(projectId) { return clone(readableFiles(live(store.files.filter(f => f.project_id === projectId)))) },
     // There are no file bodies. A download is refused loudly (a data URI handed

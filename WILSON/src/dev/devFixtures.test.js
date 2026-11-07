@@ -50,6 +50,8 @@ const SEAMS = [
   'cloud/auth/InviteMemberDialog.jsx',
   // GW1 (2026-10-10): the file gateway's calls answer from the fixtures.
   'cloud/gatewayApi.js',
+  // MO1: `?storage=network`, a company on its office server.
+  'cloud/workspaceStorage.js',
   'components/AdminTerminal/MultiInviteDialog.jsx',
   'components/TeamMembers/TeamMembersPage.jsx',
   'components/TeamMembers/useWorkspaceMembers.js',

@@ -19,6 +19,7 @@
 // most expensive pattern (six instances).
 // =============================================================================
 
+import { devFixtures } from '../dev/devFixtures'
 import { supabase } from './auth/supabaseClient'
 
 // The workspace's storage row, or null when storage has never been
@@ -36,6 +37,8 @@ import { supabase } from './auth/supabaseClient'
 // provider while a SAVED row carried one, so the same component's `row` object
 // changed shape halfway through a session depending on which path produced it.
 export async function fetchWorkspaceStorage() {
+  // MO1: `?storage=network` on the dev fixtures, a company on its office server. Otherwise this asks as ever.
+  if (import.meta.env.DEV && devFixtures()?.workspaceStorage) return { ...devFixtures().workspaceStorage }
   const gen = generation
   const { data, error } = await supabase
     .from('workspace_storage')
