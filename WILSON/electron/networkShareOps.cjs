@@ -60,6 +60,12 @@ function locatorOk(p, checkShareLocator) {
   return bin ? checkShareLocator(bin[1]) && checkShareLocator(bin[2]) : checkShareLocator(p);
 }
 
+// A personal folder's files are read by their owner alone, as they are listed and written.
+const mineToRead = (locator, getSignedInUserId) => {
+  const owner = personalOwnerOf(locator);
+  return !owner || owner === String(getSignedInUserId() ?? '').toLowerCase();
+};
+
 const IN_USE = new Set(['EBUSY', 'EPERM', 'EACCES']);
 const failure = (err) => (IN_USE.has(err?.code) ? 'in_use' : 'failed');
 
@@ -73,6 +79,8 @@ function mountNetworkShareOps(expressApp, {
   fsp = fs.promises,
   pathImpl = path,
   verifyBearer = async () => ({ userId: null }),
+  // Who is signed in here, for a read: a <video> cannot carry a bearer token.
+  getSignedInUserId = () => null,
   // The two sources a copy may come from: a file the person picked in this session's OS dialog, or a
   // private project's body under the local media root (a copy-up).
   isAuthorizedFile = () => false,
@@ -415,6 +423,7 @@ function mountNetworkShareOps(expressApp, {
     const raw = req.params.locator;
     const locator = Array.isArray(raw) ? raw.join('/') : String(raw ?? '');
     if (!checkShareLocator(locator)) return refuse(res, 404, 'not_there', NOT_HERE);
+    if (!mineToRead(locator, getSignedInUserId)) return refuse(res, 404, 'not_there', NOT_HERE);
     const found = await contain(root, locator);
     if (!found.ok) return found.code === 'unreachable' ? refuse(res, 503, 'unreachable', OFF) : refuse(res, 404, 'not_there', NOT_HERE);
     if (!found.stat.isFile()) return refuse(res, 404, 'not_there', NOT_HERE);
@@ -430,10 +439,10 @@ function mountNetworkShareOps(expressApp, {
 }
 
 // What rabbit:open-path asks before it reveals or opens a file on the drive (NS-X06): never a sync call.
-function makeShareLocate({ getWorkspaceRoot, checkShareLocator, reach, contain, isShareRoot = isShareRootReal }) {
+function makeShareLocate({ getWorkspaceRoot, checkShareLocator, reach, contain, isShareRoot = isShareRootReal, getSignedInUserId = () => null }) {
   return async (locator) => {
     const root = getWorkspaceRoot();
-    if (!root || !isShareRoot(root) || !checkShareLocator(locator)) return { ok: false, error: NOT_HERE };
+    if (!root || !isShareRoot(root) || !checkShareLocator(locator) || !mineToRead(locator, getSignedInUserId)) return { ok: false, error: NOT_HERE };
     if (!(await reach.rootReachable(root))) return { ok: false, error: OFF };
     const found = await contain(root, locator);
     if (!found.ok) return { ok: false, error: found.code === 'unreachable' ? OFF : NOT_HERE };

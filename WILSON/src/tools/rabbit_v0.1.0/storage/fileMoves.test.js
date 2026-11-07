@@ -6,6 +6,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import express from 'express'
+import crypto from 'node:crypto'
 
 const require = createRequire(import.meta.url)
 const { mountFileMoves, moveBody } = require('../../../../electron/fileMoves.cjs')
@@ -397,3 +398,26 @@ describe('round 2: recovery', () => {
   })
 })
 
+describe('round 2: what arrives is what left', () => {
+  const sha1 = (at) => crypto.createHash('sha1').update(fs.readFileSync(at)).digest('hex')
+  it('🚨 a move keeps the same bytes, and the row all but the fields a move changes', async () => {
+    const at = path.join(dirOf('p1'), 'b.mov')
+    const before = sha1(at)
+    const row = JSON.parse(JSON.stringify(bundles.p1.files.find((x) => x.id === 'b')))
+    const out = await call('POST', '/api/rabbit/files/move-between-projects', { ids: ['b'], from_project: 'p1', to_project: 'p2' })
+    expect(out.status).toBe(200)
+    expect(sha1(path.join(dirOf('p2'), 'b.mov'))).toBe(before)
+    const { project_id: moved, ...rest } = bundles.p2.files.find((x) => x.id === 'b')
+    expect(moved).toBe('p2')
+    expect(rest).toEqual(expect.objectContaining({ id: row.id, name: row.name, storage_path: row.storage_path, storage_provider: row.storage_provider }))
+  })
+  it('🚨 across drives, with the real copier in its worker: the same bytes, and the original gone', async () => {
+    const from = path.join(root, 'real.bin')
+    const to = path.join(root, 'there', 'real.bin')
+    fs.writeFileSync(from, crypto.randomBytes(200000))
+    const before = sha1(from)
+    await moveBody({ ...fs, renameSync: (a, b) => { if (a !== from) return fs.renameSync(a, b); const e = new Error('x'); e.code = 'EXDEV'; throw e } }, from, to)
+    expect(sha1(to)).toBe(before)
+    expect(fs.existsSync(from)).toBe(false)
+  })
+})

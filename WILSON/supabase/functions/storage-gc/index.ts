@@ -452,6 +452,9 @@ Deno.serve(async (req) => {
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)
+          // A bucket that has stopped answering costs ten seconds a row, and failed rows now come back each run,
+          // so the rest of this run does not ask it: the steps after the drain must still get their turn.
+          s3DrainMemo = { ok: false, detail: `could not reach the bucket endpoint: ${message}` }
           counts.queue_failed++
           await ctx.admin.from('storage_gc_queue')
             .update({ status: 'failed', processed_at: new Date().toISOString(), detail: `could not reach the bucket endpoint: ${message}` })

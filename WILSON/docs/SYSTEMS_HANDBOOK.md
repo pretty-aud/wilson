@@ -5052,6 +5052,8 @@ nothing checks them before executing an action.
 
 ### 13.6 M.O.T.H.
 
+**A link already made keeps working.** A signed link to a file, made before that file was moved or deleted, works until it expires, up to an hour. Moving or deleting a file does not call it back, and nothing on screen says so.
+
 **The page.** `src/tools/moth_v0.1.0/`, a lazy chunk: `App.jsx` reaches it only through `lazy(import())` and mounts it the first time the page is opened, and `MothPage.test.jsx` scans that nothing else imports it. It reads only through `listMothIslands`, `listMothFolders`, `listMothFiles` and `listTrashedFiles`, which the server has already stripped of money and Legal; `mothFileHidden` looks again, and is the only filter on the signed-out desktop. The same test scans the folder for any other read. Every control is a `GatedAction` on `canOnProject('project.entity.write')`, and the server asks again.
 
 **Doing things.** `state/mothFileOps.js` writes and `state/mothHistory.js` holds the undo, in memory, ten each way, cleared on an account, workspace or adapter change. A cloud move asks a plan first. A rehome or a copy-up is copied before the commit and removed if it is refused. A move on the office server commits first and renames after, and a rename that fails settles `not_moved`, which puts the row back. A browser refuses from the plan, before anything is written.
@@ -5470,7 +5472,7 @@ of a session — this section is limits by design, that file is faults.
 - **A directory over one call** reads complete only once catalogued whole. A directory over 5,000 files never reads complete, and the client must say so.
 - **A row its folder has left** cannot be trashed, restored or moved, and the folder cannot be taken by another project until it leaves. The way out is pointing the project back.
 - **A rename across calls can attach an id to a copy**, when a file of the same name, size and time is met before the original's directory has been read. The rows stay true to the files.
-- **A script on WILSON's own page can name another person's id on the add route.** Foreign pages, frames, windows and origins are closed, and a wrong drive is refused. Owed before the walk ships: the id from a verified bearer token.
+- **A script on WILSON's own page can name another person's id on the add route.** Foreign pages, frames, windows and origins are closed, and a wrong drive is refused. Closed: the route takes the id from a verified bearer token.
 - **A real file with a short-name shape (`ABCDEF~1`) is not listed.** Neither is one over 2,000 bytes of path.
 
 **The record of what changed (MO1, 0119)**
@@ -5483,7 +5485,7 @@ of a session — this section is limits by design, that file is faults.
 **Moves and the Moth trash (MO1, 0118)**
 
 - **A move between projects on an office server waits for the computer that began it.** Its row moves first. If that laptop never comes back, or its owner lost a project or left, the row and the real file disagree until someone settles it. After 24 hours whoever may check both folders can find it (`network_share_stale_moves`) and call it off (`not_moved`). Only that computer can say it did move. A personal space stays its owner's, so a file leaving one needs its owner.
-- **A late laptop can still rename after a call-off** until the desktop client re-reads the operation first. Owed to that client.
+- **A late laptop does not rename after a call-off.** Closed: the desktop reads what is pending from the server before it renames.
 - **A plain writer on two projects can call a move on office-server files from a browser**, which the server cannot tell from the desktop. The rows wait as above.
 - **A file in a batch half of which went back cannot be undone whole.** It answers `changed_since`, and the rest goes by Move to.
 - **Files' own delete can land on a row a move was holding**, judged by the project it was leaving. Moth's path locks first; the generic one was left, bounded and restorable.
@@ -6760,8 +6762,9 @@ global Space shortcut firing from every page.
     sentence rather than a thrown stub.
   * **Deleting means two different things** and the panel now says which:
     in cloud mode it is 0014's soft delete (30-day window, still holding
-    quota); on Local Server it unlinks the body and certificates it as
-    `purged`, because there is no local trash.
+    quota); on Local Server it did unlink the body and certificate it as
+    `purged`, because there was no local trash. Since MO1 a desktop project
+    has one too, 30 days in `.trash`, and the body goes when that is up.
 
 **Documentation drift inside the product**
 

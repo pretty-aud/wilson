@@ -5519,10 +5519,15 @@ export function RabbitProvider({ children }) {
       ? `Could not ${verb} this file, because a program has it open on the office server. Close it and try again.`
       : `The office server would not ${verb} this file, so it stayed where it was.`);
   };
+  // Moth's batch reads a file filed with money or Legal as not there, on purpose. Here it is on screen.
+  const sayLockedPlainly = (err) => {
+    if (err?.code === 'not_found') throw new Error('This file on the office server is filed with the project\'s money or Legal files, so it stays as it is.');
+    throw err;
+  };
   const restoreFile = useCallback(async (row, projectId = activeProjectId) => {
     if (row?.storage_provider === 'network_share') {
       await readyForShare();
-      const answer = await adapterRef.current.restoreFiles([row.id], projectId);
+      const answer = await adapterRef.current.restoreFiles([row.id], projectId).catch(sayLockedPlainly);
       const outcome = await shareCatalogue().runNasOp(answer?.ops ?? [], { kind: 'restore' });
       if (outcome.notMoved?.length) await noteFilesChangedElsewhere([projectId]);
       refusedByShare(outcome, 'restore');
@@ -5540,7 +5545,7 @@ export function RabbitProvider({ children }) {
       async () => {
         if (row?.storage_provider !== 'network_share') return adapterRef.current.deleteFile(fileId, projectId);
         await readyForShare();
-        const answer = await adapterRef.current.trashFiles([fileId], projectId);
+        const answer = await adapterRef.current.trashFiles([fileId], projectId).catch(sayLockedPlainly);
         const outcome = await shareCatalogue().runNasOp(answer?.ops ?? [], { kind: 'trash' });
         refusedByShare(outcome, 'delete');
         return outcome;

@@ -336,7 +336,9 @@ export async function collectBlobPaths(
   // set again, and a key refused on a failed read would stay in the bucket for good.
   const prefixOf = (p: string): string | null => {
     const seg = p.split('/')
-    return seg.length >= 3 && seg[0] === 'projects' && seg[1] ? seg[1] : null
+    // A uuid, or nothing: 0114 came after these rows, and a value that is not one would stop the whole read
+    // with a type error, and the company's teardown with it.
+    return seg.length >= 3 && seg[0] === 'projects' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(seg[1]) ? seg[1] : null
   }
   const ours = new Set<string>()
   for (const prefix of new Set([...otherBodies, ...otherThumbs].map(prefixOf).filter((x): x is string => x !== null))) {

@@ -2504,6 +2504,7 @@ function startLocalServer(distPath) {
     const { mountNetworkShareOps, makeShareLocate } = require('./networkShareOps.cjs');
     mountNetworkShareOps(expressApp, {
       ...shareDeps,
+      getSignedInUserId: () => signedInUserId,
       contain: shareContain,
       safeMediaContentType,
       isAuthorizedFile: (picked) => userAuthorizedFiles.has(path.resolve(picked).toLowerCase()),
@@ -2518,7 +2519,7 @@ function startLocalServer(distPath) {
         return at && insideByRealPath(root, at) ? at : null;
       },
     });
-    rabbitShareLocate = makeShareLocate({ ...shareDeps, contain: shareContain });
+    rabbitShareLocate = makeShareLocate({ ...shareDeps, contain: shareContain, getSignedInUserId: () => signedInUserId });
 
     expressApp.get('/api/rabbit/projects/:id', (req, res) => {
       const bundle = readRabbitBundle(req.params.id);

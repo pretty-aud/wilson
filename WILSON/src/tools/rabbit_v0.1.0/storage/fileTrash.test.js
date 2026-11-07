@@ -6,6 +6,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import express from 'express'
+import crypto from 'node:crypto'
 import { MONEY_SEGMENTS, moneyFolderChainLocked } from './index.js'
 
 const require = createRequire(import.meta.url)
@@ -416,3 +417,17 @@ describe('round 2', () => {
   })
 })
 
+describe('round 2: what comes back is what left', () => {
+  const sha1 = (at) => crypto.createHash('sha1').update(fs.readFileSync(at)).digest('hex')
+  it('🚨 a delete and a restore give back the same bytes and the same row, every field', async () => {
+    const at = path.join(dir, 'a.mov')
+    fs.writeFileSync(at, 'the whole of the file')
+    const before = sha1(at)
+    const row = JSON.parse(JSON.stringify(bundle.files.find((x) => x.id === 'a')))
+    await call('DELETE', `/api/rabbit/projects/${PID}/files/a`)
+    expect(fs.existsSync(at)).toBe(false)
+    await call('POST', `/api/rabbit/projects/${PID}/files/restore`, { ids: ['a'] })
+    expect(sha1(at)).toBe(before)
+    expect(bundle.files.find((x) => x.id === 'a')).toEqual(row)
+  })
+})

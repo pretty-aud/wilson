@@ -568,3 +568,35 @@ describe('what the routes\' file calls hold', () => {
   })
 })
 
+describe('round 2: a read of a personal folder', () => {
+  const mountAs = async (who) => {
+    await new Promise((ok) => server.close(ok))
+    const app = express()
+    app.use(express.json())
+    mountNetworkShareOps(app, {
+      getWorkspaceRoot: () => drive, isSameOriginRequest: () => true, checkShareLocator, isShareRoot: () => true, reach, contain,
+      getSignedInUserId: () => who,
+    })
+    await new Promise((ok) => { server = app.listen(0, '127.0.0.1', ok) })
+    base = `http://127.0.0.1:${server.address().port}`
+  }
+  const read = (rel) => fetch(`${base}${FILE_ROUTE}/${rel.split('/').map(encodeURIComponent).join('/')}`)
+  it('🚨 a colleague\'s file reads as not there, though the walk and the routes already refused it', async () => {
+    put(`_WILSON_PERSONAL/${OTHER}/contract.pdf`, 'theirs')
+    put(`_WILSON_PERSONAL/${ME}/mine.pdf`, 'mine')
+    put('Salt/a.mov', 'open')
+    await mountAs(ME)
+    expect((await read(`_WILSON_PERSONAL/${OTHER}/contract.pdf`)).status).toBe(404)
+    expect((await read(`_WILSON_PERSONAL/${ME.toUpperCase()}/mine.pdf`)).status).not.toBe(500)
+    expect((await read(`_WILSON_PERSONAL/${ME}/mine.pdf`)).status).toBe(200)
+    expect((await read('Salt/a.mov')).status).toBe(200)
+  })
+  it('🚨 nobody signed in reads nobody\'s, and the open arm says the same', async () => {
+    put(`_WILSON_PERSONAL/${ME}/mine.pdf`, 'mine')
+    await mountAs(null)
+    expect((await read(`_WILSON_PERSONAL/${ME}/mine.pdf`)).status).toBe(404)
+    const locate = makeShareLocate({ getWorkspaceRoot: () => drive, checkShareLocator, reach, contain, isShareRoot: () => true, getSignedInUserId: () => OTHER })
+    expect((await locate(`_WILSON_PERSONAL/${ME}/mine.pdf`)).ok).toBe(false)
+    expect((await makeShareLocate({ getWorkspaceRoot: () => drive, checkShareLocator, reach, contain, isShareRoot: () => true, getSignedInUserId: () => ME })(`_WILSON_PERSONAL/${ME}/mine.pdf`)).ok).toBe(true)
+  })
+})
