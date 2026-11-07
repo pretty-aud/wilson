@@ -60,7 +60,7 @@ export function MothHelp() {
       <h3 className="moth-label">Moving around</h3>
       <p>Drag empty space to move, scroll or pinch to zoom. Click a dot to select it; Shift-click to select more. Double-click a folder to open it. The list on the right does all of this from the keyboard.</p>
       <h3 className="moth-label">Moving and linking</h3>
-      <p>Drag a dot onto a folder and the folder opens wider: let go to move the file into it. Drag it near another dot and that dot glows: that will link them. A word by the pointer says which. Press Escape to cancel. Letting go in empty space only changes the picture.</p>
+      <p>Drag a dot onto a folder and the folder opens wider: let go to move the file into it. Drag it near another dot and that dot glows: linking comes with the next update of M.O.T.H., so for now the dot goes back. A word by the pointer says which. Press Escape to cancel. Letting go in empty space only changes the picture.</p>
       <p>Move to, in the view panel, does the same without dragging. Every move and delete can be undone.</p>
       <h3 className="moth-label">Views</h3>
       <p>A view chooses what shows as dots, which lines join them and how they are laid out. Save one for yourself, or for everyone on a project. Where you put the dots is kept with the view.</p>

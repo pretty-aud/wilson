@@ -430,3 +430,41 @@ describe('createMothViews: rename, names, reset, settings order (MO2 review roun
     expect(store.getSnapshot().prefs.appearance.glow).toBe('#222222')
   })
 })
+
+describe('createMothViews: round 2', () => {
+  const lookup = (store) => store.setLookup({ projectOf: (id) => (id === 'file:f1' ? 'p1' : null) })
+  it('a refused write keeps what was noted, and the next write sends it again', async () => {
+    prefs = { first_visit_done: true, last_view: 'v1' }
+    adapter.listMothViews = vi.fn(async () => [view('v1')])
+    let refuse = true
+    adapter.putMothPositions = vi.fn(async (_v, rows) => { if (refuse) throw Object.assign(new Error('x'), { code: '40001' }); return rows.length })
+    const store = createMothViews({ adapter })
+    await store.start()
+    lookup(store)
+    store.notePlace('file:f1', { x: 1, y: 1 })
+    await expect(store.flush()).rejects.toThrow()
+    refuse = false
+    expect(await store.flush()).toBe(1)
+  })
+  it('a write of moved dots is not the view\'s first layout: it still asks for one', async () => {
+    prefs = { first_visit_done: true, last_view: 'v1' }
+    adapter.listMothViews = vi.fn(async () => [view('v1')])
+    const store = createMothViews({ adapter })
+    await store.start()
+    lookup(store)
+    store.notePlace('file:f1', { x: 1, y: 1 })
+    await store.flush()
+    expect(store.getSnapshot().needsPlaces).toBe(true)
+  })
+  it('a save that someone else overtook reads the views again, so the next save has their revision', async () => {
+    prefs = { first_visit_done: true, last_view: 'v1' }
+    adapter.listMothViews = vi.fn(async () => [view('v1', { revision: 1 })])
+    adapter.updateMothView = vi.fn(async () => null)
+    const store = createMothViews({ adapter })
+    await store.start()
+    store.setConfig({ layout: 'radial' })
+    adapter.listMothViews = vi.fn(async () => [view('v1', { revision: 7 })])
+    await expect(store.save()).rejects.toThrow(/Someone saved this view since/)
+    expect(store.getSnapshot().current.row.revision).toBe(7)
+  })
+})

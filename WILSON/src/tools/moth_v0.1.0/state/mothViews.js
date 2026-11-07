@@ -162,6 +162,8 @@ export function createMothViews({ adapter, now = () => Date.now() }) {
     try {
       const now = (await adapter.listMothViews()) || []
       const there = now.find((v) => v.id === row.id)
+      // The list as it is now, so the next save sends the right revision (MO2 review round 2).
+      emit({ views: now, current: s.current.key === row.id && there ? { ...s.current, row: there } : s.current })
       if (!there) return 'This view is gone, or you can no longer see it.'
       if (there.revision !== row.revision) return 'Someone saved this view since you opened it. Open it again to see theirs.'
       return 'Only those who may change this project may save its views.'
@@ -357,8 +359,15 @@ export function createMothViews({ adapter, now = () => Date.now() }) {
         if (!row || !writable({ row })) continue
         const list = [...rows.entries()].filter(([id]) => keeps(row, id)).map(([, r]) => r)
         if (!list.length) continue
-        try { n += (await adapter.putMothPositions(key, list)) || 0 } catch (err) { throw placesError(err) }
-        if (key === s.current.key) emit({ needsPlaces: false })
+        try {
+          n += (await adapter.putMothPositions(key, list)) || 0
+        } catch (err) {
+          // What was noted stays noted (newer notes win), so the next write tries it again.
+          const again = pending.get(key) || new Map()
+          for (const [id, r] of rows) if (!again.has(id)) again.set(id, r)
+          pending.set(key, again)
+          throw placesError(err)
+        }
       }
       return n
     },

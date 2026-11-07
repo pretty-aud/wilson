@@ -6,6 +6,7 @@ import { Banner, Button, Dialog } from '../../../ui'
 export default function MothMoveTo({ adapter, islands, files, fromProject, onMove, onClose }) {
   const places = islands.filter((row) => row.can_write)
   const [dest, setDest] = useState('')
+  const [query, setQuery] = useState('')
   const [folders, setFolders] = useState([])
   const [folder, setFolder] = useState('')
   const [busy, setBusy] = useState(false)
@@ -50,10 +51,15 @@ export default function MothMoveTo({ adapter, islands, files, fromProject, onMov
     >
       {error && <Banner tone="danger">{error}</Banner>}
       <label className="moth-field">
+        Find a project
+        <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Type a name" data-moth-dest-search />
+      </label>
+      <label className="moth-field">
         To
         <select value={dest} onChange={(e) => setDest(e.target.value)} data-moth-dest>
           <option value="">Choose a project…</option>
-          {places.map((row) => (
+          {places.filter((row) => row.id === dest || !query.trim()
+            || (row.is_mine ? 'My personal space' : String(row.title ?? '')).toLowerCase().includes(query.trim().toLowerCase())).map((row) => (
             <option key={row.id} value={row.id}>{row.is_mine ? 'My personal space' : row.title}</option>
           ))}
         </select>

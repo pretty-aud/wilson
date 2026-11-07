@@ -10,7 +10,8 @@ import { useEffect, useRef, useState } from 'react'
 import { DESKTOP_PREVIEW_SENTENCE } from '../../rabbit_v0.1.0/storage/desktopFileOps.js'
 
 export const TEXT_PEEK_BYTES = 8192
-const URL_LIFE_MS = 45 * 60 * 1000
+// Shorter than the shortest signed address any store gives (a company's own bucket signs for five minutes).
+const URL_LIFE_MS = 4 * 60 * 1000
 const urls = new Map() // `${kind}:${file id}` -> { url, until }
 const HERE_ONLY = 'This file is kept on the computer that added it.'
 const KIND_WORD = { project: 'Project', folder: 'Folder', phase: 'Phase', scene: 'Scene', shot: 'Shot', asset: 'Asset', task: 'Task', level: 'Level', experience: 'Experience', tag: 'Tag' }

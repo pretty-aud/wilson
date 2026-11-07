@@ -77,6 +77,7 @@ export function createMothWorld({
   let inputIndex = new Map() // dot id -> its index in the layout's input
   let press = null // { id, pointerId, sx, sy, start, at, dragging, target, additive, wasPinned, allowed }
   let emptyPress = null // a press off any dot: a click there clears the selection, a pan does not
+  const down = new Set() // pointers down on the canvas now
   // A dot being dragged is where the pointer is, whatever a layout tick computed before the pointer got there.
   const holdDragged = (xy) => {
     if (!press?.dragging || !press.at || !(xy instanceof Float32Array)) return
@@ -95,7 +96,7 @@ export function createMothWorld({
       listeners.settled?.()
     },
     // A refused pin (radial, or a dot the job no longer holds) leaves the job as it was; anything else ended it.
-    onError: (m) => { if (m?.code !== 'refused') listeners.settled?.() },
+    onError: (m) => { if (m?.code !== 'refused') listeners.settled?.({ failed: true }) },
   })
 
   // The world's memory of places is the force layout's: a radial layout's places are computed from the tree each
@@ -141,7 +142,7 @@ export function createMothWorld({
     inputIndex = new Map(input.nodes.map((n, i) => [n.id, i]))
     const known = {}
     for (const n of input.nodes) {
-      const p = places.get(n.id)
+      const p = layoutKind === 'radial' ? handPlaced.get(n.id) : places.get(n.id)
       if (p) known[n.id] = { x: p.x, y: p.y, ...(pinned.has(n.id) ? { pinned: true } : {}) }
     }
     renderer.setScene(graph)
@@ -209,7 +210,7 @@ export function createMothWorld({
         if (!p.wasPinned) client.unpin(p.id)
       }
       renderer.setPositions({ [p.id]: p.start })
-      places.set(p.id, p.start)
+      if (layoutKind === 'force') places.set(p.id, p.start)
       if (!p.wasPinned) pinned.delete(p.id)
     }
     if (cancelled) { putBack(); return } // Escape: and nothing else said
@@ -229,11 +230,15 @@ export function createMothWorld({
     stopBloom()
     // A second finger or pointer while a dot is dragged changes nothing; one while a dot is only pressed ends that
     // press. Either way it is no click on empty space (MO2 review round 1).
+    down.add(e.pointerId)
     if (emptyPress && e.pointerId !== emptyPress.pointerId) emptyPress.moved = true
     if (press && e.pointerId !== press.pointerId) {
       if (press.dragging) return
       press = null
+      return
     }
+    // A second finger during a pan or a pinch is the gesture's, never a press on a dot (MO2 review round 2).
+    if (down.size > 1) return
     if (e.button !== undefined && e.button !== 0 && e.pointerType === 'mouse') return
     const s = local(e)
     const hit = renderer.hitTest(s.x, s.y, e.pointerType === 'mouse' ? 4 : 10)
@@ -262,7 +267,7 @@ export function createMothWorld({
       }
       const w = screenToWorld(renderer.camera(), renderer.viewport(), s.x, s.y)
       press.at = w
-      places.set(press.id, { x: w.x, y: w.y })
+      if (layoutKind === 'force') places.set(press.id, { x: w.x, y: w.y })
       if (layoutKind === 'force') client.pin(press.id, w.x, w.y)
       renderer.setPositions({ [press.id]: w })
       const t = targetFor(s)
@@ -290,6 +295,7 @@ export function createMothWorld({
     }
   }
   const onPointerUp = (e) => {
+    down.delete(e.pointerId)
     if (emptyPress && e.pointerId === emptyPress.pointerId) {
       const ep = emptyPress
       emptyPress = null
@@ -305,7 +311,12 @@ export function createMothWorld({
     }
     endDrag(false)
   }
-  const onPointerCancel = () => { emptyPress = null; endDrag(true) }
+  // A cancelled pointer ends only its own press (a stray touch does not end a mouse drag).
+  const onPointerCancel = (e) => {
+    down.delete(e?.pointerId)
+    if (emptyPress && e?.pointerId === emptyPress.pointerId) emptyPress = null
+    if (press && (e?.pointerId == null || e.pointerId === press.pointerId)) endDrag(true)
+  }
   const onPointerLeave = () => { renderer.setHover(null); listeners.hover?.(null); stopBloom() }
   const onDoubleClick = (e) => {
     const s = local(e)
@@ -355,7 +366,7 @@ export function createMothWorld({
       active = !!v
       glow?.setActive(active)
       renderer.setPaused(!active)
-      if (!active) { stopBloom(); endDrag(true); emptyPress = null }
+      if (!active) { stopBloom(); endDrag(true); emptyPress = null; down.clear() }
     },
     resize(width, height, dpr = 1) {
       viewport = { width, height, dpr }
@@ -365,6 +376,7 @@ export function createMothWorld({
     setSelection(ids) { renderer.setSelection(ids) },
     /** Fly to a dot, at least close enough that it is drawn on its own. */
     flyTo(id) {
+      if (!byId.has(id)) return false
       const p = whereIs(id)
       if (!p) return false
       const k = Math.max(renderer.camera().k, PICK_ZOOM)

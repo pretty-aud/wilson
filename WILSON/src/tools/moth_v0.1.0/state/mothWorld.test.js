@@ -125,6 +125,27 @@ describe('createMothWorld', () => {
     env.world.setActive(true)
     expect(env.frames.length).toBe(before + 1)
   })
+  it('a second finger during a pan never presses a dot (MO2 round 2)', () => {
+    env.canvas.fire('pointerdown', { clientX: 5, clientY: 5, pointerId: 1, pointerType: 'touch' })
+    const s = env.at('file:f2')
+    env.canvas.fire('pointerdown', { clientX: s.x, clientY: s.y, pointerId: 2, pointerType: 'touch' })
+    env.canvas.fire('pointermove', { clientX: s.x + 60, clientY: s.y, pointerId: 2, pointerType: 'touch' })
+    env.canvas.fire('pointerup', { clientX: s.x + 60, clientY: s.y, pointerId: 2, pointerType: 'touch' })
+    expect(env.events.arranged).toEqual([])
+    expect(env.events.drag).toEqual([])
+  })
+  it('a stray cancelled touch does not end a mouse drag (MO2 round 2)', () => {
+    const s = press('file:f2')
+    env.canvas.fire('pointermove', { clientX: s.x + 40, clientY: s.y })
+    env.canvas.fire('pointercancel', { pointerId: 9, pointerType: 'touch' })
+    env.canvas.fire('pointerup', { clientX: s.x + 40, clientY: s.y })
+    expect(env.events.arranged).toHaveLength(1)
+  })
+  it('flies only to a dot this view draws (MO2 round 2)', () => {
+    expect(env.world.flyTo('file:f1')).toBe(true)
+    env.world.setGraph({ nodes: GRAPH.nodes.filter((n) => n.id !== 'file:f1'), edges: [] })
+    expect(env.world.flyTo('file:f1')).toBe(false)
+  })
   it('a drag into empty space moves only the picture and keeps the place, pinned', () => {
     const s = press('file:f2')
     env.canvas.fire('pointermove', { clientX: s.x + DRAG_SLOP_PX - 1, clientY: s.y })

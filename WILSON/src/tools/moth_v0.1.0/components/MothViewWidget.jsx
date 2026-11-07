@@ -20,7 +20,9 @@ export default function MothViewWidget({
   const [renaming, setRenaming] = useState(null) // { name }
   const [deleting, setDeleting] = useState(false)
   const [busy, setBusy] = useState(false)
-  const hits = useMemo(() => searchCatalogue(catalogue, query, { index, limit: 12 }), [catalogue, query, index])
+  // Only what this view can draw is offered, so a pick always has a dot to fly to (MO2 review round 2).
+  const hits = useMemo(() => searchCatalogue(catalogue, query, { index, limit: 40 })
+    .filter((h) => config.nodeKinds.includes(h.kind)).slice(0, 12), [catalogue, query, index, config.nodeKinds])
   const current = viewSnap?.current ?? { key: 'q:folders', row: null }
   const saved = viewSnap?.views ?? []
   const options = [

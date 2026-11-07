@@ -122,7 +122,9 @@ export function createForceLayout({ nodes, links, positions = null, options = {}
   }
   // A fresh layout (nothing saved) is still forming until its first run settles. A press then pins the one dot
   // and holds nothing else, or the run would end with the graph frozen half-formed (R1-17).
-  let forming = saved === 0
+  // MO2 review round 2: also a layout where only some places are saved (new dots opened into a saved view, or a
+  // Lay out again with pins): it is forming until its first run settles.
+  let forming = saved < n
   // A drag's holds go when the next drag starts, so each drag moves its own neighbourhood (R1-18).
   const releaseDragHolds = () => {
     for (const i of [...holds]) if (!warm.has(i)) { sim[i].fx = null; sim[i].fy = null; holds.delete(i) }

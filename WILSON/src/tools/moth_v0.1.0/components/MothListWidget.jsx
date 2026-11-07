@@ -127,7 +127,7 @@ export default function MothListWidget({
           />
           {pickedCount > 0 && (
             <span className="moth-quiet" data-moth-ticked>
-              {pickedCount} ticked{pickedHidden > 0 ? `, ${pickedHidden} not shown by this search` : ''}
+              {pickedCount} ticked{pickedHidden > 0 ? `, ${pickedHidden} not shown here` : ''}
             </span>
           )}
           {read?.status === 'loading' && <p className="moth-quiet">Looking…</p>}

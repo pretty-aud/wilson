@@ -555,7 +555,11 @@ export default function ScenesView({ pageActive = false } = {}) {
     open()
     return true
   }, [shotById, sceneById])
-  useNavigateTarget('scenes', onNavigate, project?.id || null)
+  // MO2 review round 2: stamped with the project being opened, so a jump into another project is not dropped while
+  // its bundle is still the last one's; the handler declines until it is.
+  const onNavigateHere = useCallback((p) => (ctx?.activeProjectId && project?.id !== ctx.activeProjectId ? false : onNavigate(p)),
+    [ctx?.activeProjectId, project?.id, onNavigate])
+  useNavigateTarget('scenes', onNavigateHere, ctx?.activeProjectId || project?.id || null)
   // Ctrl+Z / Ctrl+Y on this tab, the way the Bins tab and the timeline bind
   // them: the provider's history holds every takes mutation (and every
   // scene and shot edit). Never while typing in a field, and never behind a

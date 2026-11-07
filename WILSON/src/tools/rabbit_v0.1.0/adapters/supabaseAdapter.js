@@ -1897,14 +1897,18 @@ function unwrapMothTable(result) {
     lastError = MOTH_VIEWS_ABSENT;
     throw mothAbsent(MOTH_VIEWS_ABSENT);
   }
-  return unwrap(result);
+  return keepMothCode(result);
+}
+// A refusal keeps the database's own code (23503, 42501, 23514…), so the page can say it in words.
+function keepMothCode(result) {
+  try { return unwrap(result); } catch (err) { if (result?.error?.code && !err.code) err.code = result.error.code; throw err; }
 }
 function unwrapMothRpc(result, fnName, absent = MOTH_VIEWS_ABSENT) {
   if (missingFunction(fnName)(result?.error)) {
     lastError = absent;
     throw mothAbsent(absent);
   }
-  return unwrap(result);
+  return keepMothCode(result);
 }
 const MOTH_VIEW_COLUMNS = 'id, scope_kind, project_id, owner_id, name, position, revision, config, updated_at, updated_by';
 

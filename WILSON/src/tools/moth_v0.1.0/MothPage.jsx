@@ -92,6 +92,8 @@ export default function MothPage({ isActive = true, worldFactory }) {
   const [frameLine, setFrameLine] = useState('')
   const [openFolder, setOpenFolder] = useState(null)
   const [scrubAt, setScrubAt] = useState(null)
+  const [scrubDraft, setScrubDraft] = useState(undefined)
+  const draftTimer = useRef(null)
   const [scrub, setScrub] = useState({ available: null, floor: null, rows: null, since: null, loading: false, error: '', incomplete: false })
   const worldRef = useRef(null)
 
@@ -285,6 +287,8 @@ export default function MothPage({ isActive = true, worldFactory }) {
   const samePickedProject = pickedFiles.every((f) => f.project_id === pickedProject)
   const insideProject = inside ? index.rows.get(inside)?.projectId ?? null : null
   const liveGate = access(islandOf(pickedProject ?? insideProject))
+  const listGate = scrubAt != null ? { allowed: false, reason: 'Looking back changes nothing. Come back to now to change things.' }
+    : access(islandOf(insideProject))
   const gate = scrubAt != null ? { allowed: false, reason: 'Looking back changes nothing. Come back to now to change things.' }
     : !samePickedProject ? { allowed: false, reason: 'The ticked files are in different projects. Tick the files of one project at a time to move or delete them.' }
     : liveGate
@@ -442,7 +446,7 @@ export default function MothPage({ isActive = true, worldFactory }) {
   // A file moves into a folder or a project the person may write to, from a project they may write to. A link is
   // shown as one would be, and is saved from the next update (Session 3 stores relationships).
   const rules = useMemo(() => ({
-    canDrag: () => scrubAt == null,
+    canDrag: () => scrubAt == null && !(current.row && !views?.writable()),
     canMove: (from, to) => {
       if (from.kind !== 'file' || !['folder', 'project'].includes(to.kind)) return { allowed: false }
       const src = access(islandOf(from.projectId))
@@ -456,7 +460,7 @@ export default function MothPage({ isActive = true, worldFactory }) {
       return { allowed: true }
     },
     canLink: (from, to) => (from.id === to.id ? { allowed: false } : { allowed: true, reason: LINKS_LATER }),
-  }), [access, islandOf, fileRow, scrubAt])
+  }), [access, islandOf, fileRow, scrubAt, current.row, views])
 
   const onDrop = useCallback(({ dragId, targetId, mode }) => {
     if (mode === 'link') { setNote(LINKS_LATER); return }
@@ -496,8 +500,8 @@ export default function MothPage({ isActive = true, worldFactory }) {
     views.notePlace(id, { x, y, pinned: true })
     queueFlush()
   }, [views, scrubAt, queueFlush])
-  const onSettled = useCallback(() => {
-    if (!views || scrubAt != null || !viewSnap?.needsPlaces) return
+  const onSettled = useCallback((how) => {
+    if (!views || scrubAt != null || !viewSnap?.needsPlaces || how?.failed) return
     const w = worldRef.current
     if (w) views.savePlaces(w.positions()).catch((err) => setError(err?.message || String(err)))
   }, [views, scrubAt, viewSnap?.needsPlaces])
@@ -520,6 +524,13 @@ export default function MothPage({ isActive = true, worldFactory }) {
     queueFlush()
   }, [views, openSet, focusId, viewSnap?.placesKey, scrubAt, queueFlush])
   useEffect(() => { if (!isActive) flushPlaces() }, [isActive, flushPlaces])
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+    const away = () => { if (typeof document === 'undefined' || document.visibilityState === 'hidden') flushPlaces() }
+    window.addEventListener('pagehide', flushPlaces)
+    document.addEventListener?.('visibilitychange', away)
+    return () => { window.removeEventListener('pagehide', flushPlaces); document.removeEventListener?.('visibilitychange', away) }
+  }, [flushPlaces])
   useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current); views?.flush().catch(() => {}) }, [views])
 
   const inputModeRef = useRef(inputMode)
@@ -626,12 +637,17 @@ export default function MothPage({ isActive = true, worldFactory }) {
     available: localOnly ? false : scrub.available,
     localOnly,
     floor: scrub.floor,
-    at: scrubAt,
-    setAt: (t) => setScrubAt(t == null ? null : Math.max(t, scrub.floor ?? t)),
+    at: scrubDraft !== undefined ? scrubDraft : scrubAt,
+    setAt: (t) => {
+      const v = t == null ? null : Math.max(t, scrub.floor ?? t)
+      setScrubDraft(v)
+      if (draftTimer.current) clearTimeout(draftTimer.current)
+      draftTimer.current = setTimeout(() => { draftTimer.current = null; setScrubAt(v); setScrubDraft(undefined) }, v == null ? 0 : 250)
+    },
     loading: scrub.loading,
     error: scrub.error,
     incomplete: scrub.incomplete,
-  }), [localOnly, scrub, scrubAt])
+  }), [localOnly, scrub, scrubAt, scrubDraft])
 
   // A page that has been left says nothing of what happened before it was left.
   useEffect(() => { if (isActive) setError('') }, [isActive])
@@ -643,7 +659,8 @@ export default function MothPage({ isActive = true, worldFactory }) {
   const whatDeleting = oneFile ? `"${pickedFiles[0].name}"` : `${pickedFiles.length} files`
   const selectedNode = selected.length === 1 ? graph.nodes.find((n) => n.id === selected[0]) ?? index.rows.get(selected[0]) ?? null : null
   // A person's own space never becomes another tool's open project (her PS-8, PSA-08): nothing in it jumps.
-  const jumpFor = selectedNode && !islandOf(selectedNode.projectId)?.is_personal ? mothJump(selectedNode) : null
+  const jumpIsland = selectedNode ? islandOf(selectedNode.projectId) : null
+  const jumpFor = jumpIsland && !jumpIsland.is_personal ? mothJump(selectedNode) : null
 
   return (
     <div className="moth-page" data-moth-page data-input={inputMode} data-calm={calm ? 'true' : undefined}>
@@ -735,7 +752,7 @@ export default function MothPage({ isActive = true, worldFactory }) {
             index={index}
             inside={inside}
             picked={picked}
-            gate={gate}
+            gate={listGate}
             localOnly={localOnly}
             onDesktop={onDesktop}
             officeRoot={officeRoot}
