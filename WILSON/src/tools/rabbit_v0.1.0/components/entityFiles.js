@@ -111,7 +111,10 @@ export async function addFilesToEntity({ ctx, entityType, entity, picked = [], a
         if (rootBase) destDir = rootBase.replace(/\\/g, '/') + '/' + projectSlug + '/' + folderRel
       }
       if (!destDir) throw new Error('no project folder on this computer')
-      await api.copyFile({ sourcePath: p.path, destDir: destDir.replace(/\//g, '\\'), destFileName: record.stored_name })
+      // p.path is the desktop's picker's (EntityListView.CreateEntityPopup); main
+      // refuses any other source, and a folder outside this project's own
+      // (copyFileFence.cjs). The refusal is the sentence the form shows.
+      await api.copyFile({ sourcePath: p.path, destDir: destDir.replace(/\//g, '\\'), destFileName: record.stored_name, projectId: record.project_id })
       added += 1
     } catch (err) {
       failed.push(`${p.name || 'a file'}: ${err?.message || String(err)}`)

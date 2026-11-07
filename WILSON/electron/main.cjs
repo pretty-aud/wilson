@@ -237,6 +237,11 @@ let workspaceRootDir = null;
 // Post-overhaul S4a: set inside startLocalServer (it needs the bundle
 // readers that live there) and read by the rabbit:open-path IPC.
 let rabbitFileLocator = null;
+// The same for rabbit:copy-file: which folders are a project's (copyFileFence.cjs).
+let rabbitProjectCopyRoots = null;
+// Files the person picked in rabbit:pick-files this session (lowercased resolved paths).
+// MEMORY-ONLY: rabbit:copy-file reads nothing else on this computer but WILSON's own data.
+const userAuthorizedFiles = new Set();
 
 // F3 (wave 1 of docs/sessions/PLAN_WEEK_2026-11-04.md; OUTSTANDING REV-07):
 // every JSON file this process writes goes through one writer — the text whole
@@ -3744,6 +3749,9 @@ function startLocalServer(distPath) {
     rabbitFileLocator = require('./openPath.cjs').makeRowLocator({
       readRabbitBundle, resolveManagedFileDiskPath, resolveContainedFilePath, resolveFileBaseDir,
     });
+    rabbitProjectCopyRoots = require('./copyFileFence.cjs').makeProjectCopyRoots({
+      readRabbitBundle, resolveProjectFolderRoot, storedRootUsable,
+    });
 
     expressApp.get('/api/rabbit/projects/:projectId/files/:id/download', (req, res) => {
       const bundle = readRabbitBundle(req.params.projectId);
@@ -5543,11 +5551,27 @@ ipcMain.handle('rabbit:pick-files', async () => {
     title: 'Select files to add',
   });
   if (result.canceled) return [];
+  for (const picked of result.filePaths) userAuthorizedFiles.add(path.resolve(picked).toLowerCase());
   return result.filePaths;
 });
 
-// Streaming file copy (electron/copyFileFence.cjs).
-ipcMain.handle('rabbit:copy-file', require('./copyFileFence.cjs').createCopyFile({ fs }));
+// What a copy may read of WILSON's own data: project bodies, never the data folder
+// as a whole, where the Drive tokens and the stored credentials sit. No media root
+// while the demo folder is missing (it throws a sentence for the routes; here, none).
+function copyOwnDataRoots() {
+  const roots = [path.join(getRabbitDataDir(), 'projects')];
+  try { roots.push(getLocalMediaRoot({ create: false })); } catch { /* the projects folder alone */ }
+  return roots;
+}
+
+// Streaming file copy: a file the person picked, or a body in WILSON's own data,
+// into the named project's own folder. The rules are electron/copyFileFence.cjs's.
+ipcMain.handle('rabbit:copy-file', require('./copyFileFence.cjs').createCopyFile({
+  fs,
+  isPicked: (p) => userAuthorizedFiles.has(path.resolve(p).toLowerCase()),
+  ownDataRoots: copyOwnDataRoots,
+  projectRoots: (projectId) => (rabbitProjectCopyRoots ? rabbitProjectCopyRoots(projectId) : []),
+}));
 
 // Get file stats without reading the file
 ipcMain.handle('rabbit:get-file-stats', (_event, { filePath }) => {

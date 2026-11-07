@@ -744,6 +744,9 @@ export default function FileManager({
             sourcePath: srcPath,
             destDir: destDir.replace(/\//g, '\\'),
             destFileName: record.stored_name,
+            // Main refuses a copy outside this project's own folder, and a
+            // source that did not come from the pick above (copyFileFence.cjs).
+            projectId: record.project_id,
           })
 
           // ── Session 40: the still frame, AFTER the copy ──────────────────

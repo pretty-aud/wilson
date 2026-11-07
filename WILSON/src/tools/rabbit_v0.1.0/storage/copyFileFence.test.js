@@ -240,7 +240,7 @@ describe('the wiring: main.cjs, the bridge and the two callers', () => {
     const at = between('function copyOwnDataRoots(', '\n}\n')
     expect(at).toContain("path.join(getRabbitDataDir(), 'projects')")
     expect(at).toContain('getLocalMediaRoot({ create: false })')
-    expect(at).not.toMatch(/getRabbitDataDir\(\)\s*[\]\),;]/)
+    expect(at).not.toMatch(/(?:\[|push\()\s*getRabbitDataDir\(\)/)
   })
   it('only the file dialog feeds the picked list, memory only, declared once: a pick for a picture or a folder is not consent for a copy', () => {
     expect((MAIN.match(/const userAuthorizedFiles\b/g) || []).length).toBe(1)
