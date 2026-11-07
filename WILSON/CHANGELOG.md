@@ -119,6 +119,7 @@ This file starts at 1.0.0. Everything before it shipped as the 0.x single-user d
 - **Sign-in's limiter is durable and fails closed**, keyed on the address the edge sets, not a header the client sends. (Track B B1; TPN-NET-004, TPN-NET-005)
 - **Sign-ins are logged**, the operator console's included, and an admin no longer reads a shared member's rows from another company. (Track B B2, 0070, 0071; TPN-LOG-003, TPN-LOG-007)
 - **The desktop's local server takes a per-launch token**, narrowed CORS and one running copy. (Track B B3; TPN-NET-001)
+- **The desktop's file copy is fenced:** script on the page can copy only a file the person picked in this launch's dialog, or a project body in WILSON's own data, and only into that project's own folder. (`electron/copyFileFence.cjs`; TPN-NET-008's second fix)
 - **Storage configuration is admin-only and contained:** the storage root, a project's folder inside it, and the paths a request may name. (S33–S35, 0048, 0049; TPN-AUTH-011, TPN-NET-013, TPN-NET-015, TPN-CLOUD-007)
 - **Thumbnails are private and money-gated**, and follow their source's storage. (S39 0053; S44 0054; TPN-CLOUD-008)
 - **Company bucket secrets** are AES-256-GCM ciphertext in a table no client reaches, under a key apart from the AI keys' (the same on all three environments: TPN-ENC-015). (S37 0051; `docs/OWED_AUDREY.md` §9 C2)

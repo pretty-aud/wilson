@@ -4258,13 +4258,18 @@ adds this section, each after reading the code. What is left, none fixed:
 - **MO1-09 · A deleted asset's own `.trash` bodies are in no trash view on the
   desktop.** MEASURED by reading: managed files of a deleted asset are left out of the
   local restore.
-- **MO1-10 · `rabbit:copy-file` lets script on the page copy any file to anywhere.**
-  MEASURED by reading, in round 1 of the whole-session review; older than this work.
-  Its callers include create forms that do not go through `rabbit:pick-files`, so a
-  fence needs its own change.
+- **MO1-10 · Script on the page can still steer the desktop's file channels.** The
+  copy itself is fenced (`electron/copyFileFence.cjs`: a picked file or a project body,
+  into the named project's own folder). What is left: (a) a copy may still choose any
+  path inside that folder and overwrite a file there; (b) `rabbit:get-file-stats`,
+  `rabbit:open-in-explorer` and the two thumbnail channels take any path from the page.
+  MEASURED by reading. (c) INFERRED: `rabbit:write-files-config` stores any
+  `defaultRootDir` and `rabbit:set-workspace-root` any absolute folder but a bare root,
+  and those roots are what the fence contains against. Settled by a run: script moves
+  the root, makes a project under it and copies a picked file in.
 - **MO1-11 · `op` then `purge` from script on the page can remove any file a member
   could rename on the office server.** MEASURED by reading (round 2). Neither route asks
-  the database for an operation. Closing it needs main to ask, as MO1-10's does.
+  the database for an operation. Closing it needs main to ask.
 - **MO1-12 · A link the server resolves itself is invisible to the desktop's checks.**
   INFERRED (round 2; DFS, round 1): a Samba link to a money folder reads as an ordinary
   folder, and DFS's real paths may refuse a real child. Settled only on a real server

@@ -41,7 +41,7 @@ beforeEach(() => {
       { id: 'f-sh2', path: 'SHOTS/Old-Shot', shot_id: 'sh2' },
       { id: 'f-l1', path: 'LEVELS/Lamp-Room', level_id: 'l1' },
     ],
-    addManagedFile: vi.fn(async (rec) => ({ ...rec, id: 'm-new', stored_name: `Salt-Hours_${rec.file_name}_v001${rec.extension}`, folder_path: ctx.__folderPath })),
+    addManagedFile: vi.fn(async (rec) => ({ ...rec, id: 'm-new', project_id: 'p1', stored_name: `Salt-Hours_${rec.file_name}_v001${rec.extension}`, folder_path: ctx.__folderPath })),
     refreshManagedFiles: vi.fn(),
   })
 })
@@ -50,7 +50,10 @@ afterEach(() => { cleanup(); delete window.electronAPI })
 const add = async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Add files' }))
   await waitFor(() => expect(api.copyFile).toHaveBeenCalledTimes(1))
-  return api.copyFile.mock.calls[0][0]
+  // Every copy names the record's project: main refuses a folder outside it (copyFileFence.cjs).
+  const { projectId, ...copy } = api.copyFile.mock.calls[0][0]
+  expect(projectId).toBe('p1')
+  return copy
 }
 
 describe('Add files on the managed store copies into the folder the record names', () => {

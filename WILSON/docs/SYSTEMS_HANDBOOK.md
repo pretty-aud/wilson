@@ -494,6 +494,12 @@ stores and their record together.
 
 `rabbit:pick-directory` is security-relevant: it is the **only** way a folder
 enters `userAuthorizedDirs`, which is what the relink routes check.
+`rabbit:pick-files` is the same for `rabbit:copy-file`
+(`electron/copyFileFence.cjs`): a copy reads only a file in
+`userAuthorizedFiles` (memory only, this launch) or a project body in
+WILSON's own data (the projects folder and the local media folder, not the
+data folder as a whole, where the Drive tokens sit), and writes only inside
+the folder of the project the page names, by name and by real path.
 Since D3 every channel in this table answers only the main window's own top
 frame at this launch's origin (`electron/ipcGate.cjs`; the posture line above).
 

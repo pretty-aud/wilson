@@ -242,10 +242,13 @@ let signedInUserId = null;
 // Post-overhaul S4a: set inside startLocalServer (it needs the bundle
 // readers that live there) and read by the rabbit:open-path IPC.
 let rabbitFileLocator = null;
+// The same for rabbit:copy-file: which folders are a project's (copyFileFence.cjs).
+let rabbitProjectCopyRoots = null;
 // MO1 (MOTH NS-X06): the same for a file on the office server, an async question.
 let rabbitShareLocate = null;
-// MO1 (MOTH §1.8): files the person picked in rabbit:pick-files this session. MEMORY-ONLY: the
-// office-server put route copies from nothing else on this computer, but for a local media key.
+// MO1 (MOTH §1.8): files the person picked in rabbit:pick-files this session (lowercased resolved
+// paths). MEMORY-ONLY: the office-server put route copies from nothing else on this computer, but
+// for a local media key; rabbit:copy-file, from nothing else but WILSON's own data.
 const userAuthorizedFiles = new Set();
 
 // F3 (wave 1 of docs/sessions/PLAN_WEEK_2026-11-04.md; OUTSTANDING REV-07):
@@ -3820,6 +3823,9 @@ function startLocalServer(distPath) {
     rabbitFileLocator = require('./openPath.cjs').makeRowLocator({
       readRabbitBundle, resolveManagedFileDiskPath, resolveContainedFilePath, resolveFileBaseDir,
     });
+    rabbitProjectCopyRoots = require('./copyFileFence.cjs').makeProjectCopyRoots({
+      readRabbitBundle, resolveProjectFolderRoot, storedRootUsable,
+    });
 
     expressApp.get('/api/rabbit/projects/:projectId/files/:id/download', (req, res) => {
       const bundle = readRabbitBundle(req.params.projectId);
@@ -5675,56 +5681,23 @@ ipcMain.handle('rabbit:pick-files', async () => {
   return result.filePaths;
 });
 
-// Streaming file copy: copies a file from source to destination using
-// streams for multi-GB support. Reports progress via IPC events.
-ipcMain.handle('rabbit:copy-file', async (event, { sourcePath, destDir, destFileName }) => {
-  if (!fs.existsSync(sourcePath)) throw new Error('source file does not exist');
-  if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
-  const finalPath = path.join(destDir, destFileName);
+// What a copy may read of WILSON's own data: project bodies, never the data folder
+// as a whole, where the Drive tokens and the stored credentials sit. No media root
+// while the demo folder is missing (it throws a sentence for the routes; here, none).
+function copyOwnDataRoots() {
+  const roots = [path.join(getRabbitDataDir(), 'projects')];
+  try { roots.push(getLocalMediaRoot({ create: false })); } catch { /* the projects folder alone */ }
+  return roots;
+}
 
-  const stat = fs.statSync(sourcePath);
-  const totalBytes = stat.size;
-
-  return new Promise((resolve, reject) => {
-    const readStream = fs.createReadStream(sourcePath);
-    const writeStream = fs.createWriteStream(finalPath);
-    let bytesCopied = 0;
-    let lastProgressPct = 0;
-
-    readStream.on('data', (chunk) => {
-      bytesCopied += chunk.length;
-      const pct = Math.round((bytesCopied / totalBytes) * 100);
-      // Only send progress at each 1% increment to avoid flooding IPC
-      if (pct > lastProgressPct) {
-        lastProgressPct = pct;
-        try {
-          event.sender.send('rabbit:copy-progress', {
-            fileName: destFileName,
-            bytesCopied,
-            totalBytes,
-            percent: pct,
-          });
-        } catch { /* window may be closed */ }
-      }
-    });
-
-    readStream.on('error', (err) => {
-      writeStream.destroy();
-      reject(err);
-    });
-
-    writeStream.on('error', (err) => {
-      readStream.destroy();
-      reject(err);
-    });
-
-    writeStream.on('finish', () => {
-      resolve({ ok: true, finalPath, bytesWritten: bytesCopied });
-    });
-
-    readStream.pipe(writeStream);
-  });
-});
+// Streaming file copy: a file the person picked, or a body in WILSON's own data,
+// into the named project's own folder. The rules are electron/copyFileFence.cjs's.
+ipcMain.handle('rabbit:copy-file', require('./copyFileFence.cjs').createCopyFile({
+  fs,
+  isPicked: (p) => userAuthorizedFiles.has(path.resolve(p).toLowerCase()),
+  ownDataRoots: copyOwnDataRoots,
+  projectRoots: (projectId) => (rabbitProjectCopyRoots ? rabbitProjectCopyRoots(projectId) : []),
+}));
 
 // Get file stats without reading the file
 ipcMain.handle('rabbit:get-file-stats', (_event, { filePath }) => {
