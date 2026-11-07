@@ -21,7 +21,7 @@
 
 BEGIN;
 
-SELECT plan(72);
+SELECT plan(73);
 
 SELECT * FROM tests.rls_setup();
 
@@ -309,6 +309,20 @@ SELECT is((SELECT count(*)::int FROM public.moth_layout_positions WHERE asset_re
 DELETE FROM public.moth_views WHERE id = '12600000-0000-0000-0000-0000000000a2';
 SELECT is((SELECT count(*)::int FROM public.moth_layout_positions WHERE view_id = '12600000-0000-0000-0000-0000000000a2'), 0, 'and a view its places');
 SELECT is((SELECT count(*)::int FROM public.files WHERE id = '12600000-0000-0000-0000-000000000081'), 1, 'and never a file: a layout''s removal touches no file');
+
+-- The owner decides as well (MO2 review round 1): another person's own place, planted in a shared view as the
+-- database (no function writes one there), is not shown to a member who sees the view and its file.
+INSERT INTO public.moth_layout_positions (view_id, workspace_id, target_type, target_id, owner_id, x, y)
+VALUES ('12600000-0000-0000-0000-0000000000a1', '11111111-1111-1111-1111-111111111111', 'file', '12600000-0000-0000-0000-000000000081', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 1, 1);
+SET LOCAL ROLE authenticated;
+SELECT public.t126_c();
+SELECT ok(public.moth_can_read_target('file', '12600000-0000-0000-0000-000000000081')
+          AND position('file:081:e' IN public.t126_seen('12600000-0000-0000-0000-0000000000a1')) = 0
+          AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(public.moth_view_positions('12600000-0000-0000-0000-0000000000a1') -> 'places') pl
+                           WHERE pl ->> 'target_id' = '12600000-0000-0000-0000-000000000081' AND (pl ->> 'mine')::boolean),
+  'another person''s own place in a shared view is not shown, through the table or the read');
+RESET ROLE;
+DELETE FROM public.moth_layout_positions WHERE view_id = '12600000-0000-0000-0000-0000000000a1' AND owner_id = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
 
 -- ── E. Planted: the read policy without Moth's gate on the target ───────────
 SET LOCAL ROLE authenticated;

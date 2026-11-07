@@ -24,7 +24,7 @@
 
 BEGIN;
 
-SELECT plan(73);
+SELECT plan(74);
 
 SELECT * FROM tests.rls_setup();
 
@@ -318,6 +318,19 @@ SELECT ok((SELECT count(*)::int FROM t125_others) >= 3
           AND (SELECT count(*)::int FROM t125_others o JOIN public.moth_views v ON v.id = o.id AND v.name = o.name)
             = (SELECT count(*)::int FROM t125_others),
   'a blanket rename and a blanket delete by P''s reviewer leave every other person''s own view as it was');
+
+-- No admin leg in either write policy: an admin's blanket rename and delete leave another person's personal-space
+-- views as they were (MO2 review round 1).
+CREATE TEMP TABLE t125_space ON COMMIT DROP AS SELECT id, name FROM public.moth_views WHERE project_id = 'aaaa1250-0000-0000-0000-0000000000e0';
+GRANT SELECT ON t125_space TO authenticated;
+SET LOCAL ROLE authenticated;
+SELECT public.t125_a();
+SELECT public.t125_err($$ UPDATE public.moth_views SET name = 'admin was here' $$);
+SELECT public.t125_err($$ DELETE FROM public.moth_views $$);
+RESET ROLE;
+SELECT ok((SELECT count(*) FROM t125_space) >= 1
+          AND (SELECT count(*) FROM t125_space o JOIN public.moth_views v ON v.id = o.id AND v.name = o.name) = (SELECT count(*) FROM t125_space),
+  'an admin''s blanket rename and delete leave another person''s personal-space views as they were');
 
 -- ── F. Planted controls ─────────────────────────────────────────────────────
 -- The composite key: a row whose company is not its project's. As the database (no caller, so the pin keeps the

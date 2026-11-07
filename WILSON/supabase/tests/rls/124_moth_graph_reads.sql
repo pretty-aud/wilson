@@ -23,7 +23,7 @@
 
 BEGIN;
 
-SELECT plan(83);
+SELECT plan(84);
 
 SELECT * FROM tests.rls_setup();
 
@@ -205,6 +205,9 @@ ALTER TABLE public.files DISABLE TRIGGER USER;
 INSERT INTO public.files (id, project_id, workspace_id, name, storage_provider, storage_path, asset_id) VALUES
   ('12400000-0000-0000-0000-000000000085', 'aaaa1240-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111', 'stray.png', 'supabase', 'projects/aaaa1240-0000-0000-0000-00000000000a/files/12400000-0000-0000-0000-000000000085/stray.png', '12400000-0000-0000-0000-0000000000c1');
 UPDATE public.files SET updated_by = 'dddddddd-dddd-dddd-dddd-dddddddddddd' WHERE id = '12400000-0000-0000-0000-000000000086';
+-- MO2 round 1: S holds a plain file of its own, so a read of S's facts by anyone but its owner has a row to leak.
+INSERT INTO public.files (id, project_id, workspace_id, name, storage_provider, storage_path, created_by) VALUES
+  ('12400000-0000-0000-0000-0000000000e3', 'aaaa1240-0000-0000-0000-0000000000e0', '11111111-1111-1111-1111-111111111111', 'pitch.png', 'supabase', 'projects/aaaa1240-0000-0000-0000-0000000000e0/files/12400000-0000-0000-0000-0000000000e3/pitch.png', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee');
 ALTER TABLE public.files ENABLE TRIGGER USER;
 
 -- ── A. Who may call ─────────────────────────────────────────────────────────
@@ -384,13 +387,23 @@ SELECT is(public.t124_facts('aaaa1240-0000-0000-0000-00000000000a'),
   || 'not another project''s asset, not a set-aside task or phase');
 SELECT is((SELECT editor_id FROM public.moth_project_file_facts('aaaa1240-0000-0000-0000-00000000000a') WHERE file_id = '12400000-0000-0000-0000-000000000086'),
   'dddddddd-dddd-dddd-dddd-dddddddddddd'::uuid, 'the last person to change it');
-SELECT is((SELECT editor_id FROM public.moth_project_file_facts('aaaa1240-0000-0000-0000-00000000000a') WHERE file_id = '12400000-0000-0000-0000-000000000081'),
-  (SELECT COALESCE(updated_by, created_by) FROM public.files WHERE id = '12400000-0000-0000-0000-000000000081'),
-  'else whoever the row says changed or added it');
+-- MO2 round 1: a file with no recorded change (updated_by NULL), added by user_c.
+RESET ROLE;
+ALTER TABLE public.files DISABLE TRIGGER USER;
+INSERT INTO public.files (id, project_id, workspace_id, name, storage_provider, storage_path, created_by, updated_by) VALUES
+  ('12400000-0000-0000-0000-000000000089', 'aaaa1240-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111', 'added.png', 'supabase', 'projects/aaaa1240-0000-0000-0000-00000000000a/files/12400000-0000-0000-0000-000000000089/added.png', 'cccccccc-cccc-cccc-cccc-cccccccccccc', NULL);
+ALTER TABLE public.files ENABLE TRIGGER USER;
+SET LOCAL ROLE authenticated;
+SELECT public.t124_a();
+SELECT is((SELECT editor_id FROM public.moth_project_file_facts('aaaa1240-0000-0000-0000-00000000000a') WHERE file_id = '12400000-0000-0000-0000-000000000089'),
+  'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid, 'else whoever added it, where no change was recorded');
 SELECT is((SELECT string_agg(right(file_id::text, 3), ' ' ORDER BY file_id) FROM public.moth_project_file_facts('aaaa1240-0000-0000-0000-00000000000a', '12400000-0000-0000-0000-000000000081', 2)),
   '085 086', 'a page follows the last id and keeps to its limit');
 SELECT is((SELECT count(*)::int FROM public.moth_project_file_facts('aaaa1240-0000-0000-0000-00000000000a', NULL, 0)), 1, 'a limit below one reads one');
 SELECT is((SELECT count(*)::int FROM public.moth_project_file_facts('aaaa1240-0000-0000-0000-0000000000e0')), 0, 'none of another person''s space');
+SELECT public.t124_e();
+SELECT is((SELECT count(*)::int FROM public.moth_project_file_facts('aaaa1240-0000-0000-0000-0000000000e0')), 1, 'CONTROL: its owner reads its one file');
+SELECT public.t124_a();
 SELECT public.t124_n();
 SELECT is((SELECT count(*)::int FROM public.moth_project_file_facts('aaaa1240-0000-0000-0000-00000000000a')), 0, 'none for someone who has left');
 SELECT public.t124_b();
