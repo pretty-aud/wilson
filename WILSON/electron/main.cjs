@@ -5358,16 +5358,38 @@ function archiveLocalRabbitData(rabbitDir, fs, path, writeJsonAtomic) {
   const archivePath = path.join(archivesDir, `rabbit-data-${ts}.json`);
   writeJsonAtomic(archivePath, snapshot, { fs, durable: true });
 
-  // MO1: a delete's 30 days outlast the clear, and the migration carried only live rows. Each project's
-  // trash folder goes beside the archive, whose JSON holds their rows, so nothing promised is destroyed.
+  // MO1: a delete's 30 days outlast the clear, and the migration carried only live rows. Each deleted file's
+  // body goes beside the archive, whose JSON holds their rows, so nothing promised is destroyed: from the
+  // trash of the project's own files or LEGAL folder, or from its own place if a delete could not move it
+  // (a program had it open), unless a live row has that name now. A project with a folder of its own keeps
+  // its bodies there, which the clear below does not touch. The count is what was found and kept.
   let deletedFilesKept = 0;
+  let deletedFilesNotFound = 0;
   for (const bundle of snapshot.projects) {
-    const trash = path.join(projectsDir, String(bundle.project?.id ?? ''), 'files', '.trash');
-    if (!bundle.project?.id || !fs.existsSync(trash)) continue;
-    const keptDir = path.join(archivesDir, `rabbit-data-${ts}-trash`);
-    fs.mkdirSync(keptDir, { recursive: true });
-    fs.renameSync(trash, path.join(keptDir, String(bundle.project.id)));
-    deletedFilesKept += Array.isArray(bundle.trashedFiles) ? bundle.trashedFiles.length : 0;
+    if (!bundle.project?.id) continue;
+    const projectDir = path.resolve(projectsDir, String(bundle.project.id));
+    const inProject = (...parts) => {
+      const at = path.resolve(projectDir, ...parts);
+      return at.startsWith(projectDir + path.sep) ? at : null;
+    };
+    const liveNames = new Set((bundle.files || []).map((f) => f.storage_path));
+    for (const entry of Array.isArray(bundle.trashedFiles) ? bundle.trashedFiles : []) {
+      const leaf = String(entry.trash_name ?? '');
+      const own = entry.row?.storage_path;
+      const places = path.basename(leaf) === leaf && leaf
+        ? ['files', 'LEGAL'].map((home) => inProject(home, '.trash', leaf))
+        : [];
+      if (!entry.moved && own && !liveNames.has(own)) places.push(inProject('files', own), inProject('LEGAL', own));
+      const at = places.find((place) => place && fs.existsSync(place));
+      if (!at || path.basename(leaf) !== leaf || !leaf) {
+        if (!bundle.project.files_dir && !bundle.project.folder_root) deletedFilesNotFound += 1;
+        continue;
+      }
+      const keptDir = path.join(archivesDir, `rabbit-data-${ts}-trash`, String(bundle.project.id));
+      fs.mkdirSync(keptDir, { recursive: true });
+      fs.renameSync(at, path.join(keptDir, leaf));
+      deletedFilesKept += 1;
+    }
   }
 
   // Clear live stores. Binary files are already uploaded to Supabase Storage.
@@ -5375,7 +5397,7 @@ function archiveLocalRabbitData(rabbitDir, fs, path, writeJsonAtomic) {
   fs.rmSync(thumbsDir,   { recursive: true, force: true });
   for (const store of stores) fs.rmSync(path.join(rabbitDir, store), { recursive: true, force: true });
 
-  return { ok: true, archivePath, projectCount: snapshot.projects.length, storeCounts, deletedFilesKept };
+  return { ok: true, archivePath, projectCount: snapshot.projects.length, storeCounts, deletedFilesKept, deletedFilesNotFound };
 }
 ipcMain.handle('rabbit:archive-local-data', () => {
   try {

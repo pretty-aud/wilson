@@ -168,7 +168,7 @@ export default function MigrationPanel() {
     try {
       const res = await api.archiveLocalData()
       if (!res?.ok) throw new Error(res?.error || 'archive failed')
-      setArchived({ path: res.archivePath || null, kept: res.deletedFilesKept || 0 })
+      setArchived({ path: res.archivePath || null, kept: res.deletedFilesKept || 0, notFound: res.deletedFilesNotFound || 0 })
     } catch (err) {
       setError(err.message || String(err))
     } finally {
@@ -323,7 +323,7 @@ export default function MigrationPanel() {
 
       {archived && (
         <p className="s-feedback mt-4" data-tone="ok" role="status">
-          Local rabbit-data archived{archived.path ? <> to <span className="s-data">{archived.path}</span></> : null}.{archived.kept ? ` Files you had deleted, ${archived.kept} of them, were kept in a folder beside it.` : ''} R.A.B.B.I.T. is now cloud-first.
+          Local rabbit-data archived{archived.path ? <> to <span className="s-data">{archived.path}</span></> : null}.{archived.kept ? ` Files you had deleted, ${archived.kept} of them, were kept in a folder beside it.` : ''}{archived.notFound ? ` ${archived.notFound === 1 ? 'One file you had deleted was' : `${archived.notFound} files you had deleted were`} not found, so ${archived.notFound === 1 ? 'it was' : 'they were'} not kept.` : ''} R.A.B.B.I.T. is now cloud-first.
         </p>
       )}
     </Section>

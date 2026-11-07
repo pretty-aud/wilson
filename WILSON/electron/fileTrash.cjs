@@ -45,7 +45,8 @@ function moneyChainLocked(folderId, folders) {
 function isMothExcluded(bundle, row) {
   if (row.is_financial || isLegalRow(row)) return true;
   const segments = String(row.storage_path || '').split(/[\\/]/);
-  if (isMoney(segments[0])) return true;
+  // The first segment is a desktop path's own, the third a cloud key's: the page asks both.
+  if (isMoney(segments[0]) || isMoney(segments[2])) return true;
   const slug = bundle.project?.folder_slug || bundle.project?.slug;
   if (slug) {
     const old = OLD_MONEY_SUFFIXES.map((suffix) => `${slug}${suffix}`.toLowerCase());
@@ -73,13 +74,19 @@ function bodiesWouldStrand({ fs, path, resolveFileBaseDir, resolveContainedFileP
   });
 }
 
-// Ahead of the project PATCH in main.cjs, whose body tests lift, so the guard is mounted before it:
-// the 'Files folder' reset moves where a project's files live as a relink does.
+// Ahead of the project PATCH in main.cjs, whose body tests lift, so the guard is mounted before it: the
+// 'Files folder' reset and a new project folder move where a project's files live as a relink does. Only
+// a change: the adapters send whole project rows. A files_dir outranks the folder it is in.
 function mountFilesDirGuard(app, deps) {
   app.patch('/api/rabbit/projects/:id', (req, res, next) => {
-    if (!req.body || !('files_dir' in req.body) || req.body.files_dir) return next();
+    const body = req.body || {};
+    if (!('files_dir' in body) && !('folder_root' in body)) return next();
     const bundle = deps.readRabbitBundle(req.params.id);
-    if (bundle?.project?.files_dir && bodiesWouldStrand(deps, bundle, req.params.id)) {
+    const project = bundle?.project;
+    if (!project) return next();
+    const changes = (key) => key in body && (body[key] || null) !== (project[key] || null);
+    const filesDirAfter = 'files_dir' in body ? body.files_dir : project.files_dir;
+    if ((changes('files_dir') || (changes('folder_root') && !filesDirAfter)) && bodiesWouldStrand(deps, bundle, req.params.id)) {
       return res.status(409).json({ code: 'trash_would_strand', error: STRAND_SENTENCE });
     }
     return next();
@@ -93,6 +100,11 @@ function mountFileTrash(app, deps) {
   const trashOf = (bundle) => {
     if (!Array.isArray(bundle.trashedFiles)) bundle.trashedFiles = [];
     return bundle.trashedFiles;
+  };
+  // Moth's batches: a hidden file reads as one that is not there, live or in the trash.
+  const hiddenOrAbsent = (bundle, id) => {
+    const row = bundle.files.find((f) => f.id === id) ?? trashOf(bundle).find((e) => e.row.id === id)?.row;
+    return !row || isMothExcluded(bundle, row);
   };
 
   // Row first: a crash between the two leaves a row that says where its body still is. A rename that
@@ -172,9 +184,8 @@ function mountFileTrash(app, deps) {
     if (!bundle) return rabbitNotFound(res);
     const ids = [...new Set(Array.isArray(req.body?.ids) ? req.body.ids : [])];
     const live = ids.map((id) => bundle.files.find((f) => f.id === id));
-    const already = (id) => trashOf(bundle).some((e) => e.row.id === id);
     // One exclusion, before any row is touched: the same answer as a file that is not there.
-    if (ids.some((id, i) => (live[i] ? isMothExcluded(bundle, live[i]) : !already(id)))) return rabbitNotFound(res, 'file');
+    if (ids.some((id) => hiddenOrAbsent(bundle, id))) return rabbitNotFound(res, 'file');
     let done = 0;
     for (const file of live) {
       if (file) { trashOne(bundle, req.params.projectId, file); done += 1; }
@@ -193,8 +204,8 @@ function mountFileTrash(app, deps) {
     const bundle = readRabbitBundle(req.params.projectId);
     if (!bundle) return rabbitNotFound(res);
     const entries = ids.map((id) => trashOf(bundle).find((e) => e.row.id === id));
-    const live = (id) => bundle.files.some((f) => f.id === id);
-    if (ids.some((id, i) => (entries[i] ? excluded && isMothExcluded(bundle, entries[i].row) : !live(id)))) return rabbitNotFound(res, 'file');
+    const absent = (id) => !bundle.files.some((f) => f.id === id) && !entries.some((e) => e?.row.id === id);
+    if (ids.some((id) => (excluded ? hiddenOrAbsent(bundle, id) : absent(id)))) return rabbitNotFound(res, 'file');
     for (const entry of entries) {
       const refused = entry && restoreRefusal(bundle, req.params.projectId, entry);
       if (refused) return res.status(409).json({ code: refused, error: REFUSALS[refused] });

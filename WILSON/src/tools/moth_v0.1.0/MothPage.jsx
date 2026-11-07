@@ -26,6 +26,9 @@ import './moth.css'
 
 const PAGE = 500
 
+// An asset's own file on this computer: its asset deletes it, and Moth's batches do not take it.
+export const MANAGED_ROW_SENTENCE = 'This file belongs to an asset. Change it from the asset.'
+
 // A key pressed in a box that has its own undo. A ticked row's checkbox has none.
 const typingIn = (target) => {
   if (target?.isContentEditable) return true
@@ -390,7 +393,7 @@ export default function MothPage({ isActive = true }) {
               {shown.map((file) => (
                 <li key={file.id} className="moth-row">
                   <label className="moth-row-name">
-                    <input type="checkbox" checked={picked.has(file.id)} onChange={() => toggle(file.id)} />
+                    <input type="checkbox" checked={picked.has(file.id)} onChange={() => toggle(file.id)} disabled={Boolean(file.managed)} title={file.managed ? MANAGED_ROW_SENTENCE : undefined} />
                     {' '}{file.name}
                   </label>
                   {file.share_missing_since && <span className="moth-quiet">Not found on the server at the last check</span>}

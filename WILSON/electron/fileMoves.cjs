@@ -22,8 +22,13 @@ const IN_USE = new Set(['EBUSY', 'EPERM', 'EACCES']);
 const LINKS = [['phase_id', 'phases'], ['asset_id', 'assets'], ['task_id', 'tasks'], ['scene_id', 'scenes'],
   ['shot_id', 'shots'], ['level_id', 'levels'], ['experience_id', 'experiences']];
 
-// A rename where it can; across volumes a copy, flushed, checked by size and sha1 off the main thread,
-// and only then the original removed. A copy that does not match is removed and the original kept.
+// Beside its target, so the rename that finishes it is one step. Its name is fixed, so recovery can find it.
+const copyingName = (to) => nodePath.join(nodePath.dirname(to), `.wilson-moving-${nodePath.basename(to).slice(-200)}`);
+
+// A rename where it can; across volumes a copy under a name of its own, flushed, checked by size and sha1
+// off the main thread, and only then given the real name and the original removed. So a file at the real
+// name is whole, whenever a crash came. If the original cannot be removed the copy is taken back, and the
+// move is as it was: a retry would otherwise find its own copy and call the name taken.
 async function moveBody(fs, from, to, copier = copyVerified) {
   fs.mkdirSync(nodePath.dirname(to), { recursive: true });
   try {
@@ -32,8 +37,20 @@ async function moveBody(fs, from, to, copier = copyVerified) {
   } catch (err) {
     if (err.code !== 'EXDEV') throw err;
   }
-  await copier(from, to, { hash: true });
-  fs.unlinkSync(from);
+  const copying = copyingName(to);
+  try {
+    await copier(from, copying, { hash: true });
+    fs.renameSync(copying, to);
+  } catch (err) {
+    fs.rmSync(copying, { force: true });
+    throw err;
+  }
+  try {
+    fs.unlinkSync(from);
+  } catch (err) {
+    fs.rmSync(to, { force: true });
+    throw err;
+  }
 }
 
 function mountFileMoves(app, deps) {
@@ -119,28 +136,40 @@ function mountFileMoves(app, deps) {
     return { gone, linksNotRestored };
   }
 
-  // What a crash left at the far end goes home: the original stands whenever it is still there. A file
-  // at the far end that a row names is that row's, whatever its name says.
+  // What a crash left at the far end goes home. A file at the far end that a row names is that row's,
+  // whatever its name says. With a body at both ends only a copy of the same bytes is removed: two
+  // different files keep both, and the journal stays, because neither is WILSON's to throw away.
   async function homeOne(src, dst, journal, row) {
     const { from, to } = pathsOf(src, dst, journal, row);
     if (!fs.existsSync(to) || nameHeld(dst, journal.to_project, to, row.id)) return;
-    if (fs.existsSync(from)) fs.unlinkSync(to);
-    else await moveBody(fs, to, from);
+    if (!fs.existsSync(from)) {
+      await moveBody(fs, to, from);
+      return;
+    }
+    if (!(await sameBytes(from, to))) throw new Error('two different files have this name');
+    fs.unlinkSync(to);
   }
 
-  // Forward: the body at the far end, where a crash inside a copy may have left both.
+  // Forward: the body at the far end, where a crash after a copy may have left both.
   async function forwardOne(src, dst, journal, row) {
     const { from, to } = pathsOf(src, dst, journal, row);
     if (!fs.existsSync(from)) return;
     if (fs.existsSync(to)) {
-      if (await sameBytes(from, to)) {
-        fs.unlinkSync(from);
-        return;
-      }
-      if (nameHeld(dst, journal.to_project, to, row.id)) throw new Error('a file at the far end is another row\'s');
-      fs.unlinkSync(to);
+      if (!(await sameBytes(from, to))) throw new Error('two different files have this name');
+      fs.unlinkSync(from);
+      return;
     }
     await moveBody(fs, from, to);
+  }
+
+  // What a crash left of a copy under way: never a whole file's only copy, since the original is removed
+  // only after the rename.
+  function sweepCopying(src, dst, journal) {
+    for (const it of journal.items) {
+      const { from, to } = pathsOf(src, dst, journal, it.row);
+      fs.rmSync(copyingName(to), { force: true });
+      fs.rmSync(copyingName(from), { force: true });
+    }
   }
 
   // A journal may be from a folder someone handed over, so it says what it is, and which file it is.
@@ -159,13 +188,16 @@ function mountFileMoves(app, deps) {
     const dst = readRabbitBundle(journal.to_project);
     if (!src || !dst) throw new Error('a project of this move is not there');
     if (projectFolderAway(src, journal.from_project) || projectFolderAway(dst, journal.to_project)) throw new Error('a folder of this move is away');
+    sweepCopying(src, dst, journal);
     const happened = journal.items.some((it) => dst.files.some((f) => f.id === it.row.id));
     if (happened) {
       for (const it of journal.items) {
         const live = src.files.find((f) => f.id === it.row.id);
         if (live) await forwardOne(src, dst, journal, live);
       }
-      writeRows(journal);
+      // A row trashed while its move was under way: its body goes home, where its trash entry expects it.
+      const { gone } = writeRows(journal);
+      for (const it of gone) await homeOne(readRabbitBundle(journal.from_project), readRabbitBundle(journal.to_project), journal, it.row);
     } else {
       for (const it of journal.items) await homeOne(src, dst, journal, it.row);
     }
@@ -307,11 +339,17 @@ function mountFileMoves(app, deps) {
       return refuse(res, 500, 'failed', 'These files could not be written into that project, so nothing moved.');
     }
     // A row trashed while its body was being copied stays in its trash, and its body goes home with it.
+    // One that cannot go yet keeps the journal, so the next start sends it: the rows are written, and the
+    // answer is still that they moved.
+    let allHome = true;
     for (const it of written.gone) {
-      const at = pathsOf(src, dst, journal, it.row);
-      await moveBody(fs, at.to, at.from).catch(() => {});
+      try {
+        await homeOne(readRabbitBundle(fromProject), readRabbitBundle(toProject), journal, it.row);
+      } catch {
+        allHome = false;
+      }
     }
-    fs.unlinkSync(journalPath(op));
+    if (allHome) fs.unlinkSync(journalPath(op));
     return res.json({
       moved: rows.length,
       op,

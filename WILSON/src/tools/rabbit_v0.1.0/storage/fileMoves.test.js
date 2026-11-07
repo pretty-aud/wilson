@@ -300,7 +300,7 @@ describe('moveBody', () => {
     const from = path.join(root, 'x.bin')
     const to = path.join(root, 'y.bin')
     fs.writeFileSync(from, 'xyz')
-    const cross = { ...fs, renameSync: () => { const e = new Error('x'); e.code = 'EXDEV'; throw e } }
+    const cross = { ...fs, renameSync: (a, b) => { if (a !== from) return fs.renameSync(a, b); const e = new Error('x'); e.code = 'EXDEV'; throw e } }
     await moveBody(cross, from, to)
     expect(fs.existsSync(from)).toBe(false)
     expect(fs.readFileSync(to, 'utf8')).toBe('xyz')
@@ -315,3 +315,85 @@ describe('moveBody', () => {
     expect(text).not.toMatch(/copyFileSync|readSync|fsyncSync/)
   })
 })
+
+describe('round 2: a copy between drives', () => {
+  const exdevFrom = (source, extra = {}) => ({
+    ...fs,
+    renameSync: (from, to) => {
+      if (from === source) { const e = new Error('x'); e.code = 'EXDEV'; throw e }
+      return fs.renameSync(from, to)
+    },
+    ...extra,
+  })
+  it('🚨 goes to a name of its own and is renamed once whole, so a partial file never holds the real name', async () => {
+    const from = path.join(root, 'x.bin')
+    const to = path.join(root, 'sub', 'y.bin')
+    fs.writeFileSync(from, 'xyz')
+    let copiedTo = null
+    const copier = async (a, b) => { copiedTo = b; fs.copyFileSync(a, b) }
+    await moveBody(exdevFrom(from), from, to, copier)
+    expect(copiedTo).not.toBe(to)
+    expect(path.dirname(copiedTo)).toBe(path.dirname(to))
+    expect(fs.readFileSync(to, 'utf8')).toBe('xyz')
+    expect(fs.existsSync(copiedTo)).toBe(false)
+    expect(fs.existsSync(from)).toBe(false)
+  })
+  it('🚨 a copy that fails leaves nothing at the target, and the original', async () => {
+    const from = path.join(root, 'x.bin')
+    const to = path.join(root, 'y.bin')
+    fs.writeFileSync(from, 'xyz')
+    const copier = async (_a, b) => { fs.writeFileSync(b, 'x'); const e = new Error('no'); e.code = 'ENOSPC'; throw e }
+    await expect(moveBody(exdevFrom(from), from, to, copier)).rejects.toThrow('no')
+    expect(fs.existsSync(to)).toBe(false)
+    expect(fs.readdirSync(root).filter((n) => n.includes('wilson-moving'))).toEqual([])
+    expect(fs.existsSync(from)).toBe(true)
+  })
+  it('🚨 an original a program holds: the copy is taken back, so a retry is not refused for ever', async () => {
+    const from = path.join(root, 'x.bin')
+    const to = path.join(root, 'y.bin')
+    fs.writeFileSync(from, 'xyz')
+    const held = exdevFrom(from, { unlinkSync: (f) => { if (f === from) { const e = new Error('held'); e.code = 'EBUSY'; throw e } return fs.unlinkSync(f) } })
+    await expect(moveBody(held, from, to, async (a, b) => fs.copyFileSync(a, b))).rejects.toMatchObject({ code: 'EBUSY' })
+    expect(fs.existsSync(to)).toBe(false)
+    expect(fs.existsSync(from)).toBe(true)
+  })
+})
+
+describe('round 2: recovery', () => {
+  const journal = (id, op) => {
+    fs.mkdirSync(path.join(root, 'moves'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'moves', `${op}.json`), JSON.stringify({ op, from_project: 'p1', to_project: 'p2', items: [{ row: f(id) }] }))
+  }
+  it('🚨 two different copies with no row at the far end: neither is removed, and the journal stays to be looked at', async () => {
+    const op = '00000000-0000-4000-8000-000000000011'
+    fs.writeFileSync(path.join(dirOf('p1'), 'a.mov'), 'par')
+    fs.writeFileSync(path.join(dirOf('p2'), 'a.mov'), 'the whole file')
+    journal('a', op)
+    expect(await api.recoverMoves()).toEqual({ recovered: 0, left: 1 })
+    expect(fs.readFileSync(path.join(dirOf('p2'), 'a.mov'), 'utf8')).toBe('the whole file')
+    expect(fs.readFileSync(path.join(dirOf('p1'), 'a.mov'), 'utf8')).toBe('par')
+    expect(journals()).toEqual([`${op}.json`])
+  })
+  it('🚨 what a crash left of a copy in progress is swept', async () => {
+    const op = '00000000-0000-4000-8000-000000000012'
+    const part = path.join(dirOf('p2'), '.wilson-moving-a.mov')
+    fs.writeFileSync(part, 'pa')
+    journal('a', op)
+    await api.recoverMoves()
+    expect(fs.existsSync(part)).toBe(false)
+  })
+  it('🚨 a row trashed during a move that went on: recovery sends its body home too', async () => {
+    const op = '00000000-0000-4000-8000-000000000013'
+    fs.renameSync(path.join(dirOf('p1'), 'a.mov'), path.join(dirOf('p2'), 'a.mov'))
+    fs.renameSync(path.join(dirOf('p1'), 'b.mov'), path.join(dirOf('p2'), 'b.mov'))
+    bundles.p1.files = bundles.p1.files.filter((x) => x.id !== 'a')
+    bundles.p2.files.push(f('b', { project_id: 'p2' }))
+    bundles.p1.files = bundles.p1.files.filter((x) => x.id !== 'b')
+    fs.mkdirSync(path.join(root, 'moves'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'moves', `${op}.json`), JSON.stringify({ op, from_project: 'p1', to_project: 'p2', items: [{ row: f('a') }, { row: f('b') }] }))
+    expect(await api.recoverMoves()).toEqual({ recovered: 1, left: 0 })
+    expect(fs.existsSync(path.join(dirOf('p1'), 'a.mov'))).toBe(true)
+    expect(fs.existsSync(path.join(dirOf('p2'), 'a.mov'))).toBe(false)
+  })
+})
+

@@ -61,6 +61,11 @@ export default function MothTrashView({ adapter, fileOps, islands, access, refre
 
   const load = useCallback(async () => {
     setFailed(false)
+    // This computer's trash has no server to empty it. What is past its 30 days goes when the trash opens
+    // (§1.14), for someone who works here and never opens the project in R.A.B.B.I.T.
+    if (typeof adapter.purgeExpiredTrash === 'function') {
+      await Promise.all(islands.map((row) => Promise.resolve().then(() => adapter.purgeExpiredTrash(row.id)).catch(() => null)))
+    }
     try {
       const page = await adapter.listTrashedFiles({ projectIds: islands.map((row) => row.id), limit: PAGE })
       setRows(page)

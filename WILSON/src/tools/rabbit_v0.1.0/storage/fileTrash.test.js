@@ -379,3 +379,40 @@ describe('🚨 one rule for what Moth may not touch, the page\'s', () => {
     for (const seg of MONEY_SEGMENTS) expect(isMothExcluded({}, { id: 'x', storage_path: `${seg.toLowerCase()}/a` })).toBe(true)
   })
 })
+
+describe('round 2', () => {
+  const routeGuard = async (project, body) => {
+    const app = express()
+    app.use(express.json())
+    mountFilesDirGuard(app, { fs, path, readRabbitBundle: () => ({ ...bundle, project }), resolveFileBaseDir: () => dir, resolveContainedFilePath })
+    app.patch('/api/rabbit/projects/:id', (_req, res) => res.json({ through: true }))
+    const srv = await new Promise((ok) => { const s = app.listen(0, '127.0.0.1', () => ok(s)) })
+    try {
+      const r = await fetch(`http://127.0.0.1:${srv.address().port}/api/rabbit/projects/${PID}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+      return r.status
+    } finally {
+      await new Promise((ok) => srv.close(ok))
+    }
+  }
+  it('🚨 changing a project\'s folder waits too, while a body in the trash would be left behind', async () => {
+    await call('DELETE', `/api/rabbit/projects/${PID}/files/a`)
+    expect(await routeGuard({ folder_root: 'D:/old' }, { folder_root: 'D:/new' })).toBe(409)
+    expect(await routeGuard({ folder_root: 'D:/old' }, { folder_root: null })).toBe(409)
+  })
+  it('an unchanged echo passes, as a whole row re-sent, and a files_dir that outranks the folder does too', async () => {
+    await call('DELETE', `/api/rabbit/projects/${PID}/files/a`)
+    expect(await routeGuard({ folder_root: 'D:/old' }, { folder_root: 'D:/old', title: 'x' })).toBe(200)
+    expect(await routeGuard({ folder_root: 'D:/old', files_dir: 'E:/f' }, { folder_root: 'D:/new' })).toBe(200)
+  })
+  it('🚨 a hidden file reads like a random id on Moth\'s batches, whichever state it is in', async () => {
+    bundle.files.push(f('inv', { is_financial: true }))
+    expect((await call('POST', `/api/rabbit/projects/${PID}/files/restore`, { ids: ['inv'] })).status).toBe(404)
+    await call('DELETE', `/api/rabbit/projects/${PID}/files/inv`)
+    expect((await call('POST', `/api/rabbit/projects/${PID}/files/trash`, { ids: ['inv'] })).status).toBe(404)
+  })
+  it('🚨 a money third segment is hidden, as the page hides it', () => {
+    expect(isMothExcluded({}, { id: 'x', storage_path: 'a/b/INVOICES/x.pdf' })).toBe(true)
+    expect(isMothExcluded({}, { id: 'x', storage_path: 'a/INVOICES/x.pdf' })).toBe(false)
+  })
+})
+

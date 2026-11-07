@@ -531,3 +531,30 @@ describe('🚨 the lazy chunk', () => {
     expect(DYNAMIC.test("const m = await import('../moth_v0.1.0/x.js')")).toBe(true)
   })
 })
+
+describe('round 2: this computer', () => {
+  it('🚨 an asset\'s file cannot be ticked, so a batch is not refused over a row it cannot take', async () => {
+    adapter.listMothFiles = vi.fn(async () => [file('a'), file('m', { managed: true })])
+    render(<MothPage />)
+    await openProject()
+    const box = screen.getByText('m.mov').closest('label').querySelector('input')
+    expect(box.disabled).toBe(true)
+    expect(box.title).toMatch(/asset/)
+    expect(screen.getByText('a.mov').closest('label').querySelector('input').disabled).toBe(false)
+  })
+  it('🚨 opening the trash empties what is past its 30 days, where no server does', async () => {
+    adapter.purgeExpiredTrash = vi.fn(async () => ({ purged: 1 }))
+    render(<MothPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Trash' }))
+    await waitFor(() => expect(adapter.listTrashedFiles).toHaveBeenCalled())
+    expect(adapter.purgeExpiredTrash.mock.calls.map(([id]) => id).sort()).toEqual(['me', 'p1', 'p2'])
+    expect(adapter.purgeExpiredTrash.mock.invocationCallOrder[0]).toBeLessThan(adapter.listTrashedFiles.mock.invocationCallOrder[0])
+  })
+  it('one that fails does not stop the trash being shown', async () => {
+    adapter.purgeExpiredTrash = vi.fn(async () => { throw new Error('no such project') })
+    render(<MothPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Trash' }))
+    await waitFor(() => expect(adapter.listTrashedFiles).toHaveBeenCalled())
+  })
+})
+

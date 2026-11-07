@@ -4627,16 +4627,35 @@ describe('MO1: a delete\'s 30 days outlast Archive and clear', () => {
     const archive = new Function(`${liftFunction(MAIN_CJS, 'archiveLocalRabbitData')}\nreturn archiveLocalRabbitData`)()
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rabbit-archive-trash-'))
     const write = (rel, data) => { const p = path.join(dir, rel); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, data) }
-    write('projects/p1/project.json', JSON.stringify({ project: { id: 'p1' }, trashedFiles: [{ row: { id: 'a' }, trash_name: 'a-a.mov', moved: true }] }))
+    write('projects/p1/project.json', JSON.stringify({
+      project: { id: 'p1' },
+      files: [{ id: 'live', storage_path: 'taken.mov' }],
+      trashedFiles: [
+        { row: { id: 'a', storage_path: 'a.mov' }, trash_name: 'a-a.mov', moved: true },
+        { row: { id: 'l', storage_path: 'l.pdf' }, trash_name: 'l-l.pdf', moved: true },
+        { row: { id: 'h', storage_path: 'held.mov' }, trash_name: 'h-held.mov', moved: false },
+        { row: { id: 't', storage_path: 'taken.mov' }, trash_name: 't-taken.mov', moved: false },
+        { row: { id: 'e', storage_path: '../../../escape.mov' }, trash_name: '../../../escape.mov', moved: false },
+      ],
+    }))
     write('projects/p1/files/.trash/a-a.mov', 'abc')
+    write('projects/p1/LEGAL/.trash/l-l.pdf', 'legal')
+    write('projects/p1/files/held.mov', 'held')
+    write('projects/p1/files/taken.mov', 'a live row names this')
+    write('escape.mov', 'outside')
     const { createRequire } = await import('node:module')
     const { writeJsonAtomic } = createRequire(import.meta.url)('../../../electron/jsonFile.cjs')
     const out = archive(dir, fs, path, writeJsonAtomic)
     expect(out.ok).toBe(true)
-    expect(out.deletedFilesKept).toBe(1)
+    expect(out.deletedFilesKept).toBe(3)
+    expect(out.deletedFilesNotFound).toBe(2)
     expect(fs.existsSync(path.join(dir, 'projects'))).toBe(false)
     const kept = fs.readdirSync(path.join(dir, 'archives')).find((n) => n.endsWith('-trash'))
     expect(fs.readFileSync(path.join(dir, 'archives', kept, 'p1', 'a-a.mov'), 'utf8')).toBe('abc')
+    expect(fs.readFileSync(path.join(dir, 'archives', kept, 'p1', 'l-l.pdf'), 'utf8')).toBe('legal')
+    expect(fs.readFileSync(path.join(dir, 'archives', kept, 'p1', 'h-held.mov'), 'utf8')).toBe('held')
+    expect(fs.existsSync(path.join(dir, 'archives', kept, 'p1', 't-taken.mov'))).toBe(false)
+    expect(fs.readFileSync(path.join(dir, 'escape.mov'), 'utf8')).toBe('outside')
     fs.rmSync(dir, { recursive: true, force: true })
   })
 })
