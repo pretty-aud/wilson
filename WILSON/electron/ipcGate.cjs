@@ -4,7 +4,7 @@
 // docs/design/RECONNECT_DESIGN.md §14; OUTSTANDING D2-02).
 //
 // The preload hands whatever page runs it the saved sign-in (`wilsonSession`),
-// the local server's key (`electronAPI.localServerToken`) and fifty channels
+// the local server's key (`electronAPI.localServerToken`) and fifty-one channels
 // into this process. MEASURED on the tip (bb14b169, a development build, a
 // scratch userData): a page that held the preload but was not WILSON's — the
 // main window's top frame showing another page, another window given the

@@ -332,10 +332,14 @@ SELECT throws_ok(
   'new row for relation "task_templates" violates check constraint "task_templates_tasks_is_array_chk"',
   'tasks must be a JSON array');
 
--- The composite FK, not a policy: RLS passes here (an admin may write any
--- template in their own workspace), so this is refused by referential
--- integrity alone. MATCH SIMPLE leaves global templates unaffected, which is
--- what makes one constraint cover both shapes.
+-- The composite FK, not a policy. Since 0107 a client is refused before the
+-- FK is reached (task_templates_insert gained the private-project hop, and
+-- another workspace's project is invisible under projects_select), so the FK
+-- is exercised as postgres, whom no policy binds: referential integrity alone
+-- refuses it. MATCH SIMPLE leaves global templates unaffected, which is what
+-- makes one constraint cover both shapes.
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
 SELECT throws_ok(
   $$INSERT INTO public.task_templates (workspace_id, project_id, name)
     VALUES ('11111111-1111-1111-1111-111111111111',

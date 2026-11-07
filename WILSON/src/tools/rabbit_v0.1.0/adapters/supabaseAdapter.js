@@ -88,9 +88,11 @@ import {
 import { createSupabaseStorageProvider } from '../storage/supabaseProvider';
 import { createS3StorageProvider } from '../storage/s3Provider';
 import { createLocalServerStorageProvider } from '../storage/localServerProvider';
+import { createNetworkShareStorageProvider } from '../storage/networkShareProvider';
+import { mothRefusal } from './mothErrors';
 import { describeSourceFile } from '../storage/mediaMetadata';
 import {
-  generateThumbnail, thumbnailKeyFor, putThumbnailTo, removeThumbnailFrom,
+  generateThumbnail, thumbnailKeyFor, putThumbnailTo, removeThumbnailFrom, carryThumbnail,
   thumbnailUrlsAt,
 } from '../storage/thumbnails';
 // Session 40: the video decoder is a SEPARATE entry point, not an option on
@@ -100,6 +102,7 @@ import {
   looksLikeVideoFile, generateVideoThumbnailFromFile,
 } from '../storage/videoThumbnails';
 import { getWorkspaceStorageCached } from '../../../cloud/workspaceStorage';
+import { personalSpacesAvailable, isPersonalSpace, resetPersonalSpaceProbe } from '../../../cloud/personalSpace';
 import { presignStorage, presignReadUrls } from '../../../cloud/storageApi';
 import { serializeProjectRates, projectRatesPath } from '../projectRates';
 import {
@@ -151,6 +154,9 @@ export function resetSupabaseAdapter() {
   // `privateColumnKnown = null;` — so 0085's probe (S4a) is forgotten first.
   legalFilesKnown = false;
   fileTagsKnown = null;
+  rekeyFileBodyKnown = null;
+  topicEpochKnown = null;
+  resetPersonalSpaceProbe();
   privateColumnKnown = null;
   fileMetaKnown = null;
 }
@@ -232,6 +238,11 @@ registerStorageProvider(
   FILE_PROVIDERS.LOCAL_SERVER,
   createLocalServerStorageProvider(),
 );
+// MO1 (NS-D13): a file on the company's office server, the same way: a sentence off the desktop.
+registerStorageProvider(
+  FILE_PROVIDERS.NETWORK_SHARE,
+  createNetworkShareStorageProvider(),
+);
 
 // ── Demo 2026-09-11: private projects — cloud rows, media on this computer ──
 // Migration 0072 adds projects.is_private. The column is PROBED once per
@@ -250,6 +261,31 @@ async function privateProjectsAvailable(client) {
   // Any other failure (network, RLS) says nothing about the column: answer
   // "not now" and probe again next time.
   return false;
+}
+// MO1 (0107, 0109): projects.topic_epoch names the project's realtime topic
+// after a narrowing (rabbit:project:{id}:{n}) — but only 0109 makes the
+// triggers send there. 0107 alone adds the column and bumps it, while every
+// write still goes to the plain topic (review round 1, finding 1). So the
+// probe is for 0109 itself: its join test, project_topic_matches, which a
+// signed-in caller may run. Absent (PGRST202, 42883): the list never reads the
+// epoch and every channel joins epoch 0, the only topic such a database has.
+let topicEpochKnown = null;
+async function topicEpochAvailable(client) {
+  if (topicEpochKnown !== null) return topicEpochKnown;
+  const { error } = await client.rpc('project_topic_matches', { p_topic: 'rabbit:project:00000000-0000-0000-0000-000000000000' });
+  if (!error) { topicEpochKnown = true; return true; }
+  if (error.code === 'PGRST202' || error.code === '42883' || /project_topic_matches/.test(error.message || '')) {
+    topicEpochKnown = false;
+    return false;
+  }
+  // Any other failure (network) says nothing about the schema: not now. Not false: the list would read
+  // no epoch, and a channel on a project that has one would join a topic the server refuses.
+  return null;
+}
+// The project channel's name: epoch 0 keeps the name every build has used.
+export function projectTopicName(projectId, topicEpoch = 0) {
+  const epoch = Number.isInteger(topicEpoch) && topicEpoch > 0 ? topicEpoch : 0;
+  return `rabbit:project:${projectId}${epoch > 0 ? ':' + epoch : ''}`;
 }
 // Demo 2026-09-11 (Audrey: "the name of the file, file type, creation date
 // and time, file size, if its an audio or video file the duration as well"):
@@ -333,12 +369,16 @@ async function canAccessProjectLegal(client, projectId) {
     return false;
   }
 }
+// Whether this project keeps its media on this computer. MO1 (0110): a
+// personal space is is_private and is NOT that: its files go to the company's
+// storage, as any project's do (her answer; MOTH_DESIGN §2.2 PS-6).
 async function projectIsPrivate(client, projectId) {
   if (!(await privateProjectsAvailable(client))) return false;
+  const personal = await personalSpacesAvailable(client);
   const { data, error } = await client
-    .from('projects').select('is_private').eq('id', projectId).maybeSingle();
+    .from('projects').select(personal ? 'is_private, personal_owner_id' : 'is_private').eq('id', projectId).maybeSingle();
   if (error) throw new Error(`[supabase] ${error.message}`);
-  return !!data?.is_private;
+  return !!data?.is_private && !isPersonalSpace(data);
 }
 
 function sanitize(obj, drop = []) {
@@ -818,6 +858,11 @@ const FILE_COLUMNS = new Set([
   'created_at', 'created_by', 'updated_at', 'updated_by',
   'last_updated_at', 'last_updated_by', 'deleted_at', 'deleted_by',
 ]);
+
+// MO1 (0114, MOTH §2.1): where a file is kept and filed, which a client's UPDATE
+// never changes (fn_files_body_guard). In FILE_COLUMNS all the same: an INSERT
+// writes every one. updateFile takes them out of its patch.
+const FILE_BODY_COLUMNS = ['project_id', 'workspace_id', 'storage_provider', 'storage_path', 'thumbnail_url', 'is_financial', 'folder_id', 'share_missing_since', 'share_bin_path'];
 
 // ── Phase 2 of the 2026-08-10 build pass (migration 0061) ───────────────
 // The LAST write path still on the raw `sanitize(dep, [])` denylist, and the
@@ -1426,18 +1471,21 @@ async function ensureEntityFolderWith(client, projectId, project, entityType, en
 //      object no row names once it is 24h old, so no object is ever left
 //      moved with its row still saying the old key for longer than one
 //      round trip (round 1, item 1; the scan now also keeps an object whose
-//      twin key a row names, _shared/shotKeys.ts). A row update that answers
-//      an error, or no row — a row a teammate trashed meanwhile is invisible
-//      to the update (files_select, 0014) — puts the object back, but only
-//      after RE-READING the row, successfully, and only while it still
-//      names the old key: an update that committed and lost its answer is
-//      left as it committed, and when the read fails too nothing is moved
-//      (round 2, item 4). An object already at its new key with nothing at
-//      the old one is a move that landed on an earlier run and is counted
-//      done; an object at BOTH keys is left alone and reported (a move
-//      never overwrites and nothing here deletes). A thumbnail at neither
-//      key is a derived picture: the row stops naming it rather than the
-//      shot being held back;
+//      twin key a row names, _shared/shotKeys.ts). The row is rewritten through
+//      rekey_file_body (0114). A call that answers an error — a row a teammate
+//      trashed meanwhile is refused, 42501 — or false, the row no longer saying
+//      what this run read, puts the object back, but only after RE-READING the
+//      row, successfully, and only while it still names the old key: a call
+//      that committed and lost its answer is left as it committed, and when
+//      the read fails too nothing is moved (round 2, item 4). A row this
+//      account cannot see any more keeps its old key claimed, so the object
+//      could not go back (0115): it stays at its new key and the reason says
+//      so. An object
+//      already at its new key with nothing at the old one is a move that
+//      landed on an earlier run and is counted done; an object at BOTH keys
+//      is left alone and reported (a move never overwrites and nothing here
+//      deletes). A thumbnail at neither key is a derived picture: the row
+//      stops naming it rather than the shot being held back;
 //   4. the old prefix is read again: a live row still under it (an upload
 //      that landed meanwhile) leaves the folder where it is, to be run
 //      again; then, and only then, the folder row is re-parented, and the
@@ -1470,16 +1518,10 @@ function filesUnderPrefix(client, projectId, prefix) {
     .order('id'));
 }
 
+// One HEAD, not a list: see supabaseProvider.js's exists.
 async function objectExistsIn(bucket, key) {
-  const slash = key.lastIndexOf('/');
-  const dir = slash === -1 ? '' : key.slice(0, slash);
-  const leaf = slash === -1 ? key : key.slice(slash + 1);
-  const { data, error } = await bucket.list(dir, { search: leaf, limit: 100 });
-  if (error) throw new Error(`storage list failed: ${error.message}`);
-  // `search` is a substring match: the leaf itself, not a neighbour that
-  // contains it (round 1's mutant: `length > 0` saw “plate.exr.bak” as the
-  // plate).
-  return (data || []).some(o => o.name === leaf);
+  const { data } = await bucket.exists(key);
+  return data === true;
 }
 
 /** The store an object lives in: a bucket, or this computer's media root. */
@@ -1523,6 +1565,44 @@ async function moveObjectVerified(where, from, to, name) {
   return 'moved';
 }
 
+// MO1 (0114): rekey_file_body, the one path a client has to a stored key, on a
+// database that does not have it yet. There is no guard there either, and both
+// its callers move the object first, so neither may start: the re-file and the
+// migration's receipt move ask before anything moves, and the migration does not
+// trust a refused upload's row without the guard. Asked once with the nil uuid (a
+// file nobody has): 42501 where the function exists, PGRST202 or a 42883 naming it
+// where it does not. Remembered as fileTagsAvailable's answer is, and forgotten by
+// resetSupabaseAdapter, so an auth event picks up a database migrated meanwhile.
+// Any other failure says nothing about the function, so it is said in its own
+// words and asked again next time. A call that meets PGRST202 itself (the function
+// gone since, or a wrong argument name, which shotRefilingCloud.test.js pins) counts
+// as the answer. The second sentence is the first once nothing stays moved.
+export const REKEY_ABSENT_WHY = 'this company\'s database does not have this update yet';
+export const REKEY_ABSENT = `${REKEY_ABSENT_WHY}, so nothing was moved`;
+let rekeyFileBodyKnown = null;
+export function rekeyFileBodyMissing(error) {
+  if (!missingFunction('rekey_file_body')(error)) return false;
+  rekeyFileBodyKnown = false;
+  return true;
+}
+export async function rekeyFileBodyAvailable(client) {
+  if (rekeyFileBodyKnown !== null) return rekeyFileBodyKnown;
+  let answer;
+  try {
+    answer = await client.rpc('rekey_file_body', {
+      p_file: NIL_PROJECT_ID, p_from_path: null, p_to_path: null, p_from_thumb: null, p_to_thumb: null, p_financial: false,
+    });
+  } catch (err) {
+    answer = { error: err };
+  }
+  if (rekeyFileBodyMissing(answer?.error)) return false;
+  if (!answer?.error || answer.error.code === '42501') {
+    rekeyFileBodyKnown = true;
+    return true;
+  }
+  throw new Error(`could not ask this company's database whether it has this update (${answer.error.message || answer.error}), so nothing was moved`);
+}
+
 /**
  * The row read again: `{ ok: true, row }` with what it names NOW (`row`
  * null when this account cannot see it), or `{ ok: false, error }` when
@@ -1536,22 +1616,41 @@ async function rereadFileRow(client, id) {
 }
 
 /**
- * The row rewritten to say where its object now is. An error, or no row
- * answered (the update reached nothing this account can see), puts the
- * object back — but only after the row has been READ AGAIN, successfully,
- * and still names the old key (or cannot be seen at all): an update that
- * committed and lost its answer stays as it committed; a row someone else
- * changed meanwhile is left to them; and when the read fails too, nothing
- * is known, so nothing is moved — the object stays at its new key, the
- * shot is left with "run it again", and the next run finds it (the row
- * still old: landed earlier; the row new: done) while storage-gc keeps it
- * (its twin key is named either way).
+ * The row rewritten to say where its object now is. An error, or a false
+ * answer (the row no longer says what this run read), puts the object back —
+ * but only after the row has been READ AGAIN, successfully, and still names
+ * the old key: a call that committed and lost its answer stays as it committed;
+ * a row someone else changed meanwhile is left to them; a row this account
+ * cannot see any more (binned or removed meanwhile) keeps its old key claimed,
+ * so the storage policies refuse the way back (0115) and the object stays;
+ * and when the read fails too, nothing is known, so nothing is moved
+ * — the object stays at its new key, the shot is left with "run it again",
+ * and the next run finds it (the row still old: landed earlier; the row new:
+ * done) while storage-gc keeps it (its twin key is named either way).
+ *
+ * MO1 (0114): through rekey_file_body, the one path a client has to a stored
+ * key (fn_files_body_guard refuses a patch). It is still one phase per column:
+ * the body's phase keeps the picture, the picture's phase keeps the path. So
+ * `row` is the row as it stands at this phase, and the picture's phase is handed
+ * the body's new key: the call compares both columns, and a stale path is a miss.
  */
 async function rewriteFileRow(client, row, column, from, to, putBack) {
-  const up = await client.from('files').update({ [column]: to }).eq('id', row.id).select('id').maybeSingle();
-  const failed = up.error
-    ? up.error.message
-    : (!up.data || !up.data.id ? 'its record is not visible to this account any more (trashed or removed meanwhile)' : null);
+  const body = column === 'storage_path';
+  const picture = row.thumbnail_url ?? null;
+  const up = await client.rpc('rekey_file_body', {
+    p_file: row.id,
+    p_from_path: body ? from : row.storage_path,
+    p_to_path: body ? to : row.storage_path,
+    p_from_thumb: body ? picture : from,
+    p_to_thumb: body ? picture : to,
+    p_financial: false,
+  });
+  const absent = rekeyFileBodyMissing(up.error);
+  const failed = absent
+    ? REKEY_ABSENT_WHY
+    : up.error
+      ? up.error.message
+      : (up.data !== true ? 'its record was changed by someone else meanwhile' : null);
   if (!failed) return;
   const again = await rereadFileRow(client, row.id);
   if (!again.ok) {
@@ -1559,14 +1658,17 @@ async function rewriteFileRow(client, row, column, from, to, putBack) {
   }
   const now = again.row;
   if (now && now[column] === to) return;
-  if (!now || now[column] === from) {
+  if (!now) throw new Error(`“${row.name}” could not be re-filed: its record is not visible to this account any more (binned or removed meanwhile)${to ? `, and its copy now sits at ${to}` : ''}; run it again to move the rest`);
+  const movedBack = now[column] === from;
+  if (movedBack) {
     try {
       await putBack();
     } catch (back) {
       throw new Error(`“${row.name}” was moved to ${to} but its record could not be updated (${failed}) and it could not be moved back (${back?.message || back}); its record still says ${from}`);
     }
   }
-  throw new Error(`“${row.name}” could not be re-filed: ${failed}`);
+  // Only of the body's own phase: by the picture's, the body has moved already.
+  throw new Error(`“${row.name}” could not be re-filed: ${absent && movedBack && body ? REKEY_ABSENT : failed}`);
 }
 
 /** Everything that would stop a shot, found BEFORE its first object moves. */
@@ -1578,6 +1680,7 @@ async function refileShotPreflight(client, projectId, p, rows, folders, toPath) 
     const to = nestedShotKey(row.storage_path, ctx);
     const thumbTo = row.thumbnail_url ? nestedShotKey(row.thumbnail_url, ctx) : null;
     if (!to && !thumbTo) continue;
+    if (!(await rekeyFileBodyAvailable(client))) throw new Error(REKEY_ABSENT);
     if (row.storage_provider === FILE_PROVIDERS.S3) {
       throw new Error(`“${row.name}” is in your own bucket, which cannot be moved from here yet`);
     }
@@ -1610,13 +1713,16 @@ async function refileOneObject(client, projectId, p, row) {
   const local = row.storage_provider === FILE_PROVIDERS.LOCAL_SERVER;
   const where = { client, local, bucketName: BUCKET_FILES };
   let did = 'untouched';
+  // What the row says as this goes on (rewriteFileRow compares both columns).
+  let now = row;
   // 1. The body, then its row — at once. (A row whose body is nested already
   // and whose picture is not — a run that stopped between the two — skips
   // to the picture.)
   if (to) {
     await moveObjectVerified(where, row.storage_path, to, row.name);
-    await rewriteFileRow(client, row, 'storage_path', row.storage_path, to,
+    await rewriteFileRow(client, now, 'storage_path', row.storage_path, to,
       () => moveObjectVerified(where, to, row.storage_path, row.name));
+    now = { ...row, storage_path: to };
     did = 'moved';
   }
   // 2. Its thumbnail, then its row — at once. The body is moved and its row
@@ -1631,12 +1737,12 @@ async function refileOneObject(client, projectId, p, row) {
         // than the shot being held back. (The file shows no picture from
         // then on — nothing regenerates a cloud thumbnail from its source
         // today, thumbnails.js — but the file itself is whole and moved.)
-        await rewriteFileRow(client, row, 'thumbnail_url', row.thumbnail_url, null, async () => {});
+        await rewriteFileRow(client, now, 'thumbnail_url', row.thumbnail_url, null, async () => {});
         return 'moved';
       }
       throw err;
     }
-    await rewriteFileRow(client, row, 'thumbnail_url', row.thumbnail_url, thumbTo,
+    await rewriteFileRow(client, now, 'thumbnail_url', row.thumbnail_url, thumbTo,
       () => moveObjectVerified(thumbWhere, thumbTo, row.thumbnail_url, row.name));
     did = 'moved';
   }
@@ -1754,14 +1860,42 @@ function missing0084Table(error) {
     && /\b(shot_lists|shot_list_items|edits)\b/.test(error.message || '');
 }
 
-// A missing 0084 FUNCTION: PGRST202 (PostgREST's schema cache), or a 42883
-// that names THIS function. A 42883 raised inside its body (a helper dropped
+// A missing FUNCTION (0084's first, every newer RPC's since MO1): PGRST202
+// (PostgREST's schema cache), or a 42883 that names THIS function. A 42883 raised inside its body (a helper dropped
 // or re-signatured) is a real failure and must reach the caller.
 // 🚨 PGRST202 is also PostgREST's answer to a parameter-NAME mismatch, which
 // is why supabaseLoadProject.test.js pins every p_* name each method sends.
-function missing0084Function(fnName) {
+function missingFunction(fnName) {
   return (error) => error?.code === 'PGRST202'
     || (error?.code === '42883' && (error.message || '').includes(fnName));
+}
+
+// MO1 (0110): the two personal-space RPCs on a database without them.
+const PERSONAL_SPACES_ABSENT = 'this workspace\'s database does not have personal spaces yet';
+function unwrapPersonalRpc(result, fnName, absent = PERSONAL_SPACES_ABSENT) {
+  if (missingFunction(fnName)(result?.error)) {
+    lastError = absent;
+    throw new Error(absent);
+  }
+  return unwrap(result);
+}
+// MO1 (0111): the same, for Moth's three reads.
+const MOTH_ABSENT = 'this workspace\'s database does not have M.O.T.H. yet';
+// MO1 (0118): the same, with its refusals in words.
+function unwrapMoth(result, fnName) {
+  const refusal = mothRefusal(result?.error);
+  if (refusal) {
+    lastError = refusal.message;
+    throw refusal;
+  }
+  try {
+    return unwrapPersonalRpc(result, fnName, MOTH_ABSENT);
+  } catch (err) {
+    // A database's own code means it answered, and a statement that timed out rolled back: not the lost answer
+    // that a failed fetch is, whose code is empty.
+    if (result?.error?.code && !err.code) err.code = result.error.code;
+    throw err;
+  }
 }
 
 // S3a review round 2 (R2-3, parity2#2): the unique indexes behind the
@@ -2688,10 +2822,19 @@ export function supabaseAdapter() {
       // Demo 2026-09-11: is_private joins the list only where 0072 has
       // landed — naming a column the database lacks fails the WHOLE list.
       const privateCol = (await privateProjectsAvailable(client)) ? ', is_private' : '';
-      return unwrap(await client
+      // MO1 (0109): topic_epoch, so the open project's channel joins the topic
+      // its current epoch names (not in PROJECT_COLUMNS: the client never writes it).
+      const epochKnown = await topicEpochAvailable(client);
+      const epochCol = epochKnown !== false ? ', topic_epoch' : '';
+      // MO1 (0110): a personal space is in no list; an admin's RLS would admit
+      // everyone's. "Not now" fails closed: this read must not guess.
+      const personal = await personalSpacesAvailable(client);
+      if (personal === null) throw new Error('[supabase] the project list could not be read just now');
+      let list = client
         .from('projects')
-        .select('id, title, status, status_tag, updated_at, budget_total, budget_currency, client_name, cover_image_url' + privateCol)
-        .order('updated_at', { ascending: false }));
+        .select('id, title, status, status_tag, updated_at, budget_total, budget_currency, client_name, folder_root, cover_image_url' + privateCol + epochCol);
+      if (personal) list = list.is('personal_owner_id', null);
+      return unwrap(await list.order('updated_at', { ascending: false }));
     },
 
     async loadProject(projectId) {
@@ -3814,16 +3957,28 @@ export function supabaseAdapter() {
       // three new surfaces in front of file rows, and the local managedFiles
       // store uses field names — stored_name, notes, version_label — that have
       // no columns here and would otherwise arrive intact from shared code.
-      const row = toColumns('files', sanitize(patch, ['id', 'uploaded_at']));
+      //
+      // MO1 (0114, MOTH §2.1): the denylist also takes the seven columns
+      // fn_files_body_guard refuses a client's UPDATE (42501). FILE_COLUMNS
+      // keeps them, because an INSERT writes every one. The project_id callers
+      // pass (RabbitProvider, ProjectsPage) is for localServerAdapter's URL; a
+      // file changes project only through Move to, and a stored key only
+      // through rekey_file_body.
+      const row = toColumns('files', sanitize(patch, ['id', 'uploaded_at', ...FILE_BODY_COLUMNS]));
       // S4a (0085): a database without files.tags gets the patch without it.
       // A patch that was ONLY tags refuses in words — a silent no-op would
       // leave the chip lit until the next list (the 0075 trap, again).
       if ('tags' in row && !(await fileTagsAvailable(client))) {
         delete row.tags;
-        const left = Object.keys(row).filter((k) => k !== 'project_id');
-        if (left.length === 0) {
+        if (Object.keys(row).length === 0) {
           throw new Error('[supabase] Tags are not on this database yet (migration 0085). Nothing was changed.');
         }
+      }
+      // MO1: the same trap for a patch with nothing else in it. PostgREST answers
+      // an empty PATCH with no row, which .single() would report as its own
+      // error, in words nobody could act on.
+      if (Object.keys(row).length === 0) {
+        throw new Error('[supabase] Nothing in this change can be saved: a file\'s project, folder and storage change only through Move to.');
       }
       const res = await client.from('files').update(row).eq('id', id).select().single();
       // S4b (0088): the two Legal CHECKs answer in Postgres's words; say what
@@ -5085,7 +5240,7 @@ export function supabaseAdapter() {
       requireShotLists();
       const rows = unwrapShotList(
         await client.rpc('replace_shot_list_items', { p_list: listId ?? null, p_items: shotListItemsParam(items) }),
-        missing0084Function('replace_shot_list_items'),
+        missingFunction('replace_shot_list_items'),
       );
       return rows || [];
     },
@@ -5109,7 +5264,7 @@ export function supabaseAdapter() {
         await client.rpc('upsert_shot_list_items', {
           p_list: listId ?? null, p_items: shotListItemsParam(items), p_positions_only: false,
         }),
-        missing0084Function('upsert_shot_list_items'),
+        missingFunction('upsert_shot_list_items'),
       );
       return rows || [];
     },
@@ -5132,7 +5287,7 @@ export function supabaseAdapter() {
         await client.rpc('upsert_shot_list_items', {
           p_list: listId ?? null, p_items, p_positions_only: true,
         }),
-        missing0084Function('upsert_shot_list_items'),
+        missingFunction('upsert_shot_list_items'),
       );
       return rows || [];
     },
@@ -5225,7 +5380,7 @@ export function supabaseAdapter() {
       requireShotLists();
       const active = unwrapShotList(
         await client.rpc('set_active_shot_list', { p_project: projectId ?? null, p_list: listId ?? null }),
-        missing0084Function('set_active_shot_list'),
+        missingFunction('set_active_shot_list'),
       );
       return active ?? null;
     },
@@ -5238,7 +5393,7 @@ export function supabaseAdapter() {
         await client.rpc('archive_shot_list', {
           p_list: listId ?? null, p_archived: archived == null ? true : Boolean(archived),
         }),
-        missing0084Function('archive_shot_list'),
+        missingFunction('archive_shot_list'),
       );
     },
     async archiveEdit(_projectId, editId, archived = true) {
@@ -5248,7 +5403,7 @@ export function supabaseAdapter() {
         await client.rpc('archive_edit', {
           p_edit: editId ?? null, p_archived: archived == null ? true : Boolean(archived),
         }),
-        missing0084Function('archive_edit'),
+        missingFunction('archive_edit'),
       );
     },
 
@@ -5675,7 +5830,10 @@ export function supabaseAdapter() {
         }
         if (cancelled) return;
 
-        channel = client.channel(`rabbit:project:${projectId}`, {
+        // MO1 (0109): the topic carries the project's epoch after a narrowing
+        // (opts.topicEpoch, from the project list); a listener on an older
+        // epoch hears one AUDIENCE and then nothing.
+        channel = client.channel(projectTopicName(projectId, opts.topicEpoch), {
           config: {
             private: true,
             ...(presenceMeta ? { presence: { key: presenceMeta.user_id } } : {}),
@@ -5694,6 +5852,10 @@ export function supabaseAdapter() {
             });
           });
         }
+        // MO1 (0109): who may see the project changed. No row rides it.
+        channel.on('broadcast', { event: 'AUDIENCE' }, () => {
+          callback({ table: 'projects', op: 'AUDIENCE', record: null, oldRecord: null });
+        });
 
         if (opts.onPresence) {
           channel.on('presence', { event: 'sync' }, () => {
@@ -5786,6 +5948,11 @@ export function supabaseAdapter() {
             });
           });
         }
+        // MO1 (0109): a project's visibility flipped somewhere in the
+        // workspace. No id, no row: the provider reads the list again.
+        channel.on('broadcast', { event: 'AUDIENCE' }, () => {
+          callback({ table: 'projects', op: 'AUDIENCE', record: null, oldRecord: null });
+        });
 
         if (opts.onPresence) {
           channel.on('presence', { event: 'sync' }, () => {
@@ -5827,6 +5994,196 @@ export function supabaseAdapter() {
       const client = await getClient();
       if (!client) return false;
       return privateProjectsAvailable(client);
+    },
+
+    // ── personal spaces (MO1, 0110, MOTH_DESIGN §2.2) ───────────────────────
+    async supportsPersonalSpaces() {
+      const client = await getClient();
+      if (!client) return false;
+      return (await personalSpacesAvailable(client)) === true;
+    },
+    // The caller's one space in this workspace, made on first ask (the server
+    // answers the same id every time).
+    async ensurePersonalSpace() {
+      const client = await requireClient();
+      return unwrapPersonalRpc(await client.rpc('ensure_personal_space'), 'ensure_personal_space');
+    },
+    // Under RLS: the caller's own, and every member's for a workspace admin.
+    async listPersonalSpaces() {
+      const client = await requireClient();
+      if (!(await personalSpacesAvailable(client))) return [];
+      return unwrap(await client
+        .from('projects')
+        .select('id, title, personal_owner_id, folder_slug, updated_at')
+        .not('personal_owner_id', 'is', null)
+        .order('updated_at', { ascending: false })) || [];
+    },
+    // An admin opening someone else's space in Files: the server's WIL-4114 line.
+    async recordPersonalSpaceOpened(projectId) {
+      const client = await requireClient();
+      unwrapPersonalRpc(await client.rpc('record_personal_space_opened', { p_project: projectId }), 'record_personal_space_opened');
+    },
+
+    // MO1 (0111, MOTH_DESIGN §2.2 MR-1): Moth reads only through these. Each
+    // runs as the caller and only narrows RLS: no money, no Legal, and no one
+    // else's personal space, admins included. A hidden or missing project is
+    // an empty answer, and nothing here counts anything. The two lists are
+    // ordered by the server, so PostgREST's pages cannot straddle a row.
+    async listMothIslands() {
+      const client = await requireClient();
+      return readAllPagesWith(() => client.rpc('moth_islands'),
+        (res) => unwrapPersonalRpc(res, 'moth_islands', MOTH_ABSENT) || []);
+    },
+    // What the office-server banner needs of the project open in Moth: its islands say nothing of where it is.
+    async mothIslandFolder(projectId) {
+      const client = await requireClient();
+      const { data, error } = await client.from('projects').select('id, folder_root, personal_owner_id').eq('id', projectId).maybeSingle();
+      if (error) throw new Error(error.message);
+      return data;
+    },
+    async listMothFolders(projectId) {
+      const client = await requireClient();
+      return readAllPagesWith(() => client.rpc('moth_project_folders', { p_project: projectId }),
+        (res) => unwrapPersonalRpc(res, 'moth_project_folders', MOTH_ABSENT) || []);
+    },
+    // One page, keyed on id (the server clamps the limit to 1..1000): the
+    // caller follows the last id, and a short page is the end.
+    async listMothFiles(projectId, after = null, limit = 500) {
+      const client = await requireClient();
+      return unwrapPersonalRpc(
+        await client.rpc('moth_project_files', { p_project: projectId, p_after: after, p_limit: limit }),
+        'moth_project_files', MOTH_ABSENT) || [];
+    },
+
+    // MO1 (0118, MOTH_DESIGN §1.9): moves. A plan writes nothing and says what each file needs:
+    // { items: [{ id, how, to_provider, to_path, to_thumb, from }] }. The commit takes the copies that
+    // plan asked for, and answers { move_id, moved, links_cleared, ops }.
+    async planFileMove(ids, destProject, destFolder = null) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('moth_move_items', {
+        p_file_ids: ids, p_dest_project: destProject, p_dest_folder: destFolder, p_plan_only: true,
+      }), 'moth_move_items');
+    },
+    async moveFiles(ids, destProject, destFolder = null, bodies = null) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('moth_move_items', {
+        p_file_ids: ids, p_dest_project: destProject, p_dest_folder: destFolder, p_plan_only: false, p_bodies: bodies,
+      }), 'moth_move_items');
+    },
+    async planUndoFileMove(moveId) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('moth_undo_move', { p_move_id: moveId, p_plan_only: true }), 'moth_undo_move');
+    },
+    // Redo is undoFileMove(<the undo's move_id>).
+    async undoFileMove(moveId) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('moth_undo_move', { p_move_id: moveId, p_plan_only: false }), 'moth_undo_move');
+    },
+    // The copy a rehome or a copy-up asks for, at the key the server minted: one call within Petal's
+    // storage, otherwise the bytes through this computer. A file on another computer cannot be read
+    // from here, and the local provider's sentence says so.
+    async copyBodyForMove(file, item) {
+      const client = await requireClient();
+      const from = file.storage_provider;
+      const to = item.to_provider;
+      if (from === FILE_PROVIDERS.SUPABASE && to === FILE_PROVIDERS.SUPABASE) {
+        unwrap(await client.storage.from(BUCKET_FILES).copy(file.storage_path, item.to_path));
+      } else {
+        const body = await getStorageProvider(from).get(file.storage_path);
+        await getStorageProvider(to).put(item.to_path, body, { contentType: file.mime_type || undefined });
+      }
+      // Its picture too, at the key the plan minted beside the body. A picture is not worth refusing a
+      // move over: if it will not copy, the row goes without one, and the file is what was asked for.
+      let thumbnail = null;
+      if (item.to_thumb && file.thumbnail_url) {
+        try {
+          await carryThumbnail(from, to, file.thumbnail_url, item.to_thumb, { client });
+          thumbnail = item.to_thumb;
+        } catch { /* said above */ }
+      }
+      return { file_id: file.id, path: item.to_path, thumbnail };
+    },
+    // Undoes a copy whose move the server then refused: the file is still where it was.
+    async removeMoveCopy(item) {
+      await getStorageProvider(item.to_provider).del(item.to_path).catch(() => {});
+      if (item.to_thumb) {
+        const client = await requireClient();
+        await removeThumbnailFrom(item.to_provider, item.to_thumb, { client }).catch(() => {});
+      }
+    },
+
+    // MO1 (0121, her answer "Yes, once they've left"): a former member's personal files, for an admin. The
+    // list is the server's: empty for anyone else and while the person is active. The move is moveFiles'.
+    async listLeaverFiles(projectId) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('moth_leaver_files', { p_project: projectId }), 'moth_leaver_files') || [];
+    },
+    async planLeaverMove(ids, destProject) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('moth_move_leaver_files', {
+        p_file_ids: ids, p_dest_project: destProject, p_dest_folder: null, p_plan_only: true,
+      }), 'moth_move_leaver_files');
+    },
+    async moveLeaverFiles(ids, destProject, bodies = null) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('moth_move_leaver_files', {
+        p_file_ids: ids, p_dest_project: destProject, p_dest_folder: null, p_plan_only: false, p_bodies: bodies,
+      }), 'moth_move_leaver_files');
+    },
+
+    // MO1 (0118): the trash. { done, ops }, where ops are the renames an office-server file owes.
+    async trashFiles(ids) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('moth_trash_files', { p_ids: ids }), 'moth_trash_files');
+    },
+    async restoreFiles(ids) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('moth_restore_files', { p_ids: ids }), 'moth_restore_files');
+    },
+    // What may be seen of the trash, newest first: no locator columns, no counts.
+    async listTrashedFiles({ limit = 200, before = null } = {}) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('moth_trash_index', { p_limit: limit, p_before: before }), 'moth_trash_index') || [];
+    },
+
+    // Who is calling, for the desktop's add route, which asks the auth server (electron/authCheck.cjs).
+    async getAccessToken() {
+      const client = await requireClient();
+      const { data } = await client.auth.getSession();
+      return data?.session?.access_token ?? null;
+    },
+
+    // MO1 (0117, NS-D6, NS-D12): the office-server catalogue and its operations, as
+    // networkShareCatalogue.js asks. p_root is checked against the drive by the server.
+    async refreshNetworkShare({ projectId, root, folder, dirs, bin = [], final = true, stoppedAt = null, first = false }) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('network_share_catalogue_apply', {
+        p_project_id: projectId, p_root: root, p_folder: folder, p_dirs: dirs, p_bin: bin,
+        p_final: final, p_stopped_at: stoppedAt, p_first: first,
+      }), 'network_share_catalogue_apply');
+    },
+    async getNetworkShareCheck(projectId) {
+      const client = await requireClient();
+      return unwrap(await client.from('network_share_checks').select('*').eq('project_id', projectId).maybeSingle());
+    },
+    async settleNetworkShareOps(opIds, outcome, facts = null) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('network_share_settle', { p_op_ids: opIds, p_outcome: outcome, p_facts: facts }), 'network_share_settle');
+    },
+    async networkSharePending() {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('network_share_pending_mine'), 'network_share_pending_mine') || [];
+    },
+    // Moves left over a day ago that this person may call off, because only their computer could have moved them.
+    async networkShareStaleMoves() {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('network_share_stale_moves'), 'network_share_stale_moves') || [];
+    },
+    async networkShareRecordAdded({ projectId, root, folderId = null, entries }) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('network_share_record_added', {
+        p_project: projectId, p_root: root, p_folder_id: folderId, p_entries: entries,
+      }), 'network_share_record_added');
     },
   };
 }

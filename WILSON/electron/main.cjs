@@ -234,9 +234,19 @@ const userAuthorizedImages = new Set();
 // falls through to the per-machine defaultRootDir exactly as before.
 let workspaceRootDir = null;
 
+// MO1 (PS-7): who is signed in, pushed the same way and for the same reason, and only
+// for the office-server add route (networkShare.cjs), which writes into that person's
+// own folder and nobody else's. MEMORY-ONLY, and null when signed out.
+let signedInUserId = null;
+
 // Post-overhaul S4a: set inside startLocalServer (it needs the bundle
 // readers that live there) and read by the rabbit:open-path IPC.
 let rabbitFileLocator = null;
+// MO1 (MOTH NS-X06): the same for a file on the office server, an async question.
+let rabbitShareLocate = null;
+// MO1 (MOTH §1.8): files the person picked in rabbit:pick-files this session. MEMORY-ONLY: the
+// office-server put route copies from nothing else on this computer, but for a local media key.
+const userAuthorizedFiles = new Set();
 
 // F3 (wave 1 of docs/sessions/PLAN_WEEK_2026-11-04.md; OUTSTANDING REV-07):
 // every JSON file this process writes goes through one writer — the text whole
@@ -348,6 +358,10 @@ function folderRootRefusal(candidate) {
   const shape = demoRoot ? checkDemoFolderShape(candidate) : checkFolderRootShape(candidate);
   if (!shape.ok) return { error: shape.error };
   const resolved = shape.resolved;
+  // MO1 (MOTH NS-D8): people's personal spaces live under this name on a company's drive.
+  if (resolved.split(/[\\/]/).some((segment) => segment.toUpperCase() === '_WILSON_PERSONAL')) {
+    return { error: 'A project folder cannot sit in the personal spaces folder. Pick another folder.' };
+  }
   if (demoRoot) {
     if (resolved.toLowerCase() === demoRoot.toLowerCase()) {
       return { error: 'the project folder cannot be the demo folder itself — pick a folder inside it' };
@@ -1485,6 +1499,11 @@ function startLocalServer(distPath) {
     // can't be require()'d from this CommonJS main process file.
     const { randomUUID: uuidv4 } = require('node:crypto');
 
+    // MO1 (MOTH_DESIGN §2.2 DT-1): the signed-out desktop's personal space,
+    // outside rabbit-data (electron/personalSpace.cjs).
+    const { createPersonalSpace, mountPersonalSpace } = require('./personalSpace.cjs');
+    const personalSpace = createPersonalSpace({ fs, path, userDataDir: app.getPath('userData'), newId: uuidv4 });
+
     function getRabbitProjectsDir() {
       const dir = path.join(getRabbitDataDir(), 'projects');
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -1496,6 +1515,8 @@ function startLocalServer(distPath) {
       // the person's own demo folder now that the root is user-chosen. The
       // id is contained the way every file path is; a traversal is a
       // thrown error the readers turn into "not found".
+      const personalDir = personalSpace.dirFor(projectId);
+      if (personalDir) return personalDir;
       const projectsDir = getRabbitProjectsDir();
       const dir = resolveContainedFilePath(projectsDir, String(projectId || ''));
       if (!dir || dir.toLowerCase() === path.resolve(projectsDir).toLowerCase()) {
@@ -1622,6 +1643,8 @@ function startLocalServer(distPath) {
       let dirty = false;
       if (!bundle.projectTeam)     { bundle.projectTeam     = []; dirty = true; }
       if (!bundle.managedFiles)    { bundle.managedFiles    = []; dirty = true; }
+      // Not dirty: an empty trash is no reason to write a bundle, and fileTrash.cjs reads a missing one as empty.
+      if (!bundle.trashedFiles)    { bundle.trashedFiles    = []; }
       if (!bundle.budgetLines)     { bundle.budgetLines     = []; dirty = true; }
       if (!bundle.budgetActuals)   { bundle.budgetActuals   = []; dirty = true; }
       if (!bundle.budgetVersions)  { bundle.budgetVersions  = []; dirty = true; }
@@ -1782,6 +1805,8 @@ function startLocalServer(distPath) {
         tableViews:      [],
         itemGroupings:   [],
         files:           [],
+        // MO1 (MOTH §1.8): this project's 30-day trash (fileTrash.cjs).
+        trashedFiles:    [],
         assetVersions:   [],
         comments:        [],
         ingestionRuns:   [],
@@ -1846,6 +1871,8 @@ function startLocalServer(distPath) {
     //                                   receipts since C4 — see INVOICES/)
 
     function resolveProjectFolder(bundle) {
+      // MO1: the personal space has no project folder and no _DATABASES mirror.
+      if (personalSpace.isPersonalBundle(bundle)) return null;
       const root = bundle?.project?.folder_root;
       // (review round 2, H3) a stored root is followed only where the person
       // could have chosen it — inside the open demo folder, or anywhere when
@@ -2251,6 +2278,9 @@ function startLocalServer(distPath) {
     // Resolve the _FILES dir inside the user-visible project folder.
     // Falls back to the internal rabbit-data files dir if no project folder exists.
     function resolveProjectFilesDir(bundle, projectId) {
+      // MO1: the personal space's bodies live in one place only.
+      const personalFiles = personalSpace.filesDirFor(projectId);
+      if (personalFiles) return personalFiles;
       // Session 14: a storage relink can point the project's files at a new
       // home (project.files_dir). Honored only while it exists on disk — if
       // it moves again, resolution falls through and the scan reports the
@@ -2450,6 +2480,47 @@ function startLocalServer(distPath) {
       res.json(list);
     });
 
+    // MO1: its two routes, and the guards that run ahead of the project routes
+    // below, so those stay as they were (several tests lift their bodies).
+    mountPersonalSpace(expressApp, { space: personalSpace, emptyBundle, readRabbitBundle, writeRabbitBundle });
+    // MO1 (PS-7): a company on an office server keeps a personal space's files there.
+    const { checkShareLocator, walkLists, SHARE_REFUSED_EXACT } = require('./networkShare.cjs');
+    const { isSameOriginRequest } = require('./fileReads.cjs');
+    const { makeVerifyBearer, readAuthPublic } = require('./authCheck.cjs');
+    // MO1 (MOTH §1.8): one reachability instance with the cloud bins below, so a server that went off
+    // for one is off for the other.
+    const shareReach = require('./rootReachable.cjs').makeRootQuestions();
+    const shareVerify = makeVerifyBearer({ getAuthPublic: () => readAuthPublic({ distDir: distPath }) });
+    require('./networkShare.cjs').mountNetworkShare(expressApp, {
+      getWorkspaceRoot: () => workspaceRootDir,
+      getSignedInUserId: () => signedInUserId,
+      verifyBearer: shareVerify,
+      reach: shareReach,
+      log: (line) => console.warn(line),
+    });
+    const shareContain = require('./shareContain.cjs').makeShareContain({ reach: shareReach });
+    const shareDeps = { getWorkspaceRoot: () => workspaceRootDir, isSameOriginRequest, checkShareLocator, reach: shareReach, verifyBearer: shareVerify };
+    require('./networkShareWalk.cjs').mountNetworkShareWalk(expressApp, { ...shareDeps, lists: walkLists });
+    const { mountNetworkShareOps, makeShareLocate } = require('./networkShareOps.cjs');
+    mountNetworkShareOps(expressApp, {
+      ...shareDeps,
+      getSignedInUserId: () => signedInUserId,
+      contain: shareContain,
+      safeMediaContentType,
+      isAuthorizedFile: (picked) => userAuthorizedFiles.has(path.resolve(picked).toLowerCase()),
+      resolveMediaKey: (key) => {
+        const { checkMediaKey, insideByRealPath } = require('./localMedia.cjs');
+        const check = checkMediaKey(key);
+        if (!check.ok) return null;
+        // A copy-up carries a project's picture or video. Money and Legal never leave for the office server.
+        if (check.segments.some((segment) => SHARE_REFUSED_EXACT.includes(String(segment).toUpperCase()))) return null;
+        const root = getLocalMediaRoot({ create: false });
+        const at = root ? resolveContainedFilePath(root, check.segments.join(path.sep)) : null;
+        return at && insideByRealPath(root, at) ? at : null;
+      },
+    });
+    rabbitShareLocate = makeShareLocate({ ...shareDeps, contain: shareContain, getSignedInUserId: () => signedInUserId });
+
     expressApp.get('/api/rabbit/projects/:id', (req, res) => {
       const bundle = readRabbitBundle(req.params.id);
       if (!bundle) return rabbitNotFound(res);
@@ -2610,6 +2681,10 @@ function startLocalServer(distPath) {
       res.json(project);
     });
 
+    // MO1: clearing a project's files folder moves where its files live, as a relink does (fileTrash.cjs).
+    require('./fileTrash.cjs').mountFilesDirGuard(expressApp, {
+      fs, path, readRabbitBundle, resolveFileBaseDir, resolveContainedFilePath,
+    });
     expressApp.patch('/api/rabbit/projects/:id', (req, res) => {
       const bundle = readRabbitBundle(req.params.id);
       if (!bundle) return rabbitNotFound(res);
@@ -2948,6 +3023,7 @@ function startLocalServer(distPath) {
     // Replaces rabbitSubentityRoutes('assets','assets') so we can
     // create/rename/soft-delete OS folders when assets change.
     function resolveProjectFolderRoot(bundle) {
+      if (personalSpace.isPersonalBundle(bundle)) return null; // MO1: as resolveProjectFolder
       const projectRoot = bundle.project?.folder_root;
       if (projectRoot && fs.existsSync(projectRoot) && storedRootUsable(projectRoot)) return projectRoot; // (review 2, H3)
       // Session 34: workspace root (byos) outranks the machine default.
@@ -3816,37 +3892,34 @@ function startLocalServer(distPath) {
       checkFileTags, checkLegalPatch, checkManagedLegal,
     });
 
-    expressApp.delete('/api/rabbit/projects/:projectId/files/:id', (req, res) => {
-      const bundle = readRabbitBundle(req.params.projectId);
-      if (!bundle) return rabbitNotFound(res);
-      const file = bundle.files.find(f => f.id === req.params.id);
-      if (file) {
-        const diskPath = resolveContainedFilePath(
-          resolveFileBaseDir(bundle, req.params.projectId, file), file.storage_path);
-        // blob_removed keeps the certificate honest: a certificate must
-        // not assert a disposal that never happened (uncontained legacy
-        // path, or the body was already gone).
-        let blobRemoved = false;
-        if (diskPath && fs.existsSync(diskPath)) {
-          fs.unlinkSync(diskPath);
-          blobRemoved = true;
-        }
-        // Local delete is permanent (no local trash) — certificate it.
-        rabbitLogFileEvent(bundle, {
-          file_id:          file.id,
-          project_id:       req.params.projectId,
-          file_name:        file.name,
-          storage_provider: file.storage_provider,
-          event:            'purged',
-          old_path:         file.storage_path,
-          size_bytes:       file.size_bytes ?? null,
-          blob_removed:     blobRemoved,
-        });
-      }
-      rabbitRemoveFrom(bundle.files, req.params.id);
-      writeRabbitBundle(req.params.projectId, bundle);
-      res.json({ ok: true });
+    // MO1: a delete goes to a 30-day trash now, not straight to an unlink (MOTH_DESIGN §1.8).
+    require('./fileTrash.cjs').mountFileTrash(expressApp, {
+      fs, path, readRabbitBundle, writeRabbitBundle, rabbitNotFound, rabbitRemoveFrom,
+      resolveFileBaseDir, resolveContainedFilePath, rabbitLogFileEvent,
+      // Everywhere a body of this project can sit: a row's base can change once its body has left.
+      allFileBases: (bundle, projectId) => [
+        resolveProjectFilesDir(bundle, projectId),
+        resolveProjectInvoicesDir(bundle, projectId),
+        ...legalFiling.legalDirs(bundle, projectId),
+      ],
     });
+
+    // MO1: moves on one computer, journalled, finished at start-up if a crash left one (her answer 2).
+    // Not waited on: a big copy runs in a worker, and the window should not wait for it.
+    require('./fileMoves.cjs').mountFileMoves(expressApp, {
+      fs, path, readRabbitBundle, writeRabbitBundle, rabbitNotFound, rabbitRemoveFrom,
+      resolveFileBaseDir, resolveContainedFilePath, rabbitLogFileEvent, writeJsonAtomic,
+      movesDir: () => path.join(getRabbitDataDir(), 'moves'),
+      // resolveProjectFilesDir falls back to the internal folder when a recorded one is away, which is
+      // right for a read and wrong for a move: the bodies would land where the row will not look.
+      projectFolderAway: (bundle) => {
+        const filesDir = bundle.project?.files_dir;
+        if (filesDir && !fs.existsSync(filesDir)) return true;
+        const root = bundle.project?.folder_root;
+        return Boolean(root && storedRootUsable(root) && !fs.existsSync(root));
+      },
+      log: (line) => console.warn(line),
+    }).recoverMoves().catch(() => {});
 
     // ── Files: lifecycle events + storage relink (Session 14) ──
     // The read side of bundle.fileEvents — the audit drawer's local twin of
@@ -4792,6 +4865,7 @@ function startLocalServer(distPath) {
       readRabbitBundle, writeRabbitBundle, rabbitTouch, rabbitUpsertInto, rabbitRemoveFrom, rabbitNotFound,
       getThumbCacheDir, generateVideoThumbOnce, safeMediaContentType,
       userAuthorizedDirs, dialog, shell, getMainWindow: () => mainWindow,
+      cloudBinsReach: shareReach,
       // BC2 (Bins on the cloud, the desktop signed in): B2's fallback — where
       // each of the company's footage locations is on THIS computer, when it
       // is seen as a drive letter. This computer's settings only, never the
@@ -4834,7 +4908,9 @@ function startLocalServer(distPath) {
     require('./localMedia.cjs').mountLocalMedia(expressApp, {
       getRoot: getLocalMediaRoot, resolveContainedFilePath, safeMediaContentType,
       log: (line) => console.info(line),
-    });
+      movesDir: () => path.join(getRabbitDataDir(), 'moves'),
+      writeJsonAtomic,
+    }).recoverRetires();
 
     // ── The connection dot's question (post-overhaul FX11) — electron/connectionProbe.cjs ──
     // GET /api/rabbit/connection: the data folder and the files root, each
@@ -4894,6 +4970,10 @@ function startLocalServer(distPath) {
       resolve({ server, port, token: launchToken, origin: rendererOrigin });
     });
 
+    // Node ends a request after five minutes by default, and an add of a big clip over a slow
+    // link takes longer. This server is on 127.0.0.1 behind the launch token, so a slow client
+    // is no threat; the add route has its own stall watch (networkShare.cjs).
+    server.requestTimeout = 0;
     server.on('error', reject);
   });
 }
@@ -5279,12 +5359,46 @@ function archiveLocalRabbitData(rabbitDir, fs, path, writeJsonAtomic) {
   const archivePath = path.join(archivesDir, `rabbit-data-${ts}.json`);
   writeJsonAtomic(archivePath, snapshot, { fs, durable: true });
 
+  // MO1: a delete's 30 days outlast the clear, and the migration carried only live rows. Each deleted file's
+  // body goes beside the archive, whose JSON holds their rows, so nothing promised is destroyed: from the
+  // trash of the project's own files or LEGAL folder, or from its own place if a delete could not move it
+  // (a program had it open), unless a live row has that name now. A project with a folder of its own keeps
+  // its bodies there, which the clear below does not touch. The count is what was found and kept.
+  let deletedFilesKept = 0;
+  let deletedFilesNotFound = 0;
+  for (const bundle of snapshot.projects) {
+    if (!bundle.project?.id) continue;
+    const projectDir = path.resolve(projectsDir, String(bundle.project.id));
+    const inProject = (...parts) => {
+      const at = path.resolve(projectDir, ...parts);
+      return at.startsWith(projectDir + path.sep) ? at : null;
+    };
+    const liveNames = new Set((bundle.files || []).map((f) => f.storage_path));
+    for (const entry of Array.isArray(bundle.trashedFiles) ? bundle.trashedFiles : []) {
+      const leaf = String(entry.trash_name ?? '');
+      const own = entry.row?.storage_path;
+      const places = path.basename(leaf) === leaf && leaf
+        ? ['files', 'LEGAL'].map((home) => inProject(home, '.trash', leaf))
+        : [];
+      if (!entry.moved && own && !liveNames.has(own)) places.push(inProject('files', own), inProject('LEGAL', own));
+      const at = places.find((place) => place && fs.existsSync(place));
+      if (!at || path.basename(leaf) !== leaf || !leaf) {
+        if (!bundle.project.files_dir && !bundle.project.folder_root) deletedFilesNotFound += 1;
+        continue;
+      }
+      const keptDir = path.join(archivesDir, `rabbit-data-${ts}-trash`, String(bundle.project.id));
+      fs.mkdirSync(keptDir, { recursive: true });
+      fs.renameSync(at, path.join(keptDir, leaf));
+      deletedFilesKept += 1;
+    }
+  }
+
   // Clear live stores. Binary files are already uploaded to Supabase Storage.
   fs.rmSync(projectsDir, { recursive: true, force: true });
   fs.rmSync(thumbsDir,   { recursive: true, force: true });
   for (const store of stores) fs.rmSync(path.join(rabbitDir, store), { recursive: true, force: true });
 
-  return { ok: true, archivePath, projectCount: snapshot.projects.length, storeCounts };
+  return { ok: true, archivePath, projectCount: snapshot.projects.length, storeCounts, deletedFilesKept, deletedFilesNotFound };
 }
 ipcMain.handle('rabbit:archive-local-data', () => {
   try {
@@ -5400,6 +5514,14 @@ ipcMain.handle('local-demo:open-in-explorer', async () => {
 // own origin only and every /api route needs the per-launch token (header
 // or httpOnly cookie); IPC still stands, because any script on the
 // renderer's origin carries that cookie and an Express route would answer it.
+// MO1 (PS-7): App.jsx pushes the signed-in person's id, and null when nobody is.
+// Anything that is not an id clears it, so a bad push can only refuse an add.
+ipcMain.handle('rabbit:set-signed-in-user', (_event, opts) => {
+  const id = opts && typeof opts.userId === 'string' ? opts.userId.trim().toLowerCase() : '';
+  signedInUserId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id) ? id : null;
+  return { ok: true };
+});
+
 ipcMain.handle('rabbit:set-workspace-root', (_event, opts) => {
   const raw = opts && typeof opts.rootPath === 'string' ? opts.rootPath.trim() : null;
   const kind = opts && typeof opts.rootKind === 'string' ? opts.rootKind : null;
@@ -5415,6 +5537,12 @@ ipcMain.handle('rabbit:set-workspace-root', (_event, opts) => {
   if (!isUnc && !isDrive) {
     workspaceRootDir = null;
     return { ok: false, error: 'the storage root must be an absolute \\\\server\\share or drive path' };
+  }
+  // MO1: a device path can be the local disk. networkShare.cjs's isShareRoot, which every office-server
+  // route asks, also refuses a money folder as the root.
+  if (isUnc && /^[\\/]{2}[?.]([\\/]|$)/.test(raw)) {
+    workspaceRootDir = null;
+    return { ok: false, error: 'a device path cannot be the storage root' };
   }
   // Canonical form: resolved, no trailing separator. Bare roots are refused
   // in depth, not only at the UI: 'C:' (a stripped 'C:\') is drive-relative
@@ -5543,6 +5671,7 @@ ipcMain.handle('rabbit:pick-files', async () => {
     title: 'Select files to add',
   });
   if (result.canceled) return [];
+  for (const picked of result.filePaths) userAuthorizedFiles.add(path.resolve(picked).toLowerCase());
   return result.filePaths;
 });
 
@@ -5630,6 +5759,7 @@ ipcMain.handle('rabbit:open-path', async (_event, req = {}) => {
     fs,
     shell,
     locateRow: rabbitFileLocator,
+    shareLocate: rabbitShareLocate,
     mediaRoot: () => getLocalMediaRoot({ create: false }),
     checkMediaKey,
     resolveContainedFilePath,

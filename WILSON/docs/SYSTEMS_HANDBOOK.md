@@ -126,6 +126,11 @@ Electron, for the web app, and for the operator console (§5.1).
 
 ### 3.1 The Electron desktop app
 
+**A desktop project's deleted files (MO1).** A delete moves the row into `bundle.trashedFiles` and the body into
+`.trash` beside the project's files, for 30 days; a restore asks the disk where the body is, and the expired go when
+the project opens in R.A.B.B.I.T. or Moth's trash opens (`fileTrash.cjs`). A move between projects holds a durable journal in
+`<rabbit-data>/moves/` until both bundles are written and read back, and recovers at start-up (`fileMoves.cjs`).
+
 **Main process** — `electron/main.cjs` (~2500 lines), plus `preload.cjs`,
 `env.cjs`, `sentry.cjs`, `updater.cjs`.
 
@@ -168,7 +173,7 @@ starts in the app (`startSignedDownload` → `wilson:download-url` →
 keeps its plain link).
 **Every channel the preload bridges answers WILSON's page only** (D3,
 2026-10-29; `electron/ipcGate.cjs`, `docs/design/RECONNECT_DESIGN.md` §14),
-the second lock behind the window's: the 50 channels are registered through
+the second lock behind the window's: the 51 channels are registered through
 one gate (`ipcMain` in `main.cjs` is the gate; the updater is handed it),
 which asks D1's rule first — the main window's own `webContents`, its top
 frame, this launch's origin — and answers any other sender `null` at once,
@@ -565,7 +570,7 @@ in S22, each verified **by query** on all three, not by the CLI's success line.)
 > hand-offs, so read `supabase functions list --project-ref <ref>` before believing any line about what is deployed.
 
 **Anon keys are public by design and ship inside the web bundle.** This is not
-a leak: sign-ups are off, every table carries RLS — all but four with `FORCE`
+a leak: sign-ups are off, every table carries RLS — all but five with `FORCE`
 as well (the exceptions are `auth_attempt_log`, `edit_history`, `file_events`
 and `storage_gc_queue`, whose only writer is a service-role function or a
 DEFINER trigger; see §4.4) — and the policy set is pinned by 37 pgTAP suites in
@@ -715,15 +720,37 @@ live-parent `EXISTS` join — the "0014 pattern". Hiding a parent transitively
 hides its children with **zero propagation writes**, which is why trashing a
 project is one `UPDATE` and not a cascade.
 
+**The hop is on the write side too (0107, M.O.T.H. Session 1).** Every client
+write clause of a project-scoped table (INSERT's WITH CHECK, UPDATE's USING
+and WITH CHECK, DELETE's USING) carries `EXISTS (SELECT 1 FROM public.projects
+p WHERE p.id = <t>.project_id)` under the caller's `projects_select`
+(comments through `fn_comment_project_id`; task_templates `project_id IS NULL
+OR` the hop), and so do `project_members_select` and `task_templates_select`.
+Before 0107 only the WITH CHECKs of files and milestones carried it:
+`can_write_project` says yes to every admin and manager and to every member of
+an unstaffed project, so anyone holding a private project's id could write
+into it, and a blanket UPDATE or DELETE, which reads no column and so is
+judged by no SELECT policy, reached its rows. 0107's post-condition S2 and
+suite 110 scan every permissive clause of every client-privileged
+project-scoped table for the hop; the one pinned exception is the own-row
+arm of `upload_reservations_select` (`edit_history_select` was the other
+until 0108 gave it its project arm). Two guards ride with it, in the list
+below.
+
 **Deliberate deviations, each with a reason:**
 
 | Table | Deviation | Why |
 |---|---|---|
 | `platform_audit` | Has a `workspace_id` column but **no FK**, and snapshots slug + name as text | A `workspace.teardown` certificate must still name the company after the row is gone. A migration post-condition fails the deploy if an FK ever appears. |
 | `workspace_ai_keys`, `edge_rate_limits`, `storage_gc_queue` | **Zero policies at all** | Tenancy is enforced by the absence of any client grant. Service-role only. |
+| `file_moves` (MO1, 0113) | **Zero policies at all**, RLS forced, no client grants | The move journal. Only definers write it and nobody reads it, so the private ids it records leak nothing. `fn_checked_move_admits` admits a row change only for the row the marker names, written in this transaction, by this person, with a matching item. |
+| `moth_history` (MO1, 0119) | **Not forced, zero policies**, no client grants | Only definers write it and read it, as `edit_history` and `file_events`. |
+| `files` (MO1, 0114) | `fn_files_body_guard`, a BEFORE trigger that is **not** a definer | A client never changes a file's project, company, folder, provider, key, picture, money flag or the two office-server columns, and a new row may claim only a never-claimed key under its own project (`rabbit_private.file_key_admissible`). A definer a client calls changes them only under `fn_checked_move_admits`, `wilson.body_rekey` or `wilson.network_share_writer`, each bound to one row. Nobody reached through the API changes a file's id. Migrations, cron and service_role pass. 🚨 **A definer's INSERT is not judged: any new definer that inserts into `files` validates the row itself.** `rekey_file_body` is the one client path that changes a stored key after insert (the shot re-file, the migration's receipt move). |
 | `notes`, `note_subjects`, `otter_progress`, `otter_quiz_attempts` | Tenancy **plus** `owner_id = auth.uid()` (`user_id = auth.uid()` on the two O.T.T.E.R. tables, which have no `owner_id` column), with **no admin bypass** | Private personal content. A workspace admin cannot read another member's notes, study progress or quiz marks. |
 | `otter_quiz_attempts` (again) | **No UPDATE policy at all**, and a 30-day window inside the SELECT policy | An attempt records something that happened, so immutability is enforced by the ABSENCE of a policy (RLS default-denies an unpoliced verb) rather than by a CHECK anyone could forget. 🚨 The window is why `otter_prune_quiz_attempts()` must be SECURITY DEFINER — see §15. |
 | `otter_courses` (personal tier) | No `current_app_role()` in the SELECT policy at all | Enforced by a post-condition that fails the migration if any SELECT policy on `otter_courses`/`otter_progress` ever mentions it. |
+| `projects` (personal spaces, MO1 0110) | A row with `personal_owner_id` set is a person's **personal space**: private, so read by its owner and the company's admins through `projects_select` and every hop; **written by its owner only, admins included** (the personal arm in front of `can_write_project`, `can_comment_project`, `can_edit_shot_lists`; `can_manage_project_roster` is false), which reaches every write policy that calls them, `fn_trash_authz` and presigning; the writes those helpers do not gate are closed too: the five money tables and pinned task templates by `fn_personal_space_write_guard` (INVOKER, so a project the caller cannot see is left to RLS), the money storage writes by `can_write_project` on the path's project; one per person per company (`projects_personal_owner_uniq`); made only by `ensure_personal_space()` (`projects_insert` refuses a personal row to every client); never re-owned, shared, binned or re-foldered (`fn_projects_owner_guard`), one seat, its owner's (`fn_project_members_personal_guard`); never hard-deleted by a client (`projects_delete`) | Her rulings: a person's own space; admins reach it from Files, read-only, and each time an admin opens someone else's space `record_personal_space_opened()` writes app_events 'admin' WIL-4114, which other admins read in Logs. RLS cannot log a read, so an admin's raw REST read of the rows is not recorded (OUTSTANDING). In the client it is in no project list (listProjects' filter; both realtime merge sites refuse it), not on the Team page and not in Workspace Takeout; Files lists it (`listPersonalSpaces`), decides its gates from its own row and, for an admin opening someone else's, writes the line before listing anything; a record that fails lists nothing. The signed-out desktop has one per computer and OS user at `{userData}/personal-space`, outside rabbit-data, so a copied data folder, the migration and archive-and-clear do not reach it. `personal_owner_id` has no FK, so the space outlives its owner's membership and account for the admins' reach. Left as designed (CL-1): `set_active_shot_list`, `archive_shot_list` and `archive_edit` keep their admin and manager legs on a personal space |
+| M.O.T.H.'s reads (MO1 0111) | Not a table: `moth_islands`, `moth_project_folders` and `moth_project_files` run as the caller and filter every row through `moth_can_read_target`, so they are **narrower than RLS**. Money and Legal are hidden from every role by the classifiers (`moth_file_row_locked`: the money flag or key, the `legal` tag, the folder chain, an expense of the file's own project), never by the access gates, which admit an admin. Another person's personal space is hidden from every role, admins included. `fn_folders_lock_guard` keeps what the chain reads honest: a client never changes a folder's money or Legal standing or detaches its first path segment from its parent's | RLS cannot tell Moth from the Files page, and an admin keeps RLS's reach for Files. An INVOKER read can only narrow. A hidden row and a missing one answer alike (false, or no rows), and nothing counts. The one residual: a project member can tell a file is a receipt because Moth hides it, and they can already open it (OUTSTANDING MO1-05, at the merge). |
 | `auth_attempt_log` | Operator-read, no membership requirement | Written pre-authentication; no workspace session exists yet. |
 | `workspaces` | Keys on `id IN (SELECT workspace_id FROM workspace_members WHERE user_id = auth.uid() AND is_active)`, **not** on the JWT claim | It *is* the tenant row, and the Workspace Switcher needs to list every workspace you actively belong to — not only the current one. |
 
@@ -751,10 +778,10 @@ seat.
 tables, `workspace_ai_keys`, `platform_audit`, `edge_rate_limits`. Migration
 post-conditions assert this.
 
-Four tables are `ENABLE`-only, each deliberately: `auth_attempt_log`,
-`edit_history`, `file_events` and `storage_gc_queue` — the first is written
-pre-auth by a service-role function, and the other three have a SECURITY
-DEFINER trigger as their sole writer and zero client write policies.
+Five tables are `ENABLE`-only, each deliberately: `auth_attempt_log`,
+`edit_history`, `file_events`, `moth_history` and `storage_gc_queue` — the first
+is written pre-auth by a service-role function, and the other four have a
+SECURITY DEFINER trigger as their sole writer and zero client write policies.
 
 #### Table inventory
 
@@ -784,6 +811,32 @@ no admin bypass).
 **Edit history** — `edit_history` (0012): append-only diff rows for the 13
 RABBIT tables, one SELECT policy and no write policy at all; the DEFINER
 capture trigger is the only writer.
+
+**Since 0108 (M.O.T.H. Session 1) edit history has a project audience.**
+`edit_history.project_id` is set for every project-scoped type at capture
+(`edit_history_project_of`; files through 0088's snapshot), from BOTH sides
+of an update: a change between projects, a dependency whose endpoints sit in
+different projects, a child whose parent is already gone (a cascade) and every
+row of a project deleted for good (`trg_projects_edit_history_gone`, and the
+capture's own check for the cascade's rows) get NULL, which is the workspace
+admins' alone. `captured_private` (DEFAULT true, so a writer that leaves it
+out fails closed) records whether the project was private when the change
+was made. `edit_history_select` keeps 0012's role arm, 0088's money arm and
+0092's Legal arm and adds: rate cards stay the workspace's; otherwise a
+workspace admin, or a reader of the project's topic
+(`can_read_project_topic`, so a private project's rows are its creator's and
+the admins'), and a row captured while private only for its creator, even
+after the project is made public. A trashed project's history is the admins'
+until it is restored. The history written before 0108 was stamped by
+`edit_history_restamp()` (a revoked DEFINER function that walks each entity's
+own recorded changes, `edit_history_project_at` and `edit_history_value_at`);
+re-running it changes nothing (suite 111). It costs about 0.13 ms per
+history row (214,022 synthetic rows: 28 s on a local stack) while the table
+is locked, so each environment's rehearsal records its row count and time.
+A project whose id is changed is treated as deleted
+(`trg_projects_edit_history_rekeyed`), and a comment (which has no foreign
+key to its subject) whose subject was deleted after it was written belongs to
+no project, even if the subject's id is created again.
 
 **O.T.T.E.R.** (0022, extended 0024/0025/0026/**0045**) — `otter_courses`
 (carries the five reference-document JSONB blobs), `otter_subjects`,
@@ -860,7 +913,16 @@ Grouped by job, because the *category* is what a reader needs:
   zero active admins), `fn_workspaces_client_guard` (slug/id/created_at pinned),
   `fn_workspaces_delete_guard` (0029: refuses any DELETE issued as
   `authenticated` or `anon`), `fn_soft_delete_stamp` (projects are admin-only
-  to trash).
+  to trash), `fn_projects_owner_guard` (0107: for client callers
+  `created_by` and `topic_epoch` are pinned, `is_private` changes only by the
+  creator or an admin, a producer is chosen only by someone who manages the
+  team; for every caller a narrowing bumps `topic_epoch`),
+  `fn_same_project_refs_guard` (0107: a client's new or changed secondary link,
+  the uuid[] links on assets and both ends of a dependency must name a row of
+  the same project, 23503 otherwise; it judges only a row whose project the
+  caller can see, and for `budget_actuals` whose money they may read, leaving
+  every other refusal to RLS, so it is no existence oracle; skipped under
+  `wilson.checked_move`).
 - **Capture** — `fn_edit_history_capture` (13 tables),
   `fn_file_events_capture` (files lifecycle), `fn_app_events_stamp`
   (server-side actor stamp), `fn_files_gc_enqueue` (blob disposal queue), and
@@ -882,6 +944,25 @@ Capture triggers share one contract: a catch-all `EXCEPTION WHEN OTHERS →
 RAISE WARNING`. **An audit failure must never abort the write it audits** —
 including a workspace CASCADE.
 
+**The office server's catalogue (MO1, migration 0117).** Two more tables under RLS.
+`network_share_checks` is one row per space, "last checked": a client reads it through the
+project hop and writes nothing. `network_share_ops` is the journal of what the desktop owes
+the real files: no policies and no client grants, read only through
+`network_share_pending_mine`. Every write comes through a DEFINER function
+(`network_share_catalogue_apply`, `network_share_record_added`, `network_share_trash`,
+`network_share_restore`, `network_share_settle`), and each sets `wilson.network_share_writer`
+for the writes it makes: `'check:' || project` for a walk, `'op:' || file` around an op. A
+client's own hard delete of such a row meets `fn_files_network_share_delete_guard`. A folder
+overlapping another project's or space's is refused by `fn_projects_owner_guard` and by
+`_network_share_assert_folder`, and only where the company is on an office server, because
+nothing reads a claim anywhere else. `authenticated`'s 8 s `statement_timeout` shapes the
+calls: a client sends at most about 1,000 entries, and a sweep marks at most 1,500 rows
+missing a call and says `more_missing`.
+
+**The record of what changed (MO1, migration 0119).** `moth_history`, 90 days, metadata only, written by `fn_moth_history_capture` on eleven tables through two triggers each, whoever writes, ignoring every marker and the caller's claims. There is no baseline copy: a mark says when recording began, each row holds its before and its after, and the past is rebuilt backwards from the live rows. A locked side (money, Legal, a locked folder) writes nothing and blanks every earlier row of that entity, and `trg_expenses_moth_history_redact` does the same when an expense names a file, because that is no write to the file. **A failed capture never fails the person's write:** it leaves a `capture_failed` mark, scoped to the row's sides, saying the record restarts there. **A migration that disables these triggers must write a `suspended` mark per type and company afterwards**, or every rebuild before it is silently wrong. Clients read through `moth_history_read` and `moth_history_window`, one refusal for every cause: a side shows only to someone in its audience as it was then who also passes Moth's gate now, and a half-visible row reads as added or removed. To add a table later: restate the capture and the projector from their latest bodies, md5-guarded, and widen the entity CHECK in a migration that does only that (NOT VALID, then VALIDATE).
+
+**Moving a file (MO1, migration 0118).** `moth_move_items` and `moth_undo_move`, both through `fn_moth_apply_moves`, which clients cannot call. The plan writes nothing and says how each file goes (`metadata`, `rehome`, `copy_up`, `share_move`, `none`); the commit asks everything again under its locks, writes one `file_moves` row, sets `wilson.file_move`, makes one UPDATE per file, queues any old copy, and clears the marker. **The one order of locks:** the projects' advisory locks in id order, then project and folder rows `FOR SHARE`, then files `FOR UPDATE`, each in id order, with no row held before the advisory locks, because a walk holds its project's advisory lock while it takes file rows. An undo adds the project each file is in now, then takes its journal row. Section 7 of the file refuses it if that order changes, because one transaction cannot race it. **A way back:** a settle of `not_moved` runs `_network_share_replay_origin`, its own journalled path, which needs no rights the person may have lost. A move asks the office-server folder claims once per project (`wilson.network_share_asked`), since each asking scans every project in the company. `moth_trash_files` and `moth_restore_files` judge every id by the one exclusion before touching any, lock the rows and ask again; `moth_trash_index` hands out no locator. Errors are `moth_move:<code>` and `moth_trash:<code>`.
+
 ### 4.5 Realtime
 
 WILSON uses **broadcast-from-database**, never `postgres_changes`.
@@ -895,13 +976,40 @@ WILSON uses **broadcast-from-database**, never `postgres_changes`.
 | | Project channel | Workspace channel |
 |---|---|---|
 | Migration | 0016 | 0018 |
-| Topic | `rabbit:project:{project_id}` | `rabbit:workspace:{workspace_id}` |
-| Join authz | `can_read_project_topic()` — INVOKER, ≡ `projects_select` | `can_read_workspace_topic()` — workspace match + active membership |
+| Topic | `rabbit:project:{project_id}`, `:{topic_epoch}` after a narrowing (0109) | `rabbit:workspace:{workspace_id}` |
+| Join authz | `can_read_project_topic()` — INVOKER, ≡ `projects_select`; and `project_topic_matches()` — the current epoch (0109) | `can_read_workspace_topic()` — workspace match + active membership (so the trigger sends only what every member may see, 0109) |
 | Feeds | projects, phases, assets, tasks, files, comments, task_dependencies, phase_dependencies (0061), task_links, asset_versions, project_members, **milestones (0077)**; **budget_versions (0101: a thin event, `{id, project_id}` and never the row — a bid version is money — and the client reads the versions again through RLS)** | projects, workspace_members, tasks (only when assignee/reviewer set), assets (only trash/restore or name/phase change), project_members; **task_items (0101: only an assigned task's, never a private project's — the Dashboard's assets)** |
 
 Both triggers skip cleanly when `realtime.broadcast_changes` is absent (CI's
 database-only stack) and never abort a write. `fn_try_uuid()` guards the
 topic-suffix cast so a hand-crafted topic string cannot error a policy.
+
+**Since 0109 (M.O.T.H. Session 1) both channels follow project visibility.**
+🚨 The workspace channel's join gate is membership only, so its trigger sends
+only what every member may see: a `projects` side when the project is not
+private, a `tasks`, `assets` or `project_members` side when its project exists
+and is not private (`workspace_members` always). A change with one visible
+side goes out INSERT-shaped (NEW only) or DELETE-shaped (OLD only); the
+assignee and asset-churn filters then test only the sides sent (SEC-8). A
+project whose visibility flips sends the workspace one payload-free
+**`AUDIENCE`** event (no id, no title): every window reads its project list
+again through RLS and closes the open project if it is gone, with "This
+project is no longer shared with you." On the project channel, a row moved
+between projects goes as a DELETE (OLD) to the old project's topic and an
+INSERT (NEW) to the new one's; a dependency across projects goes to neither.
+The topic carries the project's **epoch** (`projects.topic_epoch`, bumped by
+0107's owner guard on every narrowing): `rabbit:project:{id}` at 0,
+`rabbit:project:{id}:{n}` after; `project_topic(id)` (definer, the triggers'
+router) names it, and both 0016 policies also require
+`project_topic_matches(realtime.topic())` (INVOKER: a project the caller can
+see, at its current epoch). A narrowing sends the old topic one `AUDIENCE` and
+the write to the new one, so a listener who joined before it hears nothing
+more, whatever Realtime cached at its join. The client joins the epoch the
+project list names (`listProjects` reads `topic_epoch` behind a column probe)
+and binds `AUDIENCE` on both channels; it tolerates a server without 0109.
+Accepted (OUTSTANDING): a private project's liveness in its creator's and the
+admins' other windows rests on the join refetch, `AUDIENCE` and the project
+topic, not on the workspace channel.
 
 Deliberately **never broadcast**: `otter_*` (personal content — the workspace
 channel hands full row payloads to every subscriber) and `notes` /
@@ -944,6 +1052,12 @@ client always fires a debounced refetch — including the first join — to clos
 the missed-events window.
 
 **Yjs is used in exactly one place**: note bodies (§13.4). Nowhere else.
+
+**A catalogue check broadcasts once, not per row (MO1, migration 0117).** A walk of 5,000
+files writes 5,000 file rows and sends no per-row events (0116's early return for a check's
+writes). `fn_network_share_checks_broadcast` sends one thin message on `project_topic`, with
+the project's id and nothing else, and only when `last_checked_at` moves: a walk's final call.
+A failed send never fails the write, and a missed one reads true at the next load.
 
 ### 4.6 Edge Functions
 
@@ -1043,6 +1157,8 @@ those accounts and an admin must reset instead; the response carries an
 | `rabbit-files` | 0027, raised by **0057** | no (private) | **50 GiB**, any mime | `projects/{project_id}/{entity}/{entity_id}/{ts}-{filename}` |
 | `rabbit-thumbnails` | 0053 | no (private) | **256 KB, `image/jpeg` only** | the same key as its source **plus `.jpg`** |
 
+**A stored key stays where it was made (MO1, 0114).** A key has one row across every trash state (`files_storage_path_key_uidx`), and in a company's own bucket a body and its picture share one name (`files_s3_namespace_uidx`). From 0118 a key's prefix says where a file was created, not where it is now: group by `files.project_id`, never by the key. `rabbit_private` holds the helpers and is never exposed through the API. A project id is refused while any stored copy still sits under it with no project holding it, because the key alone authorises a manifest and a rate card.
+
 🚨 **THE BUCKET CAP IS NOT THE CEILING THAT BINDS.** Supabase caps every bucket
 at a PROJECT-LEVEL global limit set in the dashboard (Project Settings →
 Storage), not in the database and not in any migration — "the global limit takes
@@ -1089,6 +1205,14 @@ Since **0088 (post-overhaul S4b)** the list the function holds is `INVOICES`,
 the eight `rabbit-thumbnails` policies (0053) moved together and none was
 restated (0088's post-condition 8 re-counts all sixteen).
 
+Since **0108 (M.O.T.H. Session 1)** the money gate itself carries the
+privacy arm: `can_access_project_money` is 0037's body with
+`passes_project_privacy(p_project)` between the workspace hop and the role
+arm, so a manager SEAT on a private project the person cannot see opens no
+budget, actual, version, expense, rate override or money / Legal object, and
+the Legal gate's money leg follows. The creator and the workspace admins keep
+it. Suite 111 proves it caller by caller; suite 95 probe 167 pins the body.
+
 Since **0092 (post-overhaul S4d)** the eight MONEY policies on both buckets
 are restated once more, with the lock unchanged and the audience split: the
 gate is `(can_access_project_money(project) OR (rabbit_legal_segment(seg)
@@ -1097,6 +1221,21 @@ audience — the money audience plus workspace managers — and an INVOICES or
 FINANCE object for the money audience alone; the eight base policies still
 negate the one list and were not touched. 0092's post-condition 5 pins all
 eight money policies WHOLE and the eight base ones by shape.
+
+Since **0115 (MO1)** the eight BASE policies on both buckets follow the file, not
+the key. Wherever a key is **claimed** (`rabbit_private.storage_object_claimed`: a
+`files` row in any trash state names it, an undrained purge-queue row naming a file,
+or the purge certificate of a moved copy), the project that answers is the one the
+row names, read **as the caller** (`storage_object_current_project`, an INVOKER), so
+`files_select` decides: a trashed file, a hidden project or a money row the caller may
+not see answers nothing, not even to an admin. An unclaimed key (a manifest, a rate
+card, a bin's poster, a fresh upload) keeps the rule it had, its second segment. For a
+picture a row names by `thumbnail_url`, only a name under the row's own project counts:
+until 0114 a client could write any text there. A picture has one namer; the pre-flight
+refuses two, and `file_key_admissible` refuses a new key whose picture another row names.
+The money and bin-poster policies were not touched (their md5s are pinned, suite 115): a
+money key's second segment is its project for ever, so a trashed invoice stays open to
+whoever may restore it.
 
 ⚠️ **`rabbit_files_invoices_select` NO LONGER EXISTS.** 0038 created the
 `rabbit_files_invoices_*` trio, 0039 rewrote them for case, and **0042 dropped
@@ -1117,14 +1256,21 @@ uploader's own objects **created within the last hour**. It exists for exactly
 one flow: an upload whose `files` row insert was then refused, cleaning up after
 itself. The unbounded version — caught in review — would have let any past
 uploader destroy or silently replace live blobs, unaudited. All other blob
-deletion goes through the GC function as `service_role`.
+deletion goes through the GC function as `service_role`. Since 0115 it also says
+`NOT storage_object_claimed`: a direct clean-up cannot remove a body a record names. It
+is no limit on a project's writer, who can rename or overwrite one through the UPDATE
+arm, as they always could. `rabbit_thumbnails_delete_own` has no such clause:
+`moveReceipt` removes a picture it could not move while its row still names it.
 
 ### 4.8 Scheduled jobs (pg_cron, all three environments)
 
 | Job | UTC | Sweeps | Retention |
 |---|---|---|---|
+| `wilson-purge-file-moves` | 04:41 | `file_moves` (MO1, 0113) | 30 days |
 | `wilson-purge-edit-history` | 04:43 | `edit_history` | 90 days |
-| `wilson-purge-soft-deleted` | 04:47 | Soft-deleted rows across 7 tables, cascading each subtree | 30 days |
+| `wilson-purge-moth-history` | 04:45 | `moth_history` (MO1, 0119) | 90 days |
+| `wilson-purge-soft-deleted` | 04:47 | Soft-deleted rows across 7 tables, cascading each subtree. An office-server operation left past the retention is closed first, so it does not hold a row or a project for ever (0121) | 30 days |
+| `wilson-purge-network-share-ops` | 04:50 | Settled `network_share_ops` (MO1, 0117) | 90 days |
 | `wilson-purge-app-events` | 04:51 | `app_events` | 90 days |
 | `wilson-purge-otter-trash` | 04:55 | Trashed O.T.T.E.R. subjects then courses | 30 days |
 | `wilson-purge-rate-limits` | 04:59 | `edge_rate_limits` windows | 1 day |
@@ -1153,14 +1299,20 @@ only matter if someone **replays a migration by hand**:
 
 | If you re-run… | You must then re-run… | Because |
 |---|---|---|
+| `0042`, `0053`, `0073` **or** `0114` | `0115` | **(MO1)** 0115 restates the eight base storage policies (0042, 0053), `workspace_petal_committed_bytes` (0073) and three of 0114's helpers (`storage_object_claimed`, `storage_object_current_project`, `file_key_admissible`). Re-running any of those without 0115 puts the key's prefix back in charge of every stored copy, or loses the moved-copies arm or the picture's arm, and 0115's pre-flight pins each by md5. |
+| `0107` **or** `0110` | `0114` | **(MO1)** 0114 restates `fn_same_project_refs_guard` (0107) without its skip, and `fn_projects_owner_guard` (0110) with the id-tied arm. Re-running either without 0114 brings the skip back or loses the arm, and 0114's preflight pins both bodies by md5. |
+| `0013`, `0084` **or** `0107` | `0110` | **(MO1)** 0110 restates `projects_insert` and `projects_delete` and the four write helpers (`can_write_project`, `can_comment_project`, `can_manage_project_roster` from 0013, `can_edit_shot_lists` from 0084) with the personal arm, and `projects_update` and `fn_projects_owner_guard` (0107) with the personal and id-reuse arms. A replay of any of them puts back a body that lets an admin write into someone's personal space, silently. 0110's pre-flight accepts 0107's guard (md5 `ab21a087…`) or its own (`b6b800f4448eb9723f4afab2e6d97ec0`), so it refuses once 0114 or 0117 have restated the guard: re-run 0107, then 0110, then those |
+| `0016`, `0018`, `0098` **or** `0101` | `0109` | **(MO1)** 0109 restates the two project-topic `realtime.messages` policies (0016) with `project_topic_matches`, `fn_workspace_realtime_broadcast` (0018) with the side flags and `AUDIENCE`, `fn_realtime_broadcast` (0098) with each side to its own project's topic, and `fn_budget_versions_broadcast` (0101) with `project_topic`. A replay of any of them puts back a channel that carries private rows, silently. 🚨 **0098 refuses after 0109** (its pre-flight accepts only 0096's body or its own): a replay of 0098 needs 0096's body back first, then 0098, then 0109 (whose pre-flight accepts 0098's md5 or its own, `cb26163e64f063de4da39c4eb316de4b`) |
+| `0012`, `0037`, `0061`, `0082`, `0088` **or** `0092` | `0108` | **(MO1)** 0108 restates `can_access_project_money` (0037) with the privacy arm, `fn_edit_history_capture` (0061) with both sides' projects and `captured_private`, `fn_edit_history_money_snapshot` (0092) with the move and gone lines, and `edit_history_select` (0012 / 0088 / 0092) with the project audience. A bare re-run of 0037 puts the money gate back without the privacy arm (a manager seat on a private project opens its money again); of 0061, the capture back without projects (new rows NULL: admins only, fails closed); of **0088 or 0092**, silently, the policy without the project arm and the snapshot without the move line, so every workspace manager reads every private project's history again. 🚨 **0092 is not re-runnable after 0108** (its post-condition 12 pins 0037's money body, post-condition 10 the old policy): the order that restores everything is 0037, then 0092, then 0108. Re-running 0108 also re-runs `edit_history_restamp()` (about 0.13 ms per history row while the table is locked); suite 111 fails meanwhile. |
+| `0013`, `0020`, `0040`, `0041`, `0044`, `0061`, `0082` **or** `0092` | `0107` | **(MO1)** 0107 restates, from the bodies deployed on wilson-dev, the client write policies of tasks, assets, folders, scenes, shots, levels, experiences, comments, project_members and task_templates, `project_members_select`, `task_templates_select`, `files_update` / `files_delete`, `milestones_update` / `milestones_delete`, `task_deps_update`, `phase_deps_update` and `projects_update`, each with the private-project hop. A bare re-run of any of those files puts its policies back without the hop, so anyone with a private project's id can write into it again; suite 110's S2 probe fails meanwhile. |
 | `0022` | `0025` **and** `0026` | 0022 recreates `fn_otter_cr_review`, `otter_courses_select`, the CR policies and `otter_course_index()` at their Session-10 definitions — and every 0022 post-condition still passes in that half-reverted state. |
 | `0002` | `0029` | 0002 recreates `workspaces_write_operator` at its `FOR ALL` definition, re-opening the defect where an operator's ordinary browser session could `DELETE FROM workspaces`. |
 | `0011` | `0030` | 0011's blanket `GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public` re-widens `custom_access_token_hook`, and its `ALTER DEFAULT PRIVILEGES … GRANT EXECUTE ON FUNCTIONS` re-arms the same trap for every function a later migration creates. |
 | `0011` | `0033` | **(S22)** 0011's `GRANT ALL ON ALL TABLES IN SCHEMA public TO anon` and its `ALTER DEFAULT PRIVILEGES … GRANT ALL ON TABLES` re-open the entire privilege spread 0033 closed — all 25 tables and the seven SECURITY DEFINER functions, plus the default that re-arms it for every table created afterwards. A bare re-run of 0011 silently undoes the whole sweep; every 0011 post-condition still passes, because 0011 has none about `anon`. |
 | `0028` | `0031` | 0028 defines `platform_audit.action` as a closed 10-value CHECK. 0031 extends it with the five `model.*` actions, so a bare re-run of 0028 makes every `operator-models` audit write fail with a check violation — and `logPlatformEvent` reports that on the error channel rather than throwing, so the write that triggered it still returns 200. |
 | `0028` **or** `0031` | `0055` | **(S41)** 0055 widens the same CHECK a second time, to 19 values, with the four `storage_plan.*` actions. **The rule now goes both ways**: a bare re-run of EITHER earlier file restores a list without them, and every `operator-storage-plans` audit write then fails the same silent way — 200 to the operator, no certificate written. 🚨 **0031's own post-condition does not notice**: it greps the constraint for `%model.approved%`, which a 0031 replay satisfies perfectly. Only 0055's post-condition checks for `storage_plan.set`. |
-| `0012`, `0014`, `0027`, `0038`, `0042`, `0047`, `0053`, `0067`, `0073`, `0074`, `0078`, `0082`, `0083` **or** `0088` | `0092` | **(Post-overhaul S4d)** 0092 restates, from each one's latest body, everything that decides which AUDIENCE a Legal thing has: the four `files_*` policies (0038 / 0083 / 0088), the eight money storage policies on both buckets (0042 / 0053), `log_file_downloaded` (0047 / 0074 / 0083 / 0088), `reserve_upload_bytes` (0073 / 0078 / 0083 / 0088), `fn_trash_authz` (0014 / 0067 / 0082 / 0088), the edit-history snapshot trigger and function and `edit_history_select` (0012 / 0088), and `file_events_select` (0027 / 0074 / 0088). What a replay does meanwhile: **0042** also drops `LEGAL` from `rabbit_money_segment`, so every project member can read every Legal object and row (0088's own row above) — re-run 0088, then 0092; **0027 / 0038** also recreate the rabbit-files BASE storage policies with no LEGAL (or FINANCE) exclusion, so every member reads every Legal object — re-run 0042 and 0053 FIRST, then 0088, then 0092 (0088's post-condition 8 and 0092's post-condition 5 refuse meanwhile); **0038 / 0083** put the files policies back on the flag-only arm (a Legal row opens to every reader — 0088's row); **0012** strips BOTH arms off `edit_history_select`, so every workspace manager reads every invoice's history (money widens); **0027 / 0074** bring back ruling 22's `purged` exception WITHOUT 0088's LEGAL carve-out, so a member reads a deleted invoice's AND a deleted Legal file's record again (0027: every event of every invoice and Legal file; 0074 also puts `log_file_downloaded` back on the flag-only arm) — re-run 0074, 0088, then 0092; **0088** puts the files policies, the three definer bodies, `edit_history_select` and `file_events_select` back on the money gate — a workspace manager loses the Legal ROWS, history, events, reservations and trash (nothing opens to the wrong person) while keeping the Legal OBJECTS (0088 restates no storage policy), the snapshot trigger stops setting `is_legal` (fails closed), and a deleted INVOICE's record is every member's again while a deleted Legal file's stays hidden (0088's own arm); **0053** puts the eight thumbnail money policies back on the money gate alone. 0088 IS replayable after 0092: 0092 changes the signature of nothing 0088 defines (its Legal verdict is a function of its own, `edit_history_file_is_legal`). 0092 calls, and does not restate, `can_access_project_money` (0037) and `passes_project_privacy` (0082); post-condition 12 pins the money body to 0037's WHOLE and post-condition 1 the Legal body WHOLE. Re-run 0092 after any of them. |
-| `0012`, `0014`, `0016`, `0027`, `0038`, `0042`, `0047`, `0061`, `0067`, `0073`, `0074`, `0077`, `0078`, `0082` **or** `0083` | `0088` | **(Post-overhaul S4b)** 0088 restates, from each one's latest body, everything that decides who learns a Legal file or an invoice exists: `rabbit_money_segment` (0042 — a replay drops `LEGAL` from the list and every project member can read a Legal object through the base storage policies), the four `files_*` policies (0038/0083 — back to the flag-only arm, so a Legal row, which is not `is_financial`, opens to every reader), `log_file_downloaded` (0047/0074/0083), `fn_trash_authz` (0014/0067/0082 — a member trashes and restores an invoice by id again), `fn_realtime_broadcast` (0016/0061/0077 — money rows broadcast whole to every project reader again), `edit_history_select` (0012), `file_events_select` (0027/0074) and, since review round 1, `reserve_upload_bytes` (0073/0078/0083 — a member could reserve a Legal key and learn whether it exists). Each has a post-condition in 0088; re-run 0088 after any of them. |
+| `0012`, `0014`, `0027`, `0038`, `0042`, `0047`, `0053`, `0067`, `0073`, `0074`, `0078`, `0082`, `0083` **or** `0088` | `0092` | **(Post-overhaul S4d)** 0092 restates, from each one's latest body, everything that decides which AUDIENCE a Legal thing has: the four `files_*` policies (0038 / 0083 / 0088), the eight money storage policies on both buckets (0042 / 0053), `log_file_downloaded` (0047 / 0074 / 0083 / 0088), `reserve_upload_bytes` (0073 / 0078 / 0083 / 0088), `fn_trash_authz` (0014 / 0067 / 0082 / 0088), the edit-history snapshot trigger and function and `edit_history_select` (0012 / 0088), and `file_events_select` (0027 / 0074 / 0088). What a replay does meanwhile: **0042** also drops `LEGAL` from `rabbit_money_segment`, so every project member can read every Legal object and row (0088's own row above) — re-run 0088, then 0092; **0027 / 0038** also recreate the rabbit-files BASE storage policies with no LEGAL (or FINANCE) exclusion, so every member reads every Legal object — re-run 0042 and 0053 FIRST, then 0088, then 0092 (0088's post-condition 8 and 0092's post-condition 5 refuse meanwhile); **0038 / 0083** put the files policies back on the flag-only arm (a Legal row opens to every reader — 0088's row); **0012** strips BOTH arms off `edit_history_select`, so every workspace manager reads every invoice's history (money widens); **0027 / 0074** bring back ruling 22's `purged` exception WITHOUT 0088's LEGAL carve-out, so a member reads a deleted invoice's AND a deleted Legal file's record again (0027: every event of every invoice and Legal file; 0074 also puts `log_file_downloaded` back on the flag-only arm) — re-run 0074, 0088, then 0092; **0088** puts the files policies, the three definer bodies, `edit_history_select` and `file_events_select` back on the money gate — a workspace manager loses the Legal ROWS, history, events, reservations and trash (nothing opens to the wrong person) while keeping the Legal OBJECTS (0088 restates no storage policy), the snapshot trigger stops setting `is_legal` (fails closed), and a deleted INVOICE's record is every member's again while a deleted Legal file's stays hidden (0088's own arm); **0053** puts the eight thumbnail money policies back on the money gate alone. 0088 IS replayable after 0092: 0092 changes the signature of nothing 0088 defines (its Legal verdict is a function of its own, `edit_history_file_is_legal`). 0092 calls, and does not restate, `can_access_project_money` (0037) and `passes_project_privacy` (0082); post-condition 12 pins the money body to 0037's WHOLE and post-condition 1 the Legal body WHOLE. Re-run 0092 after any of them. **Since 0108 (MO1):** 0092 refuses after 0108 (0108 restates the money body and `edit_history_select`); re-run 0037 first, then 0092, then 0108 (0108's row). |
+| `0012`, `0014`, `0016`, `0027`, `0038`, `0042`, `0047`, `0061`, `0067`, `0073`, `0074`, `0077`, `0078`, `0082` **or** `0083` | `0088` | **(Post-overhaul S4b)** 0088 restates, from each one's latest body, everything that decides who learns a Legal file or an invoice exists: `rabbit_money_segment` (0042 — a replay drops `LEGAL` from the list and every project member can read a Legal object through the base storage policies), the four `files_*` policies (0038/0083 — back to the flag-only arm, so a Legal row, which is not `is_financial`, opens to every reader), `log_file_downloaded` (0047/0074/0083), `fn_trash_authz` (0014/0067/0082 — a member trashes and restores an invoice by id again), `fn_realtime_broadcast` (0016/0061/0077 — money rows broadcast whole to every project reader again), `edit_history_select` (0012), `file_events_select` (0027/0074) and, since review round 1, `reserve_upload_bytes` (0073/0078/0083 — a member could reserve a Legal key and learn whether it exists). Each has a post-condition in 0088; re-run 0088 after any of them. **Since 0108 (MO1):** a re-run of 0088 puts back `edit_history_select` without 0092's Legal arm and 0108's project arm, and the snapshot without the move line; re-run 0092 (after 0037) and then 0108. |
 | `0055` | `0056` | **(S41)** 0055 grants EXECUTE on `workspace_petal_bytes(uuid)` to `authenticated`; 0056 revokes it. That function takes an arbitrary workspace id and does **no** membership check by design, so a re-run of 0055 alone re-opens an RPC returning any company's storage total to any signed-in user. ⚠️ 0055 also creates `operator_storage_plan_summary()` with a column named `suspended` (the company's teardown state) sitting beside `status` (the plan's billing hold); 0056 renames it `company_deleted`. A 0055 replay restores the ambiguous name under a `DROP`-less `CREATE FUNCTION`, which fails loudly — that one is safe. |
 | `0022` | `0100` | **(B1, 2026-10-27)** 0100 redefines `otter_subjects_select` as 0022's predicate plus ONE arm, `otter_has_accepted_subject_share(id)` (subject shares). A by-hand replay of 0022 puts the policy back without the arm: every linked subject silently stops being readable, every 0022 post-condition still passes, and 0100's own post-conditions are not re-run by a 0022 replay. Re-run 0100 after 0022 (and still 0025 and 0026, the first row). |
 
@@ -1285,6 +1437,10 @@ it*. The cost is one `INSERT` in the SQL editor when bootstrapping an
 environment.
 
 ### 5.4 `operator-workspaces`
+
+**MO1.** A teardown's collector now names a row's stored copy by `files.project_id`, because a key's prefix is where a
+file was created and not where it is, and it keeps a reserved path of a project gone but tied to the company. A failed read stops
+it (`scan_failed`), and a queue row naming no uuid goes to the refused list and stops nothing (`_shared/teardownCollect.ts`).
 
 Actions: `list`, `create`, `rename`, `admin_contact`, `send_setup_link`,
 `suspend`, `restore`, `teardown`.
@@ -1857,6 +2013,14 @@ cloud may still carry `provider = 'network'` and a `root_path`, which is
 0048's **retyping rule** — the NAS is remembered, and inert, until byos is
 re-selected.
 
+**`network_share` is a provider too, and holds no body (MO1, migration 0117).** A row with
+`storage_provider = 'network_share'` holds a locator: `nas:` and a path relative to the
+company's drive, with forward slashes. Three CHECKs keep the provider and the namespace
+together, so `nas:` means this provider and no other. The file itself stays on the company's
+server and never reaches the cloud; the desktop is its file manager (§12.7). It applies only
+where `workspace_storage` is `byos`, `network`, `unc` (`_network_share_drive`), and the drive
+path has to agree at every call: a walk from a desktop on another drive reads `drive_changed`.
+
 ### 12.1a Adding a storage provider
 
 A provider is **FIVE functions, never an adapter fork**:
@@ -1991,6 +2155,20 @@ per-file audit drawer never shows one; the workspace takeout and the
 withdrew it; suite 66 probe 27 now asserts the term and the writer land
 together.
 
+**Since 0116 (MO1) the vocabulary is thirteen terms**, in one widening: 0093's
+`viewed_remote`, and `catalogued`, `moved_out`, `moved_in`, `refiled`. Nothing
+writes the four until 0117 and 0118. A project change writes `moved_out` under
+the old project and `moved_in` under the new one, with no paths and `details`
+`{}`, each classified from both sides, so neither side learns the other's
+locator; `moved` is a locator change within one project. A person's folder change
+within a project writes `refiled` with both folder ids; a foreign key emptying a
+file's folder writes nothing, told by the folder it left being gone (an AFTER
+trigger under a foreign key's action fires at `pg_trigger_depth()` 1, so depth
+cannot tell it). An insert under this project's own catalogue check writes
+`catalogued`; that check's rows do not go on the project's channel either. An
+office-server row's certificate adds `details.body`: `company server bin`, or
+`left on the company server`.
+
 Written by `trg_files_lifecycle` → `fn_file_events_capture()` (SECURITY
 DEFINER) — and, since 0073, by `sweep_abandoned_uploads()` (SECURITY DEFINER)
 for `upload_abandoned` only, joined in 0074 (Track C / C2) by
@@ -2037,12 +2215,35 @@ no FKs on `file_id` / `project_id` — deliberately, so the certificate outlives
 its subject. Append-only is enforced three ways: zero write policies, revoked
 grants, and migration post-conditions.
 
+**A file's log from a project's private time (0116, her ruling of 2026-11-05,
+"Keep them hidden (Recommended)").** Every row carries `captured_private`, set
+by `trg_file_events_private` for every writer, whatever the writer says; DEFAULT
+true, so anything past the trigger fails closed. `file_events_select` gains the
+arm `edit_history` has since 0108: such a row is read only by a workspace admin
+or the project's creator, even after the project is opened. Rows already written
+were stamped once, by the run that added the column (`file_events_restamp`,
+revoked from every role but its owner): closed when the project is gone, when the
+row is older than its project, or when it is older than `edit_history` keeps (90
+days, so a flip after it may be gone: her second ruling that day, the same
+answer); else the project's live value when its visibility never changed in what
+is kept; else walked back through `edit_history_value_at`. Never run it again by
+hand: it would close rows stamped open once they pass 90 days. Suite 78 proves it
+caller by caller, and suite 95 pins the policy whole.
+
 **The `purged` rows are deletion certificates** (TPN-CONT-002). That is why the
 local twin, `bundle.fileEvents`, trims to 2000 events by dropping everything
 *except* `purged` rows — the deletion record is the one entry that must outlive
 churn.
 
+**A check's rows write `catalogued` (MO1, migrations 0116 and 0117).** Rows written under
+`'check:' || project` log `catalogued`, not `uploaded`, because nobody uploaded anything: the
+walk found a file that was already there. An add through the desktop's route, under
+`'op:' || id`, stays `uploaded`. A walk that finds 5,000 files writes 5,000 of them, one each.
+
 ### 12.4 Blob garbage collection
+
+**MO1.** The drain takes `pending` and `failed` rows, in that order, because 0115 keeps a failed row's key claimed until it is
+really gone. A company's bucket that has stopped answering is asked once in a run, so what follows the drain still runs.
 
 `trg_files_gc_enqueue` fires `AFTER DELETE ON files WHEN storage_provider =
 'supabase'` and inserts a `storage_gc_queue` row. The `storage-gc` Edge
@@ -2274,6 +2475,13 @@ copies where the record says.
 
 ### 12.7 The workspace drive, the NAS, and remote access (S34/S35)
 
+**The catalogue (MO1, 0117 to 0121; §13.6).** A company on its office server keeps a row per file, with only names and details in the
+cloud. A desktop walks a project's folder and the database applies what it found (`network_share_catalogue_apply`), marking
+what it did not find rather than deleting it. A delete goes to `<space>/.wilson-bin/<id>/`, and every change on the server is journalled
+first, then carried out by the desktop, then settled. The root a route trusts refuses this computer's loopback names, a Linux or remote-session
+disk, an administrative share and a personal parent. A personal folder is listed, written and read by its owner alone. The list shows what the
+person checking can open. A device name is no locator.
+
 This is the section to hand a customer who asks "how does my team reach the
 files, and what do we need to buy or set up?" The design and its measurements
 are `NETWORK_STORAGE_DESIGN.md`; this is the operational summary.
@@ -2349,6 +2557,25 @@ build is for review, light edits and anywhere-access; professional formats
 and very large files want the desktop app, which talks to the drive
 directly. A customer sizing hardware should plan on the desktop app for
 every seat that touches media.
+
+**The desktop is the office server's file manager (MO1, migration 0117).** Her answer: *it
+acts like a file manager*. Moving a row moves the real file, deleting moves it into a bin
+folder on the server (`.wilson-bin`), and restore brings it back. Each call writes the row
+first, journals an op, and leaves the desktop to move the file and settle: `done`, or
+`not_moved`, which puts the row back. An op pending over 24 hours can be settled by anyone who
+may check that space and has the folder. A move between projects, after the same 24 hours, can be
+called off (`not_moved` alone) by whoever may check both folders, who find it through
+`network_share_stale_moves` (MO1, 0118). **`_WILSON_PERSONAL/<uid>` is a person's space on the
+server**, so her answer *Yes, say so* holds: a personal space in an office-server company keeps
+its files there, in a folder the person is told about. The route is
+`POST /api/network-share/personal-space/files` in `electron/networkShare.cjs`: gated, same
+origin, the launch token, an exclusive create so it never overwrites, an exact on-disk check
+that no link leads out of the drive, a stalled upload ended after 2 minutes, and a plain
+sentence when something was left behind. `server.requestTimeout` is 0, because Node's 300 s
+would cut a large copy. **A walk is several calls.** `p_first` opens a run, only the final
+call moves *last checked*, and a file or folder renamed on the server keeps its id, because
+`gone` is read from the rows the call hit plus the rows already marked missing. Keep that join
+narrow: reading every row against the seen set took the same 5,000 from 645 ms to 5.8 s.
 
 ### 12.7a The bucket — S3-compatible storage (S37)
 
@@ -3330,13 +3557,13 @@ the activity stream cannot serve the history of a row the reader can no longer
 see. Two residuals remain, both **counted and reported by the migration at
 apply time** rather than left invisible, and both empty on dev and staging:
 
-1. **Row gated, blob not.** The base storage policies key on the PATH segment
-   and never consult `is_financial`, so a pre-existing receipt's object stays
-   under its container segment. The path can no longer be DISCOVERED (the
-   `files` row carrying it is now manager-only), but anyone already holding one
-   keeps object-level read access. Moving bytes is not a migration's job —
-   `storage.objects.name` IS the S3 key — so this needs a one-time client-side
-   mover in the shape of C3's `runAttachmentMigration`.
+1. **Row gated, blob not. Closed by 0115 (MO1).** Until then the base storage
+   policies keyed on the PATH segment and never consulted `is_financial`, so a
+   pre-existing receipt's object stayed readable under its container segment by
+   anyone already holding the path. Since 0115 a key a row names answers to that
+   row as the caller reads it, so a member who cannot read the receipt's row cannot
+   read its copy (suite 78 probes 60 and 62). The object still sits under its
+   container segment; nothing needs to move it for this.
 2. **A receipt on a customer's bucket cannot be flagged at all.**
    `files_money_provider_chk` refuses a financial row outside Supabase, so the
    backfill is scoped to `storage_provider = 'supabase'`. Without that scoping
@@ -3364,7 +3591,8 @@ documented, accepted state.
 - **`ungated_on_customer_bucket` must be 0** on any environment whose receipts
   all live in Supabase. Non-zero is residual 2: those rows need their body
   moved before they can be gated at all.
-- **`blob_outside_money_segment` is the SIZE of residual 1, not a fault.** Every
+- **`blob_outside_money_segment` counts receipts still under a container segment,
+  not a fault, and since 0115 not an exposure either.** Every
   receipt 0076 backfills lands in this count by construction — 0076 computes
   exactly it as `v_blob_outside` and **reports it as expected output**, and
   suite 78 probe 55 asserts it is true of a backfilled receipt while probe 59
@@ -3418,6 +3646,15 @@ re-lists through the adapter and hands back a blob URL, the twin of
 `InvoiceAttachment.handleOpen`. A money file's only surface is the record it
 hangs off — that is the design, and it is now true of receipts as well as
 invoices.
+
+**The office server's walk never lists money or Legal (MO1, migration 0117).**
+`network_share_locator_ok` refuses a money or Legal segment at any depth, `_DATABASES` (it
+holds money JSON from `mirrorProjectDatabases`) and the `_Receipts&Invoices` family.
+`electron/networkShare.cjs` carries the same lists as `SHARE_REFUSED_EXACT` and
+`SHARE_REFUSED_SUFFIX`, and a test holds the two equal. A short name (`ABCDEF~1`) is refused
+too, or the drive could answer to one for a money folder under a name no test would read. A
+project's folder inside the drive under such a name is refused by the owner guard; a stored one
+reads `no_folder` for its own project and stops nobody else.
 
 ### 12.10 The quota exemption is bounded by size (Track C, migration 0078)
 
@@ -4898,7 +5135,31 @@ nothing checks them before executing an action.
 
 ---
 
+### 13.6 M.O.T.H.
+
+**A link already made keeps working.** A signed link to a file, made before that file was moved or deleted, works until it expires, up to an hour. Moving or deleting a file does not call it back, and nothing on screen says so.
+
+**The page.** `src/tools/moth_v0.1.0/`, a lazy chunk: `App.jsx` reaches it only through `lazy(import())` and mounts it the first time the page is opened, and `MothPage.test.jsx` scans that nothing else imports it. It reads only through `listMothIslands`, `listMothFolders`, `listMothFiles` and `listTrashedFiles`, which the server has already stripped of money and Legal; `mothFileHidden` looks again, and is the only filter on the signed-out desktop. The same test scans the folder for any other read. Every control is a `GatedAction` on `canOnProject('project.entity.write')`, and the server asks again.
+
+**Doing things.** `state/mothFileOps.js` writes and `state/mothHistory.js` holds the undo, in memory, ten each way, cleared on an account, workspace or adapter change. A cloud move asks a plan first. A rehome or a copy-up is copied before the commit and removed if it is refused. A move on the office server commits first and renames after, and a rename that fails settles `not_moved`, which puts the row back. A browser refuses from the plan, before anything is written.
+
+**The office server on the desktop.** All behind same origin and the launch token, on a UNC drive that answers (`isShareRoot`: not a device path, and no money folder as the root), and refusing any path through a link. A write in a personal folder, and a walk of one, also asks who is calling, by the bearer token checked with the auth server (`authCheck.cjs`): `networkShareWalk.cjs` (in a worker thread, whole directories, 5,000 files, 2,000 directories, depth 8, 60 s, a folder of one frame series as one entry), `networkShareOps.cjs` (renames, a copy in, the bin's purge, a file's bytes), `networkShare.cjs` (adding to your own space, whose bearer token is checked with the auth server by `authCheck.cjs`), `shareContain.cjs`, and `rootReachable.cjs`, whose one instance Bins shares. **The renderer's half** is `state/networkShareCatalogue.js`: at most about 1,000 entries a call, a directory over one call in parts marked not complete and then whole, and the same call again while the server says `more_missing`. A delete whose file has gone settles `done`, or its row could never leave.
+
+**A desktop project.** `fileTrash.cjs` keeps a deleted file 30 days under `<folder>/.trash`, and purges when the project opens, writing nothing unless something went. A restore and a purge ask the disk where a body is, so a crash or a file held open cannot strand one, and an entry whose body cannot be seen stays for 90 days: its drive may be away. Moth's exclusion there is the page's own rule (`isMothExcluded`, held to `moneyFolderChainLocked` by a test); a file's own restore is Undo from Files and does not ask it. `fileMoves.cjs` moves between projects with a durable journal in `<rabbit-data>/moves/`, one move at a time, its copies and hashes in a worker. A failure it sees puts the bodies back and answers that nothing moved; after a crash the next start asks where things are: with the row in the destination it rolls forward, without one the bodies go home. A way back returns a row's folder and links, and says what it could not. `GET /api/rabbit/files/pending-moves` is what M.O.T.H. reads to say a move did not finish. After a copy-up to the cloud, `localMedia.cjs` keeps the local copy 30 days under `<local media root>/.trash`, journalled as `retire-<op>.json`.
+
+**A former member's files (0121).** An admin opening someone else's personal space in Files is also asked `moth_leaver_files`: empty unless that person is no longer an active member. `moth_move_leaver_files` is `moth_move_items` under a marker that `_moth_target_eligible` and `moth_can_write_target` honour only after asking `rabbit_private.personal_space_of_a_leaver` of the person calling, so Moth's own reads still show no admin anyone else's space. Into a project only, one line in the admin activity list (WIL-4115), and no undo. A file in that person's folder on the office server is not moved: `in_their_server_folder`, because only its owner's token opens that folder.
+
+**The storage notice (0121).** `workspace_storage_usage()` gives anyone but an admin `fullness` (`ok`, `nearly_full` at nine parts in ten, `full`) and no figures, and `reserve_upload_bytes` refuses them in words with no amounts. An admin's Terminal and refusals keep the figures.
+
+**What is left unfinished on the office server.** A rename nobody can say happened stays pending (`failed`, `not_verified`, no answer) and `settlePending` looks again, at sign-in, on opening M.O.T.H. and before a check. A copy-up left over is looked at: a file there settles done, none settles not_moved. `network_share_pending_mine` holds back a refused project's operations only. After 24 hours an admin may call off what a person who has left began in their own space (`network_share_stale_moves` lists it), and may only say it did not happen. A folder change inside a project on the server is refused, because the row would move and the file would not.
+
 ## 14. Who talks to whom
+
+**M.O.T.H.'s arrows (MO1).** Personal spaces and private projects' content are off every workspace realtime topic. `moth_history` is
+pull-only and on no topic, and neither it nor a personal space goes in a takeout. The moves, the trash, the catalogue and the leaver move are
+RPCs, each ending in a journal row; a desktop carries out what they say on an office server. There is no live channel for Moth yet: another
+person's change shows when the list next reads. **A join is judged when it is made (measured, Realtime v2.140.3, OUTSTANDING MO1-01):** someone deactivated or demoted goes on
+hearing a project channel they had joined until their token refreshes or runs out, each of which closes it. A new join is judged afresh.
 
 Every arrow in the system, in prose. Read this section if you read nothing
 else.
@@ -5000,6 +5261,8 @@ else.
 ---
 
 ## 15. Testing and verification
+
+**As of MO1 (2026-11-07):** 116 pgTAP suites, 6,137 checks with 0121, read by running them on wilson-dev, rolled back. The counts just below are dated history.
 
 **pgTAP** — 55 suites under `supabase/tests/rls/` (Session 20 added 39–42, one
 per model control-plane table; **Session 24 added 43–47, one per money table;
@@ -5296,6 +5559,39 @@ Everything below is *known*, not discovered by a reader. The live list is
 human actions live in `docs/OWED_AUDREY.md`; **everything currently broken and
 unfixed is `docs/OUTSTANDING.md`** (S19), which is the one to read at the start
 of a session — this section is limits by design, that file is faults.
+
+**The office server (MO1, 0117)**
+
+- **A directory over one call** reads complete only once catalogued whole. A directory over 5,000 files never reads complete, and the client must say so.
+- **A row its folder has left** cannot be trashed, restored or moved, and the folder cannot be taken by another project until it leaves. The way out is pointing the project back.
+- **A rename across calls can attach an id to a copy**, when a file of the same name, size and time is met before the original's directory has been read. The rows stay true to the files.
+- **A script on WILSON's own page can name another person's id on the add route.** Foreign pages, frames, windows and origins are closed, and a wrong drive is refused. Closed: the route takes the id from a verified bearer token.
+- **A real file with a short-name shape (`ABCDEF~1`) is not listed.** Neither is one over 2,000 bytes of path.
+
+**The record of what changed (MO1, 0119)**
+
+- **About 3,000 files is the most a folder delete fits in 8 s,** because each file writes a row. A larger one times out and nothing is deleted.
+- **A catalogue call of 1,000 new and 1,500 gone is about 6.4 s of writes** before the apply's own work. The client that walks a server sends fewer, and treats a timeout by sending less.
+- **A file left in a folder deleted under a renamed money category reads as ordinary,** live and in this record alike. The folder guard could refuse that delete, in a later migration.
+- **The purge is one plain DELETE across every company.** At a real volume, watch its time.
+
+**Moves and the Moth trash (MO1, 0118)**
+
+- **A move between projects on an office server waits for the computer that began it.** Its row moves first. If that laptop never comes back, or its owner lost a project or left, the row and the real file disagree until someone settles it. After 24 hours whoever may check both folders can find it (`network_share_stale_moves`) and call it off (`not_moved`). Only that computer can say it did move. A personal space stays its owner's, so a file leaving one needs its owner.
+- **A late laptop does not rename after a call-off.** Closed: the desktop reads what is pending from the server before it renames.
+- **A plain writer on two projects can call a move on office-server files from a browser**, which the server cannot tell from the desktop. The rows wait as above.
+- **A file in a batch half of which went back cannot be undone whole.** It answers `changed_since`, and the rest goes by Move to.
+- **Files' own delete can land on a row a move was holding**, judged by the project it was leaving. Moth's path locks first; the generic one was left, bounded and restorable.
+- **Past about 20,000 files trashed within 30 days in one company**, a member's trash view can reach the 8 s, and needs the partial index in the runbook's row.
+
+**Storage (MO1, 0115)**
+
+- **One `.list()` as a signed-in person reads the whole bucket, every company's.**
+  `storage.search` runs row security before its name filter (`LIKE` is not leakproof).
+  Measured on dev after 0115: about 1.2 ms an object, so a bucket of 5,000 objects takes
+  about 6 s a list. A signed URL looks up one object and costs about a millisecond more.
+  So nothing that runs often should list: an exact-name check is `exists()`. The shot
+  re-file and the receipt move still list (MOTH_DESIGN.md's note on 0115).
 
 **AI generation (S19)**
 
@@ -5622,10 +5918,9 @@ of a session — this section is limits by design, that file is faults.
   per-provider columns, and its CHECK is written as the general rule (petal and
   network take none; anything else must be a JSON object), so widening the
   provider CHECK permits a config with no edit here.
-- **`updateFile` still allows `storage_provider` and `storage_path` through
-  `FILE_COLUMNS`** while the Express PATCH route strips both — an S14
-  hardening applied on one backend only. Since 0050 the money invariant is
-  safe regardless (a CHECK re-validates on UPDATE), but the asymmetry stands.
+- **`updateFile` strips `storage_provider`, `storage_path` and the other guarded
+  columns (MO1, 0114)**, as the Express PATCH routes do, and the database refuses
+  them from a client (`fn_files_body_guard`). The asymmetry S14 left is gone.
 
 **Thumbnails (S39 migration 0053; ROUTING REVERSED BY S44, migration 0054)**
 
@@ -6560,8 +6855,9 @@ global Space shortcut firing from every page.
     sentence rather than a thrown stub.
   * **Deleting means two different things** and the panel now says which:
     in cloud mode it is 0014's soft delete (30-day window, still holding
-    quota); on Local Server it unlinks the body and certificates it as
-    `purged`, because there is no local trash.
+    quota); on Local Server it did unlink the body and certificate it as
+    `purged`, because there was no local trash. Since MO1 a desktop project
+    has one too, 30 days in `.trash`, and the body goes when that is up.
 
 **Documentation drift inside the product**
 
@@ -6914,6 +7210,9 @@ Panel's handle)**
 | Term | Meaning |
 |---|---|
 | **Workspace** | A company; the tenant. |
+| **Personal space** | A person's own project row (`personal_owner_id`), for files in no project yet. Nobody else sees it in M.O.T.H.; an admin opens it from Files, on the record (`WIL-4114`). |
+| **Office server** | A company's own network share as its storage (`mode = 'byos'`, `provider = 'network'`, a UNC root). WILSON keeps a catalogue of it (§12.7). |
+| **Former member** | Someone whose workspace membership is no longer active. Their personal files can be moved into a project by an admin (`WIL-4115`). |
 | **App role** | `admin` / `manager` / `user` — workspace-wide authority. |
 | **Project role** | `manager` / `reviewer` / `member` — a seat on one R.A.B.B.I.T. project. Different axis from app role. |
 | **Platform operator** | Petal Studios itself; cross-tenant; SQL-granted only. |
@@ -6946,6 +7245,8 @@ entry. `eventVocabulary.test.js` exempts exactly those three, by name.
 | `WIL-3005` / `WIL-3006` | Workspace bucket secret saved / cleared (S37; hint only, never the secret) | `app_events` |
 | `WIL-3007` | Bucket probe ran (stage + status on failure, latencies on success) | `app_events` |
 | `WIL-41xx` | Admin actions. `WIL-4101`–`4104` are written by `logAdminEvent` from an Edge Function; `WIL-4105`/`4106`/`4107` (privileges changed / membership created / membership removed) are written by the `trg_ws_members_audit` DEFINER trigger, which is what catches privilege changes made straight from the browser | `app_events` |
+| `WIL-4114` | **An admin opened someone's personal space in Files** (MO1, 0110). Written by a DEFINER, so it is evidence. |
+| `WIL-4115` | **An admin moved a former member's personal files into a project** (MO1, 0121). Names who, whose, where and how many by id, under the move's id. |
 | `WIL-4108` | **Nomination approved by its own proposer** (A4, migration 0069). Written by `otter_nomination_apply`, a DEFINER function owned by a BYPASSRLS role, in the SAME transaction as the promotion and allowed to raise — an unrecorded self-promotion rolls the promotion back with it. Self-approval is **allowed** (Audrey, 2026-09-07: a manager can already promote by hand); this is the record, not a refusal. `severity` is `warning`; `context` carries `nomination_id`, `course_id`, `course_slug`, `course_name`, `approver_app_role`, `superseded_course_id` | `app_events` |
 | `WIL-5001` / `WIL-5002` | Update check / download failure | `app_events` + Sentry |
 | `WIL-6001` / `WIL-6002` | AI request completed / failed, with model, tokens and `key_source` | `app_events` |

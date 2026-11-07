@@ -42,7 +42,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { Worker } = require('node:worker_threads');
+const { makeRootQuestions } = require('./rootReachable.cjs');
+const { classifySequence, SEQUENCE_EXTS: SEQUENCE_EXT_LIST } = require('./frameSequence.cjs');
 const ffmpeg = require('./ffmpeg.cjs');
 const { resolveContainedFilePath } = require('./pathContainment.cjs');
 const { refuseToOpen } = require('./openPath.cjs');
@@ -64,7 +65,7 @@ const GRAPHIC_EXTS = new Set(['.psd', '.psb', '.ai', '.svg', '.eps', '.indd', '.
 const VFX_EXTS = new Set(['.exr', '.dpx', '.tga', '.hdr', '.cin']);
 const DOC_EXTS = new Set(['.pdf', '.txt', '.md', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.rtf', '.pages', '.numbers']);
 // A folder whose files all share a prefix and a frame number is ONE item.
-const SEQUENCE_EXTS = new Set(['.exr', '.dpx', '.png', '.jpg', '.jpeg', '.tif', '.tiff', '.tga']);
+const SEQUENCE_EXTS = new Set(SEQUENCE_EXT_LIST);
 // Chromium decodes these natively — the only ones the stream route can PLAY
 // (as opposed to serve); the renderer decides the notice, this decides nothing.
 const BROWSER_VIDEO_EXTS = new Set(['.mp4', '.m4v', '.webm']);
@@ -213,41 +214,10 @@ function detectSequence(dir) {
   const all = entries.filter(e => e.isFile() && !e.name.startsWith('.'));
   if (all.length < 2) return null;
   if (entries.some(e => e.isDirectory() && !e.name.startsWith('.'))) return null;
-  // A few sidecars beside the frames (Thumbs.db, a render log, an .md5) do
-  // not stop the folder being a sequence (adversarial review): files whose
-  // extension is not a frame type are set aside and reported — up to three,
-  // or 5% of a big folder, never more than ten (review round 2: the floor was
-  // two, which refused the three sidecars this very comment names). Anything
-  // more, or a second frame series, and it is a folder.
-  const files = all.filter(e => SEQUENCE_EXTS.has(extOf(e.name)));
-  const sidecars = all.length - files.length;
-  if (files.length < 2) return null;
-  if (sidecars > Math.max(3, Math.floor(all.length * 0.05)) || sidecars > 10) return null;
-  let prefix = null; let sep = ''; let ext = null; let width = null;
-  const frames = [];
-  let padWidth = null; // the width of the zero-padded frames, if any
-  let unpaddedMin = Infinity; // the shortest unpadded number seen
-  for (const f of files) {
-    const m = FRAME_RE.exec(f.name);
-    if (!m) return null;
-    const e = m[4].toLowerCase();
-    if (prefix === null) { prefix = m[1]; sep = m[2]; ext = e; width = m[3].length; }
-    // One series: same prefix, separator and extension (review round 2:
-    // `img1.png` beside `img_0002.png` was accepted and reported as
-    // `img#.png`, a pattern matching neither file).
-    else if (m[1] !== prefix || e !== ext || m[2] !== sep) return null;
-    // And one padding rule: every zero-padded frame has the same width, and
-    // an unpadded number is never shorter than that width (a series may
-    // outgrow its padding — …0998, 0999, 1000 — but `img1` beside `img0002`
-    // is two series). Directory order is not frame order, so this is checked
-    // once every frame has been seen.
-    const padded = String(Number(m[3])) !== m[3];
-    if (padded) { if (padWidth === null) padWidth = m[3].length; else if (padWidth !== m[3].length) return null; }
-    else unpaddedMin = Math.min(unpaddedMin, m[3].length);
-    frames.push({ name: f.name, n: Number(m[3]) });
-  }
-  if (padWidth !== null && unpaddedMin < padWidth) return null;
-  frames.sort((a, b) => a.n - b.n);
+  // The rules and their reasons are frameSequence.cjs's, shared with the office-server walk.
+  const seq = classifySequence(all.map(e => e.name), SEQUENCE_EXT_LIST);
+  if (!seq) return null;
+  const { prefix, sep, ext, width, frames, sidecars } = seq;
   let sizeBytes = 0;
   let mtime = 0;
   for (const f of frames) {
@@ -1633,23 +1603,6 @@ function shareRootOfPath(p) {
   return isUncPath(root) ? root : null;
 }
 
-// A location root's one question, asked OFF libuv's pool (BC2, after review
-// round 1): a synchronous stat in a short-lived worker thread, which answers
-// whether the root is a folder and ends. A server that does not answer holds
-// that thread — never one of the four the main process's own files share.
-// The root is passed as data (workerData), never as code.
-const ROOT_WORKER_CODE = "const { workerData, parentPort } = require('node:worker_threads'); const fs = require('node:fs'); let ok = false; try { ok = fs.statSync(workerData).isDirectory(); } catch { ok = false; } parentPort.postMessage(ok);";
-function askRootInWorker(root) {
-  return new Promise((resolve) => {
-    let w;
-    try { w = new Worker(ROOT_WORKER_CODE, { eval: true, workerData: String(root) }); } catch { resolve(false); return; }
-    w.once('message', (ok) => resolve(ok === true));
-    w.once('error', () => resolve(false));
-    w.once('exit', () => resolve(false)); // no message: not reachable
-    w.unref();
-  });
-}
-
 function mountCloudBins(expressApp, deps) {
   const { gate, authorized, getThumbCacheDir, generateVideoThumbOnce, safeMediaContentType, probeRow } = deps;
   const localPaths = makeLocalPathStore(deps.cloudBinsLocalPaths || null);
@@ -1690,72 +1643,18 @@ function mountCloudBins(expressApp, deps) {
   function isDir(p) { try { return fs.statSync(p).isDirectory(); } catch { return false; } }
   function isFile(p) { try { return fs.statSync(p).isFile(); } catch { return false; } }
   // ── A location's ROOT, asked once and never on the main thread's clock ──
-  // Found on a real network path (BC2): Windows can hold a filesystem call
-  // on a share whose server does not answer for a long time — measured 5 s
-  // for a name that does not resolve and 42 s for an address nothing
-  // answers — and every route here runs in the desktop's MAIN process,
-  // where a synchronous call freezes the whole window. So a location's root
-  // is asked asynchronously, given ROOT_WAIT_MS to answer, and the answer is
-  // kept ROOT_TTL_MS; one question per root is in flight at a time (a pool
-  // thread waiting on a dead server is not asked again until it returns);
-  // and a clip under a root that did not answer is "not on this computer"
-  // without a call of its own. A root that answers after the limit counts
-  // from then on.
-  const ROOT_WAIT_MS = Number(deps.cloudBinsRootWaitMs) > 0 ? Number(deps.cloudBinsRootWaitMs) : 2000;
-  const ROOT_TTL_MS = Number(deps.cloudBinsRootTtlMs) > 0 ? Number(deps.cloudBinsRootTtlMs) : 15000;
-  // Review round 1: a root known to be off is asked again less often, and
-  // at most ROOT_MAX_ASKING questions are out at once — a question to a
-  // server that does not answer is held for as long as the server keeps it
-  // (42 s measured). A question past the cap waits for a free slot, inside
-  // the same ROOT_WAIT_MS.
-  //
-  // Where the question is asked (measured in the desktop app itself, after
-  // round 1): NOT on libuv's pool. Electron's main process has four pool
-  // threads, they serve the app's own files, posters and streams, and they
-  // cannot be widened from main.cjs (UV_THREADPOOL_SIZE set there read 16
-  // and changed nothing: with six such questions out, a local file read
-  // waited the full 8 s). Each question is a synchronous stat in its own
-  // short-lived worker thread instead (about 16 ms, measured): a held
-  // question holds that thread, never the pool (the same read: 2 ms).
-  // `deps.cloudBinsAskRoot(root) → Promise<boolean>` replaces it in a test.
-  const ROOT_OFF_TTL_MS = Number(deps.cloudBinsRootOffTtlMs) > 0 ? Number(deps.cloudBinsRootOffTtlMs) : 60000;
-  // Sixteen: a held question costs a parked worker thread, not a pool slot
-  // (measured: with a cap of four, six servers that do not answer kept a
-  // live share's question waiting past the limit, "not reachable").
-  const ROOT_MAX_ASKING = Number(deps.cloudBinsRootMaxAsking) > 0 ? Number(deps.cloudBinsRootMaxAsking) : 16;
-  const askRoot = typeof deps.cloudBinsAskRoot === 'function' ? deps.cloudBinsAskRoot : askRootInWorker;
-  let askingNow = 0;
-  const slotWaiters = [];
-  const takeSlot = () => (askingNow < ROOT_MAX_ASKING ? (askingNow++, Promise.resolve()) : new Promise((r) => slotWaiters.push(r)));
-  const freeSlot = () => { const next = slotWaiters.shift(); if (next) next(); else askingNow--; };
-  const rootAnswers = new Map();
-  function rootReachable(root) {
-    if (typeof root !== 'string' || !root) return Promise.resolve(false);
-    const k = root.toLowerCase();
-    const c = rootAnswers.get(k) || { ok: false, at: 0, asking: null, waiting: null };
-    if (c.waiting) return c.waiting;
-    // An off answer from ONE slow clip (`brief`) is kept as long as an on
-    // answer, not the full off time (review round 2).
-    if (c.asking || Date.now() - c.at < (c.ok || c.brief ? ROOT_TTL_MS : ROOT_OFF_TTL_MS)) return Promise.resolve(c.ok);
-    const asking = takeSlot().then(() => Promise.resolve().then(() => askRoot(root)).then((ok) => ok === true, () => false).finally(freeSlot));
-    asking.then((ok) => { rootAnswers.set(k, { ...(rootAnswers.get(k) || {}), ok, at: Date.now(), asking: null, brief: false }); });
-    // Known to be off and due again: "not reachable" at once, asked again
-    // behind it — a location that stays off costs nothing after the first
-    // time, one that comes back counts from the next question. (A root that
-    // WAS reachable is waited for, so a server that just went down is not
-    // read clip by clip.)
-    if (c.at > 0 && !c.ok) { rootAnswers.set(k, { ...c, asking }); return Promise.resolve(false); }
-    let timer = null;
-    const waiting = Promise.race([asking, new Promise((r) => { timer = setTimeout(() => r(null), ROOT_WAIT_MS); })]).then((v) => {
-      clearTimeout(timer);
-      const cur = rootAnswers.get(k) || {};
-      if (v === null) { rootAnswers.set(k, { ...cur, ok: false, at: Date.now(), waiting: null, brief: false }); return false; }
-      rootAnswers.set(k, { ...cur, waiting: null });
-      return v;
-    });
-    rootAnswers.set(k, { ...c, asking, waiting });
-    return waiting;
-  }
+  // MO1: the question machinery lives in rootReachable.cjs, with its reasons. The office-server routes
+  // ask the same instance (cloudBinsReach); a test's cloudBins* seam gets an instance of its own.
+  const anySeam = ['cloudBinsAskRoot', 'cloudBinsRootWaitMs', 'cloudBinsRootTtlMs', 'cloudBinsRootOffTtlMs', 'cloudBinsRootMaxAsking']
+    .some((name) => deps[name] !== undefined);
+  const questions = deps.cloudBinsReach && !anySeam ? deps.cloudBinsReach : makeRootQuestions({
+    askRoot: deps.cloudBinsAskRoot,
+    rootWaitMs: deps.cloudBinsRootWaitMs,
+    rootTtlMs: deps.cloudBinsRootTtlMs,
+    rootOffTtlMs: deps.cloudBinsRootOffTtlMs,
+    rootMaxAsking: deps.cloudBinsRootMaxAsking,
+  });
+  const { rootReachable, ROOT_WAIT_MS } = questions;
   // A location's root on THIS computer: its folder here, else its network
   // address once this computer's person has agreed to connect to it, else
   // none (never contacted).
@@ -1799,10 +1698,7 @@ function mountCloudBins(expressApp, deps) {
       const root = rootOf(loc);
       if (!root) continue;
       const k = root.toLowerCase().replace(/[\\/]+$/, '');
-      if (lp === k || lp.startsWith(k + '\\') || lp.startsWith(k + '/')) {
-        const c = rootAnswers.get(root.toLowerCase());
-        if (c && c.at > 0 && !c.ok) return true;
-      }
+      if ((lp === k || lp.startsWith(k + '\\') || lp.startsWith(k + '/')) && questions.knownOff(root)) return true;
     }
     return false;
   }
@@ -1812,9 +1708,7 @@ function mountCloudBins(expressApp, deps) {
       const root = rootOf(loc);
       if (!root) continue;
       const k = root.toLowerCase().replace(/[\\/]+$/, '');
-      if (lp === k || lp.startsWith(k + '\\') || lp.startsWith(k + '/')) {
-        rootAnswers.set(root.toLowerCase(), { ...(rootAnswers.get(root.toLowerCase()) || {}), ok: false, at: Date.now(), brief: true });
-      }
+      if (lp === k || lp.startsWith(k + '\\') || lp.startsWith(k + '/')) questions.markOff(root);
     }
   }
   async function mapLimit(list, limit, fn) {

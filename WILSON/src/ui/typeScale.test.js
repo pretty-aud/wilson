@@ -162,6 +162,8 @@ const offAxisWeightIn = (fragment) => isOffAxisWeight(fragment, 0);
 const T1_LANE = /^src\/tools\/(?:deck-outline-generator_v0\.514|otter_v0\.3\.1)\//;
 /** T2's lane: R.A.B.B.I.T. Landed; its scope is asserted hard below. */
 const T2_LANE = /^src\/tools\/rabbit_v0\.1\.0\//;
+/** M.O.T.H. (MO1, her ruling of 2026-11-04, "MO1 or MO2 adds it (Recommended)"). */
+const MOTH_LANE = /^src\/tools\/moth_v0\.1\.0\//;
 
 /** Any side, any width above the hairline, and arbitrary values too. */
 const OFF_BORDER = /\bborder(?:-[tblrxyse]{1,2})?-(?:[2-9]\b|\[[^\]]*\])/g;
@@ -3019,7 +3021,7 @@ describe('the inline half: every type value reads a token (T3)', () => {
       'the hard assertion no longer covers every file').toEqual([]);
     // Every in-scope file belongs to exactly one of the three lanes.
     const orphans = tree().filter((t) =>
-      !IN_T3_SCOPE(t.file) && !T1_LANE.test(t.file) && !T2_LANE.test(t.file));
+      !IN_T3_SCOPE(t.file) && !T1_LANE.test(t.file) && !T2_LANE.test(t.file) && !MOTH_LANE.test(t.file));
     expect(orphans.map((t) => t.file), 'a tool directory belongs to no lane').toEqual([]);
   });
 });

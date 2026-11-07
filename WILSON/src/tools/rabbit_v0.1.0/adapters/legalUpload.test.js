@@ -59,7 +59,7 @@ function fakeProvider(name) {
  * the project's flag. Records inserts, updates and RPCs.
  */
 const NIL = '00000000-0000-0000-0000-000000000000'
-function makeClient({ legal = true, gate = true, gateMissing = false, isPrivate = false, legalError = null, gateError = null, updateError = null, folderRow = 'folder-s1' } = {}) {
+function makeClient({ legal = true, gate = true, gateMissing = false, isPrivate = false, personalOwner = null, legalError = null, gateError = null, updateError = null, folderRow = 'folder-s1' } = {}) {
   const inserts = []
   const updates = []
   const rpcs = []
@@ -83,8 +83,8 @@ function makeClient({ legal = true, gate = true, gateMissing = false, isPrivate 
         } else if (op === 'update') {
           updates.push({ table: name, row: payload })
           result = updateError ? { data: null, error: updateError } : { data: { id: 'f1', ...payload }, error: null }
-        } else if (name === 'projects' && cols === 'is_private') {
-          result = { data: { is_private: isPrivate }, error: null }
+        } else if (name === 'projects' && /^is_private\b/.test(cols || '')) {
+          result = { data: /personal_owner_id/.test(cols) ? { is_private: isPrivate, personal_owner_id: personalOwner } : { is_private: isPrivate }, error: null }
         } else if (name === 'folders') {
           // The entity folder EXISTS (review round 1, R1-BEH-11: with no row
           // here "filed in no folder" held with or without the guard).
@@ -216,6 +216,22 @@ describe('uploadFile({ legal: true }) on a database with 0088', () => {
       .rejects.toThrow('A Legal file is never a core file: core files feed Intake and D.O.G., which the whole project reads.')
     expect(puts.length).toBe(before)
     expect(client.inserts).toEqual([])
+  })
+
+  // MO1 (0110, MOTH_DESIGN §2.2 PS-6): a personal space is is_private, and its
+  // files go to the company's storage, not to this computer.
+  it('a personal space\'s file goes to the company\'s storage (CONTROL: another private project\'s to this computer)', async () => {
+    const control = makeClient({ isPrivate: true })
+    globalThis.__testSupabase = control
+    await supabaseAdapter().uploadFile(PID, { type: 'project' }, pdf())
+    expect(puts.at(-1).provider).toBe(FILE_PROVIDERS.LOCAL_SERVER)
+
+    resetSupabaseAdapter()
+    const client = makeClient({ isPrivate: true, personalOwner: 'u1' })
+    globalThis.__testSupabase = client
+    await supabaseAdapter().uploadFile(PID, { type: 'project' }, pdf())
+    expect(puts.at(-1).provider).toBe(FILE_PROVIDERS.SUPABASE)
+    expect(client.inserts.find(i => i.table === 'files').row.storage_provider).toBe(FILE_PROVIDERS.SUPABASE)
   })
 
   it('I4: a private project keeps a Legal body in Supabase (CONTROL: an ordinary file goes to this computer)', async () => {

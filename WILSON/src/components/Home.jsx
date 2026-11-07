@@ -12,6 +12,7 @@ import {
   Users,
   LayoutDashboard,
   Terminal,
+  FolderTree,
 } from 'lucide-react'
 import { usePermissions } from '../permissions'
 
@@ -23,6 +24,7 @@ const MAIN_ITEMS = [
   { id: 'dog',              label: 'D.O.G.',          Icon: Layers },
   { id: 'otter',            label: 'O.T.T.E.R.',      Icon: GraduationCap },
   { id: 'rabbit',           label: 'R.A.B.B.I.T.',    Icon: ListChecks },
+  { id: 'moth',             label: 'M.O.T.H.',        Icon: FolderTree },
   // Session 8: the personal cross-tool surface, below the tools.
   { id: 'dashboard',        label: 'Dashboard',        Icon: LayoutDashboard },
   { id: RESOURCES_SENTINEL, label: 'Resources',        Icon: BookOpen },

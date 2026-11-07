@@ -395,6 +395,33 @@ trash can miss that project's restore event (catches up on next open).
 (The Session 7 "projects INDEX only updates live for the OPEN project"
 gap is CLOSED by the Session 8 workspace channel — §17.)
 
+**Private projects on the channels (MO1, migrations 0107 to 0109).** Write
+hops on every client write clause, the projects owner guard (who may change
+`is_private` and `created_by`, the producer rule, `topic_epoch`) and
+same-project references are 0107's; the money gate's server-only privacy arm
+and edit history's project audience (`captured_private`; a row that spans
+two projects is the admins') are 0108's. 0109 makes the channels follow
+visibility: the workspace channel never carries a private project's rows
+(a visibility flip sends one payload-free `AUDIENCE`), a move between
+projects sends each side only to its own project's topic, and the topic
+carries the project's epoch after a narrowing (`rabbit:project:{id}:{n}`,
+named by `project_topic()`, joinable only at the current epoch through
+`project_topic_matches()`). The client joins the epoch `listProjects`
+names (only once 0109 is present: the adapter probes `project_topic_matches`)
+and closes an open project the list no longer holds. Accepted: a private
+project's liveness in its creator's and the admins' other windows rests on
+the join refetch, `AUDIENCE` and the project topic. Handbook §4.5.
+
+**M.O.T.H.'s read path (MO1, migration 0111).** Moth reads only through
+`moth_islands()`, `moth_project_folders()` and `moth_project_files()`, which run
+as the caller and pass every row through `moth_can_read_target()`, so they are
+narrower than RLS: no money, no Legal, and no one else's personal space, admins
+included. One classifier decides, `moth_file_row_locked()`, which history's
+capture (0119) calls too. On the signed-out desktop there is no server, and the
+client's `mothFileHidden()` is the only filter; suite 113 and a vitest hold the
+two to the same arms. Suite 113's MATRIX lines hold the SQL write helpers and
+`canOnProject` to one table.
+
 ## 15. Revert-to-state (Session 7)
 
 The Edit History drawer (§10) gained per-entry revert, gated by

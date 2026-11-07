@@ -177,9 +177,9 @@ describe('the wiring is real — every link in the presign chain has a caller', 
   it('storage-presign gates on checkRowShapedPath and the strict === true predicate', () => {
     const fn = read('supabase', 'functions', 'storage-presign', 'index.ts')
     expect(fn).toContain('checkRowShapedPath(body.path)')
-    expect(fn).toContain("op === 'get' || op === 'head'")
-    expect(fn).toContain("'can_presign_project_read'")
-    expect(fn).toContain("'can_presign_project_write'")
+    expect(fn).toContain("'can_presign_object'")
+    expect(fn).not.toContain("'can_presign_project_read'")
+    expect(fn).not.toContain("'can_presign_project_write'")
     expect(fn).toContain('allowed !== true')
     // The prefix is applied server-side, from config — never accepted from
     // the client (0051: storage_path stays row-shaped).
@@ -413,18 +413,11 @@ function world({ readable = [PID, PID2], rows = [], signer = 'ok', guard = 'ok',
       return guard === 'ok' ? { ok: true, ctx: { callerId: 'u1' } } : { ok: false, res: 'THE_GUARD_ANSWER' }
     },
     rateLimited: async () => { calls.rate++; return limited },
-    canReadProject: async (_ctx, p) => {
-      calls.can.push(p)
-      if (readable === 'throws') throw new Error('rpc failed')
-      if (readable === 'null') return null
-      return readable.includes(p)
-    },
     // Like the real read: one folder, its own files only (not deeper), by
-    // id, a page after `afterId`. Unlike it, it does NOT filter by project,
-    // so classifyOwned's own project check is exercised. `calls.rows` counts
-    // a folder once (its first page).
-    rowPage: async (_ctx, projectId, folder, afterId, limit) => {
-      if (afterId === null) calls.rows.push({ projectId, folder })
+    // id, a page after `afterId`, as the caller, so what row security hides
+    // is simply not in `rows`. `calls.rows` counts a folder once (its first page).
+    rowPage: async (_ctx, folder, afterId, limit) => {
+      if (afterId === null) calls.rows.push({ projectId: folder.split('/')[1], folder })
       if (rowsFail) throw new Error('select failed')
       const here = rows
         .filter((r) => String(r.storage_path).startsWith(`${folder}/`) && !String(r.storage_path).slice(folder.length + 1).includes('/'))
@@ -502,25 +495,12 @@ describe('storage-read-urls — what it signs, and for how long (P1)', () => {
     expect(calls.sign).toEqual([])
   })
 
-  it.each([
-    ['false', [PID]],
-    ['null', 'null'],
-    ['a thrown error', 'throws'],
-  ])('refuses every key of a project the caller cannot read (the predicate answers %s)', async (_label, readable) => {
-    const k1 = bodyKey('a.png', PID2)
-    const k2 = thumbOf(bodyKey('b.png', PID2))
-    const { deps, calls } = world({ readable, rows: [row(k1)] })
-    const out = await handleReadUrls(reqOf({ keys: [k1, k2] }), deps)
-    expect(out.body.refused).toEqual({ [k1]: 'project', [k2]: 'project' })
-    expect(calls.sign).toEqual([])
-  })
-
-  it('asks can_presign_project_read ONCE per distinct project, however many keys', async () => {
-    const keys = [bodyKey('a.png'), bodyKey('b.png'), bodyKey('c.png'), bodyKey('d.png', PID2), bodyKey('e.png', PID2)]
-    const { deps, calls } = world({ rows: keys.map((k) => row(k)) })
-    const out = await handleReadUrls(reqOf({ keys }), deps)
-    expect(Object.keys(out.body.urls)).toEqual(keys)
-    expect([...calls.can].sort()).toEqual([PID, PID2])
+  it('asks no project: a row the caller may read vouches for its key, whichever project the key names (a moved file keeps its key)', async () => {
+    const k = bodyKey('moved.png', PID2)
+    const { deps, calls } = world({ rows: [row(k, null, PID)] })
+    const out = await handleReadUrls(reqOf({ keys: [k] }), deps)
+    expect(Object.keys(out.body.urls)).toEqual([k])
+    expect(calls.sign.length).toBe(1)
   })
 
   it('🚨 refuses a key no live row of the caller owns — a trashed file, a purged row, an object WILSON never wrote — as row', async () => {
@@ -628,15 +608,6 @@ describe('storage-read-urls — what it signs, and for how long (P1)', () => {
 describe('storage-read-urls — review round 1\'s corrections (P1)', () => {
   beforeEach(() => { bodyReads = 0 })
 
-  it('🚨 a row vouches only for a key in ITS OWN project: a row in another project naming this key signs nothing', async () => {
-    const k = bodyKey('trashed.mov')
-    // A writer of PID2 made a row there whose storage_path is a PID key.
-    const { deps, calls } = world({ rows: [row(k, thumbOf(k), PID2)] })
-    const out = await handleReadUrls(reqOf({ keys: [k, thumbOf(k)] }), deps)
-    expect(out.body.refused).toEqual({ [k]: 'row', [thumbOf(k)]: 'row' })
-    expect(calls.sign).toEqual([])
-  })
-
   it('🚨 the streaming hour is for what streams: a PDF or a still asked to stream is read once', async () => {
     const pdf = bodyKey('script.pdf')
     const still = bodyKey('plate.PNG')
@@ -727,7 +698,7 @@ describe('storage-read-urls — review round 2\'s corrections (P1)', () => {
   it('a folder over the bound fails the whole call closed: 500, nothing signed', async () => {
     const k = bodyKey('a.png')
     const { deps, calls } = world({ rows: [row(k)] })
-    deps.rowPage = async (_c, _p, _f, afterId) => (afterId ? [] : folderOfRows(READ_URLS_MAX_FOLDER_ROWS + 1))
+    deps.rowPage = async (_c, _f, afterId) => (afterId ? [] : folderOfRows(READ_URLS_MAX_FOLDER_ROWS + 1))
     const out = await handleReadUrls(reqOf({ keys: [k] }), deps)
     expect(out.status).toBe(500)
     expect(calls.sign).toEqual([])
@@ -760,7 +731,7 @@ describe('storage-read-urls — the wiring is real (P1)', () => {
     expect(code).toContain('requireActiveMember(req)')
     expect(code).toContain("isRateLimited(ctx.admin, 'storage-read-urls', ctx.callerId")
     expect(code).toContain("envInt('STORAGE_READ_URLS_RPM', 120)")
-    expect(code).toContain("asCaller().rpc('can_presign_project_read', { p_project: projectId })")
+    expect(code).not.toContain("can_presign_project_read")
     expect(code).toMatch(/asCaller\(\)\s*\.from\('files'\)/)
     expect(code).toContain(".select('id, project_id, storage_path, thumbnail_url')")
     // Directly in the folder, by cursor (round 2, finding 1).
@@ -768,7 +739,7 @@ describe('storage-read-urls — the wiring is real (P1)', () => {
     expect(code).toContain("if (afterId) q = q.gt('id', afterId)")
     expect(code).toContain("await q.order('id').limit(limit)")
     expect(code).not.toContain('.range(')
-    expect(code).toContain(".eq('project_id', projectId)")
+    expect(code).not.toContain(".eq('project_id', projectId)")
     expect(code).toContain(".eq('storage_provider', 's3')")
     expect(code).toContain(".is('deleted_at', null)")
     // By folder, never by key: no filename in the query string (round 1, 4).

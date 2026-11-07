@@ -61,6 +61,7 @@ import {
   Toolbar, useToast,
 } from '../../ui'
 import { useWorkspaceMembers, isOwnAvatarUrl } from './useWorkspaceMembers'
+import { personalSpacesAvailable, isPersonalSpace } from '../../cloud/personalSpace'
 import { useRateCard, computeEntryTotal } from '../RateCard/useRateCard'
 import { useRateCardAccess } from '../RateCard/useRateCardAccess'
 import { atLeast } from '../../permissions/roleMatrix'
@@ -153,6 +154,20 @@ function formatMoney(value, currency) {
   }
 }
 
+// The Assigned-projects column: each person's projects, by title. MO1 (0110): a
+// seat whose project this reader cannot see (an embed of null) or on a personal
+// space is nobody's assignment, so no 'Untitled' and no 'Personal space'.
+export function assignmentsFromSeats(rows) {
+  const map = new Map()
+  for (const row of rows || []) {
+    if (!row.projects || row.projects.deleted_at || isPersonalSpace(row.projects)) continue
+    const list = map.get(row.user_id) || []
+    list.push(row.projects.title || 'Untitled')
+    map.set(row.user_id, list)
+  }
+  return map
+}
+
 export default function TeamMembersPage() {
   const wm = useWorkspaceMembers()
   const rc = useRateCard()
@@ -223,22 +238,22 @@ export default function TeamMembersPage() {
       try {
         // Dev fixtures (dev builds only): the dataset's roster, same row shape.
         const fx = import.meta.env.DEV ? devFixtures() : null
+        // MO1 (0110): personal_owner_id joins the embed where the column exists.
+        // A seat whose project this reader cannot see (an embed of null) or on
+        // a personal space is nobody's assignment: neither is drawn. "Not now"
+        // (null) reads nothing rather than risk drawing one.
+        const personal = fx?.workspace ? true : await personalSpacesAvailable(supabase)
+        if (!assignMountedRef.current || seq !== assignSeqRef.current) return
+        if (personal === null) { setAssignments(new Map()); return }
         const { data, error } = fx?.workspace
           ? fx.workspace.listProjectMemberships()
           : await supabase
             .from('project_members')
-            .select('user_id, project_id, projects(title, deleted_at)')
+            .select(`user_id, project_id, projects(title, deleted_at${personal ? ', personal_owner_id' : ''})`)
             .eq('workspace_id', wm.workspaceId)
         if (!assignMountedRef.current || seq !== assignSeqRef.current) return
         if (error) { setAssignments(new Map()); return }
-        const map = new Map()
-        for (const row of data || []) {
-          if (row.projects?.deleted_at) continue
-          const list = map.get(row.user_id) || []
-          list.push(row.projects?.title || 'Untitled')
-          map.set(row.user_id, list)
-        }
-        setAssignments(map)
+        setAssignments(assignmentsFromSeats(data))
       } catch {
         if (assignMountedRef.current && seq === assignSeqRef.current) setAssignments(new Map())
       }

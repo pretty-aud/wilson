@@ -327,6 +327,24 @@ export function googleDriveAdapter() {
       return res.blob();
     },
 
+    // MO1 (0110): Drive keeps no personal space.
+    async supportsPersonalSpaces() { return false; },
+    async listPersonalSpaces() { return []; },
+    ensurePersonalSpace:       readOnly('ensurePersonalSpace'),
+    planFileMove:              readOnly('planFileMove'),
+    moveFiles:                 readOnly('moveFiles'),
+    moveFilesInProject:        readOnly('moveFilesInProject'),
+    moveFilesBetweenProjects:  readOnly('moveFilesBetweenProjects'),
+    undoFileMove:              readOnly('undoFileMove'),
+    trashFiles:                readOnly('trashFiles'),
+    restoreFiles:              readOnly('restoreFiles'),
+    async listTrashedFiles() { return []; },
+    recordPersonalSpaceOpened: readOnly('recordPersonalSpaceOpened'),
+    // MO1 (0111): Moth has nothing to show on Drive.
+    async listMothIslands() { return []; },
+    async listMothFolders() { return []; },
+    async listMothFiles() { return []; },
+
     // ── Writes (all throw) ────────────────────────────────────
     createProject:        readOnly('createProject'),
     updateProject:        readOnly('updateProject'),

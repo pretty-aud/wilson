@@ -1,0 +1,51 @@
+/* M.O.T.H. Session 1's page: the kit's tokens, nothing of its own. */
+.moth-page {
+  display: flex;
+  gap: var(--spacing-gutter);
+  height: 100%;
+  min-height: 0;
+  padding: 16px var(--spacing-gutter) var(--spacing-gutter);
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+}
+.moth-side {
+  display: flex;
+  flex: 0 0 240px;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+}
+.moth-islands { display: flex; flex-direction: column; gap: 4px; }
+.moth-island {
+  padding: 6px 8px;
+  border: 0;
+  background: none;
+  color: var(--color-ink-2);
+  font-size: var(--text-dense);
+  text-align: left;
+  cursor: pointer;
+}
+.moth-island:hover { color: var(--color-ink); }
+.moth-island.is-open { color: var(--color-ink); background-color: var(--color-paper-2); }
+.moth-main {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  overflow-y: auto;
+}
+.moth-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.moth-search { flex: 1 1 200px; min-width: 0; padding: 4px 8px; font-size: var(--text-dense); }
+.moth-rows { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.moth-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: var(--text-dense);
+}
+.moth-row-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.moth-quiet { color: var(--color-ink-2); font-size: var(--text-dense); }
+.moth-personal { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.moth-field { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; font-size: var(--text-dense); }

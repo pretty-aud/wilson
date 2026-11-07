@@ -45,7 +45,7 @@ const here = dirname(fileURLToPath(import.meta.url))
 const read = (rel) => readFileSync(resolve(here, rel), 'utf8').replace(/\r\n/g, '\n')
 
 // App's order (renderAllPages): the registry's ids, D.O.G. second.
-const ORDER = ['home', 'dog', 'otter', 'rabbit', 'settings', 'project-manager', 'rate-card', 'team-members', 'project-files', 'dashboard', 'admin-terminal', 'help']
+const ORDER = ['home', 'dog', 'otter', 'rabbit', 'moth', 'settings', 'project-manager', 'rate-card', 'team-members', 'project-files', 'dashboard', 'admin-terminal', 'help']
 
 // O.T.T.E.R.'s own main as it draws it (Otter.jsx; its markup pinned below).
 function OtterLike({ currentPage }) {

@@ -50,6 +50,8 @@ const SEAMS = [
   'cloud/auth/InviteMemberDialog.jsx',
   // GW1 (2026-10-10): the file gateway's calls answer from the fixtures.
   'cloud/gatewayApi.js',
+  // MO1: `?storage=network`, a company on its office server.
+  'cloud/workspaceStorage.js',
   'components/AdminTerminal/MultiInviteDialog.jsx',
   'components/TeamMembers/TeamMembersPage.jsx',
   'components/TeamMembers/useWorkspaceMembers.js',
@@ -185,7 +187,11 @@ describe('the dev fixtures switch is gated on import.meta.env.DEV', () => {
       // (tableViewsModel.js, pure), so the fake cloud keeps 0098's caps,
       // CHECKs, revisions, reorder, sweep and last used map as the database
       // does.
-      'tools/rabbit_v0.1.0/state/tableViewsModel']
+      'tools/rabbit_v0.1.0/state/tableViewsModel',
+      // MO1 (0111): the money key and folder-chain rule (storage/index.js is the
+      // provider vocabulary, with no imports), so the fake cloud's Moth reads
+      // hide what the database's classifier hides.
+      'tools/rabbit_v0.1.0/storage/index']
     for (const f of devFiles.filter(inFixturesDir)) {
       const external = (read(f).match(/from '(\.\.\/){2,}[^']+'/g) || [])
         .map((m) => m.slice(6, -1).replace(/^(\.\.\/)+/, ''))
@@ -203,6 +209,8 @@ describe('the dev fixtures switch is gated on import.meta.env.DEV', () => {
     // the first cut's `[^;\n]*` stopped at the first one).
     const importsSomething = (s) => /\bimport\b|\bexport\s*(?:\*(?:\s*as\s+[\w$]+)?|\{[^}]*\})\s*from\b|\brequire\s*\(/.test(codeOf(s))
     expect(importsSomething(read(join(SRC, 'tools/rabbit_v0.1.0/fileTags.js')))).toBe(false)
+    // MO1's loosening (0111), proven the same way: the provider vocabulary imports nothing.
+    expect(importsSomething(read(join(SRC, 'tools/rabbit_v0.1.0/storage/index.js')))).toBe(false)
     // The GW1 loosening, proven the same way: gatewayWords imports nothing.
     expect(importsSomething(read(join(SRC, 'components/settings/gatewayWords.js')))).toBe(false)
     // The GW3 loosening, proven the same way: gatewayDoors imports nothing.

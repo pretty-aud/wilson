@@ -9,7 +9,7 @@
 -- seeded here — project_a stays unstaffed, as every other suite assumes.
 
 BEGIN;
-SELECT plan(26);
+SELECT plan(31);
 
 SELECT * FROM tests.rls_setup();
 
@@ -600,6 +600,68 @@ SELECT ok(
   ),
   'anon holds no table privilege on project_members'
 );
+
+-- ═════════════════════════════════════════════════════════════════════════
+-- MO1 (2026-11-04, migration 0110): a personal space has one seat, its
+-- owner's, as manager (fn_project_members_personal_guard, every caller); a
+-- member reads none of its seats (0107's hop), the admin reads it.
+-- ═════════════════════════════════════════════════════════════════════════
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+INSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at,
+                        raw_app_meta_data, raw_user_meta_data, aud, role,
+                        instance_id, created_at, updated_at)
+VALUES
+  ('18180000-0000-0000-0000-0000000000c1', 'mo1_z@test.local', crypt('testpw', gen_salt('bf')), now(),
+   '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
+   'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000', now(), now()),
+  ('18180000-0000-0000-0000-0000000000c2', 'mo1_w@test.local', crypt('testpw', gen_salt('bf')), now(),
+   '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
+   'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000', now(), now())
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.workspace_members (workspace_id, user_id, app_role, username, display_name, is_active)
+VALUES
+  ('11111111-1111-1111-1111-111111111111', '18180000-0000-0000-0000-0000000000c1', 'user', 'mo1_z', 'MO1 Z', true),
+  ('11111111-1111-1111-1111-111111111111', '18180000-0000-0000-0000-0000000000c2', 'user', 'mo1_w', 'MO1 W', true)
+ON CONFLICT (workspace_id, user_id) DO NOTHING;
+INSERT INTO public.projects (id, workspace_id, title, is_private, personal_owner_id, created_by) VALUES
+  ('18180000-0000-0000-0000-0000000000d1', '11111111-1111-1111-1111-111111111111', 'Personal space', true,
+   '18180000-0000-0000-0000-0000000000c1', '18180000-0000-0000-0000-0000000000c1');
+
+SELECT lives_ok($$
+  INSERT INTO public.project_members (project_id, user_id, project_role)
+  VALUES ('18180000-0000-0000-0000-0000000000d1', '18180000-0000-0000-0000-0000000000c1', 'manager')
+$$, 'MO1: the owner''s seat, as manager, is the one a personal space takes');
+SELECT throws_ok($$
+  INSERT INTO public.project_members (project_id, user_id, project_role)
+  VALUES ('18180000-0000-0000-0000-0000000000d1', '18180000-0000-0000-0000-0000000000c2', 'member')
+$$, '42501', NULL, 'MO1: no colleague is seated on it, by any caller');
+SELECT throws_ok($$
+  UPDATE public.project_members SET project_role = 'member'
+   WHERE project_id = '18180000-0000-0000-0000-0000000000d1' AND user_id = '18180000-0000-0000-0000-0000000000c1'
+$$, '42501', NULL, 'MO1: the owner''s seat stays manager');
+
+CREATE FUNCTION pg_temp.mo1_as(p_uid UUID, p_app_role TEXT, p_ws UUID DEFAULT '11111111-1111-1111-1111-111111111111')
+RETURNS VOID LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM set_config('request.jwt.claims', json_build_object(
+    'sub', p_uid, 'role', 'authenticated',
+    'app_metadata', json_build_object('workspace_id', p_ws, 'app_role', p_app_role))::text, true);
+  PERFORM set_config('role', 'authenticated', true);
+END;
+$$;
+
+SELECT pg_temp.mo1_as('18180000-0000-0000-0000-0000000000c2', 'user');
+SELECT is((SELECT count(*)::int FROM public.project_members WHERE project_id = '18180000-0000-0000-0000-0000000000d1'),
+  0, 'MO1: a member reads none of a colleague''s personal-space seats');
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT pg_temp.mo1_as('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'admin');
+SELECT is((SELECT count(*)::int FROM public.project_members WHERE project_id = '18180000-0000-0000-0000-0000000000d1'),
+  1, 'MO1: the admin reads its one seat');
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
 
 SELECT * FROM finish();
 ROLLBACK;

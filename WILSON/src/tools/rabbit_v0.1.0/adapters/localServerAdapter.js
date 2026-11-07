@@ -17,6 +17,7 @@ import { describeSourceFile } from '../storage/mediaMetadata';
 
 import { byMilestoneDate } from '../state/milestoneOrder';
 import { splitSetAside } from '../state/setAside';
+import { moneyFolderChainLocked, MONEY_SEGMENTS } from '../storage/index.js';
 
 // B3 (Track B): every request below goes to the desktop loopback server, which
 // refuses /api without the per-launch token. localFetch attaches the header;
@@ -29,6 +30,16 @@ import { compareItems } from '../state/taskItemsModel.js';
 import { compareViewRows, compareGroupingRows } from '../state/tableViewsModel.js';
 
 const BASE = '/api/rabbit';
+
+// A route's sentence as a person reads it: the '[localServer]' prefix is for a log.
+const plainly = (call) => async (...args) => {
+  try {
+    return await call(...args);
+  } catch (err) {
+    err.message = String(err?.message ?? err).replace(/^\[localServer\] /, '');
+    throw err;
+  }
+};
 
 let lastError  = null;
 let lastSyncAt = null;
@@ -71,6 +82,17 @@ async function jfetch(url, init) {
 // Supabase does it with `.order('path')`; the local bundle is a plain array,
 // so it is sorted here. Copied rather than sorted in place — the caller owns
 // the bundle and mutating it would reorder the file on the next write.
+// MO1 (0111): a project the desktop no longer holds is an empty answer for Moth,
+// as a hidden or missing project is on the cloud.
+async function mothBundle(projectId) {
+  try {
+    return await jfetch(`${BASE}/projects/${projectId}`);
+  } catch (err) {
+    if (err?.status === 404) return null;
+    throw err;
+  }
+}
+
 function sortByPath(rows) {
   return [...(rows || [])].sort((a, b) => String(a.path).localeCompare(String(b.path)))
 }
@@ -194,6 +216,82 @@ export function localServerAdapter() {
 
     // ── Projects ──────────────────────────────────────────────
     listProjects: () => jfetch(`${BASE}/projects`),
+
+    // MO1 (MOTH_DESIGN §2.2 DT-1): the signed-out desktop's one personal space
+    // per computer and OS user. The existing project routes serve it by its id.
+    supportsPersonalSpaces: async () => true,
+    async ensurePersonalSpace() {
+      const project = await jfetch(`${BASE}/personal-space`, { method: 'POST' });
+      return project?.id ?? null;
+    },
+    async listPersonalSpaces() {
+      const body = await jfetch(`${BASE}/personal-space`);
+      return body?.project ? [body.project] : [];
+    },
+    // No admins here, so nobody opens someone else's.
+    async recordPersonalSpaceOpened() {},
+
+    // MO1 (0111, MOTH_DESIGN §2.2): Moth's reads on the signed-out desktop. It
+    // has no roles, so everything here is the one person's and writable. There
+    // is no server to strip money and Legal either: the Moth page passes every
+    // file row through mothFileHidden, and the folders are filtered here.
+    async listMothIslands() {
+      // An unreadable personal bundle costs the person their space, not their
+      // projects (the Files page treats it the same way).
+      const [projects, personal] = await Promise.all([
+        jfetch(`${BASE}/projects`),
+        jfetch(`${BASE}/personal-space`).catch((err) => {
+          if (err?.status === 409) return null;
+          throw err;
+        }),
+      ]);
+      const island = (p, mine) => ({
+        id: p.id, title: p.title, is_personal: mine, is_mine: mine, is_private: mine || !!p.is_private,
+        my_project_role: null, is_staffed: false, can_write: true, updated_at: p.updated_at ?? null,
+      });
+      return [
+        ...(personal?.project ? [island(personal.project, true)] : []),
+        ...(projects || []).filter(p => !p.deleted_at).map(p => island(p, false)),
+      ];
+    },
+    async listMothFolders(projectId) {
+      const rows = (await mothBundle(projectId))?.folders || [];
+      return sortByPath(rows.filter(f => !moneyFolderChainLocked(f.id, rows)));
+    },
+    // The cloud's keyset and clamp, so a page means the same on both. A managed
+    // file (an asset's, a shot's) is an ordinary files row in the cloud, so it is
+    // listed here too, marked: it has no folder and does not move between
+    // projects (§1.3 I-6).
+    // What mothFileHidden cannot read from a row. There is no server here to have removed money and Legal
+    // first, so these are the only way the page knows a receipt by its expense, or a folder by its chain.
+    async mothHiddenFacts(projectId) {
+      const bundle = await mothBundle(projectId);
+      const slug = bundle?.project?.folder_slug || bundle?.project?.slug || null;
+      return {
+        expenseFileIds: (bundle?.expenses || []).flatMap(e => (Array.isArray(e.file_ids) ? e.file_ids : [])),
+        localMoneyDirs: slug ? [`${slug}_RECEIPTS&INVOICES`, `${slug}_CREWINVOICES`, `${slug}_TALENTINVOICES`] : [],
+        folders: bundle?.folders || [],
+      };
+    },
+    async listMothFiles(projectId, after = null, limit = 500) {
+      const bundle = await mothBundle(projectId);
+      const rows = [
+        ...(bundle?.files || []),
+        ...(bundle?.managedFiles || []).filter(m => !m.deleted_at).map(m => ({
+          id: m.id, project_id: projectId, folder_id: null,
+          name: m.file_name || m.original_name || m.stored_name || 'file',
+          mime_type: m.mime_type ?? null, size_bytes: m.size_bytes ?? null, kind: 'source',
+          tags: m.tags || [], storage_provider: m.storage_provider || 'local_managed', storage_path: null,
+          uploaded_at: m.uploaded_at ?? null, updated_at: m.updated_at ?? null, managed: true,
+        })),
+      ];
+      // A desktop key's first segment is what isMoneyKey's third is in the cloud (fileTrash.cjs's rule).
+      const moneyKey = (f) => MONEY_SEGMENTS.includes(String(f.storage_path ?? '').split('/')[0].toUpperCase());
+      return rows
+        .filter(f => !f.deleted_at && !moneyKey(f) && (after == null || String(f.id) > String(after)))
+        .sort((a, b) => (String(a.id) < String(b.id) ? -1 : 1))
+        .slice(0, Math.min(Math.max(Number(limit) || 500, 1), 1000));
+    },
 
     async loadProject(id) {
       const bundle = await jfetch(`${BASE}/projects/${id}`);
@@ -516,6 +614,33 @@ export function localServerAdapter() {
       if (!file?.id || !file?.project_id) return null;
       return `${BASE}/projects/${encodeURIComponent(file.project_id)}/files/${encodeURIComponent(file.id)}/download?download=1`;
     },
+
+    // MO1 (MOTH_DESIGN §1.8, §1.9): this computer's 30-day trash and moves (fileTrash.cjs, fileMoves.cjs). The
+    // routes need a project, which a cloud row carries and the local calls are told.
+    restoreFile: plainly((id, projectId) => jfetch(`${BASE}/projects/${projectId}/files/${id}/restore`, { method: 'POST' })),
+    restoreManagedFile: async (id, projectId) => jfetch(`${BASE}/projects/${projectId}/managed-files/${id}/restore`, { method: 'POST' }),
+    trashFiles: plainly((ids, projectId) => jfetch(`${BASE}/projects/${projectId}/files/trash`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
+    })),
+    restoreFiles: plainly((ids, projectId) => jfetch(`${BASE}/projects/${projectId}/files/restore`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
+    })),
+    listTrashedFiles: async ({ projectIds = [] } = {}) => {
+      const lists = await Promise.all(projectIds.map((id) => jfetch(`${BASE}/projects/${id}/trash`)));
+      return lists.flat().sort((a, b) => (a.deleted_at < b.deleted_at ? 1 : -1));
+    },
+    purgeExpiredTrash: async (projectId) => jfetch(`${BASE}/projects/${projectId}/trash/purge-expired`, { method: 'POST' }),
+    moveFilesInProject: plainly((ids, projectId, folderId = null) => jfetch(`${BASE}/projects/${projectId}/files/move`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, folder_id: folderId }),
+    })),
+    // `back` is what an earlier move's answer said its rows left behind (`before`): a way back returns it.
+    moveFilesBetweenProjects: plainly((ids, fromProject, toProject, toFolder = null, { back = null } = {}) => jfetch(`${BASE}/files/move-between-projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids, from_project: fromProject, to_project: toProject, to_folder: toFolder, back }),
+    })),
+    // A move a crash or an unplugged drive left unfinished: which projects and how many files.
+    listPendingMoves: async () => (await jfetch(`${BASE}/files/pending-moves`))?.moves ?? [],
 
     deleteFile: async (id, projectId) => jfetch(`${BASE}/projects/${projectId}/files/${id}`, { method: 'DELETE' }),
 

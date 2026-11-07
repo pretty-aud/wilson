@@ -54,7 +54,7 @@ const total = (cols, keys) => keys.reduce((n, k) => n + pct(cols[k]), 0)
 
 describe('the registry', () => {
   it('holds every page the app can reach, each one complete', () => {
-    expect(PAGES.length).toBe(12)
+    expect(PAGES.length).toBe(13)
     for (const p of PAGES) {
       expect(typeof p.id, p.id).toBe('string')
       expect(p.title, p.id).toBeTruthy()
@@ -110,7 +110,7 @@ describe('nav columns', () => {
   it('splits the twelve pages across exactly two columns', () => {
     const primary = PAGES.filter((p) => p.nav === 'primary').map((p) => p.id)
     const resources = PAGES.filter((p) => p.nav === 'resources').map((p) => p.id)
-    expect(primary).toEqual(['home', 'dog', 'otter', 'rabbit', 'dashboard', 'settings'])
+    expect(primary).toEqual(['home', 'dog', 'otter', 'rabbit', 'moth', 'dashboard', 'settings'])
     expect(resources).toEqual(['project-manager', 'rate-card', 'team-members', 'project-files', 'admin-terminal', 'help'])
     expect([...primary, ...resources].sort()).toEqual([...PAGE_IDS].sort())
   })
@@ -225,7 +225,7 @@ describe('surface and chrome say what the page PAINTS today', () => {
     // (the worked example) and lane C does the other five. A page listed here
     // early renders its own dark-on-dark text, so this list is the schedule.
     expect(dark).toEqual([
-      'dog', 'otter', 'rabbit',
+      'dog', 'otter', 'rabbit', 'moth',
       // lane C, C2: converted with its own inks in the same commit
       'dashboard',
       // lane C, C1: same rule, same commit
@@ -247,16 +247,16 @@ describe('surface and chrome say what the page PAINTS today', () => {
   })
 
   it('only the three tools take the tool chrome, and only Home takes none', () => {
-    expect(PAGES.filter((p) => p.chrome === 'tool').map((p) => p.id)).toEqual(['dog', 'otter', 'rabbit'])
+    expect(PAGES.filter((p) => p.chrome === 'tool').map((p) => p.id)).toEqual(['dog', 'otter', 'rabbit', 'moth'])
     expect(PAGES.filter((p) => p.chrome === 'none').map((p) => p.id)).toEqual(['home'])
     // A subtitle is the tool wordmark's expansion and nothing else has one.
-    expect(PAGES.filter((p) => p.subtitle).map((p) => p.id)).toEqual(['dog', 'otter', 'rabbit'])
+    expect(PAGES.filter((p) => p.subtitle).map((p) => p.id)).toEqual(['dog', 'otter', 'rabbit', 'moth'])
   })
 
   it('every page wrapper in App.jsx comes from the registry, not a literal', () => {
     // Twelve PageSurface calls, one per page, and no hand-written scroll-class
     // wrapper left to disagree with the registry's surface.
-    expect((appSrc.match(/<PageSurface id="/g) || []).length).toBe(12)
+    expect((appSrc.match(/<PageSurface id="/g) || []).length).toBe(13)
     for (const id of PAGE_IDS) expect(appSrc, id).toContain(`<PageSurface id="${id}"`)
     expect(appSrc).not.toMatch(/className="wilson-(light|dark)-scroll" style=\{\{ display: currentPage/)
   })

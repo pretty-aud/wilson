@@ -31,7 +31,7 @@
 -- =========================================================================
 BEGIN;
 
-SELECT plan(22);
+SELECT plan(23);
 
 SELECT * FROM tests.rls_setup();
 
@@ -377,6 +377,18 @@ SELECT ok(
   ),
   'anon holds no table privilege on folders'
 );
+
+-- MO1 (0113): the composite key on (parent_id, project_id) binds even the
+-- runner, whom no guard stops (suite 110 pins a client's refusal, suite 114 the rest).
+RESET ROLE;
+SELECT set_config('request.jwt.claims', '{}', true);
+INSERT INTO public.folders (id, project_id, kind, slug, path)
+VALUES ('f0000000-0000-0000-0000-0000000000b1'::uuid, 'bbbb2222-0000-0000-0000-000000000001', 'root', 'Project-B', '');
+SELECT throws_ok($$
+  INSERT INTO public.folders (id, project_id, parent_id, kind, slug, path)
+  VALUES ('f0000000-0000-0000-0000-0000000000b2'::uuid, 'aaaa1111-0000-0000-0000-000000000001',
+          'f0000000-0000-0000-0000-0000000000b1'::uuid, 'custom', 'x', 'x')
+$$, '23503', NULL, '0113: a folder cannot have a parent in another project');
 
 SELECT * FROM finish();
 ROLLBACK;

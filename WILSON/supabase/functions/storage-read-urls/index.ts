@@ -55,22 +55,16 @@ Deno.serve(async (req: Request) => {
     rateLimited: (ctx) => isRateLimited(ctx.admin, 'storage-read-urls', ctx.callerId,
       envInt('STORAGE_READ_URLS_RPM', 120), 60),
 
-    canReadProject: async (_ctx, projectId) => {
-      const { data, error } = await asCaller().rpc('can_presign_project_read', { p_project: projectId })
-      return error ? false : data
-    },
-
     // BY FOLDER, never by key (review round 1, finding 4): the patterns hold
     // only the key's folder — ids and an entity word — so no filename travels
     // in the query string or lands in an API log. DIRECTLY in the folder (a
     // scene's folder does not pull in its shots' files: review round 2,
     // finding 1). One page after `afterId`; readUrls.ts walks the pages to
     // the first empty one and matches the keys.
-    rowPage: async (_ctx, projectId, folder, afterId, limit) => {
+    rowPage: async (_ctx, folder, afterId, limit) => {
       let q = asCaller()
         .from('files')
         .select('id, project_id, storage_path, thumbnail_url')
-        .eq('project_id', projectId)
         .eq('storage_provider', 's3')
         .is('deleted_at', null)
         .like('storage_path', `${folder}/%`)

@@ -17,6 +17,11 @@ SELECT has_column('public', 'files', 'duration_sec', 'files.duration_sec exists'
 SELECT has_column('public', 'files', 'source_modified_at', 'files.source_modified_at exists');
 SELECT col_is_null('public', 'files', 'duration_sec', 'files.duration_sec is nullable');
 
+-- MO1 (0114): a member's row names a stored copy already in the bucket, as an upload leaves it.
+INSERT INTO storage.objects (bucket_id, name, owner_id) VALUES
+  ('rabbit-files', 'projects/aaaa1111-0000-0000-0000-000000000001/assets/a1/10-clip.mov', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
+  ('rabbit-files', 'projects/aaaa1111-0000-0000-0000-000000000001/assets/a1/11-still.png', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+
 -- user_a: admin of workspace A (rls_setup), in the JWT's own claim shape.
 SELECT set_config('request.jwt.claims', jsonb_build_object(
   'sub','aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa','role','authenticated',

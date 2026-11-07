@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import fs from 'fs'
@@ -23,11 +23,31 @@ const rabbitVersion = pkg.toolVersions?.rabbit ? `v${pkg.toolVersions.rabbit}` :
 //
 // --mode (not an env var) because it behaves identically on Windows, in CI
 // and on Vercel with no cross-env dependency.
+// MO1 (MOTH PS-7): the desktop's main process asks the auth server who a token belongs to, and the
+// renderer's URL and key are compile-time constants it cannot read. Both are public and already in the
+// bundle (electron/authCheck.cjs).
+function authPublic(mode) {
+  return {
+    name: 'wilson-auth-public',
+    apply: 'build',
+    generateBundle() {
+      const env = loadEnv(mode, process.cwd(), 'VITE_SUPABASE_')
+      if (!env.VITE_SUPABASE_URL || !env.VITE_SUPABASE_ANON_KEY) return
+      this.emitFile({
+        type: 'asset',
+        fileName: 'auth-public.json',
+        source: JSON.stringify({ url: env.VITE_SUPABASE_URL, anonKey: env.VITE_SUPABASE_ANON_KEY }),
+      })
+    },
+  }
+}
+
 export default defineConfig(({ mode }) => ({
   base: './',
   plugins: [
     tailwindcss(),
     react(),
+    authPublic(mode),
   ],
   resolve: {
     // A second yjs copy (hoisting or CJS+ESM pair) breaks the CRDT's

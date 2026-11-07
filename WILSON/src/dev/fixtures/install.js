@@ -10,7 +10,7 @@
 // =============================================================================
 
 import { installDevFixtures } from '../devFixtures'
-import { createStore, clone, now, findById, applyGameVariant, applyMemberVariant, applyWorkspaceManagerVariant, fixtureVariant, binsFixtureMode, connectionFixtureMode } from './store'
+import { createStore, clone, now, findById, applyGameVariant, applyMemberVariant, applyWorkspaceManagerVariant, applyNetworkStorageVariant, fixtureVariant, binsFixtureMode, connectionFixtureMode, storageFixtureMode } from './store'
 import { createRabbitFixturesAdapter } from './rabbitFixturesAdapter'
 import { createOtterFixturesHandler } from './otterFixturesRoutes'
 import { createGatewayFixtures, gatewayFixtureMode } from './gatewayFixtures'
@@ -32,11 +32,13 @@ import { BUILTIN } from '../../lib/aiModels'
 // does in a browser: no row reachable (store.binsFixtureMode).
 // `connection: 'files-down' | 'offline'` (FX11, `?connection=…`) is what the
 // connection dot hears: amber, then red (store.connectionFixtureMode).
-export function buildDevFixtures({ variant = null, bins = null, connection = null } = {}) {
+// `storage: 'network'` (MO1, `?storage=network`) is a company on its office server (store.applyNetworkStorageVariant).
+export function buildDevFixtures({ variant = null, bins = null, connection = null, storage = null } = {}) {
   const store = createStore()
   if (variant === 'game') applyGameVariant(store)
   if (variant === 'member') applyMemberVariant(store, PERMISSIONS.userId)
   if (variant === 'manager') applyWorkspaceManagerVariant(store, PERMISSIONS.userId)
+  if (storage === 'network') applyNetworkStorageVariant(store, PERMISSIONS.userId)
   const appRole = variant === 'member' ? 'user' : variant === 'manager' ? 'manager' : PERMISSIONS.role
   const identity = { userId: PERMISSIONS.userId, workspaceId: WORKSPACE_ID, appRole }
   const adapterOptions = { browser: bins === 'browser', connection }
@@ -49,6 +51,8 @@ export function buildDevFixtures({ variant = null, bins = null, connection = nul
     permissions: { ...PERMISSIONS, role: appRole },
     profile: { ...PROFILE },
     bins: true,
+    // What workspaceStorage.js answers. Null: as before, it asks the real client, which a fixtures build has not got.
+    workspaceStorage: store.workspaceStorage ?? null,
 
     /**
      * modelSources.loadApprovedModels: what the pickers may offer (the
@@ -104,7 +108,7 @@ export function buildDevFixtures({ variant = null, bins = null, connection = nul
       listProjectMemberships() {
         const data = store.projectMembers.map(m => {
           const p = findById(store.projects, m.project_id)
-          return { user_id: m.user_id, project_id: m.project_id, projects: p ? { title: p.title, deleted_at: p.deleted_at ?? null } : null }
+          return { user_id: m.user_id, project_id: m.project_id, projects: p ? { title: p.title, deleted_at: p.deleted_at ?? null, personal_owner_id: p.personal_owner_id ?? null } : null }
         })
         return { data: clone(data), error: null }
       },
@@ -127,4 +131,4 @@ export function buildDevFixtures({ variant = null, bins = null, connection = nul
   }
 }
 
-installDevFixtures(buildDevFixtures({ variant: fixtureVariant(), bins: binsFixtureMode(), connection: connectionFixtureMode() }))
+installDevFixtures(buildDevFixtures({ variant: fixtureVariant(), bins: binsFixtureMode(), connection: connectionFixtureMode(), storage: storageFixtureMode() }))

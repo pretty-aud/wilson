@@ -93,7 +93,7 @@ export function streams(key: string): boolean {
 
 const THUMB_SUFFIX = '.jpg'
 
-export type Refusal = 'shape' | 'money' | 'project' | 'row'
+export type Refusal = 'shape' | 'money' | 'row'
 
 export type OwnedRow = { id?: string; project_id?: string | null; storage_path: string | null; thumbnail_url: string | null }
 
@@ -141,12 +141,11 @@ export type ReadUrlsDeps<Ctx> = {
   guard: () => Promise<{ ok: true; ctx: Ctx } | { ok: false; res: unknown }>
   rateLimited: (ctx: Ctx) => Promise<boolean>
   /** can_presign_project_read as the caller; anything but true refuses. */
-  canReadProject: (ctx: Ctx, projectId: string) => Promise<unknown>
   /** ONE PAGE of the live s3 files rows the CALLER can select in `projectId`
    *  whose storage_path lies DIRECTLY in `folder` (`LIKE '<folder>/%'` and
    *  NOT `LIKE '<folder>/%/%'`), ordered by id, after `afterId`, at most
    *  `limit`, with id and project_id. Throws when the read fails. */
-  rowPage: (ctx: Ctx, projectId: string, folder: string, afterId: string | null, limit: number) => Promise<OwnedRow[]>
+  rowPage: (ctx: Ctx, folder: string, afterId: string | null, limit: number) => Promise<OwnedRow[]>
   /** The workspace's bucket, or the answer that says why there is none. */
   loadSigner: (ctx: Ctx) => Promise<
     | { ok: true; sign: Signer }
@@ -186,18 +185,16 @@ export function parseReadRequest(body: unknown):
  * the key AND its thumbnail_url says so (thumbnailKeyFor's one rule). A key
  * that is both is a body — the shorter-lived of the two.
  *
- * 🚨 A row vouches only for a key in ITS OWN project (review round 1,
- * finding 1): the key's second segment, case-folded, must be the row's
- * project_id. Otherwise a writer of one project could insert a row there
- * whose storage_path names a key in another project they can only read.
+ * A row the caller may read vouches for its own key, whichever project the key names: a moved
+ * file keeps its key (MO1, 0115). Since 0114 no client can make a row claim another's key: the
+ * guard refuses a storage_path that is not the file's own, and 0115's claim makes the row the
+ * object's only answer.
  */
 export function classifyOwned(keys: string[], rows: OwnedRow[]): Map<string, 'body' | 'thumbnail'> {
   const bodies = new Set<string>()
   const thumbs = new Set<string>()
   for (const r of rows) {
     if (typeof r?.storage_path !== 'string' || r.storage_path === '') continue
-    const keyProject = (r.storage_path.split('/')[1] || '').toLowerCase()
-    if (typeof r.project_id !== 'string' || r.project_id.toLowerCase() !== keyProject) continue
     bodies.add(r.storage_path)
     if (r.thumbnail_url === `${r.storage_path}${THUMB_SUFFIX}`) thumbs.add(r.thumbnail_url)
   }
@@ -249,19 +246,7 @@ export async function handleReadUrls<Ctx>(req: Request, deps: ReadUrlsDeps<Ctx>)
     return refuse(400, 'bad_request', `at most ${READ_URLS_MAX_PROJECTS} projects per call`)
   }
 
-  // ONCE per distinct project, as the caller. Strict: null, undefined, an
-  // error and a throw all refuse.
-  const readable = new Set<string>()
-  await Promise.all(projects.map(async (p) => {
-    try {
-      if ((await deps.canReadProject(ctx, p)) === true) readable.add(p)
-    } catch { /* a failed check is a refusal */ }
-  }))
-  const asked: string[] = []
-  for (const [key, p] of projectOf) {
-    if (readable.has(p)) asked.push(key)
-    else reason.set(key, 'project')
-  }
+  const asked = [...projectOf.keys()]
 
   // The row, as the caller, ONE READ PER FOLDER: a thumbnail sits beside its
   // body, so a key's folder holds its row either way, and the read carries
@@ -280,8 +265,7 @@ export async function handleReadUrls<Ctx>(req: Request, deps: ReadUrlsDeps<Ctx>)
   for (const [folder, inFolder] of byFolder) {
     let rows: OwnedRow[]
     try {
-      const projectId = projectOf.get(inFolder[0])!
-      rows = await readFolderRows((afterId, limit) => deps.rowPage(ctx, projectId, folder, afterId, limit))
+      rows = await readFolderRows((afterId, limit) => deps.rowPage(ctx, folder, afterId, limit))
     } catch {
       return refuse(500, 'row_read_failed', 'the files could not be checked just now — try again')
     }

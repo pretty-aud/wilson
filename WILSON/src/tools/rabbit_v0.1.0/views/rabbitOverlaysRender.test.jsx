@@ -232,6 +232,18 @@ describe('FileAuditDrawer — the kit Drawer', () => {
     await settled(drawer)
   })
 
+  // MO1 (0116): the four terms the vocabulary gained have words of their own, the design's
+  // for the three moves. A term with no entry here would render as its bare name.
+  it('names the four terms 0116 adds, in the tone of what they are', () => {
+    expect(FILE_EVENT_META.moved_out.label).toBe('Moved out')
+    expect(FILE_EVENT_META.moved_in.label).toBe('Moved in from another place')
+    expect(FILE_EVENT_META.refiled.label).toBe('Moved to another folder')
+    expect(FILE_EVENT_META.catalogued.label).toBe('Found on the office server')
+    expect(['moved_out', 'moved_in', 'refiled'].map((k) => FILE_EVENT_META[k].tone)).toEqual(['change', 'change', 'change'])
+    expect(FILE_EVENT_META.catalogued.tone).toBe('create')
+    expect(Object.keys(FILE_EVENT_META)).toHaveLength(13)
+  })
+
   // GW1 (0093, GATEWAY_DESIGN.md §6): a clip played through the gateway's
   // outside door is a READ — the downloaded row's tone — and its card reads
   // `subject` to say what it was: through which gateway, from where, how much.
@@ -309,7 +321,7 @@ describe('FileAuditDrawer — the kit Drawer', () => {
     // S4d (0092, Legal 1): the cloud foot says who sees a deleted invoice's or
     // Legal file's record, so an empty stream reads as the rule, not a fault.
     expect(auditDrawer().querySelector('.rb-audit-foot').textContent)
-      .toBe('Recorded server-side for every upload, move, relink, trash, restore and purge. Records of a deleted invoice or Legal file are shown only to the people who could see the file.')
+      .toBe('Recorded server-side for every upload, move, relink, trash, restore and purge. Records of a deleted invoice or Legal file are shown only to the people who could see the file. Records from while a project was private are shown only to its creator and admins.')
   })
 
   it('the Close, Escape and a click on the backdrop each close it', async () => {

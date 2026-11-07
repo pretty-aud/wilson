@@ -314,6 +314,16 @@ No automated test covers the two-factor path end to end: re-run the first three 
   shows as on every other page (DG3-02): two of plan §3's nine defects. `[BLOCKING]` D.O.G. reading past a project's first 1,000
   cloud files rests on walkthrough 82.
 - The corner dot: green when the database and the files' home answer, amber when only the database does, red offline. `[NOTE]`
+- `[Cloud]` Private projects, two windows (MO1, 0107 and 0109): an admin makes a shared project private while a teammate has it open,
+  once on a build without 0109's client and once on a new one. The teammate's list drops it and the open project closes with *This
+  project is no longer shared with you.*; the creator's and the admin's stay open; the old build stops hearing the project. `[BLOCKING]`
+- `[Cloud]` Stored copies follow the file (MO1, 0115): as a member and as an admin, Project Files' pictures and previews load, a new upload lands with its picture, and a shot re-file moves its file and picture. As a member with no money access, a receipt's file does not open. `[BLOCKING]`
+- `[Cloud]` A file's log and private time (MO1, 0116): make a project private, upload a file to it, then open it to the company. As a member, the file's activity shows only what happened after it was opened, and the panel's foot says why. As the project's creator and as an admin, the same panel also shows the upload from its private time.
+- `[Cloud]` Project folders (MO1, 0117): a desktop-to-cloud migration still brings up a project called Finance and one whose title has no letters. In a company on an office server, a second project with the same folder name stops with *This folder is already used by another project or space on the company server.* As a member, changing a project's folder name is refused; as an admin or a manager it works. The office server's list, bin and move have no screen until the Moth page lands.
+- `[Cloud]` Moving a file, and undoing it (MO1, 0118): in M.O.T.H., move a file between two shared projects and undo it, and it comes back to its folder with its links, and the page says if anything could not come back. Move one out of a private project: a new copy is made first. On a company with its own bucket, a file that needs a new copy says *A file cannot move into a company's own storage yet.*
+- `[Cloud]` The record of what changed (MO1, 0119): nothing shows it yet, so there is nothing to click until Moth's timeline ships. Rename, move, trash and restore a few files and check the app stays as quick as it was: a move of a few hundred files, and deleting a folder with many in it.
+- `[Cloud]` A member seat (not a manager of the project's team) opens a project: the Producer select is grey with *Only someone who
+  manages this project's team can choose its producer.*; an app manager or the team's manager chooses one. `[BLOCKING]`
 
 ## §H. Scenes, shot lists and edits (20 min · walkthroughs 51, 53, 67)
 
@@ -592,3 +602,24 @@ Plan §0, the four conditions, as boxes:
       Vercel's production branch is `feat/multi-user-v1` (`docs/WEB_DEPLOY.md`), so merging into `main` deploys nothing on the
       beta. By her ruling of 2026-10-28 (walkthrough 85 Q3, (a)), 1.0.0's web app is a second Vercel project, on production at
       its own address, and the beta stays on staging (`docs/PRODUCTION_RUNBOOK.md` (f)).
+
+## §T. M.O.T.H.'s first page (20 min) `[Cloud][Desktop]`
+
+- [ ] `[Cloud]` Open M.O.T.H. as an ordinary member. **My personal space** is in the list. Leave and come back: still one.
+- [ ] `[Cloud]` As a workspace admin, open M.O.T.H.: another person's space is not in the list. Open it from Files: it is read-only, and Logs has the line saying so.
+- [ ] `[Cloud]` Move a file from your personal space into a project with **Move to…**. Files shows it there and it still opens.
+- [ ] `[Cloud]` As a reviewer on a project, tick a file: **Move to…** and **Delete** are greyed, and hovering says why.
+- [ ] `[Cloud]` Delete a file in M.O.T.H. It asks first, and **Cancel** changes nothing. Say yes: **Undo** brings it back, and Ctrl+Z does the same while you are on the page. Delete it again, open **Trash**, and **Restore** it.
+- [ ] `[Cloud]` Tick two files, then search so only one shows. The page says *2 ticked, 1 not shown by this search*, and **Delete** asks about both.
+- [ ] `[Cloud]` Move a file linked to a task to another project. The page says the links stayed behind. **Undo** brings it back with them; delete the task first and it says what could not come back.
+- [ ] `[Cloud]` Open **Move to…** and press Ctrl+Z behind it: nothing happens. Hold Ctrl+Z on the page: one undo.
+- [ ] `[Cloud]` As an admin, make a member inactive who has files in a personal space. Open that space in Files: it offers **Move files to a project…**, without their invoices or Legal files. Move one: it is in the project and still opens, and Logs has the line saying so. Make them active again: the offer has gone.
+- [ ] `[Cloud]` As a plain member on Petal storage with the plan nearly full, add a file: it says *This company's Petal cloud storage is nearly full.*, with no amounts. When it is full, a file is refused with *This company's Petal cloud storage is full*, again with no amounts. As an admin, the Admin Terminal still shows the figures.
+- [ ] `[Cloud]` Look through a project with invoices and a Legal file, in the list, the search and the trash: neither appears, for any role.
+- [ ] `[Desktop]` In a project kept on this computer, delete a file. The dialog says *It stays in this project's trash for 30 days.* **Undo** brings back the same file.
+- [ ] `[Local]` Move a file between two projects kept on this computer. It lands in the new one and has left the old one. **Undo** puts it back in its folder with its links. Open a file in another program and move it with another: it says that file is open, and nothing moved. Unplug a project's drive and try: it says the folder cannot be reached.
+- [ ] `[Desktop]` On a real office server: open a project in Files and read *Listed from the company server.* with when it was last checked. **Refresh**. Delete a file: the dialog says *It moves to the company server's bin for 30 days.*, and the file is in `.wilson-bin` on the server. Restore it.
+- [ ] `[Cloud]` In a browser, on that same project: the banner says *Refresh from the desktop app*, and a delete says *Do this from the WILSON desktop app*, and the file stays listed.
+- [ ] `[Desktop]` On that server, delete a file from its folder in Explorer, then **Refresh**: the banner counts it and its row says *Not found on the server at the last check*, in Files and in M.O.T.H. Change a file's folder inside a project in M.O.T.H.: it says to move it on the server itself. Disconnect from the server and move a file between projects: it says the server cannot be reached, and nothing moved.
+- [ ] `[Desktop]` On a company with an office server, add a file to your personal space from M.O.T.H. The panel says *In this company, your personal space keeps its files on the office server.*
+
