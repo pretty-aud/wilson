@@ -865,6 +865,8 @@ describe('MO2: the HUD on the page', () => {
       expect(line).toContain('30 frames')
       expect(line).toContain('frame time p50 9.0 p95 9.0 max 39.0 ms')
       expect(line).toContain('drawing p95 4.0 ms')
+      act(() => { for (let i = 0; i < 30; i++) worlds.at(-1).handlers.frame({ workMs: 4, sampleMs: 9, dots: 3, clusters: 7, edges: 20 }) })
+      expect(document.querySelector('[data-moth-frames]').textContent).toContain('3 dots, 7 clusters, 20 lines')
     } finally {
       window.history.pushState({}, '', '/')
     }

@@ -89,7 +89,10 @@
 .moth-time-range { width: 100%; accent-color: var(--color-signal); }
 
 /* The list: breadcrumbs, the islands, a container's rows. */
-.moth-crumbs { display: flex; flex-wrap: wrap; gap: 0; color: var(--color-ink-2); font-size: var(--text-dense); }
+.moth-crumbs { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0; color: var(--color-ink-2); font-size: var(--text-dense); }
+/* A flex item drops the spaces at its edges, so the arrow between two crumbs keeps its own. */
+.moth-crumbs > span { display: inline-flex; align-items: baseline; }
+.moth-crumbs > span > span[aria-hidden] { margin: 0 6px; }
 .moth-islands { display: flex; flex-direction: column; gap: 4px; }
 .moth-island {
   padding: 4px 8px;

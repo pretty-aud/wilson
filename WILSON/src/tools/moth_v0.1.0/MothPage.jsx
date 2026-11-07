@@ -506,7 +506,7 @@ export default function MothPage({ isActive = true, worldFactory }) {
     const gap = recorder.sample()
     const draw = recorder.work()
     const ms = (v) => (Number.isFinite(v) ? v.toFixed(1) : '-')
-    if (draw.count > 0 && draw.count % 30 === 0) setFrameLine(`${f.dots} dots, ${f.edges} lines${f.light ? ', lighter' : ''} · ${draw.count} frames · frame time p50 ${ms(gap.p50)} p95 ${ms(gap.p95)} max ${ms(gap.max)} ms · drawing p95 ${ms(draw.p95)} ms (target ${TARGETS.normal.p95Ms} ms)`)
+    if (draw.count > 0 && draw.count % 30 === 0) setFrameLine(`${f.dots} dots${f.clusters ? `, ${f.clusters} clusters` : ''}, ${f.edges} lines${f.light ? ', lighter' : ''} · ${draw.count} frames · frame time p50 ${ms(gap.p50)} p95 ${ms(gap.p95)} max ${ms(gap.max)} ms · drawing p95 ${ms(draw.p95)} ms (target ${TARGETS.normal.p95Ms} ms)`)
   }, [recorder])
 
   // ── The keyboard ─────────────────────────────────────────────────────────────────────────────────────────────
