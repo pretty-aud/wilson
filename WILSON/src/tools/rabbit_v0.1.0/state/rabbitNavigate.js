@@ -62,3 +62,17 @@ export function useNavigateTarget(view, handler, projectId = null) {
     return subscribeNavigate((d) => { if (d?.view === view) attempt() })
   }, [view, handler, projectId])
 }
+
+// MO2: M.O.T.H.'s "Open in R.A.B.B.I.T." (wilson:open-rabbit-item, { projectId, kind, id }): the tab each kind of
+// thing opens at, and what that tab is asked to open. A kind R.A.B.B.I.T. has no tab for opens nothing.
+const ITEM_VIEW = Object.freeze({
+  project: 'summary', phase: 'timeline', task: 'tasks', asset: 'assets', scene: 'scenes', shot: 'scenes', level: 'levels', experience: 'experiences',
+})
+export function mothItemTarget(kind, id) {
+  const view = Object.prototype.hasOwnProperty.call(ITEM_VIEW, kind) ? ITEM_VIEW[kind] : null
+  if (!view) return null
+  if (kind === 'scene') return { view, sceneId: id }
+  if (kind === 'shot') return { view, shotId: id }
+  if (kind === 'task' || kind === 'asset' || kind === 'level' || kind === 'experience') return { view, itemId: id }
+  return { view }
+}

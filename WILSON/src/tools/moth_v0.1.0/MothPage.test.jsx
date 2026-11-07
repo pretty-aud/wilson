@@ -2,7 +2,7 @@
 // MothPage.test.jsx — MO1 (MOTH_DESIGN §1.10): what the page shows and what it greys, mounted against a fake adapter,
 // and the two source scans: it reads only through Moth's own methods, and it stays a lazy chunk.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, cleanup, within, act } from '@testing-library/react'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -24,6 +24,29 @@ const island = (id, extra = {}) => ({
 const MINE = island('me', { title: 'Personal space', is_personal: true, is_mine: true, is_private: true })
 const file = (id, extra = {}) => ({ id, name: `${id}.mov`, storage_path: `x/${id}.mov`, storage_provider: 'supabase', ...extra })
 
+// MO2: the world draws on a canvas jsdom does not have; the page takes a stand-in that records what it was given.
+const worlds = []
+function fakeWorld() {
+  const w = {
+    graphs: [], handlers: {}, selection: [], flown: [], active: null,
+    setGraph(g, o) { w.graphs.push({ g, o }) },
+    relayout() {},
+    positions: () => ({}),
+    setAppearance() {},
+    setReducedMotion() {},
+    setRules(r) { w.rules = r },
+    setActive(v) { w.active = v },
+    resize() {},
+    setSelection(s) { w.selection = s },
+    flyTo(id) { w.flown.push(id); return true },
+    on(event, fn) { w.handlers[event] = fn },
+    renderer: { hitTest: () => null },
+    destroy() {},
+  }
+  worlds.push(w)
+  return w
+}
+
 let adapter
 beforeEach(() => {
   adapter = {
@@ -39,13 +62,27 @@ beforeEach(() => {
     restoreFiles: vi.fn(async () => ({ done: 1, ops: [] })),
     listTrashedFiles: vi.fn(async () => []),
     uploadFile: vi.fn(async () => ({})),
+    // MO2: settings say the first visit is done, so no question stands over the page; no saved views.
+    getMothPrefs: vi.fn(async () => ({ first_visit_done: true })),
+    setMothPrefs: vi.fn(async (patch) => ({ first_visit_done: true, ...patch })),
+    listMothViews: vi.fn(async () => []),
   }
-  state.rabbit = { getAdapter: () => adapter, adapterMode: 'supabase', noteFilesChangedElsewhere: vi.fn(), showUndoToast: vi.fn() }
+  // MO2: Moth reads every project at once, and an id is one file. The fakes answer the same rows for every project,
+  // so each row is given the project it was asked for, and its id is kept apart per project (p1's stay as written,
+  // so what a test asks of p1 reads as before). Whatever a test puts in adapter.listMothFiles is read at the call.
+  const seen = new Proxy({}, {
+    get: (_t, prop) => (prop === 'listMothFiles'
+      ? async (pid, ...rest) => ((await adapter.listMothFiles(pid, ...rest)) || []).map((r) => (r.project_id
+        ? r : { ...r, project_id: pid, ...(pid === 'p1' ? {} : { id: `${pid}.${r.id}` }) }))
+      : adapter[prop]),
+    has: (_t, prop) => prop in adapter,
+  })
+  state.rabbit = { getAdapter: () => seen, adapterMode: 'supabase', noteFilesChangedElsewhere: vi.fn(), showUndoToast: vi.fn() }
   state.perms = { role: 'member', ready: true, userId: 'u1', workspaceId: 'w1' }
   state.storage = null
   state.usage = null
 })
-afterEach(cleanup)
+afterEach(() => { cleanup(); worlds.length = 0 })
 
 const deleteAndConfirm = async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
@@ -60,18 +97,18 @@ const openProject = async (name = 'Project p1') => {
 
 describe('the islands', () => {
   it('🚨 makes the person\'s space on first entry, and calls it theirs', async () => {
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     expect(await screen.findByRole('button', { name: 'My personal space' })).toBeTruthy()
     expect(adapter.ensurePersonalSpace).toHaveBeenCalledTimes(1)
   })
   it('shows the projects even when the space cannot be made', async () => {
     adapter.ensurePersonalSpace = vi.fn(async () => { throw new Error('not yet') })
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     expect(await screen.findByRole('button', { name: 'Project p1' })).toBeTruthy()
   })
   it('says a failed read, and does not read it as nothing', async () => {
     adapter.listMothIslands = vi.fn(async () => { throw new Error('x') })
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     expect(await screen.findByText('Could not read your projects just now.')).toBeTruthy()
   })
   it('a desktop-only project says so', () => {
@@ -83,13 +120,15 @@ describe('the islands', () => {
 describe('the files', () => {
   it('a row the second look hides is not drawn, and search reads only what is loaded', async () => {
     adapter.listMothFiles = vi.fn(async () => [file('a'), file('inv', { is_financial: true }), file('l', { tags: ['legal'] })])
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     await openProject()
     expect(screen.queryByText('inv.mov')).toBeNull()
     expect(screen.queryByText('l.mov')).toBeNull()
+    // MO2: every project is read once on the way in (three here); a search reads nothing more.
+    const reads = adapter.listMothFiles.mock.calls.length
     fireEvent.change(screen.getByLabelText('Search these files'), { target: { value: 'zzz' } })
     expect(screen.queryByText('a.mov')).toBeNull()
-    expect(adapter.listMothFiles).toHaveBeenCalledTimes(1)
+    expect(adapter.listMothFiles).toHaveBeenCalledTimes(reads)
   })
   it('🚨 on the signed-out desktop, a receipt by its expense, a money folder and a folder\'s chain are hidden too', async () => {
     adapter.mothHiddenFacts = vi.fn(async () => ({
@@ -100,39 +139,41 @@ describe('the files', () => {
     adapter.listMothFiles = vi.fn(async () => [
       file('a'), file('r'), file('d', { storage_path: 'salt_RECEIPTS&INVOICES/d.pdf' }), file('c', { folder_id: 'k' }),
     ])
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     await openProject()
     for (const name of ['r.mov', 'd.mov', 'c.mov']) expect(screen.queryByText(name)).toBeNull()
   })
   it('🚨 facts that cannot be read show nothing, not everything', async () => {
     adapter.mothHiddenFacts = vi.fn(async () => { throw new Error('The bundle could not be read.') })
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Project p1' }))
     expect(await screen.findByText('The bundle could not be read.')).toBeTruthy()
     expect(screen.queryByText('a.mov')).toBeNull()
   })
   it('🚨 a file the last check did not find says so', async () => {
     adapter.listMothFiles = vi.fn(async () => [file('a'), file('gone', { share_missing_since: '2026-11-01T00:00:00Z' })])
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     await openProject()
     expect(screen.getByText('gone.mov').closest('li').textContent).toMatch(/Not found on the server at the last check/)
     expect(screen.getByText('a.mov').closest('li').textContent).not.toMatch(/Not found/)
   })
   it('follows pages by the last id, with no total', async () => {
-    const page = Array.from({ length: 500 }, (_, i) => file(`f${i}`))
-    adapter.listMothFiles = vi.fn(async (_p, after) => (after ? [file('last')] : page))
-    render(<MothPage />)
+    // MO2: the whole project is read, a page of 1,000 at a time keyed on the last id, and no total is asked.
+    const page = Array.from({ length: 1000 }, (_, i) => file(`f${String(i).padStart(4, '0')}`))
+    // Only p1 is large: a thousand rows is heavy for jsdom, and one project shows the paging.
+    adapter.listMothFiles = vi.fn(async (pid, after) => (pid !== 'p1' ? [] : after ? [file('last')] : page))
+    render(<MothPage worldFactory={fakeWorld} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Project p1' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Show more' }))
-    expect(await screen.findByText('last.mov')).toBeTruthy()
-    expect(adapter.listMothFiles).toHaveBeenLastCalledWith('p1', 'f499', 500)
-  })
+    expect(await screen.findByText('last.mov', {}, { timeout: 10000 })).toBeTruthy()
+    expect(adapter.listMothFiles).toHaveBeenCalledWith('p1', 'f0999', 1000)
+    expect(screen.queryByRole('button', { name: 'Show more' })).toBeNull()
+  }, 30000)
 })
 
 describe('🚨 a reviewer', () => {
   it('sees Move to and Delete greyed with the reason, and no write is made', async () => {
     adapter.listMothIslands = vi.fn(async () => [island('p1', { my_project_role: 'reviewer', can_write: false })])
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     await openProject()
     fireEvent.click(screen.getByRole('checkbox', { name: /a\.mov/ }))
     const del = screen.getByRole('button', { name: 'Delete' })
@@ -147,7 +188,7 @@ describe('🚨 a reviewer', () => {
 
 describe('doing things', () => {
   it('Delete, then Undo brings it back and Files is told', async () => {
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     await openProject()
     fireEvent.click(screen.getByRole('checkbox', { name: /a\.mov/ }))
     await deleteAndConfirm()
@@ -159,23 +200,23 @@ describe('doing things', () => {
     await waitFor(() => expect(adapter.restoreFiles).toHaveBeenCalledWith(['a'], 'p1'))
   })
   it('Ctrl+Z undoes on this page, and not while it is hidden or while typing', async () => {
-    const { rerender } = render(<MothPage isActive />)
+    const { rerender } = render(<MothPage worldFactory={fakeWorld} isActive />)
     await openProject()
     fireEvent.click(screen.getByRole('checkbox', { name: /a\.mov/ }))
     await deleteAndConfirm()
     await waitFor(() => expect(screen.getByRole('button', { name: 'Undo' }).disabled).toBe(false))
     fireEvent.keyDown(screen.getByLabelText('Search these files'), { key: 'z', ctrlKey: true })
-    rerender(<MothPage isActive={false} />)
+    rerender(<MothPage worldFactory={fakeWorld} isActive={false} />)
     fireEvent.keyDown(window, { key: 'z', ctrlKey: true })
     expect(adapter.restoreFiles).not.toHaveBeenCalled()
-    rerender(<MothPage isActive />)
+    rerender(<MothPage worldFactory={fakeWorld} isActive />)
     fireEvent.keyDown(window, { key: 'z', ctrlKey: true })
     await waitFor(() => expect(adapter.restoreFiles).toHaveBeenCalled())
   })
   it('Move to offers only what the person may write, and a refusal stays in the dialog', async () => {
     adapter.listMothIslands = vi.fn(async () => [island('p1'), island('p2'), island('p3', { can_write: false })])
     adapter.moveFiles = vi.fn(async () => { throw Object.assign(new Error('A file with this name is already there.'), { code: 'name_taken' }) })
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     await openProject()
     fireEvent.click(screen.getByRole('checkbox', { name: /b\.mov/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Move to…' }))
@@ -191,7 +232,7 @@ describe('doing things', () => {
 
 describe('🚨 Delete asks first', () => {
   it('nothing is written until the person says yes, and Cancel writes nothing', async () => {
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     await openProject()
     fireEvent.click(screen.getByRole('checkbox', { name: /a\.mov/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
@@ -203,7 +244,7 @@ describe('🚨 Delete asks first', () => {
     expect(adapter.trashFiles).not.toHaveBeenCalled()
   })
   it('reads right for one file, even one the search has hidden', async () => {
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     await openProject()
     fireEvent.click(screen.getByRole('checkbox', { name: /a\.mov/ }))
     fireEvent.change(screen.getByLabelText('Search these files'), { target: { value: 'b.mov' } })
@@ -213,7 +254,7 @@ describe('🚨 Delete asks first', () => {
     expect(said).not.toMatch(/of them|They/)
   })
   it('a double click on the answer deletes once', async () => {
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     await openProject()
     fireEvent.click(screen.getByRole('checkbox', { name: /a\.mov/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
@@ -227,7 +268,7 @@ describe('🚨 Delete asks first', () => {
     adapter.listMothFiles = vi.fn(async () => [file('a', { storage_provider: 'network_share' })])
     vi.spyOn(desktopFileOps, 'available').mockReturnValue(true)
     vi.spyOn(desktopFileOps, 'reachable').mockResolvedValue({ ok: true })
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     await openProject()
     fireEvent.click(screen.getByRole('checkbox', { name: /a\.mov/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
@@ -235,7 +276,7 @@ describe('🚨 Delete asks first', () => {
     vi.restoreAllMocks()
   })
   it('a ticked row the search has hidden is counted, on the page and in the question', async () => {
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     await openProject()
     fireEvent.click(screen.getByRole('checkbox', { name: /a\.mov/ }))
     fireEvent.click(screen.getByRole('checkbox', { name: /b\.mov/ }))
@@ -248,46 +289,44 @@ describe('🚨 Delete asks first', () => {
 
 describe('🚨 what is on screen is the project named', () => {
   it('a project\'s rows go as soon as another is opened, and a failed read shows neither its rows nor "no files"', async () => {
-    let refuse = false
     adapter.listMothFiles = vi.fn(async (project) => {
-      if (refuse) throw new Error('no answer')
-      return [file(`${project}-row`)]
+      if (project === 'p2') throw new Error('no answer')
+      return [file(`${project}-row`, { project_id: project })]
     })
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Project p1' }))
     await screen.findByText('p1-row.mov')
-    refuse = true
-    fireEvent.click(screen.getByRole('button', { name: 'Project p2' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Everything' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Project p2' }))
     expect(await screen.findByText('no answer')).toBeTruthy()
     expect(screen.queryByText('p1-row.mov')).toBeNull()
     expect(screen.queryByText('Nothing here')).toBeNull()
   })
-  it('a page that comes back after another project was opened is dropped, and Show more asks once', async () => {
-    const page = Array.from({ length: 500 }, (_, i) => file(`f${i}`))
+  it('a read that comes back after a newer read of the same project is dropped', async () => {
+    // MO2: coming back to the page reads every project again; the first read of p1, still out, must not land.
     let release
-    adapter.listMothFiles = vi.fn(async (project, after) => {
-      if (project === 'p2') return [file('other')]
-      if (!after) return page
-      await new Promise((ok) => { release = ok })
-      return [file('late')]
+    let first = true
+    adapter.listMothFiles = vi.fn(async (project) => {
+      if (project !== 'p1') return []
+      if (first) { first = false; await new Promise((ok) => { release = ok }); return [file('late', { project_id: 'p1' })] }
+      return [file('fresh', { project_id: 'p1' })]
     })
-    render(<MothPage />)
+    const { rerender } = render(<MothPage worldFactory={fakeWorld} isActive />)
+    await waitFor(() => expect(release).toBeTruthy())
+    rerender(<MothPage worldFactory={fakeWorld} isActive={false} />)
+    rerender(<MothPage worldFactory={fakeWorld} isActive />)
     fireEvent.click(await screen.findByRole('button', { name: 'Project p1' }))
-    const more = await screen.findByRole('button', { name: 'Show more' })
-    fireEvent.click(more)
-    fireEvent.click(more)
-    await waitFor(() => expect(adapter.listMothFiles.mock.calls.filter(([, after]) => after).length).toBe(1))
-    fireEvent.click(screen.getByRole('button', { name: 'Project p2' }))
-    await screen.findByText('other.mov')
+    await screen.findByText('fresh.mov')
     release()
     await new Promise((ok) => setTimeout(ok, 20))
     expect(screen.queryByText('late.mov')).toBeNull()
+    expect(screen.getByText('fresh.mov')).toBeTruthy()
   })
   it('a failed list of projects offers Try again, and asks for the space again', async () => {
     let answer = () => { throw new Error('x') }
     adapter.ensurePersonalSpace = vi.fn(async () => { throw new Error('not now') })
     adapter.listMothIslands = vi.fn(async () => answer())
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     await screen.findByText('Could not read your projects just now.')
     answer = () => [island('p1')]
     adapter.ensurePersonalSpace = vi.fn(async () => 'me')
@@ -297,12 +336,12 @@ describe('🚨 what is on screen is the project named', () => {
     expect(screen.queryByText('Could not read your projects just now.')).toBeNull()
   })
   it('coming back to the page reads again: a project made elsewhere appears, and a seat changed there counts', async () => {
-    const { rerender } = render(<MothPage isActive />)
+    const { rerender } = render(<MothPage worldFactory={fakeWorld} isActive />)
     await screen.findByRole('button', { name: 'Project p1' })
     adapter.listMothIslands = vi.fn(async () => [MINE, island('p1'), island('new')])
-    rerender(<MothPage isActive={false} />)
+    rerender(<MothPage worldFactory={fakeWorld} isActive={false} />)
     expect(adapter.listMothIslands).not.toHaveBeenCalled()
-    rerender(<MothPage isActive />)
+    rerender(<MothPage worldFactory={fakeWorld} isActive />)
     expect(await screen.findByRole('button', { name: 'Project new' })).toBeTruthy()
     expect(adapter.ensurePersonalSpace).toHaveBeenCalledTimes(1)
   })
@@ -310,7 +349,7 @@ describe('🚨 what is on screen is the project named', () => {
 
 describe('🚨 the keyboard', () => {
   const ready = async () => {
-    render(<MothPage isActive />)
+    render(<MothPage worldFactory={fakeWorld} isActive />)
     await openProject()
     fireEvent.click(screen.getByRole('checkbox', { name: /a\.mov/ }))
     await deleteAndConfirm()
@@ -356,7 +395,7 @@ describe('🚨 the keyboard', () => {
 
 describe('🚨 the toast and the notes', () => {
   it('a toast\'s Undo is for its own step, not for whatever was done since', async () => {
-    render(<MothPage isActive />)
+    render(<MothPage worldFactory={fakeWorld} isActive />)
     await openProject()
     fireEvent.click(screen.getByRole('checkbox', { name: /a\.mov/ }))
     await deleteAndConfirm()
@@ -371,7 +410,7 @@ describe('🚨 the toast and the notes', () => {
   })
   it('says what a move left behind', async () => {
     adapter.moveFiles = vi.fn(async () => ({ move_id: 'm1', moved: 1, links_cleared: 1, ops: [] }))
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     await openProject()
     fireEvent.click(screen.getByRole('checkbox', { name: /a\.mov/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Move to…' }))
@@ -382,13 +421,13 @@ describe('🚨 the toast and the notes', () => {
   })
   it('a move on this computer that did not finish is told', async () => {
     adapter.listPendingMoves = vi.fn(async () => [{ op: 'x', files: 2 }])
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     expect(await screen.findByText(/did not finish/)).toBeTruthy()
   })
   it('an unfinished office-server operation is looked at on the way in', async () => {
     adapter.networkSharePending = vi.fn(async () => [])
     vi.spyOn(desktopFileOps, 'available').mockReturnValue(true)
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     await waitFor(() => expect(adapter.networkSharePending).toHaveBeenCalled())
     vi.restoreAllMocks()
   })
@@ -399,7 +438,7 @@ describe('the trash', () => {
     const row = (id, at) => ({ id, project_id: 'p1', name: `${id}.mov`, deleted_at: at, purges_at: new Date(Date.now() + 86400000).toISOString() })
     const first = Array.from({ length: 200 }, (_, i) => row(`n${i}`, '2026-11-06T00:00:00Z'))
     adapter.listTrashedFiles = vi.fn(async ({ before }) => (before ? [row('old', '2026-11-01T00:00:00Z')] : first))
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Trash' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Show older' }))
     expect(await screen.findByText('old.mov')).toBeTruthy()
@@ -409,14 +448,14 @@ describe('the trash', () => {
   it('a short page is the end, and an adapter that ignores the date offers no more', async () => {
     const row = (id) => ({ id, project_id: 'p1', name: `${id}.mov`, deleted_at: '2026-11-06T00:00:00Z' })
     adapter.listTrashedFiles = vi.fn(async () => Array.from({ length: 200 }, (_, i) => row(`n${i}`)))
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Trash' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Show older' }))
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Show older' })).toBeNull())
   })
   it('a countdown, and Restore', async () => {
     adapter.listTrashedFiles = vi.fn(async () => [{ id: 't', project_id: 'p1', name: 't.mov', project_title: 'Project p1', purges_at: new Date(Date.now() + 2.5 * 86400000).toISOString(), can_restore: true }])
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Trash' }))
     expect(await screen.findByText(/goes in 3 days/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Restore' }))
@@ -424,13 +463,13 @@ describe('the trash', () => {
   })
   it('🚨 could not look is not nothing here', async () => {
     adapter.listTrashedFiles = vi.fn(async () => { throw new Error('x') })
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Trash' }))
     expect(await screen.findByText(/Could not look in the trash/)).toBeTruthy()
     expect(screen.queryByText('Nothing here')).toBeNull()
   })
   it('nothing here, when it looked', async () => {
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Trash' }))
     expect(await screen.findByText('Nothing here')).toBeTruthy()
   })
@@ -447,7 +486,7 @@ describe('your personal space', () => {
     await screen.findByText('a.mov')
   }
   it('uploads as Files does', async () => {
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     await addTo()
     const input = document.querySelector('[data-moth-add-input]')
     const picked = new File(['x'], 'n.mov')
@@ -463,7 +502,7 @@ describe('your personal space', () => {
     const purge = vi.spyOn(desktopFileOps, 'purgeBin').mockResolvedValue({ results: [{ ok: true }] })
     adapter.getAccessToken = vi.fn(async () => 'tok')
     adapter.networkShareRecordAdded = vi.fn(async () => { throw Object.assign(new Error('A project\'s folder is outside this company\'s office server.'), { code: 'folders_unplaced' }) })
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     await addTo()
     await screen.findByText(OFFICE_SERVER_SENTENCE)
     fireEvent.change(document.querySelector('[data-moth-add-input]'), { target: { files: [new File(['x'], 'n.mov')] } })
@@ -475,14 +514,14 @@ describe('your personal space', () => {
   })
   it('🚨 a company on a folder on one computer is told, and is not offered an add that can never work', async () => {
     state.storage = { mode: 'byos', provider: 'network', root_kind: 'local', root_path: 'D:/work' }
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     await addTo()
     await waitFor(() => expect(screen.getByRole('button', { name: 'Add files' }).disabled).toBe(true))
     expect(screen.getByText(NOT_ON_THIS_STORAGE_SENTENCE)).toBeTruthy()
   })
   it('on an office server, a browser is told to use the desktop', async () => {
     state.storage = { mode: 'byos', provider: 'network', root_kind: 'unc', root_path: '//s/d' }
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     await addTo()
     expect(await screen.findByText(FROM_THE_DESKTOP_SENTENCE)).toBeTruthy()
     expect(screen.queryByText(OFFICE_SERVER_SENTENCE)).toBeNull()
@@ -537,7 +576,7 @@ describe('🚨 the lazy chunk', () => {
 describe('round 2: this computer', () => {
   it('🚨 an asset\'s file cannot be ticked, so a batch is not refused over a row it cannot take', async () => {
     adapter.listMothFiles = vi.fn(async () => [file('a'), file('m', { managed: true })])
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     await openProject()
     const box = screen.getByText('m.mov').closest('label').querySelector('input')
     expect(box.disabled).toBe(true)
@@ -546,7 +585,7 @@ describe('round 2: this computer', () => {
   })
   it('🚨 opening the trash empties what is past its 30 days, where no server does', async () => {
     adapter.purgeExpiredTrash = vi.fn(async () => ({ purged: 1 }))
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Trash' }))
     await waitFor(() => expect(adapter.listTrashedFiles).toHaveBeenCalled())
     expect(adapter.purgeExpiredTrash.mock.calls.map(([id]) => id).sort()).toEqual(['me', 'p1', 'p2'])
@@ -554,7 +593,7 @@ describe('round 2: this computer', () => {
   })
   it('one that fails does not stop the trash being shown', async () => {
     adapter.purgeExpiredTrash = vi.fn(async () => { throw new Error('no such project') })
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Trash' }))
     await waitFor(() => expect(adapter.listTrashedFiles).toHaveBeenCalled())
   })
@@ -564,7 +603,7 @@ describe('round 2: a move left over', () => {
   it('🚨 from a browser the person is asked to check, and shown both places', async () => {
     adapter.networkShareStaleMoves = vi.fn(async () => [{ op_id: 'o', from: 'Salt/a.mov', to: 'Pepper/a.mov', name: 'a.mov' }])
     adapter.settleNetworkShareOps = vi.fn(async () => {})
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Trash' }))
     expect(await screen.findByText(/Check the file is still in the first place/)).toBeTruthy()
     expect(screen.getByText('Salt/a.mov to Pepper/a.mov')).toBeTruthy()
@@ -584,7 +623,7 @@ describe('round 2: the page', () => {
   it('🚨 a move that changes nothing says so, and offers no Undo of something else', async () => {
     adapter.listMothIslands = vi.fn(async () => [island('p1'), island('p2')])
     adapter.moveFiles = vi.fn(async () => ({ move_id: null, moved: 0, links_cleared: 0, ops: [] }))
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     await openProject()
     fireEvent.click(screen.getByRole('checkbox', { name: /b\.mov/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Move to…' }))
@@ -600,7 +639,7 @@ describe('round 2: the page', () => {
     adapter.trashFiles = vi.fn(async () => ({ done: 2, ops: [{ id: 'a', op_id: 'o1', from: 'x/a', to: 'y/a' }, { id: 'b', op_id: 'o2', from: 'x/b', to: 'y/b' }] }))
     adapter.settleNetworkShareOps = vi.fn(async () => {})
     vi.spyOn(desktopFileOps, 'rename').mockResolvedValue({ results: [{ ok: true }, { ok: false, code: 'in_use' }] })
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     await openProject()
     const reads = adapter.listMothFiles.mock.calls.length
     fireEvent.click(screen.getByRole('checkbox', { name: /a\.mov/ }))
@@ -616,7 +655,7 @@ describe('round 2: the page', () => {
     adapter.trashFiles = vi.fn(async () => ({ done: 1, ops: [{ id: 'a', op_id: 'o1', from: 'x/a', to: 'y/a' }] }))
     adapter.settleNetworkShareOps = vi.fn(async () => {})
     vi.spyOn(desktopFileOps, 'rename').mockResolvedValue({ results: [{ ok: false, code: 'in_use' }] })
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     await openProject()
     const reads = adapter.listMothFiles.mock.calls.length
     fireEvent.click(screen.getByRole('checkbox', { name: /a\.mov/ }))
@@ -627,17 +666,18 @@ describe('round 2: the page', () => {
   })
   it('opening another project clears it', async () => {
     adapter.trashFiles = vi.fn(async () => { throw new Error('no') })
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     await openProject()
     fireEvent.click(screen.getByRole('checkbox', { name: /a\.mov/ }))
     await deleteAndConfirm()
     await waitFor(() => expect(document.querySelector('[data-moth-error]')).toBeTruthy())
-    fireEvent.click(screen.getByRole('button', { name: 'Project p2' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Everything' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Project p2' }))
     await waitFor(() => expect(document.querySelector('[data-moth-error]')).toBeNull())
   })
   it('🚨 a toast\'s Undo that fails tells the toast, which stays up with Undo to try again', async () => {
     adapter.restoreFiles = vi.fn(async () => { throw new TypeError('Failed to fetch') })
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     await openProject()
     fireEvent.click(screen.getByRole('checkbox', { name: /a\.mov/ }))
     await deleteAndConfirm()
@@ -649,7 +689,7 @@ describe('round 2: the page', () => {
     state.storage = { mode: 'byos', provider: 'network', root_kind: 'unc', root_path: '//s/d' }
     adapter.mothIslandFolder = vi.fn(async (id) => ({ id, folder_root: '//s/d/Salt', personal_owner_id: null }))
     adapter.getNetworkShareCheck = vi.fn(async () => ({ last_checked_at: '2026-11-01T10:00:00Z', missing_count: 2 }))
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     await openProject()
     const banner = await waitFor(() => { const b = document.querySelector('[data-network-share-banner]'); expect(b).toBeTruthy(); return b })
     await waitFor(() => expect(banner.textContent).toMatch(/Last checked/))
@@ -659,7 +699,7 @@ describe('round 2: the page', () => {
   })
   it('a company not on an office server shows none', async () => {
     adapter.mothIslandFolder = vi.fn(async (id) => ({ id }))
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     await openProject()
     expect(document.querySelector('[data-network-share-banner]')).toBeNull()
     expect(adapter.mothIslandFolder).not.toHaveBeenCalled()
@@ -670,7 +710,7 @@ describe('round 2: the page', () => {
     const rename = vi.spyOn(desktopFileOps, 'rename').mockResolvedValue({ results: [{ ok: true }] })
     adapter.getAccessToken = vi.fn(async () => 'tok')
     adapter.networkShareRecordAdded = vi.fn(async () => { throw new TypeError('Failed to fetch') })
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     fireEvent.click(await screen.findByRole('button', { name: 'My personal space' }))
     await screen.findByText(OFFICE_SERVER_SENTENCE)
     fireEvent.change(document.querySelector('[data-moth-add-input]'), { target: { files: [new File(['x'], 'n.mov')] } })
@@ -680,7 +720,7 @@ describe('round 2: the page', () => {
   it('🚨 an add that stops part way says how many went, and the list shows them', async () => {
     let n = 0
     adapter.uploadFile = vi.fn(async () => { n += 1; if (n === 2) throw new Error('the network went') })
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     fireEvent.click(await screen.findByRole('button', { name: 'My personal space' }))
     await screen.findByText('a.mov')
     const reads = adapter.listMothFiles.mock.calls.length
@@ -691,7 +731,7 @@ describe('round 2: the page', () => {
   })
   it('🚨 an add is weighed as Files weighs one: a company that is full is told, before anything is sent', async () => {
     state.usage = { usedBytes: null, quotaBytes: null, status: 'active', hasPlan: true, fullness: 'full' }
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     fireEvent.click(await screen.findByRole('button', { name: 'My personal space' }))
     await screen.findByText('a.mov')
     fireEvent.change(document.querySelector('[data-moth-add-input]'), { target: { files: [new File(['x'], '1.mov')] } })
@@ -700,13 +740,13 @@ describe('round 2: the page', () => {
   })
   it('🚨 Undo tells whichever project is open in R.A.B.B.I.T. now, not the one open when the step was made', async () => {
     const first = state.rabbit.noteFilesChangedElsewhere
-    const { rerender } = render(<MothPage />)
+    const { rerender } = render(<MothPage worldFactory={fakeWorld} />)
     await openProject()
     fireEvent.click(screen.getByRole('checkbox', { name: /a\.mov/ }))
     await deleteAndConfirm()
     const now = vi.fn()
     state.rabbit = { ...state.rabbit, noteFilesChangedElsewhere: now }
-    rerender(<MothPage />)
+    rerender(<MothPage worldFactory={fakeWorld} />)
     first.mockClear()
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
     await waitFor(() => expect(now).toHaveBeenCalled())
@@ -715,7 +755,7 @@ describe('round 2: the page', () => {
   it('🚨 a list that could not be read offers Try again, which reads it again', async () => {
     let fail = true
     adapter.listMothFiles = vi.fn(async () => { if (fail) throw new Error('the network went'); return [file('a')] })
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Project p1' }))
     const again = await screen.findByRole('button', { name: 'Try again' })
     fail = false
@@ -726,7 +766,7 @@ describe('round 2: the page', () => {
   it('🚨 so does a trash that could not be read', async () => {
     let fail = true
     adapter.listTrashedFiles = vi.fn(async () => { if (fail) throw new Error('x'); return [] })
-    render(<MothPage />)
+    render(<MothPage worldFactory={fakeWorld} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Trash' }))
     const banner = await waitFor(() => { const b = document.querySelector('[data-moth-trash-failed]'); expect(b).toBeTruthy(); return b })
     fail = false
@@ -745,5 +785,77 @@ describe('round 2: elsewhere in the app', () => {
   })
   it('🚨 Storage says whose eyes the list has before any check, not only after', () => {
     expect(source('src/components/AdminTerminal/StorageSection.jsx')).toMatch(/data-storage-checker/)
+  })
+})
+
+describe('MO2: the HUD on the page', () => {
+  const pick = () => document.querySelector('[data-moth-view-pick]')
+  it('a first visit asks what to map, and the answer is remembered', async () => {
+    adapter.getMothPrefs = vi.fn(async () => ({}))
+    render(<MothPage worldFactory={fakeWorld} />)
+    // The view list offers the same words as an option; the question's own button is in its dialog.
+    fireEvent.click(within(await screen.findByRole('dialog')).getByText('Everything by tags'))
+    await waitFor(() => expect(screen.queryByText('What do you want to map?')).toBeNull())
+    await waitFor(() => expect(adapter.setMothPrefs).toHaveBeenCalledWith(expect.objectContaining({ first_visit_done: true, last_view: 'q:tags' })))
+    expect(pick().value).toBe('q:tags')
+  })
+  it('a later visit reopens the last view and asks nothing', async () => {
+    adapter.getMothPrefs = vi.fn(async () => ({ first_visit_done: true, last_view: 'v1' }))
+    adapter.listMothViews = vi.fn(async () => [{ id: 'v1', name: 'Tagged', scope_kind: 'aggregate', project_id: null, revision: 1, position: 0, config: { nodeKinds: ['file', 'tag'], edgeKinds: ['tagged_with'] } }])
+    adapter.listMothPositions = vi.fn(async () => [])
+    render(<MothPage worldFactory={fakeWorld} />)
+    await waitFor(() => expect(pick()?.value).toBe('v1'))
+    expect(within(pick()).getByText('Tagged')).toBeTruthy()
+    expect(screen.queryByText('What do you want to map?')).toBeNull()
+  })
+  it('Settings open in a drawer, and a colour for the light is kept', async () => {
+    render(<MothPage worldFactory={fakeWorld} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'M.O.T.H. settings' }))
+    fireEvent.click(await screen.findByRole('radio', { name: 'Moonlight' }))
+    await waitFor(() => expect(adapter.setMothPrefs).toHaveBeenCalledWith({ appearance: { glow: '#9fd3ff' } }))
+  })
+  it('Help sits beside Settings and opens', async () => {
+    render(<MothPage worldFactory={fakeWorld} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Help & documentation' }))
+    expect(await screen.findByText('What Moth never shows')).toBeTruthy()
+  })
+  it('🚨 opening a file in another tool asks first, and Stay here sends nothing', async () => {
+    render(<MothPage worldFactory={fakeWorld} />)
+    await openProject()
+    const sent = []
+    const heard = (e) => sent.push(e.detail)
+    window.addEventListener('wilson:open-project-file', heard)
+    try {
+      await waitFor(() => expect(worlds.at(-1)?.handlers.pick).toBeTruthy())
+      act(() => worlds.at(-1).handlers.pick('file:a', { additive: false }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Open in Files' }))
+      expect(await screen.findByText(/about to leave M\.O\.T\.H\./)).toBeTruthy()
+      fireEvent.click(screen.getByRole('button', { name: 'Stay here' }))
+      await waitFor(() => expect(screen.queryByText(/about to leave M\.O\.T\.H\./)).toBeNull())
+      expect(sent).toEqual([])
+      fireEvent.click(screen.getByRole('button', { name: 'Open in Files' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Open Files in R.A.B.B.I.T.' }))
+      expect(sent).toEqual([{ projectId: 'p1', fileId: 'a' }])
+    } finally {
+      window.removeEventListener('wilson:open-project-file', heard)
+    }
+  })
+  it('the graph calls the person\'s own space "My personal space", as the list does', async () => {
+    render(<MothPage worldFactory={fakeWorld} />)
+    await waitFor(() => {
+      const g = worlds.at(-1)?.graphs.at(-1)?.g
+      expect(g?.nodes.find((n) => n.id === 'project:me')?.label).toBe('My personal space')
+    })
+  })
+  it('🚨 a reviewer is not offered a view shared with the project', async () => {
+    state.perms = { role: 'reviewer', ready: true, userId: 'u1', workspaceId: 'w1' }
+    adapter.listMothIslands = vi.fn(async () => [MINE, island('p1', { my_project_role: 'reviewer', can_write: false })])
+    render(<MothPage worldFactory={fakeWorld} />)
+    await openProject()
+    await waitFor(() => expect(worlds.at(-1)?.handlers.pick).toBeTruthy())
+    act(() => worlds.at(-1).handlers.pick('file:a', { additive: false }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save as…' }))
+    const scope = await waitFor(() => { const s = document.querySelector('[data-moth-view-scope]'); expect(s).toBeTruthy(); return s })
+    expect([...scope.options].map((o) => o.value)).toEqual(['aggregate'])
   })
 })

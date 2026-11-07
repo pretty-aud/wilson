@@ -1882,6 +1882,32 @@ function unwrapPersonalRpc(result, fnName, absent = PERSONAL_SPACES_ABSENT) {
 }
 // MO1 (0111): the same, for Moth's three reads.
 const MOTH_ABSENT = 'this workspace\'s database does not have M.O.T.H. yet';
+// MO2 (0123): Moth's own tables. A database without them answers 42P01 or PGRST205, said in words with a code the
+// page reads as "not on this database yet" rather than as a failure.
+const MOTH_VIEWS_ABSENT = 'this workspace\'s database does not keep M.O.T.H.\'s saved views yet';
+const MOTH_HISTORY_ABSENT = 'this workspace\'s database does not keep M.O.T.H.\'s history yet';
+function mothAbsent(message) {
+  const err = new Error(message);
+  err.code = 'moth_absent';
+  return err;
+}
+function unwrapMothTable(result) {
+  const code = result?.error?.code;
+  if (code === '42P01' || code === 'PGRST205') {
+    lastError = MOTH_VIEWS_ABSENT;
+    throw mothAbsent(MOTH_VIEWS_ABSENT);
+  }
+  return unwrap(result);
+}
+function unwrapMothRpc(result, fnName, absent = MOTH_VIEWS_ABSENT) {
+  if (missingFunction(fnName)(result?.error)) {
+    lastError = absent;
+    throw mothAbsent(absent);
+  }
+  return unwrap(result);
+}
+const MOTH_VIEW_COLUMNS = 'id, scope_kind, project_id, owner_id, name, position, revision, config, updated_at, updated_by';
+
 // MO1 (0118): the same, with its refusals in words.
 function unwrapMoth(result, fnName) {
   const refusal = mothRefusal(result?.error);
@@ -6054,6 +6080,110 @@ export function supabaseAdapter() {
       return unwrapPersonalRpc(
         await client.rpc('moth_project_files', { p_project: projectId, p_after: after, p_limit: limit }),
         'moth_project_files', MOTH_ABSENT) || [];
+    },
+    // MO2 (0122): a project's items, and the relationships WILSON already stores between items and folders, each
+    // in one answer ({ items, truncated } and { links, truncated }): the server checks both ends of every line (no
+    // money, Legal, trash, set-aside or another person's space). A database before 0122 has neither: the graph
+    // then shows files and folders.
+    async listMothItems(projectId) {
+      const client = await requireClient();
+      const out = unwrapMothRpc(await client.rpc('moth_project_items', { p_project: projectId }), 'moth_project_items', MOTH_ABSENT);
+      return { items: Array.isArray(out?.items) ? out.items : [], truncated: out?.truncated === true };
+    },
+    async listMothLinks(projectId) {
+      const client = await requireClient();
+      const out = unwrapMothRpc(await client.rpc('moth_project_links', { p_project: projectId }), 'moth_project_links', MOTH_ABSENT);
+      return { links: Array.isArray(out?.links) ? out.links : [], truncated: out?.truncated === true };
+    },
+    // What each file Moth shows is filed against, and who last changed it (ids only, named from the members the page
+    // reads): a page at a time, keyed on the file's id like listMothFiles.
+    async listMothFileFacts(projectId, after = null, limit = 1000) {
+      const client = await requireClient();
+      return unwrapMothRpc(await client.rpc('moth_project_file_facts', { p_project: projectId, p_after: after, p_limit: limit }),
+        'moth_project_file_facts', MOTH_ABSENT) || [];
+    },
+
+    // MO2 (0123): saved views. A project's, shared with whoever may write to it, and the caller's own across
+    // every project they see. The server decides which the caller sees, whose a new one is and its company;
+    // a client sends no id. A save names the revision it was made from, and one made from an old copy changes
+    // nothing (null comes back), as table views' do (0098).
+    async listMothViews() {
+      const client = await requireClient();
+      return readAllPagesWith(() => client.from('moth_views').select(MOTH_VIEW_COLUMNS)
+        .order('position').order('created_at').order('id'), unwrapMothTable);
+    },
+    async createMothView({ scopeKind, projectId = null, name, config = {}, position = 0 }) {
+      const client = await requireClient();
+      return unwrapMothTable(await client.from('moth_views')
+        .insert({ scope_kind: scopeKind, project_id: scopeKind === 'project' ? projectId : null, name, config, position })
+        .select(MOTH_VIEW_COLUMNS).single());
+    },
+    async updateMothView(id, { name, config, position } = {}, revision = null) {
+      const client = await requireClient();
+      const patch = {};
+      if (name !== undefined) patch.name = name;
+      if (config !== undefined) patch.config = config;
+      if (position !== undefined) patch.position = position;
+      let q = client.from('moth_views').update(patch).eq('id', id);
+      if (revision != null) q = q.eq('revision', revision);
+      const rows = unwrapMothTable(await q.select(MOTH_VIEW_COLUMNS)) || [];
+      return rows[0] ?? null;
+    },
+    async deleteMothView(id) {
+      const client = await requireClient();
+      const rows = unwrapMothTable(await client.from('moth_views').delete().eq('id', id).select('id')) || [];
+      return { removed: rows.length > 0 };
+    },
+    // A view's places: the caller's own and the shared ones, each only while its target is one Moth shows (one
+    // gate a row, the view asked once), in one answer, so nothing is paged by running the scan again.
+    async listMothPositions(viewId) {
+      const client = await requireClient();
+      const out = unwrapMothRpc(await client.rpc('moth_view_positions', { p_view: viewId }), 'moth_view_positions');
+      return Array.isArray(out?.places) ? out.places : [];
+    },
+    // Many places at once (1,000 a call, the server's bound): each added or moved. Whose they are the server says;
+    // a client writes no place directly.
+    async putMothPositions(viewId, places) {
+      const client = await requireClient();
+      let written = 0;
+      for (let i = 0; i < places.length; i += 1000) {
+        written += unwrapMothRpc(await client.rpc('moth_put_positions', { p_view: viewId, p_places: places.slice(i, i + 1000) }),
+          'moth_put_positions') || 0;
+      }
+      return written;
+    },
+    // A view's places, cleared (its Reset): the caller's own, or a shared view's when they may write to it.
+    async clearMothPositions(viewId) {
+      const client = await requireClient();
+      return unwrapMothRpc(await client.rpc('moth_clear_positions', { p_view: viewId }), 'moth_clear_positions') || 0;
+    },
+    // This person's Moth settings for this company: the last view, the first visit, appearance, the folders
+    // opened last. The reader trusts nothing stored. Null when the database has none of it yet.
+    async getMothPrefs() {
+      const client = await requireClient();
+      try {
+        return unwrapMothRpc(await client.rpc('moth_prefs'), 'moth_prefs') || {};
+      } catch (err) {
+        if (err?.code === 'moth_absent') return null;
+        throw err;
+      }
+    },
+    async setMothPrefs(patch) {
+      const client = await requireClient();
+      return unwrapMothRpc(await client.rpc('set_moth_prefs', { p_patch: patch }), 'set_moth_prefs') || {};
+    },
+    // MO1's 0119, read by MO2's history scrub. Rows newest first, paged by an opaque row_key; the window says from
+    // when each kind of thing has been recorded, per project.
+    async fetchMothHistory({ scopeProject = null, since = null, after = null, limit = 1000 } = {}) {
+      const client = await requireClient();
+      return unwrapMothRpc(await client.rpc('moth_history_read',
+        { p_scope_project: scopeProject, p_since: since, p_after: after, p_limit: limit }),
+      'moth_history_read', MOTH_HISTORY_ABSENT) || [];
+    },
+    async fetchMothHistoryWindow(scopeProject = null) {
+      const client = await requireClient();
+      return unwrapMothRpc(await client.rpc('moth_history_window', { p_scope_project: scopeProject }),
+        'moth_history_window', MOTH_HISTORY_ABSENT) || [];
     },
 
     // MO1 (0118, MOTH_DESIGN §1.9): moves. A plan writes nothing and says what each file needs:

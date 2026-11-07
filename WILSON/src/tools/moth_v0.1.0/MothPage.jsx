@@ -1,13 +1,18 @@
-// MothPage.jsx — MO1 (MOTH_DESIGN §1.10): M.O.T.H.'s page for Session 1. A lazy chunk: App.jsx reaches it only
-// through lazy(import()), and nothing outside this folder imports from it (mothChunk.test.js).
+// MothPage.jsx — M.O.T.H.'s page. A lazy chunk: App.jsx reaches it only through lazy(import()), and nothing outside
+// this folder imports from it (MothPage.test.jsx scans that).
+//
+// Session 1 (MOTH_DESIGN §1.10) gave it its reads and its doing: the islands, a project's files, Move to, Delete
+// with Undo, the trash, the personal space. Session 2 (PLAN_MOTH §5 Session 2) puts them in a world: the graph of
+// everything the person can see, the light at its centre, and a heads-up display around it (the view widget top
+// left, the list right, the folder cards bottom left, Help and Settings at the toolbar's right end).
 //
 // It reads only through the adapter's Moth methods, which have already removed money and Legal on the server, and
-// each row passes mothFileHidden as a second look. So the list, the search, a selection and the trash cannot show
-// them. Every control is gated by the same question as the server's, and the server asks again.
+// each file row passes mothFileHidden as a second look (state/mothCatalogue.js). So the graph, the list, the
+// search, a selection and the trash cannot show them. Every control is gated by the same question as the server's,
+// and the server asks again.
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { Files } from 'lucide-react'
-import { Banner, Button, Dialog, EmptyState } from '../../ui'
-import GatedAction from '../../permissions/GatedAction'
+import { HelpCircle, Settings as SettingsIcon } from 'lucide-react'
+import { Banner, Button, Dialog, Drawer, IconButton } from '../../ui'
 import { usePermissions } from '../../permissions/usePermissions'
 import { canOnProject, projectActionDeniedReason } from '../../permissions/projectRoleMatrix'
 import { useRabbit } from '../rabbit_v0.1.0/state/RabbitProvider'
@@ -17,19 +22,34 @@ import { classifyUpload } from '../rabbit_v0.1.0/storage/uploadNotices.js'
 import NetworkShareBanner from '../../components/Resources/NetworkShareBanner'
 import { visibleDialogCount } from '../rabbit_v0.1.0/views/bins/binUi'
 import { fetchWorkspaceStorage, fetchStorageUsage } from '../../cloud/workspaceStorage'
-import { mothFileHidden } from './state/mothEligibility.js'
+import { buildGraph, indexCatalogue, nodeId, catalogueSize } from './engine/model.js'
+import { fixtureForTarget, generateCatalogue } from './engine/fixtures.js'
+import { createFrameRecorder, frameStats, TARGETS } from './engine/benchmark.js'
 import { createMothHistory } from './state/mothHistory.js'
 import { createMothFileOps } from './state/mothFileOps.js'
-import MothIslands from './components/MothIslands.jsx'
+import { createMothCatalogue } from './state/mothCatalogue.js'
+import { createInputMode, prefersReducedMotion } from './state/mothInputMode.js'
+import { QUICK_VIEWS, normalizeConfig, engineView, filterByTags, containersOf } from './state/mothViewState.js'
+import { createMothViews } from './state/mothViews.js'
+import { colourFor, radiusFor, normalizeAppearance } from './state/mothAppearance.js'
+import { rewind, recordedSince, readHistory } from './state/mothHistoryScrub.js'
+import { mothJump, JUMP_WORDS } from './state/mothJumps.js'
+import MothWorldView from './components/MothWorldView.jsx'
+import MothViewWidget from './components/MothViewWidget.jsx'
+import MothListWidget from './components/MothListWidget.jsx'
+import MothCards from './components/MothCards.jsx'
+import { islandLabel } from './components/MothIslands.jsx'
+import MothSettings, { MothHelp } from './components/MothSettings.jsx'
+import MothFirstVisit from './components/MothFirstVisit.jsx'
+import MothBloom from './components/MothBloom.jsx'
 import MothMoveTo from './components/MothMoveTo.jsx'
-import MothPersonalPanel from './components/MothPersonalPanel.jsx'
 import MothTrashView from './components/MothTrashView.jsx'
 import './moth.css'
 
-const PAGE = 500
-
 // An asset's own file on this computer: its asset deletes it, and Moth's batches do not take it.
 export const MANAGED_ROW_SENTENCE = 'This file belongs to an asset. Change it from the asset.'
+const LINKS_LATER = 'Links between things are saved from the next update of M.O.T.H. For now this only moves the picture.'
+const SAVE_PLACES_MS = 1500
 
 // A key pressed in a box that has its own undo. A ticked row's checkbox has none.
 const typingIn = (target) => {
@@ -37,37 +57,43 @@ const typingIn = (target) => {
   if (/^(TEXTAREA|SELECT)$/.test(target?.tagName ?? '')) return true
   return target?.tagName === 'INPUT' && !/^(checkbox|radio|button)$/.test(target.type ?? '')
 }
+const kindOf = (id) => String(id).slice(0, String(id).indexOf(':'))
+const rowOf = (id) => String(id).slice(String(id).indexOf(':') + 1)
 
-export default function MothPage({ isActive = true }) {
+export default function MothPage({ isActive = true, worldFactory }) {
   const rabbit = useRabbit()
   const perms = usePermissions()
   const adapter = rabbit?.getAdapter?.() ?? null
   const localOnly = rabbit?.adapterMode === 'local_server'
   const onDesktop = desktopFileOps.available()
 
-  const [islands, setIslands] = useState(null)
-  const [islandsFailed, setIslandsFailed] = useState(false)
   const [islandsAsked, setIslandsAsked] = useState(0)
-  const [openId, setOpenId] = useState(null)
-  const [view, setView] = useState('files')
-  const [files, setFiles] = useState([])
-  const [more, setMore] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [readFailed, setReadFailed] = useState(false)
-  const [readAsked, setReadAsked] = useState(0)
-  const [readError, setReadError] = useState('')
-  const [openFolder, setOpenFolder] = useState(null)
-  const [loadingMore, setLoadingMore] = useState(false)
-  const [search, setSearch] = useState('')
   const [picked, setPicked] = useState(() => new Set())
+  const [selected, setSelected] = useState([])
+  const [inside, setInsideState] = useState(null)
+  const [listSearch, setListSearch] = useState('')
   const [moving, setMoving] = useState(false)
   const [confirming, setConfirming] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [trashOpen, setTrashOpen] = useState(false)
   const [error, setError] = useState('')
   const [note, setNote] = useState('')
   const [storage, setStorage] = useState(null)
   const [changeKey, setChangeKey] = useState(0)
   const [unfinishedMoves, setUnfinishedMoves] = useState(0)
+  const [showHelpModal, setShowHelpModal] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [bloom, setBloom] = useState(null)
+  const [drag, setDrag] = useState(null)
+  const [flyTo, setFlyTo] = useState(null)
+  const [jump, setJump] = useState(null)
+  const [inputMode, setInputMode] = useState('mouse')
+  const [calm, setCalm] = useState(() => prefersReducedMotion())
+  const [frameLine, setFrameLine] = useState('')
+  const [openFolder, setOpenFolder] = useState(null)
+  const [scrubAt, setScrubAt] = useState(null)
+  const [scrub, setScrub] = useState({ available: null, floor: null, rows: null, since: null, loading: false, error: '', incomplete: false })
+  const worldRef = useRef(null)
 
   // One stack per account, workspace and adapter, and it survives everything else.
   const scope = `${perms?.userId ?? ''}|${perms?.workspaceId ?? ''}|${rabbit?.adapterMode ?? ''}`
@@ -82,45 +108,47 @@ export default function MothPage({ isActive = true }) {
   const canUndo = useSyncExternalStore(history.subscribe, history.canUndo)
   const canRedo = useSyncExternalStore(history.subscribe, history.canRedo)
 
-  const catalogue = useMemo(() => (adapter ? createNetworkShareCatalogue({ adapter }) : null), [adapter])
+  // ── What there is: one read of everything the person can see ─────────────────────────────────────────────────
+  const store = useMemo(() => (adapter ? createMothCatalogue({ adapter }) : null), [adapter])
+  const noStore = useCallback(() => () => {}, [])
+  const emptySnap = useMemo(() => ({ version: 0, islands: null, islandsFailed: false, complete: false, ready: 0, failed: 0, total: 0, project: () => null }), [])
+  const snap = useSyncExternalStore(store ? store.subscribe : noStore, store ? store.getSnapshot : () => emptySnap)
+  const islands = snap.islands
+
+  const netCatalogue = useMemo(() => (adapter ? createNetworkShareCatalogue({ adapter }) : null), [adapter])
   // Read when it is called: a history step outlives the project open in R.A.B.B.I.T. when it was made.
   const notifyRef = useRef(null)
   notifyRef.current = rabbit?.noteFilesChangedElsewhere
   const notify = useCallback((projects) => notifyRef.current?.(projects), [])
-  const fileOps = useMemo(() => (adapter && catalogue ? createMothFileOps({
+  const fileOps = useMemo(() => (adapter && netCatalogue ? createMothFileOps({
     adapter,
-    catalogue,
+    catalogue: netCatalogue,
     ops: desktopFileOps,
     history,
     onChanged: (projects) => {
       setChangeKey((k) => k + 1)
       notify?.(projects)
+      store?.refresh(projects || [])
     },
     onNote: setNote,
-  }) : null), [adapter, catalogue, history, notify])
+  }) : null), [adapter, netCatalogue, history, notify, store])
 
-  // First entry: this person's space exists from here on (acceptance 1: exactly one, the same on a second
-  // entry), and a database or a build without it still shows the projects. Coming back reads again, so a project
-  // made elsewhere appears and a changed seat counts; a space that could not be made is asked for again then.
+  // First entry: this person's space exists from here on (Session 1's acceptance 1: exactly one, the same on a
+  // second entry), and a database or a build without it still shows the projects. Coming back reads again, so a
+  // project made elsewhere appears and a changed seat counts; a space that could not be made is asked for again.
   const spaceAsked = useRef(false)
   useEffect(() => { spaceAsked.current = false }, [adapter, scope])
   useEffect(() => {
-    if (!adapter || !isActive) return undefined
+    if (!adapter || !store || !isActive) return undefined
     let live = true
-    setIslandsFailed(false)
     ;(async () => {
       if (!spaceAsked.current) {
         await Promise.resolve().then(() => adapter.ensurePersonalSpace?.()).then(() => { spaceAsked.current = true }).catch(() => {})
       }
-      const rows = await adapter.listMothIslands()
-      if (live) setIslands(rows || [])
-    })().catch(() => {
-      if (!live) return
-      setIslands((was) => was ?? [])
-      setIslandsFailed(true)
-    })
+      if (live) await store.loadAll()
+    })().catch(() => {})
     return () => { live = false }
-  }, [adapter, isActive, islandsAsked])
+  }, [adapter, store, isActive, islandsAsked])
 
   useEffect(() => {
     if (localOnly) return undefined
@@ -138,7 +166,7 @@ export default function MothPage({ isActive = true }) {
     if (!isActive || !adapter) return undefined
     let live = true
     if (typeof adapter.networkSharePending === 'function' && desktopFileOps.available()) {
-      Promise.resolve().then(() => catalogue.settlePending())
+      Promise.resolve().then(() => netCatalogue.settlePending())
         .then((out) => { if (live && (out?.done?.length || out?.notMoved?.length)) setChangeKey((k) => k + 1) })
         .catch(() => {})
     }
@@ -148,7 +176,7 @@ export default function MothPage({ isActive = true }) {
         .catch(() => {})
     }
     return () => { live = false }
-  }, [isActive, adapter, catalogue])
+  }, [isActive, adapter, netCatalogue])
 
   const access = useCallback((row) => {
     if (!row) return { allowed: false, reason: null }
@@ -163,106 +191,129 @@ export default function MothPage({ isActive = true }) {
     }
     return { allowed: canOnProject(ctx, 'project.entity.write'), reason: projectActionDeniedReason(ctx, 'project.entity.write') }
   }, [perms?.role, perms?.ready, localOnly])
+  const islandOf = useCallback((pid) => islands?.find((row) => row.id === pid) ?? null, [islands])
 
-  const open = islands?.find((row) => row.id === openId) ?? null
-  const gate = access(open)
+  // ── Views, places and this person's settings ─────────────────────────────────────────────────────────────────
+  const views = useMemo(() => (adapter ? createMothViews({ adapter }) : null), [adapter])
+  const viewSnap = useSyncExternalStore(views ? views.subscribe : noStore, views ? views.getSnapshot : () => null)
+  useEffect(() => { if (views && isActive) views.start().catch(() => {}) }, [views, isActive])
+  useEffect(() => { views?.setGate((pid) => { const row = islandOf(pid); return !!row?.can_write && access(row).allowed }) }, [views, islandOf, access])
+  const current = viewSnap?.current ?? { key: 'q:folders', config: QUICK_VIEWS['q:folders'].config, row: null }
+  const config = useMemo(() => normalizeConfig(current.config), [current.config])
+  const appearance = useMemo(() => normalizeAppearance(viewSnap?.prefs?.appearance), [viewSnap?.prefs?.appearance])
+  const firstVisit = viewSnap?.firstVisit === true
+  const [newView, setNewView] = useState(false)
 
-  const readPage = useCallback(async (projectId, after) => {
-    // The signed-out desktop has no server to have removed money and Legal, so the second look is the only
-    // one, and it is told what a row cannot say. A failure to read that shows nothing, not everything.
-    const known = adapter.mothHiddenFacts ? await adapter.mothHiddenFacts(projectId) : {}
-    const rows = await adapter.listMothFiles(projectId, after, PAGE)
-    return { rows: (rows || []).filter((row) => !mothFileHidden(row, known)), full: (rows || []).length === PAGE, last: rows?.[rows.length - 1]?.id ?? null }
-  }, [adapter])
-
-  // Each read has its number, and only the newest may draw: a page that comes back after another project was
-  // opened would otherwise land in that project's list, and writes there name its rows.
-  const afterRef = useRef(null)
-  const readNumber = useRef(0)
-  useEffect(() => {
-    if (!adapter || !openId) { setFiles([]); setMore(false); return undefined }
-    if (!isActive) return undefined
-    const asked = ++readNumber.current
-    let live = true
-    setLoading(true)
-    setLoadingMore(false)
-    setReadFailed(false)
-    setReadError('')
-    readPage(openId, null)
-      .then(({ rows, full, last }) => {
-        if (!live) return
-        afterRef.current = last
-        setFiles(rows)
-        setMore(full)
-      })
-      .catch((err) => {
-        if (!live || asked !== readNumber.current) return
-        setFiles([])
-        setMore(false)
-        setReadFailed(true)
-        setReadError(err?.message || String(err))
-      })
-      .finally(() => { if (live) setLoading(false) })
-    return () => { live = false }
-  }, [adapter, openId, readPage, changeKey, isActive, readAsked])
-
-  // A page that has been left says nothing of what happened before it was left.
-  useEffect(() => { if (isActive) setError('') }, [isActive])
-
-  // Where the open project is on the office server, for its banner.
-  useEffect(() => {
-    setOpenFolder(null)
-    if (!officeRoot || !openId || !adapter?.mothIslandFolder) return undefined
-    let live = true
-    Promise.resolve().then(() => adapter.mothIslandFolder(openId))
-      .then((row) => { if (live) setOpenFolder(row) })
-      .catch(() => {})
-    return () => { live = false }
-  }, [adapter, officeRoot, openId])
-
-  const loadMore = async () => {
-    if (loadingMore) return
-    const asked = readNumber.current
-    setLoadingMore(true)
-    try {
-      const { rows, full, last } = await readPage(openId, afterRef.current)
-      if (asked !== readNumber.current) return
-      afterRef.current = last
-      setFiles((was) => [...was, ...rows])
-      setMore(full)
-    } catch (err) {
-      if (asked === readNumber.current) setError(err?.message || String(err))
-    } finally {
-      if (asked === readNumber.current) setLoadingMore(false)
-    }
-  }
-
-  const openIsland = (id) => {
-    if (id !== openId) {
-      readNumber.current += 1
-      setFiles([])
-      setMore(false)
-    }
-    setOpenId(id)
-    setView('files')
-    setPicked(new Set())
-    setSearch('')
-    setError('')
-  }
-
-  // Only the rows already loaded, which the server has already stripped.
+  // ── The graph ────────────────────────────────────────────────────────────────────────────────────────────────
+  // The measured replays' stress set (PLAN_MOTH §5 Session 2, "Required dataset choice": a documented expanded
+  // replay of non-sensitive test data): in a development build only, ?mothReplay=N maps a generated catalogue of N
+  // dots and 2N lines instead of what the person can see. Never in a production build.
+  const replay = useMemo(() => {
+    if (!import.meta.env.DEV || typeof window === 'undefined') return null
+    const m = /[?&]mothReplay=(\d+)/.exec(window.location?.search ?? '')
+    if (!m) return null
+    const n = Math.max(10, Math.min(20000, Number(m[1])))
+    try { return fixtureForTarget({ nodes: n, edges: 2 * n }).catalogue } catch { return generateCatalogue({ projects: 2, filesPerProject: Math.round(n / 2) }) }
+  }, [])
+  const catalogue = useMemo(() => replay ?? (store ? store.catalogue() : { islands: [], folders: {}, files: {}, items: {}, relations: [] }),
+    // The store's own version says when it changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [replay, store, snap.version])
+  // Looking back: the record from the slider's time to now, read once per time, the live catalogue rewound.
+  const scrubbed = useMemo(() => (scrubAt != null && scrub.rows ? rewind(catalogue, scrub.rows, scrubAt) : null), [scrubAt, scrub.rows, catalogue])
+  const base = scrubbed ? scrubbed.catalogue : catalogue
+  // The person's own space is "My personal space" on the graph and in a search, as it is in the list.
   const shown = useMemo(() => {
-    const words = search.trim().toLowerCase()
-    return words ? files.filter((f) => String(f.name ?? '').toLowerCase().includes(words)) : files
-  }, [files, search])
-  const pickedFiles = files.filter((f) => picked.has(f.id))
-  const pickedHidden = pickedFiles.filter((f) => !shown.includes(f)).length
-  const toggle = (id) => setPicked((was) => {
-    const next = new Set(was)
-    if (next.has(id)) next.delete(id); else next.add(id)
-    return next
-  })
+    const c = filterByTags(base, config.tags)
+    return { ...c, islands: (c.islands || []).map((r) => (r?.is_mine ? { ...r, title: islandLabel(r) } : r)) }
+  }, [base, config.tags])
+  const index = useMemo(() => indexCatalogue(shown), [shown])
+  const open = viewSnap?.open ?? null
+  const openSet = useMemo(() => {
+    if (open) return open
+    // No saved places yet: every project open, every folder closed (one dot with its count).
+    return new Set((catalogue.islands || []).map((row) => nodeId('project', row.id)))
+  }, [open, catalogue.islands])
+  const focusId = viewSnap?.focusId ?? null
+  const graph = useMemo(() => buildGraph(shown, engineView(config, { open: openSet, focusId }), index), [shown, config, openSet, focusId, index])
+  const glowSize = useMemo(() => (replay ? catalogueSize(replay) : store ? store.glowSize() : 0),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [replay, store, snap.version])
+  const colourOf = useMemo(() => {
+    const by = colourFor(appearance.colour_by, { editorOf: (n) => store?.editorOf(n.projectId, n.rowId) ?? null })
+    // Looking back, what changed in the week before glows softly, whatever colours the rest.
+    if (!scrubbed) return by
+    return (n) => (scrubbed.changed.has(n.rowId) ? '#fff4c2' : by ? by(n) : null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appearance.colour_by, store, snap.version, scrubbed])
+  const radiusOf = useMemo(() => radiusFor(appearance.size_by), [appearance.size_by])
+  const worldAppearance = useMemo(() => ({ glowColor: appearance.glow, glowSize, colourOf, light: appearance.light, radiusOf }),
+    [appearance.glow, glowSize, colourOf, appearance.light, radiusOf])
 
+  // The list's own rows: a file by its id, to act on.
+  const fileRow = useCallback((fid) => {
+    for (const rows of Object.values(catalogue.files || {})) {
+      const f = rows.find((r) => r.id === fid)
+      if (f) return f
+    }
+    return null
+  }, [catalogue.files])
+  const pickedFiles = useMemo(() => [...picked].map(fileRow).filter(Boolean), [picked, fileRow])
+  // A ticked file the list does not show now (another container, or the search): said, in the list and in Delete's
+  // question, as Session 1's list said it.
+  const shownInList = useMemo(() => {
+    const words = listSearch.trim().toLowerCase()
+    const out = new Set()
+    if (!inside) return out
+    for (const [id, p] of index.parent) {
+      if (p !== inside || kindOf(id) !== 'file') continue
+      if (!words || String(index.rows.get(id)?.label ?? '').toLowerCase().includes(words)) out.add(rowOf(id))
+    }
+    return out
+  }, [index, inside, listSearch])
+  const pickedHidden = pickedFiles.filter((f) => !shownInList.has(f.id)).length
+  const pickedProject = pickedFiles.length ? pickedFiles[0].project_id : null
+  const samePickedProject = pickedFiles.every((f) => f.project_id === pickedProject)
+  const insideProject = inside ? index.rows.get(inside)?.projectId ?? null : null
+  const liveGate = access(islandOf(pickedProject ?? insideProject))
+  const gate = scrubAt != null ? { allowed: false, reason: 'Looking back changes nothing. Come back to now to change things.' } : liveGate
+
+  // ── Selecting, opening, flying ───────────────────────────────────────────────────────────────────────────────
+  // Going into another project says nothing of what happened in the last one, and starts its search afresh.
+  const setInside = useCallback((id) => {
+    setInsideState((was) => {
+      const project = (x) => (x ? index.rows.get(x)?.projectId ?? null : null)
+      if (project(was) !== project(id)) { setError(''); setListSearch('') }
+      return id
+    })
+  }, [index])
+  const select = useCallback((id, { additive = false, fly = false } = {}) => {
+    if (id == null) { if (!additive) { setSelected([]); setPicked(new Set()) } return }
+    const kind = kindOf(id)
+    setSelected((was) => (additive ? (was.includes(id) ? was.filter((x) => x !== id) : [...was, id]) : [id]))
+    if (!additive) {
+      // The list follows: inside a container selected, or inside the container of anything else.
+      const container = ['project', 'folder', 'phase', 'scene'].includes(kind) ? id : index.parent.get(id) ?? null
+      if (container) setInside(container)
+    }
+    if (kind === 'file') {
+      const fid = rowOf(id)
+      setPicked((was) => {
+        const next = new Set(additive ? was : [])
+        if (additive && was.has(fid)) next.delete(fid); else next.add(fid)
+        return next
+      })
+    } else if (!additive) setPicked(new Set())
+    if (fly) {
+      // Every container on the way is opened, so the dot is drawn, then the camera goes to it.
+      const ways = containersOf(shown, id, index)
+      if (ways.length && views) views.openAll(ways)
+      setFlyTo({ id, at: Date.now() })
+    }
+  }, [shown, index, views])
+  const openContainer = useCallback((id) => { views?.toggleOpen(id) }, [views])
+
+  // ── Doing things (Session 1's, kept whole) ───────────────────────────────────────────────────────────────────
   const act = useCallback(async (fn) => {
     setError('')
     setNote('')
@@ -294,8 +345,9 @@ export default function MothPage({ isActive = true }) {
     setDeleting(true)
     const list = pickedFiles
     await act(async () => {
-      await fileOps.trashFiles(list, openId)
+      await fileOps.trashFiles(list, pickedProject)
       setPicked(new Set())
+      setSelected([])
       rabbit?.showUndoToast?.(list.length === 1 ? `Deleted "${list[0].name}"` : `Deleted ${list.length} files`, toastUndo())
     })
     setDeleting(false)
@@ -371,9 +423,90 @@ export default function MothPage({ isActive = true }) {
     } finally {
       setChangeKey((k) => k + 1)
       notify([island.id])
+      store?.refresh([island.id])
     }
   }
 
+  // ── The world's gestures ─────────────────────────────────────────────────────────────────────────────────────
+  // A file moves into a folder or a project the person may write to, from a project they may write to. A link is
+  // shown as one would be, and is saved from the next update (Session 3 stores relationships).
+  const rules = useMemo(() => ({
+    canDrag: () => scrubAt == null,
+    canMove: (from, to) => {
+      if (from.kind !== 'file' || !['folder', 'project'].includes(to.kind)) return { allowed: false }
+      const src = access(islandOf(from.projectId))
+      if (!src.allowed) return { allowed: false, reason: src.reason }
+      const dst = access(islandOf(to.projectId))
+      if (!dst.allowed || !islandOf(to.projectId)?.can_write) return { allowed: false, reason: dst.reason }
+      const row = fileRow(from.rowId)
+      if (row?.managed) return { allowed: false, reason: MANAGED_ROW_SENTENCE }
+      const into = to.kind === 'folder' ? to.rowId : null
+      if (row && row.project_id === to.projectId && (row.folder_id ?? null) === into) return { allowed: false, reason: 'It is already there.' }
+      return { allowed: true }
+    },
+    canLink: (from, to) => (from.id === to.id ? { allowed: false } : { allowed: true, reason: LINKS_LATER }),
+  }), [access, islandOf, fileRow, scrubAt])
+
+  const onDrop = useCallback(({ dragId, targetId, mode }) => {
+    if (mode === 'link') { setNote(LINKS_LATER); return }
+    const row = fileRow(rowOf(dragId))
+    const to = index.rows.get(targetId)
+    if (!row || !to) return
+    act(() => move([row], row.project_id, to.projectId, to.kind === 'folder' ? to.rowId : null))
+    // The move function is Session 1's; its dependencies change with every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fileRow, index, act])
+
+  const dropFile = useCallback((fid, targetId) => {
+    const row = fileRow(fid)
+    const to = index.rows.get(targetId)
+    if (!row || !to || scrubAt != null) return
+    const verdict = rules.canMove({ kind: 'file', rowId: fid, projectId: row.project_id }, to)
+    if (!verdict.allowed) { setNote(verdict.reason || 'It cannot move there.'); return }
+    act(() => move([row], row.project_id, to.projectId, to.kind === 'folder' ? to.rowId : null))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fileRow, index, rules, act, scrubAt])
+
+  // Where the dots are goes with the view: saved a moment after the last change, by the person who may write it.
+  const saveTimer = useRef(null)
+  const queueSavePlaces = useCallback(() => {
+    if (!views) return
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => {
+      saveTimer.current = null
+      const w = worldRef.current
+      if (w) views.savePlaces(w.positions()).catch((err) => setError(err?.message || String(err)))
+    }, SAVE_PLACES_MS)
+  }, [views])
+  useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current) }, [])
+
+  // ── Settings, the input mode, the frame readout ──────────────────────────────────────────────────────────────
+  const setAppearance = useCallback((patch) => { views?.setAppearance(patch) }, [views])
+  useEffect(() => {
+    if (!isActive) return undefined
+    const mode = createInputMode({ onChange: setInputMode })
+    mode.attach(typeof window !== 'undefined' ? window : null)
+    let mq = null
+    const onMotion = () => setCalm(prefersReducedMotion())
+    try {
+      mq = window.matchMedia?.('(prefers-reduced-motion: reduce)') ?? null
+      mq?.addEventListener?.('change', onMotion)
+    } catch { mq = null }
+    return () => { mode.detach(); mq?.removeEventListener?.('change', onMotion) }
+  }, [isActive])
+  // The frame readout, for the measured replays (her Q6): only when asked for in the address, never otherwise.
+  const recorder = useMemo(() => {
+    const asked = typeof window !== 'undefined' && /[?&]mothFrames=1\b/.test(window.location?.search ?? '')
+    return asked ? createFrameRecorder() : null
+  }, [])
+  const onFrame = useCallback((f) => {
+    if (!recorder) return
+    recorder.onFrame(f)
+    const s = frameStats(recorder.sample())
+    if (s.count % 30 === 0) setFrameLine(`${f.dots} dots, ${f.edges} lines${f.light ? ', lighter' : ''} · frame p50 ${s.p50.toFixed(1)} p95 ${s.p95.toFixed(1)} ms (target ${TARGETS.normal.p95Ms} ms)`)
+  }, [recorder])
+
+  // ── The keyboard ─────────────────────────────────────────────────────────────────────────────────────────────
   // Ctrl+Z and Ctrl+Y, only while on this page. Taken before any other listener: every page stays mounted, and a
   // hidden page's own undo on the document must not also run. A box with its own undo keeps it; nothing happens
   // behind a dialog; and a held key is one press.
@@ -395,88 +528,224 @@ export default function MothPage({ isActive = true }) {
     return () => window.removeEventListener('keydown', onKey, true)
   }, [isActive, act, history])
 
-  if (!adapter || !fileOps) return <p className="moth-quiet moth-page">Opening M.O.T.H.…</p>
+  // Where the project the list is inside is on the office server, for its banner.
+  useEffect(() => {
+    setOpenFolder(null)
+    if (!officeRoot || !insideProject || !adapter?.mothIslandFolder) return undefined
+    let live = true
+    Promise.resolve().then(() => adapter.mothIslandFolder(insideProject))
+      .then((row) => { if (live) setOpenFolder(row) })
+      .catch(() => {})
+    return () => { live = false }
+  }, [adapter, officeRoot, insideProject])
+
+  // Looking back: the window once, then the rows from the chosen time on, read once per time chosen.
+  useEffect(() => {
+    if (scrubAt == null || !adapter || localOnly) return undefined
+    let live = true
+    setScrub((s) => ({ ...s, loading: true, error: '' }))
+    ;(async () => {
+      let floor = scrub.floor
+      if (floor == null) {
+        const windowRows = await adapter.fetchMothHistoryWindow(null)
+        floor = recordedSince(windowRows)
+      }
+      const since = Math.max(scrubAt, floor)
+      const kept = scrub.rows && scrub.since != null && scrub.since <= since
+      const read = kept ? { rows: scrub.rows, complete: !scrub.incomplete } : await readHistory(adapter, since)
+      if (live) setScrub({ available: true, floor, rows: read.rows, since: kept ? scrub.since : since, loading: false, error: '', incomplete: !read.complete })
+    })().catch((err) => {
+      if (!live) return
+      if (err?.code === 'moth_absent') setScrub((s) => ({ ...s, available: false, loading: false }))
+      else setScrub((s) => ({ ...s, loading: false, error: 'The record could not be read just now.' }))
+    })
+    return () => { live = false }
+    // The kept rows and floor are read, not followed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrubAt, adapter, localOnly])
+  const lookBack = useMemo(() => ({
+    available: localOnly ? false : scrub.available,
+    localOnly,
+    floor: scrub.floor,
+    at: scrubAt,
+    setAt: setScrubAt,
+    loading: scrub.loading,
+    error: scrub.error,
+    incomplete: scrub.incomplete,
+  }), [localOnly, scrub, scrubAt])
+
+  // A page that has been left says nothing of what happened before it was left.
+  useEffect(() => { if (isActive) setError('') }, [isActive])
+
+  if (!adapter || !fileOps || !store) return <p className="moth-quiet moth-page">Opening M.O.T.H.…</p>
 
   const onServerNow = pickedFiles.some((f) => f.storage_provider === 'network_share')
   const oneFile = pickedFiles.length === 1
   const whatDeleting = oneFile ? `"${pickedFiles[0].name}"` : `${pickedFiles.length} files`
+  const selectedNode = selected.length === 1 ? graph.nodes.find((n) => n.id === selected[0]) ?? index.rows.get(selected[0]) ?? null : null
+  const jumpFor = selectedNode ? mothJump(selectedNode) : null
 
   return (
-    <div className="moth-page" data-moth-page>
-      <aside className="moth-side">
-        {islandsFailed && (
-          <Banner tone="danger">
-            Could not read your projects just now.{' '}
-            <Button variant="ghost" size="sm" onClick={() => setIslandsAsked((n) => n + 1)}>Try again</Button>
-          </Banner>
-        )}
-        {islands && <MothIslands islands={islands} openId={openId} localOnly={localOnly} onOpen={openIsland} />}
-        <button type="button" className={`moth-island${view === 'trash' ? ' is-open' : ''}`} onClick={() => { setOpenId(null); setView('trash'); setError('') }} data-moth-trash-open>Trash</button>
-      </aside>
-      <section className="moth-main">
-        <div className="moth-toolbar">
-          <Button variant="ghost" onClick={() => act(() => history.undo())} disabled={!canUndo} data-moth-undo>Undo</Button>
-          <Button variant="ghost" onClick={() => act(() => history.redo())} disabled={!canRedo} data-moth-redo>Redo</Button>
+    <div className="moth-page" data-moth-page data-input={inputMode} data-calm={calm ? 'true' : undefined}>
+      <div className="moth-strip">
+        <span className="moth-strip-title">{current.row?.name ?? QUICK_VIEWS[current.key]?.name ?? 'M.O.T.H.'}</span>
+        <div className="moth-strip-right">
+          <IconButton size="sm" Icon={HelpCircle} title="Help & documentation" onClick={() => setShowHelpModal(true)} />
+          <IconButton size="sm" Icon={SettingsIcon} title="M.O.T.H. settings" onClick={() => setSettingsOpen(true)} />
         </div>
-        {(error || readError) && <Banner tone="danger" data-moth-error>{error || readError}</Banner>}
-        {note && <Banner tone="info" data-moth-note>{note}</Banner>}
-        {unfinishedMoves > 0 && (
-          <Banner tone="info" data-moth-unfinished>
-            {unfinishedMoves === 1 ? 'A move on this computer did not finish.' : `${unfinishedMoves} moves on this computer did not finish.`}
-            {' '}WILSON tries again each time it starts. If a project's folder is on a drive, connect it.
-          </Banner>
-        )}
-        {view === 'trash' && islands && <MothTrashView adapter={adapter} fileOps={fileOps} islands={islands} access={access} refreshKey={changeKey} />}
-        {view === 'files' && !open && <EmptyState Icon={Files} title="Choose a project" body="Pick a project to see its files." />}
-        {view === 'files' && open && (
-          <>
-            {officeRoot && openFolder?.id === openId && (
-              <NetworkShareBanner key={openId} adapter={adapter} project={openFolder} canCheck={gate.allowed} deniedReason={gate.reason} onChanged={() => setChangeKey((k) => k + 1)} />
+      </div>
+      <div className="moth-stage">
+        <MothWorldView
+          graph={graph}
+          layout={config.layout}
+          saved={viewSnap?.places ?? null}
+          savedKey={viewSnap?.placesKey ?? null}
+          active={isActive}
+          appearance={worldAppearance}
+          reducedMotion={calm}
+          selection={selected}
+          rules={rules}
+          flyTo={flyTo}
+          worldRef={worldRef}
+          createWorld={worldFactory}
+          onPick={(id, how) => { setBloom(null); select(id, how) }}
+          onOpen={openContainer}
+          onBloom={setBloom}
+          onDrag={setDrag}
+          onDrop={onDrop}
+          onArranged={queueSavePlaces}
+          onSettled={() => { if (viewSnap?.needsPlaces) queueSavePlaces() }}
+          onFrame={recorder ? onFrame : undefined}
+          onDropFile={dropFile}
+        />
+        <div className="moth-hud" data-moth-hud>
+          <div className="moth-hud-banners">
+            {snap.islandsFailed && (
+              <Banner tone="danger">
+                Could not read your projects just now.{' '}
+                <Button variant="ghost" size="sm" onClick={() => setIslandsAsked((n) => n + 1)}>Try again</Button>
+              </Banner>
             )}
-            {readFailed && <Button variant="ghost" size="sm" onClick={() => setReadAsked((n) => n + 1)} data-moth-read-again>Try again</Button>}
-            {open.is_mine && (
-              <MothPersonalPanel island={open} gate={gate} onDesktop={onDesktop} onOfficeServer={Boolean(officeRoot)} cannotHoldFiles={onNetworkStorage && !officeRoot} onAdd={addFiles} />
+            {error && <Banner tone="danger" data-moth-error>{error}</Banner>}
+            {note && <Banner tone="info" data-moth-note>{note}</Banner>}
+            {unfinishedMoves > 0 && (
+              <Banner tone="info" data-moth-unfinished>
+                {unfinishedMoves === 1 ? 'A move on this computer did not finish.' : `${unfinishedMoves} moves on this computer did not finish.`}
+                {' '}WILSON tries again each time it starts. If a project's folder is on a drive, connect it.
+              </Banner>
             )}
-            <div className="moth-toolbar">
-              <input
-                className="moth-search"
-                type="search"
-                placeholder="Search these files"
-                aria-label="Search these files"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-              {pickedFiles.length > 0 && (
-                <span className="moth-quiet" data-moth-ticked>
-                  {pickedFiles.length} ticked{pickedHidden > 0 ? `, ${pickedHidden} not shown by this search` : ''}
-                </span>
-              )}
-              <GatedAction allowed={gate.allowed} reason={gate.reason}>
-                <Button onClick={() => setMoving(true)} disabled={!gate.allowed || pickedFiles.length === 0} data-moth-move>Move to…</Button>
-              </GatedAction>
-              <GatedAction allowed={gate.allowed} reason={gate.reason}>
-                <Button variant="danger" onClick={() => setConfirming(true)} disabled={!gate.allowed || pickedFiles.length === 0} data-moth-delete>Delete</Button>
-              </GatedAction>
-            </div>
-            {loading && <p className="moth-quiet">Looking…</p>}
-            {!loading && !readFailed && shown.length === 0 && <EmptyState Icon={Files} title="Nothing here" body={search ? 'No loaded file has that name.' : 'This project has no files you can see here.'} />}
-            <ul className="moth-rows" data-moth-files>
-              {shown.map((file) => (
-                <li key={file.id} className="moth-row">
-                  <label className="moth-row-name">
-                    <input type="checkbox" checked={picked.has(file.id)} onChange={() => toggle(file.id)} disabled={Boolean(file.managed)} title={file.managed ? MANAGED_ROW_SENTENCE : undefined} />
-                    {' '}{file.name}
-                  </label>
-                  {file.share_missing_since && <span className="moth-quiet">Not found on the server at the last check</span>}
-                </li>
-              ))}
-            </ul>
-            {more && <Button variant="ghost" onClick={loadMore} loading={loadingMore} loadingLabel="Looking…" data-moth-more>Show more</Button>}
-          </>
-        )}
-      </section>
+            {frameLine && <p className="moth-quiet moth-frames" data-moth-frames>{frameLine}</p>}
+          </div>
+          <MothViewWidget
+            views={views}
+            viewSnap={viewSnap}
+            config={config}
+            catalogue={shown}
+            index={index}
+            selectedNode={selectedNode}
+            pickedCount={pickedFiles.length}
+            gate={gate}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            jump={jumpFor}
+            localOnly={localOnly}
+            history={lookBack}
+            livePositions={() => worldRef.current?.positions() ?? {}}
+            onUndo={() => act(() => history.undo())}
+            onRedo={() => act(() => history.redo())}
+            onMove={() => setMoving(true)}
+            onDelete={() => setConfirming(true)}
+            onJump={() => setJump(jumpFor)}
+            onFind={(id) => select(id, { fly: true })}
+            onNewView={() => setNewView(true)}
+            onRelayout={() => worldRef.current?.relayout()}
+            onError={setError}
+          />
+          <MothListWidget
+            adapter={adapter}
+            snap={snap}
+            catalogue={catalogue}
+            index={index}
+            inside={inside}
+            picked={picked}
+            gate={gate}
+            localOnly={localOnly}
+            onDesktop={onDesktop}
+            officeRoot={officeRoot}
+            onNetworkStorage={onNetworkStorage}
+            onInside={(id) => { setInside(id); if (id) select(id, { fly: true }) }}
+            search={listSearch}
+            onSearch={setListSearch}
+            onPickFile={(fid) => select(nodeId('file', fid), { additive: true })}
+            onSelect={(id) => select(id, { fly: true })}
+            onRetry={(pid) => store.retryProject(pid)}
+            onAdd={addFiles}
+            onTrash={() => setTrashOpen(true)}
+            onMove={() => setMoving(true)}
+            onDelete={() => setConfirming(true)}
+            pickedCount={pickedFiles.length}
+            samePickedProject={samePickedProject}
+            onChanged={() => setChangeKey((k) => k + 1)}
+            NetworkShareBanner={NetworkShareBanner}
+            openFolder={openFolder}
+            filesById={fileRow}
+            tagsView={config.nodeKinds.includes('tag') && !config.nodeKinds.includes('folder')}
+          />
+          <MothCards
+            selectedId={selected.length === 1 ? selected[0] : null}
+            index={index}
+            recent={viewSnap?.prefs?.recent}
+            onSelect={(id) => select(id, { fly: true })}
+            onOpenCard={(id) => views?.noteOpened(id)}
+            onDropFile={dropFile}
+            onNote={setNote}
+          />
+          {drag?.target && (
+            <span className="moth-cursor-word" style={{ left: drag.x + 14, top: drag.y + 14 }} data-moth-cursor-word>
+              {drag.target.allowed ? (drag.target.mode === 'move' ? 'move into' : 'link') : (drag.target.reason || (drag.target.mode === 'move' ? 'cannot move here' : 'cannot link'))}
+            </span>
+          )}
+          <MothBloom at={bloom} node={bloom ? index.rows.get(bloom.id) : null} adapter={adapter} file={bloom && kindOf(bloom.id) === 'file' ? fileRow(rowOf(bloom.id)) : null} onDesktop={onDesktop} />
+        </div>
+      </div>
+
+      {showHelpModal && (
+        <Dialog title="Help & documentation" dismissOnBackdrop width="reading" onClose={() => setShowHelpModal(false)}>
+          <MothHelp />
+        </Dialog>
+      )}
+      <Drawer open={settingsOpen} backdrop side="right" width="lg" label="Settings" title="M.O.T.H. settings" onClose={() => setSettingsOpen(false)} className="moth-settings-drawer">
+        <MothSettings appearance={appearance} onChange={setAppearance} calm={calm} available={viewSnap?.prefsAvailable !== false} />
+      </Drawer>
+      {(firstVisit || newView) && (
+        <MothFirstVisit
+          first={firstVisit}
+          onChoose={(key, configChoice) => { setNewView(false); views?.chooseStart(key, configChoice) }}
+          onClose={() => { setNewView(false); views?.dismissFirstVisit() }}
+        />
+      )}
+      {trashOpen && islands && (
+        <Dialog title="Trash" width="reading" onClose={() => setTrashOpen(false)}>
+          <MothTrashView adapter={adapter} fileOps={fileOps} islands={islands} access={access} refreshKey={changeKey} />
+        </Dialog>
+      )}
       {moving && (
-        <MothMoveTo adapter={adapter} islands={islands || []} files={pickedFiles} fromProject={openId} onMove={move} onClose={() => setMoving(false)} />
+        <MothMoveTo adapter={adapter} islands={islands || []} files={pickedFiles} fromProject={pickedProject} onMove={move} onClose={() => setMoving(false)} />
+      )}
+      {jump && (
+        <Dialog
+          width="confirm"
+          title={`Leave M.O.T.H.?`}
+          onClose={() => setJump(null)}
+          footer={(
+            <>
+              <Button variant="ghost" onClick={() => setJump(null)} data-moth-jump-stay>Stay here</Button>
+              <Button onClick={() => { const j = jump; setJump(null); j.go() }} data-moth-jump-go>Open {JUMP_WORDS[jump.tool]}</Button>
+            </>
+          )}
+        >
+          <p data-moth-jump-question>You're about to leave M.O.T.H. and open {JUMP_WORDS[jump.tool]}.</p>
+        </Dialog>
       )}
       {confirming && (
         <Dialog
@@ -506,3 +775,4 @@ export default function MothPage({ isActive = true }) {
     </div>
   )
 }
+
