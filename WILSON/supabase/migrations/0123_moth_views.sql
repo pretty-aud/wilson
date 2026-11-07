@@ -418,7 +418,7 @@ CREATE OR REPLACE FUNCTION rabbit_private.moth_view_access(p_view uuid, OUT o_sc
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = public
 AS $$
 DECLARE
   v_me UUID := auth.uid();
