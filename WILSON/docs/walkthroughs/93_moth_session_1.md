@@ -12,7 +12,7 @@ branch until the planning session merges it.
   projects you can see, and Trash. On the right: the open project's files, a search over what has loaded, and *Show more*
   when there is more.
 - **Your personal space.** Everyone gets one the first time they open the page, for files that belong to no project yet.
-  Nobody else can open it, and that includes an admin.
+  Nobody else sees it in M.O.T.H. An admin can open it from Files, and each time that is recorded in the Logs.
 - **Move to.** Tick files and move them to a folder or to another project you may change. Where the move needs a new copy
   of the file, the copy is made and checked first, so a file is never without its contents. A file's links to tasks,
   shots and assets stay with the project it left, and you are told how many did.
@@ -56,6 +56,10 @@ branch until the planning session merges it.
 - **A folder of numbered images reads as one item.** That is how frame sequences stay one row. If you move two numbered
   stills into a folder of their own they keep their own rows, but new files added to that folder on the server will not
   appear until the folder holds something that is not numbered.
+- **Someone whose access is removed can go on hearing live updates for a while.** If a person is deactivated or an admin is demoted
+  while WILSON is open, the updates already reaching them carry on until their sign-in next renews or runs out, at most an
+  hour. They cannot join anything new once deactivated, and a project made private is cut off at once. This was measured on a
+  throwaway database, and it was already so before this work. It is on the outstanding list as MO1-01.
 - **A file deleted on the desktop has its own 30 days.** It sits in a hidden folder beside the project's files. A project
   with deleted files waits to change where its files live, until they have been restored or their time is up, so none is
   left behind.

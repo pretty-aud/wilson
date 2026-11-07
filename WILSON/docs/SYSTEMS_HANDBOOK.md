@@ -126,6 +126,11 @@ Electron, for the web app, and for the operator console (§5.1).
 
 ### 3.1 The Electron desktop app
 
+**A desktop project's deleted files (MO1).** A delete moves the row into `bundle.trashedFiles` and the body into
+`.trash` beside the project's files, for 30 days; a restore asks the disk where the body is, and the expired go when
+the project opens in R.A.B.B.I.T. or Moth's trash opens (`fileTrash.cjs`). A move between projects holds a durable journal in
+`<rabbit-data>/moves/` until both bundles are written and read back, and recovers at start-up (`fileMoves.cjs`).
+
 **Main process** — `electron/main.cjs` (~2500 lines), plus `preload.cjs`,
 `env.cjs`, `sentry.cjs`, `updater.cjs`.
 
@@ -1433,6 +1438,10 @@ environment.
 
 ### 5.4 `operator-workspaces`
 
+**MO1.** A teardown's collector now names a row's stored copy by `files.project_id`, because a key's prefix is where a
+file was created and not where it is, and it keeps a reserved path of a project gone but tied to the company. A failed read stops
+it (`scan_failed`), and a queue row naming no uuid goes to the refused list and stops nothing (`_shared/teardownCollect.ts`).
+
 Actions: `list`, `create`, `rename`, `admin_contact`, `send_setup_link`,
 `suspend`, `restore`, `teardown`.
 
@@ -2233,6 +2242,9 @@ walk found a file that was already there. An add through the desktop's route, un
 
 ### 12.4 Blob garbage collection
 
+**MO1.** The drain takes `pending` and `failed` rows, in that order, because 0115 keeps a failed row's key claimed until it is
+really gone. A company's bucket that has stopped answering is asked once in a run, so what follows the drain still runs.
+
 `trg_files_gc_enqueue` fires `AFTER DELETE ON files WHEN storage_provider =
 'supabase'` and inserts a `storage_gc_queue` row. The `storage-gc` Edge
 Function (adminGuard, workspace-scoped) then does four jobs:
@@ -2462,6 +2474,13 @@ and experiences (`LEVELS/<slug>/`, `EXPERIENCES/<slug>/`), and FileManager
 copies where the record says.
 
 ### 12.7 The workspace drive, the NAS, and remote access (S34/S35)
+
+**The catalogue (MO1, 0117 to 0121; §13.6).** A company on its office server keeps a row per file, with only names and details in the
+cloud. A desktop walks a project's folder and the database applies what it found (`network_share_catalogue_apply`), marking
+what it did not find rather than deleting it. A delete goes to `<space>/.wilson-bin/<id>/`, and every change on the server is journalled
+first, then carried out by the desktop, then settled. The root a route trusts refuses this computer's loopback names, a Linux or remote-session
+disk, an administrative share and a personal parent. A personal folder is listed, written and read by its owner alone. The list shows what the
+person checking can open. A device name is no locator.
 
 This is the section to hand a customer who asks "how does my team reach the
 files, and what do we need to buy or set up?" The design and its measurements
@@ -5070,6 +5089,12 @@ nothing checks them before executing an action.
 
 ## 14. Who talks to whom
 
+**M.O.T.H.'s arrows (MO1).** Personal spaces and private projects' content are off every workspace realtime topic. `moth_history` is
+pull-only and on no topic, and neither it nor a personal space goes in a takeout. The moves, the trash, the catalogue and the leaver move are
+RPCs, each ending in a journal row; a desktop carries out what they say on an office server. There is no live channel for Moth yet: another
+person's change shows when the list next reads. **A join is judged when it is made (measured, Realtime v2.140.3, OUTSTANDING MO1-01):** someone deactivated or demoted goes on
+hearing a project channel they had joined until their token refreshes or runs out, each of which closes it. A new join is judged afresh.
+
 Every arrow in the system, in prose. Read this section if you read nothing
 else.
 
@@ -5170,6 +5195,8 @@ else.
 ---
 
 ## 15. Testing and verification
+
+**As of MO1 (2026-11-07):** 116 pgTAP suites, 6,137 checks with 0121, read by running them on wilson-dev, rolled back. The counts just below are dated history.
 
 **pgTAP** — 55 suites under `supabase/tests/rls/` (Session 20 added 39–42, one
 per model control-plane table; **Session 24 added 43–47, one per money table;
@@ -7109,6 +7136,9 @@ Panel's handle)**
 | Term | Meaning |
 |---|---|
 | **Workspace** | A company; the tenant. |
+| **Personal space** | A person's own project row (`personal_owner_id`), for files in no project yet. Nobody else sees it in M.O.T.H.; an admin opens it from Files, on the record (`WIL-4114`). |
+| **Office server** | A company's own network share as its storage (`mode = 'byos'`, `provider = 'network'`, a UNC root). WILSON keeps a catalogue of it (§12.7). |
+| **Former member** | Someone whose workspace membership is no longer active. Their personal files can be moved into a project by an admin (`WIL-4115`). |
 | **App role** | `admin` / `manager` / `user` — workspace-wide authority. |
 | **Project role** | `manager` / `reviewer` / `member` — a seat on one R.A.B.B.I.T. project. Different axis from app role. |
 | **Platform operator** | Petal Studios itself; cross-tenant; SQL-granted only. |
@@ -7141,6 +7171,8 @@ entry. `eventVocabulary.test.js` exempts exactly those three, by name.
 | `WIL-3005` / `WIL-3006` | Workspace bucket secret saved / cleared (S37; hint only, never the secret) | `app_events` |
 | `WIL-3007` | Bucket probe ran (stage + status on failure, latencies on success) | `app_events` |
 | `WIL-41xx` | Admin actions. `WIL-4101`–`4104` are written by `logAdminEvent` from an Edge Function; `WIL-4105`/`4106`/`4107` (privileges changed / membership created / membership removed) are written by the `trg_ws_members_audit` DEFINER trigger, which is what catches privilege changes made straight from the browser | `app_events` |
+| `WIL-4114` | **An admin opened someone's personal space in Files** (MO1, 0110). Written by a DEFINER, so it is evidence. |
+| `WIL-4115` | **An admin moved a former member's personal files into a project** (MO1, 0121). Names who, whose, where and how many by id, under the move's id. |
 | `WIL-4108` | **Nomination approved by its own proposer** (A4, migration 0069). Written by `otter_nomination_apply`, a DEFINER function owned by a BYPASSRLS role, in the SAME transaction as the promotion and allowed to raise — an unrecorded self-promotion rolls the promotion back with it. Self-approval is **allowed** (Audrey, 2026-09-07: a manager can already promote by hand); this is the record, not a refusal. `severity` is `warning`; `context` carries `nomination_id`, `course_id`, `course_slug`, `course_name`, `approver_app_role`, `superseded_course_id` | `app_events` |
 | `WIL-5001` / `WIL-5002` | Update check / download failure | `app_events` + Sentry |
 | `WIL-6001` / `WIL-6002` | AI request completed / failed, with model, tokens and `key_source` | `app_events` |
