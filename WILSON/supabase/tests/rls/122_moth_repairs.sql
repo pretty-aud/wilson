@@ -225,7 +225,7 @@ SELECT lives_ok(format($q$ INSERT INTO storage.objects (bucket_id, name, owner_i
 SELECT lives_ok(format($q$ INSERT INTO storage.objects (bucket_id, name, owner_id) VALUES ('rabbit-thumbnails', %L, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa') $q$, public.t122_v('plan') -> 'items' -> 0 ->> 'to_thumb'),
   'and its picture');
 INSERT INTO t122_ret SELECT 'did', public.t122_leave(ARRAY['12200000-0000-0000-0000-000000000001'::uuid], 'aaaa1220-0000-0000-0000-00000000000a', false,
-  jsonb_build_array(jsonb_build_object('file_id', '12200000-0000-0000-0000-000000000001',
+  jsonb_build_array(jsonb_build_object('to_provider', 'supabase', 'file_id', '12200000-0000-0000-0000-000000000001',
     'path', public.t122_v('plan') -> 'items' -> 0 ->> 'to_path', 'thumbnail', public.t122_v('plan') -> 'items' -> 0 ->> 'to_thumb')));
 SELECT is((public.t122_v('did') ->> 'moved')::int, 1, 'the commit says one moved');
 RESET ROLE;
@@ -380,7 +380,7 @@ SELECT 'rabbit-files', e ->> 'to_path', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' F
 SET LOCAL ROLE authenticated;
 SELECT public.t122_a();
 INSERT INTO t122_ret SELECT 'many_did', public.t122_leave(ARRAY(SELECT ('12200000-0000-0000-0001-' || lpad(i::text, 12, '0'))::uuid FROM generate_series(1, 210) i), 'aaaa1220-0000-0000-0000-00000000000a', false,
-  (SELECT jsonb_agg(jsonb_build_object('file_id', e ->> 'id', 'path', e ->> 'to_path', 'thumbnail', NULL)) FROM jsonb_array_elements(public.t122_v('many') -> 'items') e));
+  (SELECT jsonb_agg(jsonb_build_object('to_provider', 'supabase', 'file_id', e ->> 'id', 'path', e ->> 'to_path', 'thumbnail', NULL)) FROM jsonb_array_elements(public.t122_v('many') -> 'items') e));
 SELECT is((public.t122_v('many_did') ->> 'moved')::int, 210, '🚨 210 of a former member''s files move in one go');
 RESET ROLE;
 SELECT is((SELECT (context ->> 'file_count')::int FROM public.app_events WHERE code = 'WIL-4115' AND context ->> 'move_id' = public.t122_v('many_did') ->> 'move_id'), 210,

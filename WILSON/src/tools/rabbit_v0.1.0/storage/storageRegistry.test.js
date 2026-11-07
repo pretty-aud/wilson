@@ -302,7 +302,7 @@ describe('the adapter actually calls the registry (no dead path)', () => {
   })
 
   it('registers the s3 provider beside supabase at module load, with its read signer (P1)', () => {
-    expect(adapter).toContain('createS3StorageProvider(presignStorage, presignReadUrls)')
+    expect(adapter).toContain('createS3StorageProvider(presignStorage, presignReadUrls, { lookAtObject: lookAtStorageObject })')
     expect(adapter).toContain('FILE_PROVIDERS.S3')
   })
 

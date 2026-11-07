@@ -17,7 +17,7 @@ vi.mock('./auth/supabaseClient', () => ({
 vi.mock('../tools/rabbit_v0.1.0/storage/uploadReservation.js', () => ({ releaseStaleUploads: vi.fn() }))
 
 // eslint-disable-next-line import/first
-import { presignStorage, presignReadUrls } from './storageApi'
+import { presignStorage, presignReadUrls, lookAtStorageObject } from './storageApi'
 
 afterEach(() => { vi.unstubAllGlobals(); auth.getSession.mockClear() })
 
@@ -84,5 +84,35 @@ describe('presignReadUrls(keys, { stream })', () => {
     const err = await presignReadUrls([`projects/${P}/assets/a/1-x.png`], { token: 't' }).catch((e) => e)
     expect(err.message).toBe('[s3] this workspace has no S3-compatible storage configured')
     expect(err.status).toBe(409)
+  })
+})
+
+describe('lookAtStorageObject(path): the server looks, and says what it saw (MO1, 0120)', () => {
+  const KEY = 'projects/p/files/f/1700000000000-a.mov'
+  const answer = (status, body) => vi.stubGlobal('fetch', vi.fn(async () => ({ ok: status < 400, status, json: async () => body })))
+  it('asks storage-presign\'s look, for this key, and carries the answer', async () => {
+    answer(200, { ok: true, seen: true })
+    await expect(lookAtStorageObject(KEY, { token: 't' })).resolves.toBe(true)
+    const [url, init] = fetch.mock.calls[0]
+    expect(url).toContain('/functions/v1/storage-presign')
+    expect(JSON.parse(init.body)).toEqual({ op: 'look', path: KEY })
+    answer(200, { ok: true, seen: false })
+    await expect(lookAtStorageObject(KEY, { token: 't' })).resolves.toBe(false)
+  })
+  it('🚨 a refusal or a fault throws its sentence, and never reads as not there', async () => {
+    answer(502, { error: 'look_failed', detail: 'the bucket answered 403' })
+    await expect(lookAtStorageObject(KEY, { token: 't' })).rejects.toMatchObject({ status: 502, message: '[s3] the bucket answered 403' })
+    answer(403, { error: 'refused', detail: 'you cannot presign for this project' })
+    await expect(lookAtStorageObject(KEY, { token: 't' })).rejects.toMatchObject({ status: 403 })
+  })
+  it('🚨 an older storage-presign, which has no look, is a refusal in its own words', async () => {
+    answer(400, { error: 'bad_request', detail: 'op must be one of put, get, del, head' })
+    await expect(lookAtStorageObject(KEY, { token: 't' })).rejects.toThrow('op must be one of put, get, del, head')
+  })
+  it('an answer with no word on what it saw is not a sighting', async () => {
+    answer(200, { ok: true })
+    await expect(lookAtStorageObject(KEY, { token: 't' })).rejects.toThrow('[s3]')
+    answer(200, { ok: true, url: 'https://bucket.example/s' })
+    await expect(lookAtStorageObject(KEY, { token: 't' })).rejects.toThrow('[s3]')
   })
 })

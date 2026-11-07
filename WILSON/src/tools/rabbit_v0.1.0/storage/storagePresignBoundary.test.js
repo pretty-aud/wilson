@@ -186,7 +186,7 @@ describe('the wiring is real — every link in the presign chain has a caller', 
     expect(fn).toContain("cfg.prefix ? `${cfg.prefix}/${body.path}`")
     // A PUT needs the ACTIVE choice; reads deliberately drop the mode check
     // (resolve-from-the-row — a switched workspace must not orphan bodies).
-    expect(fn).toContain("op === 'put' && ws.mode !== 'byos'")
+    expect(fn).toContain("(op === 'put' || op === 'look') && ws.mode !== 'byos'")
     // 🚨 The op allowlist must be an ARRAY, never `op in METHOD`: `in` walks
     // the prototype chain, so 'constructor' and '__proto__' satisfied a
     // four-value allowlist, ran the whole authorisation path, decrypted the
@@ -252,6 +252,35 @@ describe('the wiring is real — every link in the presign chain has a caller', 
     // nothing connecting it to thumbnails. Nothing else would fail.
     const fn = read('supabase', 'functions', 'storage-presign', 'index.ts')
     expect(fn).toContain("envInt('STORAGE_PRESIGN_RPM', 240)")
+  })
+
+  it('🚨 a look asks the rights to write the key, through the vetted request, and tells the real function (0120)', () => {
+    const fn = read('supabase', 'functions', 'storage-presign', 'index.ts')
+    // Asked as a read, a reader could spend a look on a key they cannot write.
+    expect(fn).toContain("p_op: op === 'look' ? 'put' : op")
+    // Not fetch: an endpoint inside the platform is refused here as it is for the drain (TPN-NET-016).
+    expect(fn).toContain("s3Request({ url, method: 'HEAD', vetted, deps })")
+    expect(fn).toContain('vetS3Host(host, deps, { supabaseHost })')
+    // The look goes out after the rights, the shape and the secret, and answers before any URL is signed for a client.
+    expect(fn.indexOf('allowed !== true')).toBeLessThan(fn.indexOf("if (op === 'look')"))
+    expect(fn.indexOf("if (op === 'look')")).toBeLessThan(fn.indexOf('expiresAt:'))
+    // What the function sends is what the migration takes, and only the service role may call it.
+    const sql = read('supabase', 'migrations', '0120_s3_body_moves_on.sql')
+    expect(fn).toContain("ctx.admin.rpc('s3_body_look_record', {")
+    expect(fn).toContain('p_workspace: ctx.workspaceId')
+    expect(fn).toContain('p_path: body.path')
+    expect(fn).toContain('p_user: ctx.callerId')
+    expect(sql).toContain('public.s3_body_look_record(p_workspace uuid, p_path text, p_user uuid)')
+    expect(sql).toContain('GRANT EXECUTE ON FUNCTION public.s3_body_look_record(uuid, text, uuid) TO service_role;')
+  })
+
+  it('🚨 the drain asks both columns of a key in a company\'s bucket, and a failed second read deletes nothing (0120)', () => {
+    const fn = read('supabase', 'functions', 'storage-gc', 'index.ts')
+    expect(fn).toContain("(row as { provider?: string }).provider === 's3'\n        ? ['storage_path', 'thumbnail_url']\n        : [refColumn]")
+    expect(fn).toContain('.eq(column, row.object_path)')
+    // The first read that fails or finds something ends the asking, and a failure deletes nothing.
+    expect(fn).toContain('if (refErr || stillRef?.length) break')
+    expect(fn.indexOf('if (refErr || stillRef?.length) break')).toBeLessThan(fn.indexOf('if (refErr) {'))
   })
 
   it('0051 widens the enqueue trigger by TEXT comparison (the same-transaction enum rule)', () => {

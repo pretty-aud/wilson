@@ -17,7 +17,7 @@ function make(extra = {}) {
     moveFiles: note('commit', { move_id: 'm1', moved: 1, ops: [] }),
     planUndoFileMove: note('planUndo', { items: [] }),
     undoFileMove: note('undo', { move_id: 'm2', ops: [] }),
-    copyBodyForMove: note('copy', (f, i) => ({ file_id: f.id, path: i.to_path, thumbnail: null })),
+    copyBodyForMove: note('copy', (f, i) => ({ file_id: f.id, to_provider: i.to_provider, path: i.to_path, thumbnail: null })),
     removeMoveCopy: note('uncopy'),
     trashFiles: note('trash', { done: 1, ops: [] }),
     restoreFiles: note('restore', { done: 1, ops: [] }),
@@ -46,7 +46,7 @@ describe('a move in the cloud', () => {
     make({ planFileMove: vi.fn(async () => ({ items: [{ id: 'a', how: 'rehome', to_provider: 'supabase', to_path: 'new/a.mov' }] })) })
     await fileOps.moveFiles([file('a')], 'p1', 'p2')
     expect(calls).toEqual(['copy', 'commit'])
-    expect(adapter.moveFiles.mock.calls[0][3]).toEqual([{ file_id: 'a', path: 'new/a.mov', thumbnail: null }])
+    expect(adapter.moveFiles.mock.calls[0][3]).toEqual([{ file_id: 'a', to_provider: 'supabase', path: 'new/a.mov', thumbnail: null }])
   })
   it('🚨 a refused commit removes the copy, and the file stays where it was', async () => {
     make({

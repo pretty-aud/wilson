@@ -2,6 +2,8 @@
 // have, a refusal reaches the person in words, a database without them says so, and the copy a move asks for is put
 // where the server said.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 vi.mock('../../../cloud/auth/supabaseClient.js', () => ({
   get supabase() { return globalThis.__testSupabase },
@@ -12,6 +14,18 @@ let adapter
 let rpcs
 const rpcAnswers = {}
 let answer
+// One more try with no wait, so a test need not sit out a window. Its own file tests the wait.
+vi.mock('../storage/patiently', () => ({
+  patiently: async (fn) => {
+    try {
+      return await fn()
+    } catch (err) {
+      if (err?.status === 429) return fn()
+      throw err
+    }
+  },
+}))
+
 let copied
 let pictureRefused
 
@@ -85,7 +99,7 @@ describe('moves', () => {
       { id: 'a', how: 'rehome', to_provider: 'supabase', to_path: 'new/a.mov' },
     )
     expect(copied).toEqual([{ bucket: 'rabbit-files', from: 'old/a.mov', to: 'new/a.mov' }])
-    expect(out).toEqual({ file_id: 'a', path: 'new/a.mov', thumbnail: null })
+    expect(out).toEqual({ file_id: 'a', to_provider: 'supabase', path: 'new/a.mov', thumbnail: null })
   })
   const WITH_PICTURE = [
     { id: 'a', storage_path: 'old/a.mov', storage_provider: 'supabase', thumbnail_url: 'old/a.jpg' },
@@ -96,10 +110,76 @@ describe('moves', () => {
     expect(copied[1]).toEqual({ bucket: 'rabbit-thumbnails', from: 'old/a.jpg', to: 'new/a.mov.jpg' })
     expect(out.thumbnail).toBe('new/a.mov.jpg')
   })
+  describe('🚨 into a company\'s own bucket (0120)', () => {
+    const FILE = { id: 'a', storage_path: 'old/a.mov', storage_provider: 'supabase', mime_type: 'video/quicktime' }
+    const ITEM = { id: 'a', how: 'rehome', to_provider: 's3', to_path: 'new/a.mov' }
+    let s3
+    let order
+    beforeEach(async () => {
+      const { getStorageProvider } = await import('../storage/index.js')
+      s3 = getStorageProvider('s3')
+      order = []
+      const supabase = getStorageProvider('supabase')
+      vi.spyOn(supabase, 'get').mockImplementation(async () => { order.push('get'); return new Blob(['x']) })
+      vi.spyOn(s3, 'put').mockImplementation(async () => { order.push('put'); return {} })
+      vi.spyOn(s3, 'look').mockImplementation(async () => { order.push('look') })
+      vi.spyOn(s3, 'del').mockImplementation(async () => { order.push('del') })
+    })
+    afterEach(() => vi.restoreAllMocks())
+    it('the server looks after the copy lands, and the body says where it went', async () => {
+      const out = await adapter.copyBodyForMove(FILE, ITEM)
+      expect(order).toEqual(['get', 'put', 'look'])
+      expect(s3.look).toHaveBeenCalledWith('new/a.mov')
+      expect(out).toEqual({ file_id: 'a', to_provider: 's3', path: 'new/a.mov', thumbnail: null })
+    })
+    it('a look that refuses takes back the copy it just made, and says why', async () => {
+      s3.look.mockImplementation(async () => { order.push('look'); throw new Error('not there') })
+      await expect(adapter.copyBodyForMove(FILE, ITEM)).rejects.toThrow('not there')
+      expect(order).toEqual(['get', 'put', 'look', 'del'])
+      expect(s3.del).toHaveBeenCalledWith('new/a.mov')
+    })
+    it('and a clean-up that fails does not hide the reason', async () => {
+      s3.look.mockImplementation(async () => { throw new Error('not there') })
+      s3.del.mockImplementation(async () => { throw new Error('gone already') })
+      await expect(adapter.copyBodyForMove(FILE, ITEM)).rejects.toThrow('not there')
+    })
+    it('🚨 a look that hit the budget tries the look again, and does not copy the file again', async () => {
+      let tries = 0
+      s3.look.mockImplementation(async () => {
+        order.push('look')
+        if (tries++ === 0) throw Object.assign(new Error('too many'), { status: 429 })
+      })
+      await adapter.copyBodyForMove(FILE, ITEM)
+      expect(order).toEqual(['get', 'put', 'look', 'look'])
+    })
+    it('a copy that hit the budget tries the copy again', async () => {
+      let tries = 0
+      s3.put.mockImplementation(async () => {
+        order.push('put')
+        if (tries++ === 0) throw Object.assign(new Error('too many'), { status: 429 })
+        return {}
+      })
+      await adapter.copyBodyForMove(FILE, ITEM)
+      expect(order).toEqual(['get', 'put', 'get', 'put', 'look'])
+    })
+    it('🚨 so does a picture, or it would be lost without a word', () => {
+      const src = readFileSync(join(__dirname, 'supabaseAdapter.js'), 'utf8')
+      expect(src).toContain('await patiently(() => carryThumbnail(from, to, file.thumbnail_url, item.to_thumb, { client }));')
+    })
+    it('a copy that did not land is not looked at', async () => {
+      s3.put.mockImplementation(async () => { throw new Error('no room') })
+      await expect(adapter.copyBodyForMove(FILE, ITEM)).rejects.toThrow('no room')
+      expect(s3.look).not.toHaveBeenCalled()
+    })
+    it('a copy within Petal\'s storage needs no look: the database sees it', async () => {
+      await adapter.copyBodyForMove(FILE, { ...ITEM, to_provider: 'supabase' })
+      expect(s3.look).not.toHaveBeenCalled()
+    })
+  })
   it('a picture that will not copy does not stop the move', async () => {
     pictureRefused = 'rabbit-thumbnails'
     const out = await adapter.copyBodyForMove(...WITH_PICTURE)
-    expect(out).toEqual({ file_id: 'a', path: 'new/a.mov', thumbnail: null })
+    expect(out).toEqual({ file_id: 'a', to_provider: 'supabase', path: 'new/a.mov', thumbnail: null })
   })
 })
 

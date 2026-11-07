@@ -103,6 +103,24 @@ export async function presignStorage(op, path, opts) {
 }
 
 /**
+ * MO1 (0120): ask Petal's server to look at one object in the company's own
+ * bucket. It is the last step of writing a move's new copy: the commit takes a
+ * key there only on this look. THROWS on a refusal, or on a bucket that could
+ * not answer, because nothing here may read as "absent" by accident.
+ *
+ * @param {string} path row-shaped storage_path (never carries the prefix)
+ * @returns {Promise<boolean>} whether the object is there
+ */
+export async function lookAtStorageObject(path, opts) {
+  const res = await callStorageFn('storage-presign', { op: 'look', path }, opts)
+  if (!res.ok || typeof res.data?.seen !== 'boolean') {
+    const detail = res.data?.detail || res.data?.error || `the look failed (${res.status})`
+    throw Object.assign(new Error(`[s3] ${detail}`), { status: res.status })
+  }
+  return res.data.seen
+}
+
+/**
  * P1: signed GETs for an s3 workspace's thumbnails and previews, many keys
  * per call (storage-read-urls, NETWORK_STORAGE_DESIGN.md §9.2). THROWS on a
  * whole-call refusal with the server's sentence and its status, as

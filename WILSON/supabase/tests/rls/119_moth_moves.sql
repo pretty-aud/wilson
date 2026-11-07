@@ -16,6 +16,11 @@ SELECT plan(272);
 
 SELECT * FROM tests.rls_setup();
 
+-- 0120 turned the switch on. What this suite says of a file in a company's own bucket is the switch off,
+-- which still stands if it is turned off again; suite 123 has it on.
+CREATE OR REPLACE FUNCTION rabbit_private.s3_body_moves_on()
+RETURNS boolean LANGUAGE sql STABLE SET search_path = public AS $$ SELECT false; $$;
+
 INSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at,
                         raw_app_meta_data, raw_user_meta_data, aud, role,
                         instance_id, created_at, updated_at)
@@ -312,11 +317,11 @@ SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-00000000
 SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000205'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, true) $$, 'P0001', 'moth_move:s3_moves_off', 'and the plan says so too');
 INSERT INTO t119_ret SELECT 'm5', public.t119_m(ARRAY['11900000-0000-0000-0000-000000000205'::uuid], 'aaaa1190-0000-0000-0000-00000000000a', '11900000-0000-0000-0000-0000000000f2');
 SELECT is(public.t119_v('m5') ->> 'moved', '1', 'and within its project any of them may change folder');
-SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000102'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('file_id', '11900000-0000-0000-0000-000000000102', 'path', 'x'))) $$, 'P0001', 'moth_move:copy_not_needed', 'a copy nobody asked for');
+SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000102'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('to_provider', 'supabase', 'file_id', '11900000-0000-0000-0000-000000000102', 'path', 'x'))) $$, 'P0001', 'moth_move:copy_not_needed', 'a copy nobody asked for');
 SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000102'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, '{"file_id":"x"}'::jsonb) $$, 'P0001', 'moth_move:copy_refused', 'copies that are not a list');
-SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000102'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('file_id', '11900000-0000-0000-0000-000000000103', 'path', 'x'))) $$, 'P0001', 'moth_move:copy_refused', 'a copy for a file not in the batch');
-SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000102'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('file_id', '11900000-0000-0000-0000-000000000102', 'path', 'x'), jsonb_build_object('file_id', '11900000-0000-0000-0000-000000000102', 'path', 'y'))) $$, 'P0001', 'moth_move:copy_refused', 'two copies for one file');
-SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000102'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('file_id', 'not-a-uuid', 'path', 'x'))) $$, 'P0001', 'moth_move:copy_refused', 'a copy naming no file');
+SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000102'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('to_provider', 'supabase', 'file_id', '11900000-0000-0000-0000-000000000103', 'path', 'x'))) $$, 'P0001', 'moth_move:copy_refused', 'a copy for a file not in the batch');
+SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000102'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('to_provider', 'supabase', 'file_id', '11900000-0000-0000-0000-000000000102', 'path', 'x'), jsonb_build_object('to_provider', 'supabase', 'file_id', '11900000-0000-0000-0000-000000000102', 'path', 'y'))) $$, 'P0001', 'moth_move:copy_refused', 'two copies for one file');
+SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000102'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('to_provider', 'supabase', 'file_id', 'not-a-uuid', 'path', 'x'))) $$, 'P0001', 'moth_move:copy_refused', 'a copy naming no file');
 
 
 -- ── G. A fresh copy, when the key would name a hidden project ───────────────
@@ -339,24 +344,24 @@ INSERT INTO storage.objects (bucket_id, name, owner_id) VALUES
   ('rabbit-files', 'projects/aaaa1190-0000-0000-0000-00000000000b/files/11900000-0000-0000-0000-000000000301/1700000000000-other.mov', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'),
   ('rabbit-files', 'projects/aaaa1190-0000-0000-0000-00000000000b/files/11900000-0000-0000-0000-000000000301/soon-private_name.mov', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee');
 SET LOCAL ROLE authenticated;
-SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000301'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('file_id', '11900000-0000-0000-0000-000000000301', 'path', 'projects/aaaa1190-0000-0000-0000-00000000000a/files/11900000-0000-0000-0000-000000000301/1700000000000-private_name.mov'))) $$, 'P0001', 'moth_move:copy_refused', 'a key under another project');
-SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000301'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('file_id', '11900000-0000-0000-0000-000000000301', 'path', 'projects/aaaa1190-0000-0000-0000-00000000000b/files/11900000-0000-0000-0000-000000000302/1700000000000-private_name.mov'))) $$, 'P0001', 'moth_move:copy_refused', 'a key for another file');
-SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000301'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('file_id', '11900000-0000-0000-0000-000000000301', 'path', 'projects/aaaa1190-0000-0000-0000-00000000000b/files/11900000-0000-0000-0000-000000000301/1700000000000-other.mov'))) $$, 'P0001', 'moth_move:plan_changed', 'a key with another name: renamed since the plan, so it is planned again');
-SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000301'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('file_id', '11900000-0000-0000-0000-000000000301', 'path', 'projects/aaaa1190-0000-0000-0000-00000000000b/files/11900000-0000-0000-0000-000000000301/soon-private_name.mov'))) $$, 'P0001', 'moth_move:copy_refused', 'a key with no time in it');
-SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000301'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('file_id', '11900000-0000-0000-0000-000000000301', 'path', public.t119_v('p6') -> 'items' -> 0 ->> 'to_path'))) $$, 'P0001', 'moth_move:copy_refused', 'the right key with no copy there yet');
-SELECT is(public.t119_detail($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000301'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('file_id', '11900000-0000-0000-0000-000000000301', 'path', public.t119_v('p6') -> 'items' -> 0 ->> 'to_path'))) $$), 'The new copy is not one this project can use.', 'in a sentence');
+SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000301'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('to_provider', 'supabase', 'file_id', '11900000-0000-0000-0000-000000000301', 'path', 'projects/aaaa1190-0000-0000-0000-00000000000a/files/11900000-0000-0000-0000-000000000301/1700000000000-private_name.mov'))) $$, 'P0001', 'moth_move:copy_refused', 'a key under another project');
+SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000301'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('to_provider', 'supabase', 'file_id', '11900000-0000-0000-0000-000000000301', 'path', 'projects/aaaa1190-0000-0000-0000-00000000000b/files/11900000-0000-0000-0000-000000000302/1700000000000-private_name.mov'))) $$, 'P0001', 'moth_move:copy_refused', 'a key for another file');
+SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000301'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('to_provider', 'supabase', 'file_id', '11900000-0000-0000-0000-000000000301', 'path', 'projects/aaaa1190-0000-0000-0000-00000000000b/files/11900000-0000-0000-0000-000000000301/1700000000000-other.mov'))) $$, 'P0001', 'moth_move:plan_changed', 'a key with another name: renamed since the plan, so it is planned again');
+SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000301'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('to_provider', 'supabase', 'file_id', '11900000-0000-0000-0000-000000000301', 'path', 'projects/aaaa1190-0000-0000-0000-00000000000b/files/11900000-0000-0000-0000-000000000301/soon-private_name.mov'))) $$, 'P0001', 'moth_move:copy_refused', 'a key with no time in it');
+SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000301'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('to_provider', 'supabase', 'file_id', '11900000-0000-0000-0000-000000000301', 'path', public.t119_v('p6') -> 'items' -> 0 ->> 'to_path'))) $$, 'P0001', 'moth_move:copy_refused', 'the right key with no copy there yet');
+SELECT is(public.t119_detail($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000301'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('to_provider', 'supabase', 'file_id', '11900000-0000-0000-0000-000000000301', 'path', public.t119_v('p6') -> 'items' -> 0 ->> 'to_path'))) $$), 'The new copy is not one this project can use.', 'in a sentence');
 RESET ROLE;
 INSERT INTO storage.objects (bucket_id, name, owner_id) SELECT 'rabbit-files', public.t119_v('p6') -> 'items' -> 0 ->> 'to_path', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
 SET LOCAL ROLE authenticated;
-SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000301'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('file_id', '11900000-0000-0000-0000-000000000301', 'path', public.t119_v('p6') -> 'items' -> 0 ->> 'to_path', 'thumbnail', 'elsewhere.jpg'))) $$, 'P0001', 'moth_move:copy_refused', 'a picture that is not the copy''s');
+SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000301'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('to_provider', 'supabase', 'file_id', '11900000-0000-0000-0000-000000000301', 'path', public.t119_v('p6') -> 'items' -> 0 ->> 'to_path', 'thumbnail', 'elsewhere.jpg'))) $$, 'P0001', 'moth_move:copy_refused', 'a picture that is not the copy''s');
 RESET ROLE;
 UPDATE public.files SET name = 'renamed since.mov' WHERE id = '11900000-0000-0000-0000-000000000301';
 SET LOCAL ROLE authenticated;
-SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000301'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('file_id', '11900000-0000-0000-0000-000000000301', 'path', public.t119_v('p6') -> 'items' -> 0 ->> 'to_path'))) $$, 'P0001', 'moth_move:plan_changed', 'a file renamed while its copy was made is planned again');
+SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000301'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('to_provider', 'supabase', 'file_id', '11900000-0000-0000-0000-000000000301', 'path', public.t119_v('p6') -> 'items' -> 0 ->> 'to_path'))) $$, 'P0001', 'moth_move:plan_changed', 'a file renamed while its copy was made is planned again');
 RESET ROLE;
 UPDATE public.files SET name = 'private name.mov' WHERE id = '11900000-0000-0000-0000-000000000301';
 SET LOCAL ROLE authenticated;
-INSERT INTO t119_ret SELECT 'm6', public.t119_m(ARRAY['11900000-0000-0000-0000-000000000301'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('file_id', '11900000-0000-0000-0000-000000000301', 'path', public.t119_v('p6') -> 'items' -> 0 ->> 'to_path', 'thumbnail', public.t119_v('p6') -> 'items' -> 0 ->> 'to_thumb')));
+INSERT INTO t119_ret SELECT 'm6', public.t119_m(ARRAY['11900000-0000-0000-0000-000000000301'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('to_provider', 'supabase', 'file_id', '11900000-0000-0000-0000-000000000301', 'path', public.t119_v('p6') -> 'items' -> 0 ->> 'to_path', 'thumbnail', public.t119_v('p6') -> 'items' -> 0 ->> 'to_thumb')));
 RESET ROLE;
 SELECT is((SELECT row(project_id::text, storage_path = public.t119_v('p6') -> 'items' -> 0 ->> 'to_path', thumbnail_url = public.t119_v('p6') -> 'items' -> 0 ->> 'to_thumb')::text FROM public.files WHERE id = '11900000-0000-0000-0000-000000000301'),
   '(aaaa1190-0000-0000-0000-00000000000b,t,t)', 'the row takes the new key and picture with the project, in one update');
@@ -381,7 +386,7 @@ SELECT is(public.t119_detail($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0
 RESET ROLE;
 INSERT INTO storage.objects (bucket_id, name, owner_id) SELECT 'rabbit-files', public.t119_v('p7') -> 'items' -> 0 ->> 'to_path', 'cccccccc-cccc-cccc-cccc-cccccccccccc';
 SET LOCAL ROLE authenticated;
-INSERT INTO t119_ret SELECT 'm7', public.t119_m(ARRAY['11900000-0000-0000-0000-000000000401'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('file_id', '11900000-0000-0000-0000-000000000401', 'path', public.t119_v('p7') -> 'items' -> 0 ->> 'to_path')));
+INSERT INTO t119_ret SELECT 'm7', public.t119_m(ARRAY['11900000-0000-0000-0000-000000000401'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('to_provider', 'supabase', 'file_id', '11900000-0000-0000-0000-000000000401', 'path', public.t119_v('p7') -> 'items' -> 0 ->> 'to_path')));
 RESET ROLE;
 SELECT is((SELECT row(storage_provider::text, storage_path = public.t119_v('p7') -> 'items' -> 0 ->> 'to_path', project_id::text)::text FROM public.files WHERE id = '11900000-0000-0000-0000-000000000401'),
   '(supabase,t,aaaa1190-0000-0000-0000-00000000000b)', 'the provider, the key and the project change together');
@@ -391,7 +396,7 @@ INSERT INTO t119_ret SELECT 'p8', public.t119_m(ARRAY['11900000-0000-0000-0000-0
 RESET ROLE;
 INSERT INTO storage.objects (bucket_id, name, owner_id) SELECT 'rabbit-files', public.t119_v('p8') -> 'items' -> 0 ->> 'to_path', 'cccccccc-cccc-cccc-cccc-cccccccccccc';
 SET LOCAL ROLE authenticated;
-INSERT INTO t119_ret SELECT 'm8', public.t119_m(ARRAY['11900000-0000-0000-0000-000000000402'::uuid], 'aaaa1190-0000-0000-0000-0000000000c0', NULL, false, jsonb_build_array(jsonb_build_object('file_id', '11900000-0000-0000-0000-000000000402', 'path', public.t119_v('p8') -> 'items' -> 0 ->> 'to_path')));
+INSERT INTO t119_ret SELECT 'm8', public.t119_m(ARRAY['11900000-0000-0000-0000-000000000402'::uuid], 'aaaa1190-0000-0000-0000-0000000000c0', NULL, false, jsonb_build_array(jsonb_build_object('to_provider', 'supabase', 'file_id', '11900000-0000-0000-0000-000000000402', 'path', public.t119_v('p8') -> 'items' -> 0 ->> 'to_path')));
 SELECT is(public.t119_v('m8') ->> 'moved', '1', 'and so does the caller''s own space');
 -- Its key now names a private space, so it cannot go back by association.
 SELECT throws_ok($$ SELECT public.moth_undo_move(public.t119_move_id('m8')) $$, 'P0001', 'moth_move:needs_copy', 'the way back would need a fresh copy, so it says move it back with Move to');
@@ -621,7 +626,7 @@ VALUES ('11111111-1111-1111-1111-111111111111', 'byos', 's3', '{"region":"r","bu
 SET LOCAL ROLE authenticated;
 SELECT public.t119_e();
 SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000871'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, true) $$, 'P0001', 'moth_move:s3_moves_off', 'a re-home into the bucket is not planned');
-SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000871'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('file_id', '11900000-0000-0000-0000-000000000871', 'path', 'projects/aaaa1190-0000-0000-0000-00000000000b/files/11900000-0000-0000-0000-000000000871/1700000000000-in-bucket.mov'))) $$, 'P0001', 'moth_move:s3_moves_off', 'nor taken on the caller''s word');
+SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000871'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, false, jsonb_build_array(jsonb_build_object('to_provider', 'supabase', 'file_id', '11900000-0000-0000-0000-000000000871', 'path', 'projects/aaaa1190-0000-0000-0000-00000000000b/files/11900000-0000-0000-0000-000000000871/1700000000000-in-bucket.mov'))) $$, 'P0001', 'moth_move:s3_moves_off', 'nor taken on the caller''s word');
 SELECT public.t119_c();
 SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000872'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, true) $$, 'P0001', 'moth_move:s3_moves_off', 'nor a copy up');
 SELECT is(public.t119_m(ARRAY['11900000-0000-0000-0000-000000000873'::uuid], 'aaaa1190-0000-0000-0000-00000000000b', NULL, true) -> 'items' -> 0 ->> 'how', 'metadata', 'CONTROL: a move by association needs no new copy, in any company');
@@ -681,9 +686,9 @@ SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-00000000
 SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000602'::uuid, '11900000-0000-0000-0000-000000000603'::uuid], 'aaaa1190-0000-0000-0000-000000000012') $$, 'P0001', 'moth_move:name_taken', 'two of a batch with one name');
 SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000602'::uuid, '11900000-0000-0000-0000-000000000603'::uuid], 'aaaa1190-0000-0000-0000-000000000012', NULL, true) $$, 'P0001', 'moth_move:name_taken', 'and the plan says so too');
 SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000601'::uuid], 'aaaa1190-0000-0000-0000-000000000013') $$, 'P0001', 'moth_move:no_folder', 'a destination with no folder');
-SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000601'::uuid], 'aaaa1190-0000-0000-0000-000000000012', NULL, false, jsonb_build_array(jsonb_build_object('file_id', '11900000-0000-0000-0000-000000000601', 'path', 'nas:Moon-Film/other.mov'))) $$, 'P0001', 'moth_move:plan_changed', 'a place that is not the one the server names');
+SELECT throws_ok($$ SELECT public.t119_m(ARRAY['11900000-0000-0000-0000-000000000601'::uuid], 'aaaa1190-0000-0000-0000-000000000012', NULL, false, jsonb_build_array(jsonb_build_object('to_provider', 'supabase', 'file_id', '11900000-0000-0000-0000-000000000601', 'path', 'nas:Moon-Film/other.mov'))) $$, 'P0001', 'moth_move:plan_changed', 'a place that is not the one the server names');
 
-INSERT INTO t119_ret SELECT 'sm', public.t119_m(ARRAY['11900000-0000-0000-0000-000000000601'::uuid], 'aaaa1190-0000-0000-0000-000000000012', NULL, false, jsonb_build_array(jsonb_build_object('file_id', '11900000-0000-0000-0000-000000000601', 'path', 'nas:Moon-Film/m.mov')));
+INSERT INTO t119_ret SELECT 'sm', public.t119_m(ARRAY['11900000-0000-0000-0000-000000000601'::uuid], 'aaaa1190-0000-0000-0000-000000000012', NULL, false, jsonb_build_array(jsonb_build_object('to_provider', 'supabase', 'file_id', '11900000-0000-0000-0000-000000000601', 'path', 'nas:Moon-Film/m.mov')));
 SELECT is(public.t119_v('sm') -> 'ops' -> 0 ->> 'to', 'Moon-Film/m.mov', 'the commit hands the desktop its rename');
 SELECT is(public.t119_v('sm') -> 'ops' -> 0 ->> 'from', 'Salt-Hours/ops/deep/m.mov', 'from where the file is');
 RESET ROLE;

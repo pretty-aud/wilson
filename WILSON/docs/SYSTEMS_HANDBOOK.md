@@ -1278,6 +1278,7 @@ arm, as they always could. `rabbit_thumbnails_delete_own` has no such clause:
 | `wilson-purge-soft-deleted` | 04:47 | Soft-deleted rows across 7 tables, cascading each subtree. An office-server operation left past the retention is closed first, so it does not hold a row or a project for ever (0121) | 30 days |
 | `wilson-purge-network-share-ops` | 04:50 | Settled `network_share_ops` (MO1, 0117) | 90 days |
 | `wilson-purge-app-events` | 04:51 | `app_events` | 90 days |
+| `wilson-sweep-s3-looks` | 04:53 | Looks at a move's new copy in a company's own bucket never spent by a commit (MO1, 0120): the copy and its picture go to `storage_gc_queue` as `orphan-scan`, unless a row names the key or the bucket has been repointed since | 1 day |
 | `wilson-purge-otter-trash` | 04:55 | Trashed O.T.T.E.R. subjects then courses | 30 days |
 | `wilson-purge-rate-limits` | 04:59 | `edge_rate_limits` windows | 1 day |
 
@@ -2668,6 +2669,8 @@ only place CORS can be tested.
 - **Propagation matches the drive's rule:** another machine picks up a
   bucket change at its next launch or sign-in; the saving admin's own
   session applies it immediately.
+
+**Moves between projects, and into the bucket (MO1, 0120; §13.6).** A file in a company's bucket moves by association when its key names no private project: the key stays, and the row answers for it, so a reader of the old project alone is refused a signed URL. Otherwise, and for a file coming in from Petal's storage or a computer, the client copies it to a key the plan minted, and the commit takes that key only on a **look**: storage-presign's op `look`, a signed HEAD made by Petal's server to the vetted address, as the drain's DELETEs are, recorded for service_role alone in `rabbit_private.s3_body_looks` and spent by the commit. A HEAD carries no bytes. A look names its bucket, and is good for a day. **No scan walks a company's bucket**, so a copy nobody moved is found only through its look: the nightly `wilson-sweep-s3-looks` queues an unspent look's copy and picture for the drain, and the drain asks both `storage_path` and `thumbnail_url` before it deletes a key there. A PUT that never reached its look stays with the company's own lifecycle rules. Turning the switch off (`rabbit_private.s3_body_moves_on`, PRODUCTION_RUNBOOK (h)) stops new moves at once; a moved file stays readable.
 
 ### 12.7b Thumbnails — the derived preview (S39, migration 0053)
 
@@ -5153,6 +5156,8 @@ nothing checks them before executing an action.
 
 **A desktop project.** `fileTrash.cjs` keeps a deleted file 30 days under `<folder>/.trash`, and purges when the project opens, writing nothing unless something went. A restore and a purge ask the disk where a body is, so a crash or a file held open cannot strand one, and an entry whose body cannot be seen stays for 90 days: its drive may be away. Moth's exclusion there is the page's own rule (`isMothExcluded`, held to `moneyFolderChainLocked` by a test); a file's own restore is Undo from Files and does not ask it. `fileMoves.cjs` moves between projects with a durable journal in `<rabbit-data>/moves/`, one move at a time, its copies and hashes in a worker. A failure it sees puts the bodies back and answers that nothing moved; after a crash the next start asks where things are: with the row in the destination it rolls forward, without one the bodies go home. A way back returns a row's folder and links, and says what it could not. `GET /api/rabbit/files/pending-moves` is what M.O.T.H. reads to say a move did not finish. After a copy-up to the cloud, `localMedia.cjs` keeps the local copy 30 days under `<local media root>/.trash`, journalled as `retire-<op>.json`.
 
+**A company on its own bucket (0120).** Move to works there as anywhere: within the bucket by association, or with a copy the server looks at before the commit takes it (§12.7a). The copy step tries once more after a presign or a look the server could not answer, and after a 429 it waits out storage-presign's minute (`storage/patiently.js`), so a big batch does not stop at its fiftieth file. A file the commit did not take is taken back by the client. A former member's files already in the bucket are not offered to an admin: only their Petal bodies are.
+
 **A former member's files (0121).** An admin opening someone else's personal space in Files is also asked `moth_leaver_files`: empty unless that person is no longer an active member. `moth_move_leaver_files` is `moth_move_items` under a marker that `_moth_target_eligible` and `moth_can_write_target` honour only after asking `rabbit_private.personal_space_of_a_leaver` of the person calling, so Moth's own reads still show no admin anyone else's space. Into a project only, one line in the admin activity list (WIL-4115), and no undo. A file in that person's folder on the office server is not moved: `in_their_server_folder`, because only its owner's token opens that folder.
 
 **The storage notice (0121).** `workspace_storage_usage()` gives anyone but an admin `fullness` (`ok`, `nearly_full` at nine parts in ten, `full`) and no figures, and `reserve_upload_bytes` refuses them in words with no amounts. An admin's Terminal and refusals keep the figures.
@@ -5268,7 +5273,7 @@ else.
 
 ## 15. Testing and verification
 
-**As of MO1 (2026-11-07):** 116 pgTAP suites, 6,137 checks with 0121, read by running them on wilson-dev, rolled back. The counts just below are dated history.
+**As of MO1 (2026-11-07):** 117 pgTAP suites, 6,252 checks with 0120 and 0121, read by running them on wilson-dev, rolled back. The counts just below are dated history.
 
 **pgTAP** — 55 suites under `supabase/tests/rls/` (Session 20 added 39–42, one
 per model control-plane table; **Session 24 added 43–47, one per money table;

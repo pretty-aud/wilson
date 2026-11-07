@@ -698,7 +698,7 @@ describe('review fixes', () => {
     const gc = executable(readFileSync(
       join(process.cwd(), 'supabase', 'functions', 'storage-gc', 'index.ts'), 'utf-8',
     ))
-    expect(gc).toMatch(/error: refErr \} = await ctx\.admin/)
+    expect(gc).toMatch(/refErr = answer\.error/)
     expect(gc).toMatch(/if \(refErr\) \{/)
     expect(gc).toMatch(/restorability check failed, nothing deleted/)
   })
@@ -790,7 +790,8 @@ describe('wiring: disposal and CI registration', () => {
       /\(row as \{ kind\?: string \}\)\.kind === 'thumbnail'/,
     )
     expect(gc).not.toMatch(/row\.bucket_id === THUMBNAIL_BUCKET/)
-    expect(gc).toMatch(/\.eq\(refColumn, row\.object_path\)/)
+    expect(gc).toMatch(/: \[refColumn\]/)
+    expect(gc).toMatch(/\.eq\(column, row\.object_path\)/)
   })
 
   it('🚨 S44: the drain SELECTS kind — omitting it silently deletes previews', () => {
