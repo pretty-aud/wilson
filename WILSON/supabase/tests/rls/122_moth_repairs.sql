@@ -14,7 +14,7 @@
 
 BEGIN;
 
-SELECT plan(110);
+SELECT plan(123);
 
 SELECT * FROM tests.rls_setup();
 
@@ -267,6 +267,21 @@ SELECT public.t122_c();
 SELECT is((SELECT fullness FROM public.workspace_storage_usage()), 'nearly_full', '9 parts in 10 is nearly full');
 SELECT public.t122_a();
 SELECT is((SELECT fullness FROM public.workspace_storage_usage()), 'nearly_full', 'and an admin is told it too');
+RESET ROLE;
+UPDATE public.workspace_storage_plans SET quota_bytes = public.workspace_petal_bytes('11111111-1111-1111-1111-111111111111') * 5 / 3 WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
+SET LOCAL ROLE authenticated;
+SELECT public.t122_c();
+SELECT is((SELECT fullness FROM public.workspace_storage_usage()), 'ok', 'six parts in ten is neither');
+RESET ROLE;
+UPDATE public.workspace_storage_plans SET quota_bytes = public.workspace_petal_bytes('11111111-1111-1111-1111-111111111111') WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
+SET LOCAL ROLE authenticated;
+SELECT public.t122_c();
+SELECT is((SELECT fullness FROM public.workspace_storage_usage()), 'full', '🚨 exactly all of it is full');
+SELECT public.t122_n();
+SELECT is((SELECT count(*)::int FROM public.workspace_storage_usage()), 0, 'and someone who has left reads nothing');
+RESET ROLE;
+UPDATE public.workspace_storage_plans SET quota_bytes = 1000000 WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
+SET LOCAL ROLE authenticated;
 SELECT public.t122_c();
 SELECT throws_ok($$ SELECT public.reserve_upload_bytes('projects/aaaa1220-0000-0000-0000-00000000000a/files/12200000-0000-0000-0000-000000000012/more.mov', 100000000) $$,
   'PT402', 'There is not enough Petal cloud storage left for "more.mov". Add a smaller file, or contact an admin to raise the plan — deleting files does not free space straight away, because deleted files stay recoverable for 30 days.',
@@ -320,6 +335,25 @@ SELECT throws_ok($$ SELECT public.t122_leave(ARRAY['12200000-0000-0000-0000-0000
   'P0001', 'moth_move:on_their_computer', 'and it refuses the whole call');
 RESET ROLE;
 SELECT is((SELECT project_id::text FROM public.files WHERE id = '12200000-0000-0000-0000-000000000085'), 'aaaa1220-0000-0000-0000-0000000000f0', 'and nothing moved');
+
+-- The gate itself, asked directly: another company's space, an admin who has left, and the marker alone.
+SELECT set_config('request.jwt.claims', json_build_object('sub', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'role', 'authenticated',
+  'app_metadata', json_build_object('workspace_id', '22222222-2222-2222-2222-222222222222', 'app_role', 'admin'))::text, true);
+INSERT INTO public.projects (id, workspace_id, title, created_by, is_private, personal_owner_id)
+VALUES ('aaaa1220-0000-0000-0000-0000000000b0', '22222222-2222-2222-2222-222222222222', 'Personal space', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', true, 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb');
+SELECT public.t122_a();
+SELECT is(rabbit_private.personal_space_of_a_leaver('aaaa1220-0000-0000-0000-0000000000b0'), false,
+  '🚨 another company''s person is no former member of this one');
+-- A second admin first: the last one cannot be deactivated (fn_ws_members_last_admin_guard).
+UPDATE public.workspace_members SET app_role = 'admin' WHERE user_id = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee' AND workspace_id = '11111111-1111-1111-1111-111111111111';
+UPDATE public.workspace_members SET is_active = false WHERE user_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' AND workspace_id = '11111111-1111-1111-1111-111111111111';
+SELECT is(rabbit_private.personal_space_of_a_leaver('aaaa1220-0000-0000-0000-0000000000f0'), false, '🚨 an admin who has left is asked as anyone would be');
+UPDATE public.workspace_members SET is_active = true WHERE user_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' AND workspace_id = '11111111-1111-1111-1111-111111111111';
+UPDATE public.workspace_members SET app_role = 'user' WHERE user_id = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee' AND workspace_id = '11111111-1111-1111-1111-111111111111';
+SELECT set_config('wilson.moth_leaver_move', 'on', true);
+SELECT is(public._moth_target_eligible('file', '12200000-0000-0000-0000-000000000003', true), false, '🚨 the marker alone does not open an active person''s space to Moth');
+SELECT is(public.moth_can_write_target('project', 'aaaa1220-0000-0000-0000-0000000000e0'), false, 'nor let anyone write there');
+SELECT set_config('wilson.moth_leaver_move', '', true);
 
 -- 🚨 A record must fit: at about 195 ids a large move was rolled back by the log's limit, every copy made in vain.
 SELECT public.t122_a();
@@ -448,6 +482,23 @@ RESET ROLE;
 SELECT is((SELECT project_id::text FROM public.files WHERE id = '12200000-0000-0000-0000-000000000041'), 'aaaa1220-0000-0000-0000-0000000000f0', 'the moved row is back where its file still is');
 SELECT is((SELECT deleted_at IS NULL FROM public.files WHERE id = '12200000-0000-0000-0000-000000000042'), true, 'and the deleted one is live again');
 
+-- And a move into that space: the far end is the one nobody else can walk.
+UPDATE public.workspace_members SET is_active = true WHERE user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff' AND workspace_id = '11111111-1111-1111-1111-111111111111';
+SELECT public.t122_share('12200000-0000-0000-0000-000000000043', 'aaaa1220-0000-0000-0000-000000000011', 'Salt-Hours/going-home.mov');
+SET LOCAL ROLE authenticated;
+SELECT public.t122_n();
+INSERT INTO t122_ret SELECT 'lh', public.moth_move_items(ARRAY['12200000-0000-0000-0000-000000000043'::uuid], 'aaaa1220-0000-0000-0000-0000000000f0');
+RESET ROLE;
+UPDATE public.workspace_members SET is_active = false WHERE user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff' AND workspace_id = '11111111-1111-1111-1111-111111111111';
+UPDATE public.network_share_ops SET created_at = now() - interval '25 hours' WHERE file_id = '12200000-0000-0000-0000-000000000043';
+SET LOCAL ROLE authenticated;
+SELECT public.t122_a();
+SELECT is((SELECT count(*)::int FROM jsonb_array_elements(public.network_share_stale_moves()) e WHERE e ->> 'file_id' = '12200000-0000-0000-0000-000000000043'), 1,
+  '🚨 a move left going into a former member''s space is on an admin''s list');
+SELECT lives_ok(format($q$ SELECT public.network_share_settle(ARRAY[%L]::uuid[], 'not_moved') $q$, public.t122_v('lh') -> 'ops' -> 0 ->> 'op_id'),
+  'and that admin may say it did not happen');
+RESET ROLE;
+
 -- An adopt's old picture goes once it can no longer come back.
 INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, thumbnail_url) VALUES
   ('12200000-0000-0000-0000-000000000051', 'aaaa1220-0000-0000-0000-000000000011', 'pic.mov', 'local_server', 'projects/aaaa1220-0000-0000-0000-000000000011/files/12200000-0000-0000-0000-000000000051/pic.mov', 'projects/aaaa1220-0000-0000-0000-000000000011/files/12200000-0000-0000-0000-000000000051/pic.mov.jpg'),
@@ -475,14 +526,22 @@ SELECT public.t122_share('12200000-0000-0000-0000-000000000061', 'aaaa1220-0000-
 SELECT public.t122_share('12200000-0000-0000-0000-000000000062', 'aaaa1220-0000-0000-0000-000000000022', 'Lately-Gone/a.mov');
 SELECT public.t122_share('12200000-0000-0000-0000-000000000063', 'aaaa1220-0000-0000-0000-000000000012', 'Moon-Film/old-delete.mov');
 SELECT public.t122_share('12200000-0000-0000-0000-000000000064', 'aaaa1220-0000-0000-0000-000000000012', 'Moon-Film/new-delete.mov');
+INSERT INTO public.projects (id, workspace_id, title, created_by, is_private, folder_root) VALUES
+  ('aaaa1220-0000-0000-0000-000000000023', '11111111-1111-1111-1111-111111111111', 'Left Behind', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', false, public.t122_root() || chr(92) || 'Left-Behind'),
+  ('aaaa1220-0000-0000-0000-000000000024', '11111111-1111-1111-1111-111111111111', 'Went Nowhere', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', false, public.t122_root() || chr(92) || 'Went-Nowhere');
+SELECT public.t122_share('12200000-0000-0000-0000-000000000065', 'aaaa1220-0000-0000-0000-000000000023', 'Left-Behind/a.mov');
+SELECT public.t122_share('12200000-0000-0000-0000-000000000066', 'aaaa1220-0000-0000-0000-000000000012', 'Moon-Film/sent.mov');
 SET LOCAL ROLE authenticated;
 SELECT public.t122_a();
+INSERT INTO t122_ret SELECT 'o5', public.moth_move_items(ARRAY['12200000-0000-0000-0000-000000000065'::uuid], 'aaaa1220-0000-0000-0000-000000000012');
+INSERT INTO t122_ret SELECT 'o6', public.moth_move_items(ARRAY['12200000-0000-0000-0000-000000000066'::uuid], 'aaaa1220-0000-0000-0000-000000000024');
 INSERT INTO t122_ret SELECT 'o1', public.moth_trash_files(ARRAY['12200000-0000-0000-0000-000000000061'::uuid]);
 INSERT INTO t122_ret SELECT 'o2', public.moth_trash_files(ARRAY['12200000-0000-0000-0000-000000000062'::uuid]);
 INSERT INTO t122_ret SELECT 'o3', public.moth_trash_files(ARRAY['12200000-0000-0000-0000-000000000063'::uuid]);
 INSERT INTO t122_ret SELECT 'o4', public.moth_trash_files(ARRAY['12200000-0000-0000-0000-000000000064'::uuid]);
 RESET ROLE;
-UPDATE public.projects SET deleted_at = now() - interval '40 days' WHERE id IN ('aaaa1220-0000-0000-0000-000000000021', 'aaaa1220-0000-0000-0000-000000000022');
+UPDATE public.projects SET deleted_at = now() - interval '40 days' WHERE id IN ('aaaa1220-0000-0000-0000-000000000021', 'aaaa1220-0000-0000-0000-000000000022', 'aaaa1220-0000-0000-0000-000000000023', 'aaaa1220-0000-0000-0000-000000000024');
+UPDATE public.network_share_ops SET created_at = now() - interval '40 days' WHERE file_id IN ('12200000-0000-0000-0000-000000000065', '12200000-0000-0000-0000-000000000066');
 UPDATE public.network_share_ops SET created_at = now() - interval '40 days' WHERE file_id = '12200000-0000-0000-0000-000000000061';
 UPDATE public.network_share_ops SET created_at = now() - interval '10 days' WHERE file_id = '12200000-0000-0000-0000-000000000062';
 UPDATE public.files SET deleted_at = now() - interval '40 days' WHERE id IN ('12200000-0000-0000-0000-000000000063', '12200000-0000-0000-0000-000000000064');
@@ -491,6 +550,8 @@ UPDATE public.network_share_ops SET created_at = now() - interval '10 days' WHER
 SELECT public.purge_soft_deleted();
 SELECT is((SELECT count(*)::int FROM public.projects WHERE id = 'aaaa1220-0000-0000-0000-000000000021'), 0, '🚨 a project binned with an operation left past the retention goes');
 SELECT is((SELECT count(*)::int FROM public.projects WHERE id = 'aaaa1220-0000-0000-0000-000000000022'), 1, 'one with a younger operation waits');
+SELECT is((SELECT count(*)::int FROM public.projects WHERE id = 'aaaa1220-0000-0000-0000-000000000023'), 0, 'so does a project a move left from, whose row is elsewhere');
+SELECT is((SELECT count(*)::int FROM public.projects WHERE id = 'aaaa1220-0000-0000-0000-000000000024'), 0, 'and one a move was going to');
 SELECT is((SELECT count(*)::int FROM public.files WHERE id = '12200000-0000-0000-0000-000000000063'), 0, '🚨 a trashed file held past the retention goes');
 SELECT is((SELECT count(*)::int FROM public.files WHERE id = '12200000-0000-0000-0000-000000000064'), 1, 'one held by a younger operation waits');
 
@@ -505,6 +566,13 @@ SELECT is((SELECT share_missing_since IS NOT NULL FROM public.moth_project_files
 RESET ROLE;
 
 -- ── J. Round 2 ───────────────────────────────────────────────────────────────
+-- On an office server a personal space's Petal body could only be refused, so it is not offered.
+SET LOCAL ROLE authenticated;
+SELECT public.t122_a();
+SELECT is((SELECT count(*)::int FROM public.moth_leaver_files('aaaa1220-0000-0000-0000-0000000000f0')), 0,
+  '🚨 a company on its office server is offered nothing that would only be refused');
+RESET ROLE;
+
 -- A device name is no locator, and a project called Con keeps its folder_slug.
 SELECT is(public.network_share_locator_ok('Moon-Film/aux.mov'), false, '🚨 a device name is no locator, with an extension');
 SELECT is(public.network_share_locator_ok('Moon-Film/COM1/x.mov'), false, 'or as a folder on the way, in any case');
@@ -514,6 +582,8 @@ SELECT is(public.network_share_path_shape_ok('Con'), true, '🚨 and a slug keep
 -- A folder that has turned all-numbered.
 SELECT public.t122_share('12200000-0000-0000-0000-000000000091', 'aaaa1220-0000-0000-0000-000000000012', 'Moon-Film/Stills/still_01.png');
 SELECT public.t122_share('12200000-0000-0000-0000-000000000092', 'aaaa1220-0000-0000-0000-000000000011', 'Salt-Hours/left.mov');
+SELECT public.t122_share('12200000-0000-0000-0000-000000000094', 'aaaa1220-0000-0000-0000-000000000012', 'Moon-Film/Both');
+SELECT public.t122_share('12200000-0000-0000-0000-000000000095', 'aaaa1220-0000-0000-0000-000000000012', 'Moon-Film/Both/x.0001.exr');
 SET LOCAL ROLE authenticated;
 SELECT public.t122_c();
 INSERT INTO t122_ret SELECT 'gone', public.moth_move_items(ARRAY['12200000-0000-0000-0000-000000000092'::uuid], 'aaaa1220-0000-0000-0000-000000000012', NULL, false, NULL);
@@ -525,7 +595,8 @@ SELECT public.t122_c();
 INSERT INTO t122_ret SELECT 'seq', public.network_share_catalogue_apply('aaaa1220-0000-0000-0000-000000000012', public.t122_root(), 'Moon-Film',
   jsonb_build_array(jsonb_build_object('d', 'Moon-Film', 'complete', true, 'subdirs', '[]'::jsonb, 'files', jsonb_build_array(
     jsonb_build_object('n', 'Stills', 's', '10', 't', 'inode/x-frame-sequence'),
-    jsonb_build_object('n', 'plates', 's', '10', 't', 'inode/x-frame-sequence')))),
+    jsonb_build_object('n', 'plates', 's', '10', 't', 'inode/x-frame-sequence'),
+    jsonb_build_object('n', 'Both', 's', '99', 't', 'inode/x-frame-sequence')))),
   '[]'::jsonb, true, NULL, true);
 INSERT INTO t122_ret SELECT 'old_listing', public.network_share_catalogue_apply('aaaa1220-0000-0000-0000-000000000011', public.t122_root(), 'Salt-Hours',
   jsonb_build_array(jsonb_build_object('d', 'Salt-Hours', 'complete', true, 'subdirs', '[]'::jsonb, 'files', jsonb_build_array(
@@ -539,6 +610,8 @@ SELECT is((SELECT count(*)::int FROM public.files WHERE project_id = 'aaaa1220-0
   '🚨 and that folder gets no row of its own beside it, which could not be opened');
 SELECT is((SELECT count(*)::int FROM public.files WHERE project_id = 'aaaa1220-0000-0000-0000-000000000012' AND lower(storage_path) = 'nas:moon-film/plates' AND deleted_at IS NULL), 1,
   'CONTROL: a frame folder with nothing under it is one row, as ever');
+SELECT is((SELECT size_bytes::int FROM public.files WHERE id = '12200000-0000-0000-0000-000000000094'), 99,
+  '🚨 one that already has its row goes on keeping it up to date, with rows under it');
 SELECT is((SELECT count(*)::int FROM public.files WHERE project_id = 'aaaa1220-0000-0000-0000-000000000011' AND lower(storage_path) = 'nas:salt-hours/left.mov' AND deleted_at IS NULL), 0,
   '🚨 a listing older than a move does not add the moved file back at its old place');
 SELECT is((SELECT count(*)::int FROM public.files WHERE project_id = 'aaaa1220-0000-0000-0000-000000000011' AND lower(storage_path) = 'nas:salt-hours/new.mov' AND deleted_at IS NULL), 1,

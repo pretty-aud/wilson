@@ -37,6 +37,7 @@ DO $$
 DECLARE
   v_md5 TEXT;
   v_fn  RECORD;
+  v_n   BIGINT;
 BEGIN
   IF to_regprocedure('public.moth_history_read(uuid,timestamp with time zone,uuid,integer)') IS NULL THEN
     RAISE EXCEPTION '0121 refused: 0119 must be applied first';
@@ -59,7 +60,8 @@ BEGIN
       ('public.network_share_stale_moves()', '857e424840d5ea966ea042454c2208ff', '2eccf1aac110922f0d1a8d348d4f97a9'),
       ('public.purge_soft_deleted(interval)', '65f3322262d48afa923ccd5f40c69a4c', '4f659fad4e1fd978f0cd220c6a628eb4'),
       ('public.network_share_locator_ok(text)', 'f210a014f699421a9361ace3fa63958d', '19c62fa6840888629a68b14e46463a37'),
-      ('public.network_share_catalogue_apply(uuid,text,text,jsonb,jsonb,boolean,text,boolean)', '6c5bc7b6874e0e7348b2b3fcfbc5389f', '9ee5d8f7dcca2f567c553a56babc9deb')
+      ('public.network_share_catalogue_apply(uuid,text,text,jsonb,jsonb,boolean,text,boolean)', '6c5bc7b6874e0e7348b2b3fcfbc5389f', '126a03e3945c9b9911de65fce129311c'),
+      ('public.workspace_storage_usage()', '98f566f6e1f314ea35e8dd242fe13529', 'a48490cdd49fca73f3d3cd23b00beca1')
     ) AS t(sig, was, now_is)
   LOOP
     SELECT md5(replace(prosrc, chr(13), '')) INTO v_md5 FROM pg_proc WHERE oid = v_fn.sig::regprocedure;
@@ -67,6 +69,16 @@ BEGIN
       RAISE EXCEPTION '0121 refused: % is not the body this file was built on (md5 %)', v_fn.sig, v_md5;
     END IF;
   END LOOP;
+  -- A row listed under a device name passes 0117's CHECKs today. They ask network_share_locator_ok on every update,
+  -- so after this file that row would refuse every write, and stop every walk of its project.
+  SELECT count(*) INTO v_n
+    FROM public.files f
+   WHERE f.storage_provider::text = 'network_share'
+     AND (f.storage_path ~* '(^nas:|/)(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.[^/]*)?(/|$)'
+          OR f.share_bin_path ~* '(^|/)(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.[^/]*)?(/|$)');
+  IF v_n > 0 THEN
+    RAISE EXCEPTION '0121 refused: % office-server file(s) are listed under a device name. Rename them on the server and check again first', v_n;
+  END IF;
 END $$;
 
 -- §1 Who has left ---------------------------------------------------------------
@@ -188,9 +200,11 @@ $$;
 -- §3 Moving a former member's files -------------------------------------------------
 -- What may move: what an admin could read in Files, less money and Legal, and less what could never go: a body
 -- on that person's computer or in their office-server folder, in a company's own bucket, a version of an asset, or
--- a file read into its project. One of those would sink a whole batch, unnamed. An owner still active, or anyone
--- but an admin, gets nothing, which is also how the page knows to offer nothing. The gate runs after the sort and
--- only as far as the limit (0111's fence): it costs a folder walk per row.
+-- a file read into its project. One of those would sink a whole batch, unnamed. A personal space's Petal body is
+-- always copied to the project's key, into the company's storage, and on an office server (or in a bucket until
+-- 0120) that copy is refused, so such a company is offered nothing. An owner still active, or anyone but an admin,
+-- gets nothing, which is also how the page knows to offer nothing. The gate runs after the sort and only as far
+-- as the limit (0111's fence): it costs a folder walk per row.
 CREATE OR REPLACE FUNCTION public.moth_leaver_files(p_project uuid)
 RETURNS TABLE (
   id uuid, name text, mime_type text, size_bytes bigint, storage_provider text,
@@ -204,8 +218,13 @@ AS $$
 #variable_conflict use_column
 DECLARE
   v_ws uuid := public.current_workspace_id();
+  v_company text;
 BEGIN
   IF NOT rabbit_private.personal_space_of_a_leaver(p_project) THEN
+    RETURN;
+  END IF;
+  v_company := public.fn_moth_body_provider_for(v_ws);
+  IF v_company = 'network_share' OR (v_company = 's3' AND NOT rabbit_private.s3_body_moves_on()) THEN
     RETURN;
   END IF;
   RETURN QUERY
@@ -901,6 +920,8 @@ DECLARE
   v_subkeys  text[];
   v_pending  text[];
   v_just_left text[];
+  v_frames   text[];
+  v_held     text[];
   v_seen     text[];
   v_loc      text[];
   v_size     bigint[];
@@ -1019,6 +1040,30 @@ BEGIN
        AND f ->> 't' = 'inode/x-frame-sequence'
        AND lower(e ->> 'd') = ANY (v_complete));
 
+  -- 0121: which of this call's frame folders have live rows under them, read once and by a join on each row's
+  -- ancestors, as the missing step's own walk is: asked per entry it is a scan of the project's rows for each
+  -- frame folder, which a VFX project would not finish inside a call.
+  v_frames := ARRAY(
+    SELECT DISTINCT lower(e ->> 'd') || '/' || lower(f ->> 'n')
+      FROM jsonb_array_elements(p_dirs) e
+     CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(e -> 'files') = 'array' THEN e -> 'files' ELSE '[]'::jsonb END) f
+     WHERE jsonb_typeof(e) = 'object'
+       AND jsonb_typeof(f) = 'object'
+       AND f ->> 't' = 'inode/x-frame-sequence');
+  v_held := '{}'::text[];
+  IF cardinality(v_frames) > 0 THEN
+    SELECT COALESCE(array_agg(DISTINCT d.dir), '{}'::text[])
+      INTO v_held
+      FROM (SELECT string_to_array(lower(substr(r.storage_path, 5)), '/') AS segs
+              FROM public.files r
+             WHERE r.project_id = p_project_id
+               AND r.storage_provider = 'network_share'
+               AND r.deleted_at IS NULL) l
+     CROSS JOIN LATERAL generate_series(1, cardinality(l.segs) - 1) i
+     CROSS JOIN LATERAL (SELECT array_to_string(l.segs[1:i], '/') AS dir) d
+      JOIN unnest(v_frames) k(key) ON k.key = d.dir;
+  END IF;
+
   -- 0121: what a move has just taken from a path. A walk's listing can be older than a move that settled during
   -- it, and would add the moved file back at its old place. Past this, the name is free for a new file. Not a
   -- delete: its row knows it is in the bin, and a new file at that name must list at once.
@@ -1070,13 +1115,14 @@ BEGIN
            AND (j.mime IS NOT NULL OR NOT j.has_t)
            AND NOT (j.lp = ANY (v_pending))
            AND NOT (j.lp = ANY (v_just_left))
-           -- 0121: a frame folder with live rows under it stays those rows, and gets no row of its own beside them.
-           AND (j.mime IS DISTINCT FROM 'inode/x-frame-sequence'
-                OR NOT EXISTS (SELECT 1 FROM public.files u
-                                WHERE u.project_id = p_project_id
-                                  AND u.storage_provider = 'network_share'
-                                  AND u.deleted_at IS NULL
-                                  AND starts_with(lower(u.storage_path), 'nas:' || j.lp || '/')))
+           -- 0121: a frame folder with live rows under it stays those rows, and gets no row of its own beside
+           -- them. One that already has its row goes on keeping it up to date.
+           AND NOT (j.lp = ANY (v_held)
+                    AND NOT EXISTS (SELECT 1 FROM public.files own
+                                     WHERE own.workspace_id = v_ws
+                                       AND own.storage_provider = 'network_share'
+                                       AND own.deleted_at IS NULL
+                                       AND lower(own.storage_path) = 'nas:' || j.lp))
            AND NOT EXISTS (SELECT 1 FROM public.files h
                             WHERE h.workspace_id = v_ws
                               AND h.storage_provider = 'network_share'
@@ -1398,7 +1444,6 @@ COMMENT ON FUNCTION public.moth_project_files(uuid, uuid, integer) IS
 DO $$
 DECLARE
   v_fn   RECORD;
-  v_body TEXT;
 BEGIN
   -- Every restated body is this file's.
   FOR v_fn IN
@@ -1412,8 +1457,23 @@ BEGIN
       ('public.network_share_stale_moves()', '857e424840d5ea966ea042454c2208ff', '2eccf1aac110922f0d1a8d348d4f97a9'),
       ('public.purge_soft_deleted(interval)', '65f3322262d48afa923ccd5f40c69a4c', '4f659fad4e1fd978f0cd220c6a628eb4'),
       ('public.network_share_locator_ok(text)', 'f210a014f699421a9361ace3fa63958d', '19c62fa6840888629a68b14e46463a37'),
-      ('public.network_share_catalogue_apply(uuid,text,text,jsonb,jsonb,boolean,text,boolean)', '6c5bc7b6874e0e7348b2b3fcfbc5389f', '9ee5d8f7dcca2f567c553a56babc9deb')
+      ('public.network_share_catalogue_apply(uuid,text,text,jsonb,jsonb,boolean,text,boolean)', '6c5bc7b6874e0e7348b2b3fcfbc5389f', '126a03e3945c9b9911de65fce129311c'),
+      ('public.workspace_storage_usage()', '98f566f6e1f314ea35e8dd242fe13529', 'a48490cdd49fca73f3d3cd23b00beca1')
     ) AS t(sig, was, now_is)
+  LOOP
+    IF (SELECT md5(replace(prosrc, chr(13), '')) FROM pg_proc WHERE oid = v_fn.sig::regprocedure) IS DISTINCT FROM v_fn.now_is THEN
+      RAISE EXCEPTION '0121 post-condition: % is not this file''s body', v_fn.sig;
+    END IF;
+  END LOOP;
+
+  -- And every body it adds: no word test here can say as much, because a word survives a change beside it.
+  FOR v_fn IN
+    SELECT * FROM (VALUES
+      ('rabbit_private.personal_space_of_a_leaver(uuid)', '6b38d4d6e22f082d91b92e87e9c69753'),
+      ('public.moth_leaver_files(uuid)', '8662304b603dbf385687c03f6791da90'),
+      ('public.moth_move_leaver_files(uuid[],uuid,uuid,boolean,jsonb)', '44b27cf6d09241b0ab377389cf8eb4d4'),
+      ('public._network_share_may_call_off(uuid)', 'b7a8eec6dc94dc9e157e31e997c234c0')
+    ) AS t(sig, now_is)
   LOOP
     IF (SELECT md5(replace(prosrc, chr(13), '')) FROM pg_proc WHERE oid = v_fn.sig::regprocedure) IS DISTINCT FROM v_fn.now_is THEN
       RAISE EXCEPTION '0121 post-condition: % is not this file''s body', v_fn.sig;
@@ -1439,39 +1499,10 @@ BEGIN
     END IF;
   END LOOP;
 
-  -- The move goes through the one core, under the marker, and clears it.
-  SELECT regexp_replace(prosrc, '--[^\n]*', '', 'g') INTO v_body FROM pg_proc
-   WHERE oid = 'public.moth_move_leaver_files(uuid[],uuid,uuid,boolean,jsonb)'::regprocedure;
-  IF position('public.moth_move_items(' IN v_body) = 0
-     OR position('''wilson.moth_leaver_move'', ''on''' IN v_body) = 0
-     OR position('''wilson.moth_leaver_move'', ''''' IN v_body) = 0
-     OR position('WIL-4115' IN v_body) = 0
-     OR position('moth_move:on_their_computer' IN v_body) = 0
-     OR position('moth_move:in_their_server_folder' IN v_body) = 0 THEN
-    RAISE EXCEPTION '0121 post-condition: moth_move_leaver_files lost a step';
-  END IF;
-  IF position('''file_ids''' IN v_body) > 0 THEN
-    RAISE EXCEPTION '0121 post-condition: the record of a move names its ids, and a large move would not fit';
-  END IF;
-
-  -- The read path's fence (0111, the hand-off's trap on ORDER BY over a filter).
-  SELECT prosrc INTO v_body FROM pg_proc WHERE oid = 'public.moth_project_files(uuid,uuid,integer)'::regprocedure;
-  IF position('OFFSET 0' IN v_body) = 0 THEN
-    RAISE EXCEPTION '0121 post-condition: moth_project_files lost its fence';
-  END IF;
-  SELECT prosrc INTO v_body FROM pg_proc WHERE oid = 'public.moth_leaver_files(uuid)'::regprocedure;
-  IF position('OFFSET 0' IN v_body) = 0 OR position('''supabase''' IN v_body) = 0 THEN
-    RAISE EXCEPTION '0121 post-condition: moth_leaver_files lost its fence or what it leaves out';
-  END IF;
-  SELECT prosrc INTO v_body FROM pg_proc WHERE oid = 'public.workspace_storage_usage()'::regprocedure;
-  IF position('OFFSET 0' IN v_body) = 0 THEN
-    RAISE EXCEPTION '0121 post-condition: workspace_storage_usage runs its meter more than once';
-  END IF;
-
   -- The plan's size is an admin's, and it is still the one policy, on reads alone.
   IF (SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename = 'workspace_storage_plans') <> 1
      OR NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'workspace_storage_plans'
-                     AND cmd = 'SELECT' AND qual LIKE '%current_app_role%') THEN
+                     AND cmd = 'SELECT' AND qual LIKE '%current_app_role() = ''admin''%' AND qual NOT LIKE '% OR %') THEN
     RAISE EXCEPTION '0121 post-condition: workspace_storage_plans is not an admin''s to read';
   END IF;
 
