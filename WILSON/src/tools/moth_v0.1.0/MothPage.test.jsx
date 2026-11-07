@@ -847,6 +847,28 @@ describe('MO2: the HUD on the page', () => {
       expect(g?.nodes.find((n) => n.id === 'project:me')?.label).toBe('My personal space')
     })
   })
+  it('the frame readout shows only when asked for, and counts what it was given', async () => {
+    const { unmount } = render(<MothPage worldFactory={fakeWorld} />)
+    await waitFor(() => expect(worlds.at(-1)?.handlers.frame).toBeTruthy())
+    act(() => { for (let i = 0; i < 30; i++) worlds.at(-1).handlers.frame({ workMs: 4, sampleMs: 9, dots: 12, edges: 20 }) })
+    expect(document.querySelector('[data-moth-frames]')).toBeNull()
+    unmount()
+    window.history.pushState({}, '', '/?mothFrames=1')
+    try {
+      render(<MothPage worldFactory={fakeWorld} />)
+      await waitFor(() => expect(worlds.at(-1)?.handlers.frame).toBeTruthy())
+      act(() => { worlds.at(-1).handlers.frame({ dots: 1 }) })
+      expect(document.querySelector('[data-moth-frames]')).toBeNull()
+      act(() => { for (let i = 0; i < 30; i++) worlds.at(-1).handlers.frame({ workMs: 4, sampleMs: 9 + (i === 29 ? 30 : 0), dots: 12, edges: 20 }) })
+      const line = document.querySelector('[data-moth-frames]').textContent
+      expect(line).toContain('12 dots, 20 lines')
+      expect(line).toContain('30 frames')
+      expect(line).toContain('frame time p50 9.0 p95 9.0 max 39.0 ms')
+      expect(line).toContain('drawing p95 4.0 ms')
+    } finally {
+      window.history.pushState({}, '', '/')
+    }
+  })
   it('🚨 a reviewer is not offered a view shared with the project', async () => {
     state.perms = { role: 'reviewer', ready: true, userId: 'u1', workspaceId: 'w1' }
     adapter.listMothIslands = vi.fn(async () => [MINE, island('p1', { my_project_role: 'reviewer', can_write: false })])

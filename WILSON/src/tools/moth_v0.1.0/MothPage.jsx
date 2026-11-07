@@ -24,7 +24,7 @@ import { visibleDialogCount } from '../rabbit_v0.1.0/views/bins/binUi'
 import { fetchWorkspaceStorage, fetchStorageUsage } from '../../cloud/workspaceStorage'
 import { buildGraph, indexCatalogue, nodeId, catalogueSize } from './engine/model.js'
 import { fixtureForTarget, generateCatalogue } from './engine/fixtures.js'
-import { createFrameRecorder, frameStats, TARGETS } from './engine/benchmark.js'
+import { createFrameRecorder, TARGETS } from './engine/benchmark.js'
 import { createMothHistory } from './state/mothHistory.js'
 import { createMothFileOps } from './state/mothFileOps.js'
 import { createMothCatalogue } from './state/mothCatalogue.js'
@@ -502,8 +502,11 @@ export default function MothPage({ isActive = true, worldFactory }) {
   const onFrame = useCallback((f) => {
     if (!recorder) return
     recorder.onFrame(f)
-    const s = frameStats(recorder.sample())
-    if (s.count % 30 === 0) setFrameLine(`${f.dots} dots, ${f.edges} lines${f.light ? ', lighter' : ''} · frame p50 ${s.p50.toFixed(1)} p95 ${s.p95.toFixed(1)} ms (target ${TARGETS.normal.p95Ms} ms)`)
+    // The recorder answers its own summaries: a frame as seen (the longest of drawing, lateness and the gap in motion) and the drawing alone.
+    const gap = recorder.sample()
+    const draw = recorder.work()
+    const ms = (v) => (Number.isFinite(v) ? v.toFixed(1) : '-')
+    if (draw.count > 0 && draw.count % 30 === 0) setFrameLine(`${f.dots} dots, ${f.edges} lines${f.light ? ', lighter' : ''} · ${draw.count} frames · frame time p50 ${ms(gap.p50)} p95 ${ms(gap.p95)} max ${ms(gap.max)} ms · drawing p95 ${ms(draw.p95)} ms (target ${TARGETS.normal.p95Ms} ms)`)
   }, [recorder])
 
   // ── The keyboard ─────────────────────────────────────────────────────────────────────────────────────────────
