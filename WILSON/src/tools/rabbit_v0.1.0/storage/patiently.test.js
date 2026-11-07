@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { patiently } from './patiently'
 
 const fails = (status) => Object.assign(new Error('no'), { status })
-const opts = (at = 0) => ({ wait: vi.fn(async () => {}), now: () => at })
+const opts = () => ({ wait: vi.fn(async () => {}) })
 
 describe('patiently: one more try, for what passes (MO1, 0120)', () => {
   it('an answer is returned, with no wait', async () => {
@@ -10,11 +10,11 @@ describe('patiently: one more try, for what passes (MO1, 0120)', () => {
     expect(await patiently(async () => 'yes', o)).toBe('yes')
     expect(o.wait).not.toHaveBeenCalled()
   })
-  it('🚨 a 429 waits out the window of a clock minute, then tries again', async () => {
-    const o = opts(125_000)
+  it('🚨 a 429 waits a whole window, whatever this clock says, then tries again', async () => {
+    const o = opts()
     const fn = vi.fn().mockRejectedValueOnce(fails(429)).mockResolvedValueOnce('yes')
     expect(await patiently(fn, o)).toBe('yes')
-    expect(o.wait).toHaveBeenCalledWith(55_500)
+    expect(o.wait).toHaveBeenCalledWith(60_500)
     expect(fn).toHaveBeenCalledTimes(2)
   })
   it.each([0, 500, 502, 503])('a %i waits a moment, then tries again', async (status) => {

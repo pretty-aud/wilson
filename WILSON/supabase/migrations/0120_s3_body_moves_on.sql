@@ -142,8 +142,10 @@ REVOKE ALL ON FUNCTION public.s3_body_look_record(uuid, text, uuid) FROM PUBLIC,
 GRANT EXECUTE ON FUNCTION public.s3_body_look_record(uuid, text, uuid) TO service_role;
 
 -- A look a day old is past spending, so its copy will never be named: queue it and its picture for the drain,
--- unless a row names the key after all, and let the name go. A PUT that never reached its look has no record,
--- and stays with the company's own lifecycle rules, as a stranded upload always has (SYSTEMS_HANDBOOK 12.7a).
+-- unless a row names the key after all, and let the name go. Not if the company has repointed its bucket since:
+-- the drain would delete from the new one, find nothing, and certify it. One that has left its bucket keeps the
+-- config, so the drain still reaches it. A PUT that never reached its look has no record, and stays with the
+-- company's own lifecycle rules, as a stranded upload always has (SYSTEMS_HANDBOOK 12.7a).
 CREATE OR REPLACE FUNCTION rabbit_private.s3_body_looks_sweep()
 RETURNS integer
 LANGUAGE plpgsql
@@ -157,7 +159,7 @@ BEGIN
   WITH gone AS (
     DELETE FROM rabbit_private.s3_body_looks l
      WHERE l.seen_at <= now() - interval '1 day'
-    RETURNING l.workspace_id, l.object_path
+    RETURNING l.workspace_id, l.object_path, l.bucket_mark
   ), said AS (
     SELECT count(*)::int AS n FROM gone
   ), queued AS (
@@ -165,8 +167,10 @@ BEGIN
     SELECT 'byo-s3', k.path, g.workspace_id, NULL, 'orphan-scan', 's3', k.kind
       FROM gone g
      CROSS JOIN LATERAL (VALUES (g.object_path, 'body'), (g.object_path || '.jpg', 'thumbnail')) AS k(path, kind)
-     WHERE NOT EXISTS (SELECT 1 FROM public.files f
-                        WHERE f.storage_provider = 's3' AND k.path IN (f.storage_path, f.thumbnail_url))
+     CROSS JOIN LATERAL (SELECT rabbit_private.s3_bucket_mark(g.workspace_id) AS now_is) m
+     WHERE (m.now_is IS NULL OR m.now_is = g.bucket_mark)
+       AND NOT EXISTS (SELECT 1 FROM public.files f
+                        WHERE k.path IN (f.storage_path, f.thumbnail_url))
     RETURNING 1
   )
   SELECT said.n INTO v_n FROM said LEFT JOIN (SELECT count(*) FROM queued) q ON true;
@@ -707,7 +711,7 @@ BEGIN
       ('public.fn_moth_apply_moves(jsonb,uuid,boolean)', '9255a74c810834f59b349701b8cdf38f'),
       ('public.s3_body_look_record(uuid,text,uuid)', '97882da3735db6ad63a9fe4889b6c875'),
       ('rabbit_private.s3_bucket_mark(uuid)', '2a94f478addfcd8b22994d05e4a0610e'),
-      ('rabbit_private.s3_body_looks_sweep()', 'becd72a140ff9dbb6dc0c917c9df3abd')
+      ('rabbit_private.s3_body_looks_sweep()', '86cf2cf357fd44c2d0ce65b1015da058')
     ) AS t(sig, now_is)
   LOOP
     SELECT md5(replace(prosrc, chr(13), '')) INTO v_md5 FROM pg_proc WHERE oid = v_fn.sig::regprocedure;

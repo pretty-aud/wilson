@@ -6084,40 +6084,41 @@ export function supabaseAdapter() {
     // storage, otherwise the bytes through this computer. A file on another computer cannot be read
     // from here, and the local provider's sentence says so.
     async copyBodyForMove(file, item) {
-      return patiently(async () => {
-        const client = await requireClient();
-        const from = file.storage_provider;
-        const to = item.to_provider;
+      const client = await requireClient();
+      const from = file.storage_provider;
+      const to = item.to_provider;
+      // One more try for each step, each on its own: a look that did not answer does not copy the file again.
+      await patiently(async () => {
         if (from === FILE_PROVIDERS.SUPABASE && to === FILE_PROVIDERS.SUPABASE) {
           unwrap(await client.storage.from(BUCKET_FILES).copy(file.storage_path, item.to_path));
         } else {
           const body = await getStorageProvider(from).get(file.storage_path);
           await getStorageProvider(to).put(item.to_path, body, { contentType: file.mime_type || undefined });
         }
-        // MO1 (0120): in a company's own bucket the commit takes the copy only on the server's look. If that
-        // refuses, the copy this just made has no move to go with, and the caller's clean-up does not know of it.
-        if (to === FILE_PROVIDERS.S3) {
-          try {
-            await getStorageProvider(to).look(item.to_path);
-          } catch (err) {
-            await patiently(() => getStorageProvider(to).del(item.to_path)).catch(() => {
-              console.warn('[moth] a new copy could not be taken back from the company\'s bucket');
-            });
-            throw err;
-          }
-        }
-        // Its picture too, at the key the plan minted beside the body. A picture is not worth refusing a
-        // move over: if it will not copy, the row goes without one, and the file is what was asked for.
-        let thumbnail = null;
-        if (item.to_thumb && file.thumbnail_url) {
-          try {
-            await carryThumbnail(from, to, file.thumbnail_url, item.to_thumb, { client });
-            thumbnail = item.to_thumb;
-          } catch { /* said above */ }
-        }
-        // to_provider: the plan's word for where the copy went, which the commit compares (0120).
-        return { file_id: file.id, to_provider: to, path: item.to_path, thumbnail };
       });
+      // MO1 (0120): in a company's own bucket the commit takes the copy only on the server's look. If that
+      // refuses, the copy this just made has no move to go with, and the caller's clean-up does not know of it.
+      if (to === FILE_PROVIDERS.S3) {
+        try {
+          await patiently(() => getStorageProvider(to).look(item.to_path));
+        } catch (err) {
+          await patiently(() => getStorageProvider(to).del(item.to_path)).catch(() => {
+            console.warn('[moth] a new copy could not be taken back from the company\'s bucket');
+          });
+          throw err;
+        }
+      }
+      // Its picture too, at the key the plan minted beside the body. A picture is not worth refusing a
+      // move over: if it will not copy, the row goes without one, and the file is what was asked for.
+      let thumbnail = null;
+      if (item.to_thumb && file.thumbnail_url) {
+        try {
+          await patiently(() => carryThumbnail(from, to, file.thumbnail_url, item.to_thumb, { client }));
+          thumbnail = item.to_thumb;
+        } catch { /* said above */ }
+      }
+      // to_provider: the plan's word for where the copy went, which the commit compares (0120).
+      return { file_id: file.id, to_provider: to, path: item.to_path, thumbnail };
     },
     // Undoes a copy whose move the server then refused: the file is still where it was.
     async removeMoveCopy(item) {

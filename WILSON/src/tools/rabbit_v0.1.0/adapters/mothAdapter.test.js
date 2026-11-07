@@ -2,6 +2,8 @@
 // have, a refusal reaches the person in words, a database without them says so, and the copy a move asks for is put
 // where the server said.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 vi.mock('../../../cloud/auth/supabaseClient.js', () => ({
   get supabase() { return globalThis.__testSupabase },
@@ -12,6 +14,18 @@ let adapter
 let rpcs
 const rpcAnswers = {}
 let answer
+// One more try with no wait, so a test need not sit out a window. Its own file tests the wait.
+vi.mock('../storage/patiently', () => ({
+  patiently: async (fn) => {
+    try {
+      return await fn()
+    } catch (err) {
+      if (err?.status === 429) return fn()
+      throw err
+    }
+  },
+}))
+
 let copied
 let pictureRefused
 
@@ -128,6 +142,29 @@ describe('moves', () => {
       s3.look.mockImplementation(async () => { throw new Error('not there') })
       s3.del.mockImplementation(async () => { throw new Error('gone already') })
       await expect(adapter.copyBodyForMove(FILE, ITEM)).rejects.toThrow('not there')
+    })
+    it('🚨 a look that hit the budget tries the look again, and does not copy the file again', async () => {
+      let tries = 0
+      s3.look.mockImplementation(async () => {
+        order.push('look')
+        if (tries++ === 0) throw Object.assign(new Error('too many'), { status: 429 })
+      })
+      await adapter.copyBodyForMove(FILE, ITEM)
+      expect(order).toEqual(['get', 'put', 'look', 'look'])
+    })
+    it('a copy that hit the budget tries the copy again', async () => {
+      let tries = 0
+      s3.put.mockImplementation(async () => {
+        order.push('put')
+        if (tries++ === 0) throw Object.assign(new Error('too many'), { status: 429 })
+        return {}
+      })
+      await adapter.copyBodyForMove(FILE, ITEM)
+      expect(order).toEqual(['get', 'put', 'get', 'put', 'look'])
+    })
+    it('🚨 so does a picture, or it would be lost without a word', () => {
+      const src = readFileSync(join(__dirname, 'supabaseAdapter.js'), 'utf8')
+      expect(src).toContain('await patiently(() => carryThumbnail(from, to, file.thumbnail_url, item.to_thumb, { client }));')
     })
     it('a copy that did not land is not looked at', async () => {
       s3.put.mockImplementation(async () => { throw new Error('no room') })

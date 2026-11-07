@@ -12,7 +12,7 @@
 -- =============================================================================
 BEGIN;
 
-SELECT plan(108);
+SELECT plan(113);
 
 SELECT * FROM tests.rls_setup();
 
@@ -105,7 +105,7 @@ BEGIN
   IF to_regclass('cron.job') IS NULL THEN
     schedule := 'no pg_cron here';
   ELSE
-    EXECUTE $q$ SELECT schedule FROM cron.job WHERE jobname = 'wilson-sweep-s3-looks' $q$ INTO schedule;
+    EXECUTE $q$ SELECT schedule || '|' || btrim(command) FROM cron.job WHERE jobname = 'wilson-sweep-s3-looks' $q$ INTO schedule;
   END IF;
 END;
 $f$;
@@ -152,7 +152,7 @@ SELECT ok((SELECT provolatile = 's' FROM pg_proc WHERE oid = 'rabbit_private.s3_
 SELECT ok(NOT has_function_privilege('authenticated', 'rabbit_private.s3_bucket_mark(uuid)', 'EXECUTE') AND NOT has_function_privilege('anon', 'rabbit_private.s3_bucket_mark(uuid)', 'EXECUTE'), 'a client cannot ask which bucket');
 SELECT ok(NOT has_function_privilege('authenticated', 'rabbit_private.s3_body_looks_sweep()', 'EXECUTE') AND NOT has_function_privilege('anon', 'rabbit_private.s3_body_looks_sweep()', 'EXECUTE'), 'nor run the sweep');
 SELECT ok((SELECT prosecdef FROM pg_proc WHERE oid = 'rabbit_private.s3_body_looks_sweep()'::regprocedure) AND (SELECT prosecdef FROM pg_proc WHERE oid = 'rabbit_private.s3_bucket_mark(uuid)'::regprocedure), 'both run as their owner');
-SELECT ok(public.t123_job() IN ('no pg_cron here', '53 4 * * *'), 'the sweep is a nightly job, where the stack has pg_cron');
+SELECT ok(public.t123_job() IN ('no pg_cron here', '53 4 * * *|SELECT rabbit_private.s3_body_looks_sweep();'), 'the sweep is a nightly job, where the stack has pg_cron');
 SET LOCAL ROLE authenticated;
 SELECT public.t123_c();
 SELECT throws_ok($$ SELECT public.s3_body_look_record('11111111-1111-1111-1111-111111111111', 'projects/aaaa1230-0000-0000-0000-00000000000b/files/x/y.mov', 'cccccccc-cccc-cccc-cccc-cccccccccccc') $$,
@@ -185,7 +185,9 @@ SELECT is(public.s3_body_look_record('11111111-1111-1111-1111-111111111111', 'pr
 SELECT is(public.s3_body_look_record('11111111-1111-1111-1111-111111111111', 'projects/aaaa1230-0000-0000-0000-00000000000b/files/x/y.mov', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'), false, 'a person of another company');
 UPDATE public.workspace_storage SET mode = 'central' WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
 SELECT is(public.s3_body_look_record('11111111-1111-1111-1111-111111111111', 'projects/aaaa1230-0000-0000-0000-00000000000b/files/x/y.mov', 'cccccccc-cccc-cccc-cccc-cccccccccccc'), false, 'a company on Petal''s storage now has no bucket to have looked in');
-UPDATE public.workspace_storage SET mode = 'byos' WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
+UPDATE public.workspace_storage SET provider = 'network', provider_config = NULL, root_path = replace('//nas/share/wilson', '/', chr(92)), root_kind = 'unc', mode = 'byos' WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
+SELECT is(public.s3_body_look_record('11111111-1111-1111-1111-111111111111', 'projects/aaaa1230-0000-0000-0000-00000000000b/files/x/y.mov', 'cccccccc-cccc-cccc-cccc-cccccccccccc'), false, 'nor does a company on an office server');
+UPDATE public.workspace_storage SET provider = 's3', root_path = NULL, root_kind = NULL, provider_config = '{"region":"r","bucket":"b","accessKeyId":"A"}'::jsonb WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
 SELECT is((SELECT count(*)::int FROM rabbit_private.s3_body_looks), 1, 'and none of those wrote anything');
 -- A second look at one key is one row, the latest.
 UPDATE rabbit_private.s3_body_looks SET seen_at = now() - interval '1 hour', seen_by = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', bucket_mark = 'old';
@@ -446,13 +448,23 @@ SELECT public.t123_put_look('11111111-1111-1111-1111-111111111111', 'projects/aa
 SELECT public.t123_put_look('22222222-2222-2222-2222-222222222222', 'projects/other/files/i/theirs.mov', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', now() - interval '2 days');
 -- A row names this key, and a row names this picture: neither is queued, whatever the look says.
 SELECT public.t123_put_look('11111111-1111-1111-1111-111111111111', 'projects/aaaa1230-0000-0000-0000-00000000000a/files/12300000-0000-0000-0000-000000000c01/plain.mov', 'cccccccc-cccc-cccc-cccc-cccccccccccc', now() - interval '2 days');
-SELECT is(rabbit_private.s3_body_looks_sweep(), 3, 'the sweep takes the three past the day');
+-- A look at a bucket the company has since repointed: the drain could not reach it, so it must not say it did.
+INSERT INTO rabbit_private.s3_body_looks (workspace_id, object_path, bucket_mark, seen_by, seen_at)
+VALUES ('11111111-1111-1111-1111-111111111111', 'projects/aaaa1230-0000-0000-0000-00000000000b/files/i/old-bucket.mov', 'a bucket since left', 'cccccccc-cccc-cccc-cccc-cccccccccccc', now() - interval '2 days');
+SELECT is(rabbit_private.s3_body_looks_sweep(), 4, 'the sweep takes the four past the day');
 SELECT is((SELECT array_agg(object_path) FROM rabbit_private.s3_body_looks), ARRAY['projects/aaaa1230-0000-0000-0000-00000000000b/files/i/within-the-day.mov'], 'and leaves the one within it');
 SELECT is((SELECT array_agg(row(bucket_id, provider, kind, reason, status, workspace_id, file_id)::text ORDER BY kind) FROM public.storage_gc_queue WHERE object_path LIKE 'projects/aaaa1230-0000-0000-0000-00000000000b/files/i/at-the-day.mov%'),
   ARRAY['(byo-s3,s3,body,orphan-scan,pending,11111111-1111-1111-1111-111111111111,)', '(byo-s3,s3,thumbnail,orphan-scan,pending,11111111-1111-1111-1111-111111111111,)'], 'its copy and picture go to the drain, from the bucket');
 SELECT is((SELECT array_agg(object_path ORDER BY object_path) FROM public.storage_gc_queue WHERE object_path LIKE 'projects/other/files/i/%' AND workspace_id = '22222222-2222-2222-2222-222222222222'),
   ARRAY['projects/other/files/i/theirs.mov', 'projects/other/files/i/theirs.mov.jpg'], 'each company''s from its own');
 SELECT is((SELECT count(*)::int FROM public.storage_gc_queue WHERE object_path LIKE 'projects/aaaa1230-0000-0000-0000-00000000000a/files/12300000-0000-0000-0000-000000000c01/%'), 0, 'and what a row names is not queued');
+SELECT is((SELECT count(*)::int FROM public.storage_gc_queue WHERE object_path LIKE 'projects/aaaa1230-0000-0000-0000-00000000000b/files/i/old-bucket.mov%'), 0, 'and what a bucket since repointed holds is not queued, and its name goes');
+SELECT is(rabbit_private.storage_object_claimed('byo-s3', 'projects/aaaa1230-0000-0000-0000-00000000000b/files/i/at-the-day.mov'), false, 'a queued copy no file names claims nothing');
+-- A company that has left its bucket keeps the config, and the drain still reaches it.
+SELECT public.t123_put_look('22222222-2222-2222-2222-222222222222', 'projects/other/files/i/left.mov', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', now() - interval '2 days');
+UPDATE public.workspace_storage SET mode = 'central' WHERE workspace_id = '22222222-2222-2222-2222-222222222222';
+SELECT is(rabbit_private.s3_body_looks_sweep(), 1, 'a company back on Petal''s storage');
+SELECT is((SELECT count(*)::int FROM public.storage_gc_queue WHERE object_path LIKE 'projects/other/files/i/left.mov%'), 2, 'has its copy queued all the same');
 SELECT is(rabbit_private.s3_body_looks_sweep(), 0, 'a second night finds nothing');
 SET LOCAL ROLE authenticated;
 SELECT public.t123_a();
