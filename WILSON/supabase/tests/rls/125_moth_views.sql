@@ -13,6 +13,7 @@
 -- E. Deleting, the cap, and a project in the trash.
 -- F. Planted: the composite key dropped, and Moth's gate swapped for the projects hop alone; each must turn a
 --    probe red, and each is put back.
+-- G. What MO2's planted breakages found unprobed: a blanket write on another's own view; two companies.
 --
 -- Fixture ids: projects aaaa1250-…, views by their names. Users as suite 124's: user_a admin, user_c a member
 -- seated on P and creator of private X, user_d a workspace manager, user_e with personal space S, user_r P's
@@ -22,7 +23,7 @@
 
 BEGIN;
 
-SELECT plan(69);
+SELECT plan(72);
 
 SELECT * FROM tests.rls_setup();
 
@@ -327,6 +328,33 @@ SET LOCAL ROLE authenticated;
 SELECT public.t125_a();
 SELECT is((SELECT count(*)::int FROM public.moth_views WHERE name IN ('S own', 'S again')), 0, '… and with Moth''s gate put back, none');
 RESET ROLE;
+
+-- G. What the plants found unprobed. A blanket write reaches another's own view through the write policies alone
+-- (a write that names its row is judged by the read policy too), so each is tried with no WHERE. Someone in two
+-- companies sees, in one, only that company's own views.
+SELECT public.t125_a();
+INSERT INTO public.workspace_members (workspace_id, user_id, app_role, username, display_name, is_active)
+VALUES ('22222222-2222-2222-2222-222222222222', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'user', 'user_c_two', 'User C Two', true)
+ON CONFLICT (workspace_id, user_id) DO UPDATE SET is_active = true;
+SET LOCAL ROLE authenticated;
+SELECT public.t125_as('cccccccc-cccc-cccc-cccc-cccccccccccc', 'user', '22222222-2222-2222-2222-222222222222');
+SELECT lives_ok($$ INSERT INTO public.moth_views (scope_kind, name) VALUES ('aggregate', 'C elsewhere') $$,
+  'someone in two companies saves a view of their own in the second');
+SELECT public.t125_c();
+SELECT is(position('C elsewhere' IN public.t125_seen()), 0, 'in the first company, the second company''s own view is not seen');
+RESET ROLE;
+CREATE TEMP TABLE t125_others ON COMMIT DROP AS
+  SELECT id, name FROM public.moth_views WHERE scope_kind = 'aggregate' AND owner_id <> 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
+GRANT SELECT ON t125_others TO authenticated;
+SET LOCAL ROLE authenticated;
+SELECT public.t125_e();
+SELECT public.t125_err($$ UPDATE public.moth_views SET name = 'e was here' $$);
+SELECT public.t125_err($$ DELETE FROM public.moth_views $$);
+RESET ROLE;
+SELECT ok((SELECT count(*)::int FROM t125_others) >= 3
+          AND (SELECT count(*)::int FROM t125_others o JOIN public.moth_views v ON v.id = o.id AND v.name = o.name)
+            = (SELECT count(*)::int FROM t125_others),
+  'a blanket rename and a blanket delete by another member leave every other person''s own view as it was');
 
 SELECT * FROM finish();
 ROLLBACK;

@@ -13,6 +13,7 @@
 -- D. Clearing, and what goes with a target or a view.
 -- E. Planted: the read policy without the target's gate must show a hidden place; the key to the view planted
 --    id-only must let a place's company differ from its view's.
+-- F. What MO2's planted breakages found unprobed: a level's place, new marks on a move, a deleted target's places.
 --
 -- Fixture ids: projects aaaa1260-…, everything else 12600000-… Users as suite 124's.
 -- S4b-07's accepted class: no uuid-only 23505 can arise, because a client sends no id.
@@ -20,7 +21,7 @@
 
 BEGIN;
 
-SELECT plan(68);
+SELECT plan(72);
 
 SELECT * FROM tests.rls_setup();
 
@@ -347,6 +348,31 @@ SELECT is(public.t126_err($$ INSERT INTO public.moth_layout_positions (view_id, 
 DELETE FROM public.moth_layout_positions WHERE workspace_id = '22222222-2222-2222-2222-222222222222';
 ALTER TABLE public.moth_layout_positions DROP CONSTRAINT moth_layout_positions_view_fk_planted;
 ALTER TABLE public.moth_layout_positions ADD CONSTRAINT moth_layout_positions_view_fk FOREIGN KEY (view_id, workspace_id) REFERENCES public.moth_views (id, workspace_id) ON DELETE CASCADE;
+
+-- F. What the plants found unprobed (MO2's planted breakages): a level takes a place like the other kinds; a place
+-- moved again takes its new marks; a task or a file that goes takes its places with it.
+SELECT public.t126_a();
+INSERT INTO public.levels (id, project_id, name) VALUES ('12600000-0000-0000-0000-0000000000f1', 'aaaa1260-0000-0000-0000-00000000000a', 'Dock');
+INSERT INTO public.tasks (id, project_id, title) VALUES ('12600000-0000-0000-0000-0000000000f2', 'aaaa1260-0000-0000-0000-00000000000a', 'Grade');
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, is_financial) VALUES
+  ('12600000-0000-0000-0000-0000000000f3', 'aaaa1260-0000-0000-0000-00000000000a', 'gone.png', 'supabase', 'projects/aaaa1260-0000-0000-0000-00000000000a/files/12600000-0000-0000-0000-0000000000f3/gone.png', false);
+SET LOCAL ROLE authenticated;
+SELECT public.t126_a();
+SELECT is(public.t126_put('12600000-0000-0000-0000-0000000000a1', '[{"t":"level","id":"12600000-0000-0000-0000-0000000000f1","x":1,"y":2},{"t":"task","id":"12600000-0000-0000-0000-0000000000f2","x":3,"y":4},{"t":"file","id":"12600000-0000-0000-0000-0000000000f3","x":5,"y":6,"open":true,"pinned":true}]'::jsonb),
+  3, 'a level, a task and a file each take a place in a shared view');
+SELECT is(public.t126_put('12600000-0000-0000-0000-0000000000a1', '[{"t":"file","id":"12600000-0000-0000-0000-0000000000f3","x":7,"y":8}]'::jsonb), 1, 'the file''s place moved again');
+SELECT is((SELECT is_open::text || ' ' || pinned::text || ' ' || x::text FROM public.moth_layout_positions WHERE view_id = '12600000-0000-0000-0000-0000000000a1' AND target_id = '12600000-0000-0000-0000-0000000000f3'),
+  'false false 7', 'a place moved again takes its new marks, not the old ones');
+RESET ROLE;
+ALTER TABLE public.tasks DISABLE TRIGGER USER;
+ALTER TABLE public.files DISABLE TRIGGER USER;
+DELETE FROM public.tasks WHERE id = '12600000-0000-0000-0000-0000000000f2';
+DELETE FROM public.files WHERE id = '12600000-0000-0000-0000-0000000000f3';
+ALTER TABLE public.tasks ENABLE TRIGGER USER;
+ALTER TABLE public.files ENABLE TRIGGER USER;
+SELECT ok((SELECT count(*) FROM public.moth_layout_positions WHERE target_id IN ('12600000-0000-0000-0000-0000000000f2', '12600000-0000-0000-0000-0000000000f3')) = 0
+          AND (SELECT count(*) FROM public.moth_layout_positions WHERE target_id = '12600000-0000-0000-0000-0000000000f1') = 1,
+  'a task or a file that goes takes its places with it, and the level''s stays');
 
 SELECT * FROM finish();
 ROLLBACK;

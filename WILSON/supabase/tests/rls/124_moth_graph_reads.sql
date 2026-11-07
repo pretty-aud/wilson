@@ -12,6 +12,8 @@
 --    a locked folder give no line.
 -- E. What each file is filed against, and who last changed it, a page at a time: only for a file Moth shows, and
 --    each item only when it is a live item of the same project.
+-- F. What MO2's planted breakages found unprobed: ids of the wrong kind, a kind the gate does not know, every
+--    new kind written by a writer and none by a reviewer, a phase's name cut, an entity folder of a trashed asset.
 --
 -- Fixture ids: projects aaaa1240-…, everything else 12400000-…
 -- user_a (rls_setup) is the admin; user_c a plain member seated on P and creator of private X; user_d a
@@ -21,7 +23,7 @@
 
 BEGIN;
 
-SELECT plan(77);
+SELECT plan(83);
 
 SELECT * FROM tests.rls_setup();
 
@@ -418,6 +420,46 @@ SELECT is((SELECT count(*)::int FROM pg_proc WHERE proname IN ('moth_project_ite
 SELECT is((SELECT count(*)::int FROM pg_proc WHERE oid IN ('public._moth_target_eligible(text,uuid,boolean)'::regprocedure,
             'public.moth_can_write_target(text,uuid)'::regprocedure) AND prosecdef AND provolatile = 's'
             AND proconfig @> ARRAY['search_path=public']), 2, 'the two gates stay STABLE definers on a fixed path');
+
+-- F. What the plants found unprobed (MO2's planted breakages): an id of one kind asked as another, or no id of its
+-- kind at all, is refused even where the company holds that kind; a project's id under a kind the gate does not
+-- know is refused; a writer writes every new kind and a reviewer none; a phase's name is cut too; an entity folder
+-- whose asset is trashed draws no line.
+SELECT public.t124_a();
+INSERT INTO public.phases (id, project_id, name) VALUES ('12400000-0000-0000-0000-0000000000f1', 'aaaa1240-0000-0000-0000-00000000000a', repeat('P', 400));
+INSERT INTO public.folders (id, project_id, parent_id, kind, slug, path, entity_type, asset_id) VALUES
+  ('12400000-0000-0000-0000-0000000000f2', 'aaaa1240-0000-0000-0000-00000000000a', '12400000-0000-0000-0000-000000000071', 'entity', 'binned', 'ASSETS/binned', 'asset', '12400000-0000-0000-0000-000000000052');
+SET LOCAL ROLE authenticated;
+SELECT public.t124_a();
+SELECT ok(NOT public.moth_can_read_target('experience', '12400000-0000-0000-0000-000000000031')
+          AND NOT public.moth_can_read_target('level', '12400000-0000-0000-0000-000000000041')
+          AND NOT public.moth_can_read_target('shot', '12400000-0000-0000-0000-000000000011')
+          AND NOT public.moth_can_read_target('scene', '12400000-0000-0000-0000-000000000021')
+          AND NOT public.moth_can_read_target('phase', '12400000-0000-0000-0000-000000000051')
+          AND NOT public.moth_can_read_target('experience', '12400000-0000-0000-0000-00000000dead')
+          AND NOT public.moth_can_read_target('shot', '12400000-0000-0000-0000-00000000dead'),
+  'an id asked as another kind, or no row of its kind, is refused where the company holds that kind');
+SELECT ok(NOT public.moth_can_read_target('note', 'aaaa1240-0000-0000-0000-00000000000a')
+          AND NOT public.moth_can_read_target('', 'aaaa1240-0000-0000-0000-00000000000a')
+          AND NOT public.moth_can_read_target(NULL, 'aaaa1240-0000-0000-0000-00000000000a')
+          AND NOT public.moth_can_write_target('note', 'aaaa1240-0000-0000-0000-00000000000a'),
+  'a readable project''s id under a kind the gate does not know is refused');
+SELECT ok(public.moth_can_write_target('phase', '12400000-0000-0000-0000-000000000001') AND public.moth_can_write_target('asset', '12400000-0000-0000-0000-000000000051')
+          AND public.moth_can_write_target('task', '12400000-0000-0000-0000-000000000061') AND public.moth_can_write_target('scene', '12400000-0000-0000-0000-000000000011')
+          AND public.moth_can_write_target('shot', '12400000-0000-0000-0000-000000000021') AND public.moth_can_write_target('level', '12400000-0000-0000-0000-000000000031')
+          AND public.moth_can_write_target('experience', '12400000-0000-0000-0000-000000000041'),
+  'the admin writes every new kind of a project they may change');
+SELECT is(char_length(public.t124_item('aaaa1240-0000-0000-0000-00000000000a', '12400000-0000-0000-0000-0000000000f1') ->> 'name'), 300, 'a phase''s name is cut to 300 too');
+SELECT ok(position('folder_item:0f2' IN public.t124_links('aaaa1240-0000-0000-0000-00000000000a')) = 0 AND position('>052' IN public.t124_links('aaaa1240-0000-0000-0000-00000000000a')) = 0,
+  'an entity folder whose asset is trashed draws no line');
+SELECT public.t124_r();
+SELECT ok(NOT public.moth_can_write_target('phase', '12400000-0000-0000-0000-000000000001') AND NOT public.moth_can_write_target('asset', '12400000-0000-0000-0000-000000000051')
+          AND NOT public.moth_can_write_target('task', '12400000-0000-0000-0000-000000000061') AND NOT public.moth_can_write_target('scene', '12400000-0000-0000-0000-000000000011')
+          AND NOT public.moth_can_write_target('shot', '12400000-0000-0000-0000-000000000021') AND NOT public.moth_can_write_target('level', '12400000-0000-0000-0000-000000000031')
+          AND NOT public.moth_can_write_target('experience', '12400000-0000-0000-0000-000000000041')
+          AND public.moth_can_read_target('task', '12400000-0000-0000-0000-000000000061'),
+  'the reviewer reads them and writes none');
+RESET ROLE;
 
 SELECT * FROM finish();
 ROLLBACK;

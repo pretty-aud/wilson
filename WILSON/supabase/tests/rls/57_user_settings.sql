@@ -24,7 +24,7 @@
 
 BEGIN;
 
-SELECT plan(61);
+SELECT plan(62);
 
 SELECT * FROM tests.rls_setup();
 
@@ -493,6 +493,24 @@ SELECT public.t57_as('cccccccc-cccc-cccc-cccc-cccccccccccc');
 SELECT is(public.t57_err($$ UPDATE public.user_settings SET moth_prefs = '[1]'::jsonb WHERE user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc' $$)
        || public.t57_err($$ UPDATE public.user_settings SET moth_prefs = jsonb_build_object('pad', repeat('x', 33000)) WHERE user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc' $$),
   '2351423514', 'the stored map is an object of at most 32 KB, whoever writes it');
+RESET ROLE;
+
+-- 62: what the plants found unprobed: a forged entry naming a file, a task or a phase as an opened folder, written
+-- straight into the person's own row, is not given back, though the person can see that file.
+RESET ROLE;
+SELECT set_config('request.jwt.claims', json_build_object('sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'role', 'authenticated',
+  'app_metadata', json_build_object('workspace_id', '11111111-1111-1111-1111-111111111111', 'app_role', 'admin'))::text, true);
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, is_financial) VALUES
+  ('05700000-0000-0000-0000-0000000000f1', 'aaaa0570-0000-0000-0000-00000000000a', 'plain.png', 'supabase', 'projects/aaaa0570-0000-0000-0000-00000000000a/files/05700000-0000-0000-0000-0000000000f1/plain.png', false);
+SET LOCAL ROLE authenticated;
+SELECT public.set_moth_prefs('{"recent":[{"k":"folder","id":"05700000-0000-0000-0000-000000000071"}]}');
+UPDATE public.user_settings
+   SET moth_prefs = jsonb_set(moth_prefs, ARRAY['11111111-1111-1111-1111-111111111111', 'recent'],
+         '[{"k":"file","id":"05700000-0000-0000-0000-0000000000f1"},{"k":"task","id":"05700000-0000-0000-0000-0000000000f1"},{"k":"folder","id":"05700000-0000-0000-0000-000000000071"}]'::jsonb)
+ WHERE user_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+SELECT ok(public.moth_can_read_target('file', '05700000-0000-0000-0000-0000000000f1')
+          AND public.moth_prefs() -> 'recent' = '[{"k":"folder","id":"05700000-0000-0000-0000-000000000071"}]'::jsonb,
+  'a forged opened folder that is a file or a task is not given back, though the file is the person''s to see');
 RESET ROLE;
 
 SELECT * FROM finish();
