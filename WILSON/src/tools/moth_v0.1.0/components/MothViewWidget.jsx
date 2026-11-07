@@ -12,10 +12,13 @@ import MothTimeSlider from './MothTimeSlider.jsx'
 export default function MothViewWidget({
   views, viewSnap, config, catalogue, index, selectedNode, pickedCount, gate, canUndo, canRedo, jump, localOnly,
   onUndo, onRedo, onMove, onDelete, onJump, onFind, onNewView, onRelayout, onError, history, livePositions = () => ({}),
+  onViewDeleted = () => {},
 }) {
   const [query, setQuery] = useState('')
   const [showing, setShowing] = useState(false)
   const [saving, setSaving] = useState(null) // { name, scope }
+  const [renaming, setRenaming] = useState(null) // { name }
+  const [deleting, setDeleting] = useState(false)
   const [busy, setBusy] = useState(false)
   const hits = useMemo(() => searchCatalogue(catalogue, query, { index, limit: 12 }), [catalogue, query, index])
   const current = viewSnap?.current ?? { key: 'q:folders', row: null }
@@ -49,6 +52,17 @@ export default function MothViewWidget({
       setBusy(false)
     }
   }
+  const doRename = async () => {
+    if (!renaming || !current.row) return
+    setBusy(true)
+    try { await views.rename(current.row.id, renaming.name); setRenaming(null) } catch (err) { onError?.(err?.message || String(err)) } finally { setBusy(false) }
+  }
+  const doDelete = async () => {
+    if (!current.row) return
+    const name = current.row.name
+    setBusy(true)
+    try { const undo = await views.remove(current.row.id); setDeleting(false); if (undo) onViewDeleted(undo, name) } catch (err) { onError?.(err?.message || String(err)) } finally { setBusy(false) }
+  }
   const saveInPlace = async () => {
     setBusy(true)
     try { await views.save({ positions: livePositions() }) } catch (err) { onError?.(err?.message || String(err)) } finally { setBusy(false) }
@@ -78,6 +92,12 @@ export default function MothViewWidget({
         <Button size="sm" variant="ghost" onClick={() => views?.reset().catch((err) => onError?.(err?.message || String(err)))} data-moth-view-reset>Reset</Button>
         <Button size="sm" variant="ghost" onClick={onRelayout} data-moth-relayout>Lay out again</Button>
       </div>
+      {current.row && writableHere && (
+        <div className="moth-row">
+          <Button size="sm" variant="ghost" onClick={() => setRenaming({ name: current.row.name })} data-moth-view-rename>Rename…</Button>
+          <Button size="sm" variant="ghost" onClick={() => setDeleting(true)} data-moth-view-delete>Delete view…</Button>
+        </div>
+      )}
       {viewSnap?.available === false && <p className="moth-quiet">This view lasts for this visit only.</p>}
 
       <div className="moth-search-box">
@@ -161,6 +181,40 @@ export default function MothViewWidget({
         <Button size="sm" variant="ghost" onClick={onRedo} disabled={!canRedo} data-moth-redo>Redo</Button>
       </div>
 
+      {renaming && (
+        <Dialog
+          width="confirm"
+          title="Rename this view"
+          onClose={() => setRenaming(null)}
+          busy={busy}
+          footer={(
+            <>
+              <Button variant="ghost" onClick={() => setRenaming(null)} disabled={busy}>Cancel</Button>
+              <Button onClick={doRename} loading={busy} loadingLabel="Saving…" disabled={!renaming.name.trim()} data-moth-view-rename-confirm>Rename</Button>
+            </>
+          )}
+        >
+          <Field label="Name">
+            <Input value={renaming.name} onChange={(v) => setRenaming({ name: typeof v === 'string' ? v : v?.target?.value ?? '' })} autoFocus data-moth-view-rename-name />
+          </Field>
+        </Dialog>
+      )}
+      {deleting && current.row && (
+        <Dialog
+          width="confirm"
+          title={`Delete "${current.row.name}"?`}
+          onClose={() => setDeleting(false)}
+          busy={busy}
+          footer={(
+            <>
+              <Button variant="ghost" onClick={() => setDeleting(false)} disabled={busy}>Cancel</Button>
+              <Button variant="danger" onClick={doDelete} loading={busy} loadingLabel="Deleting…" data-moth-view-delete-confirm>Delete</Button>
+            </>
+          )}
+        >
+          <p>{current.row.scope_kind === 'project' ? 'Everyone on the project loses this view and where its dots were.' : 'Where its dots were goes with it.'} You can undo this straight after.</p>
+        </Dialog>
+      )}
       {saving && (
         <Dialog
           width="confirm"

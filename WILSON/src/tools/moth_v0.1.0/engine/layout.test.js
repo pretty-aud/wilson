@@ -564,6 +564,14 @@ describe('MO2: a drag during the first run, and a second drag', () => {
     expect(neighbours.length).toBeGreaterThan(0)
     expect(neighbours.every((i) => !lay.held(i) || lay.pinned(i))).toBe(true)
   })
+  it('a warm run lets its holds go once it settles, so a later drag moves its own neighbourhood (MO2 round 1)', () => {
+    const lay = createForceLayout({ ...IN, positions: without(SAVED, [IDS[1]]) })
+    const kept = IDS.findIndex((id, i) => i !== 1 && lay.held(i))
+    expect(kept).toBeGreaterThanOrEqual(0)
+    for (let k = 0; k < 5000 && !lay.settled(); k++) lay.tick()
+    expect(lay.settled()).toBe(true)
+    expect(lay.held(kept)).toBe(false)
+  })
   it("a saved layout's dots stay held while new ones settle, whatever the drags (warm holds are not a drag's)", () => {
     const lay = createForceLayout({ ...IN, positions: without(SAVED, [IDS[1]]) })
     const kept = IDS.findIndex((id, i) => i !== 1 && lay.held(i))

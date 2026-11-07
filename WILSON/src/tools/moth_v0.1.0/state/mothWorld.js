@@ -74,11 +74,21 @@ export function createMothWorld({
   const handPlaced = new Map() // id -> { x, y }: dropped by hand, kept on top of a radial layout
   const pinned = new Set()
   let rules = { canMove: () => ({ allowed: false }), canLink: () => ({ allowed: false }), canDrag: () => true }
+  let inputIndex = new Map() // dot id -> its index in the layout's input
+  let press = null // { id, pointerId, sx, sy, start, at, dragging, target, additive, wasPinned, allowed }
+  let emptyPress = null // a press off any dot: a click there clears the selection, a pan does not
+  // A dot being dragged is where the pointer is, whatever a layout tick computed before the pointer got there.
+  const holdDragged = (xy) => {
+    if (!press?.dragging || !press.at || !(xy instanceof Float32Array)) return
+    const i = inputIndex.get(press.id)
+    if (i != null && 2 * i + 1 < xy.length) { xy[2 * i] = press.at.x; xy[2 * i + 1] = press.at.y }
+  }
 
   const client = createLayoutClient({
     ...(createWorker ? { createWorker } : {}),
-    onTick: (m) => { remember(m.xy); renderer.setPositions(m.xy) },
+    onTick: (m) => { holdDragged(m.xy); remember(m.xy); renderer.setPositions(m.xy) },
     onSettled: (m) => {
+      holdDragged(m.xy)
       remember(m.xy)
       renderer.setPositions(m.xy)
       if (layoutKind === 'radial' && handPlaced.size) renderer.setPositions(Object.fromEntries(handPlaced))
@@ -88,10 +98,20 @@ export function createMothWorld({
     onError: (m) => { if (m?.code !== 'refused') listeners.settled?.() },
   })
 
+  // The world's memory of places is the force layout's: a radial layout's places are computed from the tree each
+  // time, so they never overwrite it (MO2 review round 1). Each place is updated where it is, not made anew, so a
+  // tick of 20,000 dots allocates nothing once every dot has a place.
   function remember(xy) {
+    if (layoutKind === 'radial') return
     if (!(xy instanceof Float32Array) || xy.length !== 2 * input.nodes.length) return
-    input.nodes.forEach((n, i) => { places.set(n.id, { x: xy[2 * i], y: xy[2 * i + 1] }) })
+    for (let i = 0; i < input.nodes.length; i++) {
+      const id = input.nodes[i].id
+      const p = places.get(id)
+      if (p) { p.x = xy[2 * i]; p.y = xy[2 * i + 1] } else places.set(id, { x: xy[2 * i], y: xy[2 * i + 1] })
+    }
   }
+  // Where a dot is now: placed by hand, else the radial layout's place on screen, else the world's memory.
+  const whereIs = (id) => handPlaced.get(id) || (layoutKind === 'radial' ? renderer.worldOf(id) : places.get(id)) || renderer.worldOf(id)
 
   function paintGlow() {
     const params = glowParams({ size: appearance.glowSize || 0, color: appearance.glowColor, reducedMotion: calm, light: lightSeen })
@@ -118,6 +138,7 @@ export function createMothWorld({
       }
     }
     input = toLayoutInput(graph, (n) => radiusFn(n))
+    inputIndex = new Map(input.nodes.map((n, i) => [n.id, i]))
     const known = {}
     for (const n of input.nodes) {
       const p = places.get(n.id)
@@ -147,7 +168,6 @@ export function createMothWorld({
   }
 
   // ── The pointer ──────────────────────────────────────────────────────────────────────────────────────────
-  let press = null // { id, pointerId, x0, y0, sx, sy, start, dragging, mode, target }
   let bloomTimer = null
   let bloomId = null
   const local = (e) => {
@@ -199,7 +219,7 @@ export function createMothWorld({
       listeners.drop?.({ dragId: p.id, targetId: p.target.id, mode: p.target.mode })
       return
     }
-    const at = places.get(p.id) || p.start
+    const at = p.at || places.get(p.id) || p.start
     pinned.add(p.id)
     handPlaced.set(p.id, { x: at.x, y: at.y })
     listeners.arranged?.({ id: p.id, x: at.x, y: at.y })
@@ -207,15 +227,23 @@ export function createMothWorld({
 
   const onPointerDown = (e) => {
     stopBloom()
+    // A second finger or pointer while a dot is dragged changes nothing; one while a dot is only pressed ends that
+    // press. Either way it is no click on empty space (MO2 review round 1).
+    if (emptyPress && e.pointerId !== emptyPress.pointerId) emptyPress.moved = true
+    if (press && e.pointerId !== press.pointerId) {
+      if (press.dragging) return
+      press = null
+    }
     if (e.button !== undefined && e.button !== 0 && e.pointerType === 'mouse') return
     const s = local(e)
     const hit = renderer.hitTest(s.x, s.y, e.pointerType === 'mouse' ? 4 : 10)
     if (!hit || hit.type !== 'dot') {
       press = null
-      if (!hit) listeners.pick?.(null, { additive: !!(e.shiftKey || e.ctrlKey || e.metaKey) })
+      // A press off any dot clears the selection only if it is a click: a pan keeps it.
+      emptyPress = hit ? null : { pointerId: e.pointerId, x: s.x, y: s.y, moved: false, additive: !!(e.shiftKey || e.ctrlKey || e.metaKey) }
       return
     }
-    const w = places.get(hit.id) || renderer.worldOf(hit.id) || { x: 0, y: 0 }
+    const w = whereIs(hit.id) || { x: 0, y: 0 }
     press = {
       id: hit.id, pointerId: e.pointerId, sx: s.x, sy: s.y, start: { x: w.x, y: w.y },
       dragging: false, target: null, additive: !!(e.shiftKey || e.ctrlKey || e.metaKey), wasPinned: pinned.has(hit.id),
@@ -225,6 +253,7 @@ export function createMothWorld({
   }
   const onPointerMove = (e) => {
     const s = local(e)
+    if (emptyPress && e.pointerId === emptyPress.pointerId && Math.hypot(s.x - emptyPress.x, s.y - emptyPress.y) >= DRAG_SLOP_PX) emptyPress.moved = true
     if (press && e.pointerId === press.pointerId) {
       if (!press.dragging) {
         if (Math.hypot(s.x - press.sx, s.y - press.sy) < DRAG_SLOP_PX || !press.allowed) return
@@ -232,7 +261,8 @@ export function createMothWorld({
         stopBloom()
       }
       const w = screenToWorld(renderer.camera(), renderer.viewport(), s.x, s.y)
-      places.set(press.id, w)
+      press.at = w
+      places.set(press.id, { x: w.x, y: w.y })
       if (layoutKind === 'force') client.pin(press.id, w.x, w.y)
       renderer.setPositions({ [press.id]: w })
       const t = targetFor(s)
@@ -260,6 +290,12 @@ export function createMothWorld({
     }
   }
   const onPointerUp = (e) => {
+    if (emptyPress && e.pointerId === emptyPress.pointerId) {
+      const ep = emptyPress
+      emptyPress = null
+      if (!ep.moved) listeners.pick?.(null, { additive: ep.additive })
+      return
+    }
     if (!press || e.pointerId !== press.pointerId) return
     if (!press.dragging) {
       const p = press
@@ -269,7 +305,7 @@ export function createMothWorld({
     }
     endDrag(false)
   }
-  const onPointerCancel = () => endDrag(true)
+  const onPointerCancel = () => { emptyPress = null; endDrag(true) }
   const onPointerLeave = () => { renderer.setHover(null); listeners.hover?.(null); stopBloom() }
   const onDoubleClick = (e) => {
     const s = local(e)
@@ -318,7 +354,8 @@ export function createMothWorld({
     setActive(v) {
       active = !!v
       glow?.setActive(active)
-      if (!active) { stopBloom(); endDrag(true) } else renderer.invalidate()
+      renderer.setPaused(!active)
+      if (!active) { stopBloom(); endDrag(true); emptyPress = null }
     },
     resize(width, height, dpr = 1) {
       viewport = { width, height, dpr }
@@ -328,7 +365,7 @@ export function createMothWorld({
     setSelection(ids) { renderer.setSelection(ids) },
     /** Fly to a dot, at least close enough that it is drawn on its own. */
     flyTo(id) {
-      const p = places.get(id) || renderer.worldOf(id)
+      const p = whereIs(id)
       if (!p) return false
       const k = Math.max(renderer.camera().k, PICK_ZOOM)
       return renderer.flyTo({ x: p.x, y: p.y, k })

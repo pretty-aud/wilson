@@ -12,6 +12,7 @@ export default function MothTimeSlider({ history }) {
     return <p className="moth-quiet" data-moth-time-absent>{history.localOnly ? 'History is not recorded for projects kept only on this computer.' : 'History is not on this database yet.'}</p>
   }
   const now = history.now ?? Date.now()
+  const known = history.floor != null
   const floor = Math.min(history.floor ?? now - 90 * 86400000, now)
   const value = history.at ?? now
   return (
@@ -34,7 +35,7 @@ export default function MothTimeSlider({ history }) {
       />
       <p className="moth-quiet" data-moth-time-says>
         {history.at ? `As it was ${when(history.at)}. Looking back changes nothing.` : 'Now.'}
-        {' '}Not recorded before {day(floor)}.
+        {' '}{known ? `Not recorded before ${day(floor)}.` : 'Reading when the record begins…'}
         {history.loading ? ' Reading…' : ''}
         {history.error ? ` ${history.error}` : ''}
         {history.incomplete ? ' Only part of this period could be read.' : ''}

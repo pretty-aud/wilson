@@ -44,7 +44,17 @@ export default function MothFirstVisit({ first, onChoose, onClose }) {
         <div className="moth-view-show">
           <p className="moth-label">Dots</p>
           <div className="moth-chips">
-            {DOT_CHOICES.map(([k, words]) => <Chip key={k} active={dots.includes(k)} onClick={() => setDots(toggle(dots, k))}>{words}</Chip>)}
+            {DOT_CHOICES.map(([k, words]) => {
+              // Tags show with their files (MO2a R1-13): without Files there is no tag to draw.
+              const needsFiles = k === 'tag' && !dots.includes('file')
+              return (
+                <Chip key={k} active={dots.includes(k) && !needsFiles} disabled={needsFiles}
+                  title={needsFiles ? 'Tags show with their files.' : undefined}
+                  onClick={() => setDots((was) => { const next = toggle(was, k); return k === 'file' && !next.includes('file') ? next.filter((x) => x !== 'tag') : next })}>
+                  {words}
+                </Chip>
+              )
+            })}
           </div>
           <p className="moth-label">Lines</p>
           <div className="moth-chips">

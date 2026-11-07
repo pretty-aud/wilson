@@ -3,7 +3,7 @@
 // stays while you move about, up to five at once, each scrolling on its own. A sixth is refused with a sentence.
 // Files drag between cards, and from a card onto the graph. Pinned cards are never saved with a view: instead a
 // small icon opens the folders opened last, and nothing shows until it is pressed.
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Clock, Pin, PinOff, X } from 'lucide-react'
 import { IconButton } from '../../../ui'
 import { nodeId } from '../engine/model.js'
@@ -66,12 +66,17 @@ export default function MothCards({ selectedId, index, recent, onSelect, onOpenC
     }
     return out
   }, [index])
+  // A new selection is followed afresh: a card shut, or one picked from the recent list, was for the last one.
+  useEffect(() => { setShut(null); setOpened(null) }, [selectedId])
   const selectedRow = selectedId ? index.rows.get(selectedId) : null
   // The open card: a folder selected (the smallest level, a folder with its files; the brief §3.3), or one picked
   // from the recent list, unless it is pinned already or shut.
   const openId = opened && index.rows.has(opened) ? opened
     : selectedRow && selectedRow.kind === 'folder' && selectedId !== shut ? selectedId : null
   const live = pinned.filter((id) => index.rows.has(id))
+  // Every folder whose card is shown is one of the folders opened last (the recent icon), not only a pinned one.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (openId) onOpenCard?.(openId) }, [openId])
   const pin = (id) => {
     if (live.includes(id)) { setPinned(live.filter((x) => x !== id)); return }
     if (live.length >= MAX_PINNED) { onNote?.(SIXTH_SENTENCE); return }
@@ -84,6 +89,7 @@ export default function MothCards({ selectedId, index, recent, onSelect, onOpenC
 
   return (
     <div className="moth-cards" data-moth-cards>
+      <div className="moth-cards-strip">
       {live.map((id) => (
         <Card key={id} id={id} index={index} children={children} pinned onPin={() => pin(id)} onSelect={onSelect} onDropFile={onDropFile} />
       ))}
@@ -91,6 +97,7 @@ export default function MothCards({ selectedId, index, recent, onSelect, onOpenC
         <Card id={openId} index={index} children={children} pinned={false} onPin={() => pin(openId)}
           onClose={() => { setOpened(null); setShut(openId) }} onSelect={onSelect} onDropFile={onDropFile} />
       )}
+      </div>
       <div className="moth-recent">
         <IconButton size="sm" Icon={Clock} title="Folders opened last" onClick={() => setRecentOpen((v) => !v)} aria-expanded={recentOpen} data-moth-recent />
         {recentOpen && (
@@ -98,7 +105,7 @@ export default function MothCards({ selectedId, index, recent, onSelect, onOpenC
             {recentRows.length === 0 && <li className="moth-quiet">None yet.</li>}
             {recentRows.map((id) => (
               <li key={id}>
-                <button type="button" className="moth-link" onClick={() => { setRecentOpen(false); setShut(null); setOpened(id); onOpenCard?.(id) }}>
+                <button type="button" className="moth-link" onClick={() => { setRecentOpen(false); setShut(null); setOpened(id) }}>
                   {index.rows.get(id)?.label || '(no name)'}
                 </button>
               </li>

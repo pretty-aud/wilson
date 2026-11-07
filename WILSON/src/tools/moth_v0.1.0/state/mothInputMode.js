@@ -8,8 +8,9 @@
 export const SYNTHETIC_MS = 800
 export const MOUSE_MOVE_PX = 4
 
-export function createInputMode({ now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now()), onChange = () => {} } = {}) {
-  let mode = 'mouse'
+export function createInputMode({ now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now()), onChange = () => {}, initial = 'mouse' } = {}) {
+  // From the page's own mode, so coming back to the page with the touch layout on, a real mouse still switches it off.
+  let mode = initial === 'touch' ? 'touch' : 'mouse'
   let lastTouch = -Infinity
   let lastMouse = null
   const set = (next) => { if (next !== mode) { mode = next; onChange(mode) } }

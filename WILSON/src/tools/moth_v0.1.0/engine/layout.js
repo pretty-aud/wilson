@@ -148,6 +148,12 @@ export function createForceLayout({ nodes, links, positions = null, options = {}
     tick(count = 1) {
       simulation.tick(count)
       if (forming && simulation.alpha() < simulation.alphaMin()) forming = false
+      // A warm run's holds go when it settles (MO2 review round 1, R1-18 after saved places): the saved dots stay
+      // where they are, and a later drag moves its own neighbourhood.
+      if (warm.size && simulation.alpha() < simulation.alphaMin()) {
+        for (const i of warm) if (holds.has(i)) { sim[i].fx = null; sim[i].fy = null; holds.delete(i) }
+        warm.clear()
+      }
     },
     alpha: () => simulation.alpha(),
     settled: () => simulation.alpha() < simulation.alphaMin(),

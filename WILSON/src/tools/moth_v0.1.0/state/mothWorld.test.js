@@ -74,7 +74,7 @@ beforeEach(() => {
   world.setGraph(GRAPH, { saved: SAVED })
   flush()
   const at = (id) => world.renderer.screenOf(id)
-  env = { world, canvas, flush, advance, events, at }
+  env = { world, canvas, flush, advance, events, at, frames }
 })
 afterEach(() => { env.world.destroy(); vi.restoreAllMocks() })
 
@@ -93,9 +93,38 @@ describe('createMothWorld', () => {
     env.canvas.fire('pointerup', { clientX: s.x, clientY: s.y })
     expect(env.events.pick).toEqual([['file:f1', { additive: false }]])
     env.canvas.fire('pointerdown', { clientX: 5, clientY: 5, shiftKey: true })
+    expect(env.events.pick).toHaveLength(1)
+    env.canvas.fire('pointerup', { clientX: 5, clientY: 5 })
     expect(env.events.pick[1]).toEqual([null, { additive: true }])
   })
 
+  it('a pan over empty space keeps the selection; only a click there clears it (MO2 round 1)', () => {
+    env.canvas.fire('pointerdown', { clientX: 5, clientY: 5 })
+    env.canvas.fire('pointermove', { clientX: 60, clientY: 40 })
+    env.canvas.fire('pointerup', { clientX: 60, clientY: 40 })
+    expect(env.events.pick).toEqual([])
+  })
+  it('a second finger during a drag changes nothing, and the drag ends as it would (MO2 round 1)', () => {
+    const s = press('file:f2')
+    env.canvas.fire('pointermove', { clientX: s.x + 40, clientY: s.y })
+    env.canvas.fire('pointerdown', { clientX: 5, clientY: 5, pointerId: 2, pointerType: 'touch' })
+    env.canvas.fire('pointerup', { clientX: 5, clientY: 5, pointerId: 2, pointerType: 'touch' })
+    env.canvas.fire('pointermove', { clientX: s.x + 60, clientY: s.y })
+    env.canvas.fire('pointerup', { clientX: s.x + 60, clientY: s.y })
+    expect(env.events.arranged).toHaveLength(1)
+    expect(env.events.pick).toEqual([])
+    expect(env.events.drag.at(-1)).toEqual([null])
+  })
+  it('hidden, no frame is asked for whatever changes; shown again, it draws once (MO2 round 1)', () => {
+    env.flush()
+    env.world.setActive(false)
+    const before = env.frames.length
+    env.world.setGraph(GRAPH, { saved: SAVED })
+    env.world.setAppearance({ glowColor: '#9fd3ff', glowSize: 10 })
+    expect(env.frames.length).toBe(before)
+    env.world.setActive(true)
+    expect(env.frames.length).toBe(before + 1)
+  })
   it('a drag into empty space moves only the picture and keeps the place, pinned', () => {
     const s = press('file:f2')
     env.canvas.fire('pointermove', { clientX: s.x + DRAG_SLOP_PX - 1, clientY: s.y })

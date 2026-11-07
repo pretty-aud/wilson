@@ -70,6 +70,18 @@ describe('createInputMode', () => {
   })
 })
 
+describe('createInputMode from the page\'s own mode (MO2 round 1)', () => {
+  it('starting in touch, a real mouse movement switches back', () => {
+    let t = 5000
+    const onChange = vi.fn()
+    const m = createInputMode({ now: () => t, onChange, initial: 'touch' })
+    expect(m.mode()).toBe('touch')
+    m.handle({ pointerType: 'mouse', type: 'pointermove', clientX: 0, clientY: 0 })
+    m.handle({ pointerType: 'mouse', type: 'pointermove', clientX: 20, clientY: 0 })
+    expect(onChange).toHaveBeenLastCalledWith('mouse')
+  })
+})
+
 describe('prefersReducedMotion', () => {
   it('is false where there is no window to ask', () => {
     expect(prefersReducedMotion()).toBe(false)

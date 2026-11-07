@@ -76,3 +76,18 @@ export function mothItemTarget(kind, id) {
   if (kind === 'task' || kind === 'asset' || kind === 'level' || kind === 'experience') return { view, itemId: id }
   return { view }
 }
+
+/**
+ * MO2: what R.A.B.B.I.T. does with a jump from M.O.T.H.: the project first, asking as the project bar asks when an
+ * edit is unsaved (`confirm`), and only then the tab and the item (`navigate`). A refused switch changes nothing.
+ * Returns whether it went.
+ */
+export async function openFromMoth({ projectId, target }, { currentId, confirm, switchProject, navigate }) {
+  if (!projectId || !target?.view) return false
+  if (currentId() !== projectId) {
+    if (!(await confirm())) return false
+    await switchProject(projectId)
+  }
+  navigate({ projectId, ...target })
+  return true
+}

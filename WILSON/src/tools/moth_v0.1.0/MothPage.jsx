@@ -32,7 +32,7 @@ import { createInputMode, prefersReducedMotion } from './state/mothInputMode.js'
 import { QUICK_VIEWS, normalizeConfig, engineView, filterByTags, containersOf } from './state/mothViewState.js'
 import { createMothViews } from './state/mothViews.js'
 import { colourFor, radiusFor, normalizeAppearance } from './state/mothAppearance.js'
-import { rewind, recordedSince, readHistory } from './state/mothHistoryScrub.js'
+import { rewind, recordedSince, readHistory, RECENT_DAYS } from './state/mothHistoryScrub.js'
 import { mothJump, JUMP_WORDS } from './state/mothJumps.js'
 import MothWorldView from './components/MothWorldView.jsx'
 import MothViewWidget from './components/MothViewWidget.jsx'
@@ -203,6 +203,7 @@ export default function MothPage({ isActive = true, worldFactory }) {
   const appearance = useMemo(() => normalizeAppearance(viewSnap?.prefs?.appearance), [viewSnap?.prefs?.appearance])
   const firstVisit = viewSnap?.firstVisit === true
   const [newView, setNewView] = useState(false)
+  const [viewUndo, setViewUndo] = useState(null)
 
   // ── The graph ────────────────────────────────────────────────────────────────────────────────────────────────
   // The measured replays' stress set (PLAN_MOTH §5 Session 2, "Required dataset choice": a documented expanded
@@ -228,6 +229,9 @@ export default function MothPage({ isActive = true, worldFactory }) {
     return { ...c, islands: (c.islands || []).map((r) => (r?.is_mine ? { ...r, title: islandLabel(r) } : r)) }
   }, [base, config.tags])
   const index = useMemo(() => indexCatalogue(shown), [shown])
+  // The live catalogue's own index (no tag filter, never looked back, never a replay): what a view may keep a
+  // place for. A made-up replay keeps none.
+  const liveIndex = useMemo(() => (replay ? null : indexCatalogue(catalogue)), [replay, catalogue])
   const open = viewSnap?.open ?? null
   const openSet = useMemo(() => {
     if (open) return open
@@ -235,6 +239,11 @@ export default function MothPage({ isActive = true, worldFactory }) {
     return new Set((catalogue.islands || []).map((row) => nodeId('project', row.id)))
   }, [open, catalogue.islands])
   const focusId = viewSnap?.focusId ?? null
+  const openSetRef = useRef(openSet)
+  openSetRef.current = openSet
+  useEffect(() => {
+    views?.setLookup({ projectOf: (id) => liveIndex?.rows.get(id)?.projectId ?? null, openNow: () => openSetRef.current })
+  }, [views, liveIndex])
   const graph = useMemo(() => buildGraph(shown, engineView(config, { open: openSet, focusId }), index), [shown, config, openSet, focusId, index])
   const glowSize = useMemo(() => (replay ? catalogueSize(replay) : store ? store.glowSize() : 0),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -276,7 +285,9 @@ export default function MothPage({ isActive = true, worldFactory }) {
   const samePickedProject = pickedFiles.every((f) => f.project_id === pickedProject)
   const insideProject = inside ? index.rows.get(inside)?.projectId ?? null : null
   const liveGate = access(islandOf(pickedProject ?? insideProject))
-  const gate = scrubAt != null ? { allowed: false, reason: 'Looking back changes nothing. Come back to now to change things.' } : liveGate
+  const gate = scrubAt != null ? { allowed: false, reason: 'Looking back changes nothing. Come back to now to change things.' }
+    : !samePickedProject ? { allowed: false, reason: 'The ticked files are in different projects. Tick the files of one project at a time to move or delete them.' }
+    : liveGate
 
   // ── Selecting, opening, flying ───────────────────────────────────────────────────────────────────────────────
   // Going into another project says nothing of what happened in the last one, and starts its search afresh.
@@ -296,7 +307,7 @@ export default function MothPage({ isActive = true, worldFactory }) {
       const container = ['project', 'folder', 'phase', 'scene'].includes(kind) ? id : index.parent.get(id) ?? null
       if (container) setInside(container)
     }
-    if (kind === 'file') {
+    if (kind === 'file' && !fileRow(rowOf(id))?.managed) {
       const fid = rowOf(id)
       setPicked((was) => {
         const next = new Set(additive ? was : [])
@@ -307,11 +318,11 @@ export default function MothPage({ isActive = true, worldFactory }) {
     if (fly) {
       // Every container on the way is opened, so the dot is drawn, then the camera goes to it.
       const ways = containersOf(shown, id, index)
-      if (ways.length && views) views.openAll(ways)
+      if (ways.length && views) views.openAll(ways, openSetRef.current)
       setFlyTo({ id, at: Date.now() })
     }
-  }, [shown, index, views])
-  const openContainer = useCallback((id) => { views?.toggleOpen(id) }, [views])
+  }, [shown, index, views, fileRow])
+  const openContainer = useCallback((id) => { views?.toggleOpen(id, openSetRef.current) }, [views])
 
   // ── Doing things (Session 1's, kept whole) ───────────────────────────────────────────────────────────────────
   const act = useCallback(async (fn) => {
@@ -467,24 +478,57 @@ export default function MothPage({ isActive = true, worldFactory }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fileRow, index, rules, act, scrubAt])
 
-  // Where the dots are goes with the view: saved a moment after the last change, by the person who may write it.
+  // Where the dots are goes with the view (MO2 review round 1): a dot moved by hand, a folder opened or closed, the
+  // focus moved, each noted under the view it happened in and written a moment later to that view, only what
+  // changed, by the person who may write it; never while looking back. Leaving the page writes what is waiting.
   const saveTimer = useRef(null)
-  const queueSavePlaces = useCallback(() => {
+  const flushPlaces = useCallback(() => {
+    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
+    views?.flush().catch((err) => setError(err?.message || String(err)))
+  }, [views])
+  const queueFlush = useCallback(() => {
     if (!views) return
     if (saveTimer.current) clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(() => {
-      saveTimer.current = null
-      const w = worldRef.current
-      if (w) views.savePlaces(w.positions()).catch((err) => setError(err?.message || String(err)))
-    }, SAVE_PLACES_MS)
-  }, [views])
-  useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current) }, [])
+    saveTimer.current = setTimeout(flushPlaces, SAVE_PLACES_MS)
+  }, [views, flushPlaces])
+  const onArranged = useCallback(({ id, x, y }) => {
+    if (!views || scrubAt != null) return
+    views.notePlace(id, { x, y, pinned: true })
+    queueFlush()
+  }, [views, scrubAt, queueFlush])
+  const onSettled = useCallback(() => {
+    if (!views || scrubAt != null || !viewSnap?.needsPlaces) return
+    const w = worldRef.current
+    if (w) views.savePlaces(w.positions()).catch((err) => setError(err?.message || String(err)))
+  }, [views, scrubAt, viewSnap?.needsPlaces])
+  const marksSeen = useRef({ key: null, open: null, focusId: null })
+  useEffect(() => {
+    const was = marksSeen.current
+    const now = { key: viewSnap?.placesKey ?? null, open: openSet, focusId }
+    marksSeen.current = now
+    // A view's own load is not a change.
+    if (!views || scrubAt != null || was.key !== now.key || !was.open) return
+    const changed = new Set()
+    for (const id of now.open) if (!was.open.has(id)) changed.add(id)
+    for (const id of was.open) if (!now.open.has(id)) changed.add(id)
+    if (was.focusId !== now.focusId) { if (was.focusId) changed.add(was.focusId); if (now.focusId) changed.add(now.focusId) }
+    if (!changed.size) return
+    const all = worldRef.current?.positions() ?? {}
+    const places = {}
+    for (const id of changed) if (all[id]) places[id] = all[id]
+    views.noteMarks(places)
+    queueFlush()
+  }, [views, openSet, focusId, viewSnap?.placesKey, scrubAt, queueFlush])
+  useEffect(() => { if (!isActive) flushPlaces() }, [isActive, flushPlaces])
+  useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current); views?.flush().catch(() => {}) }, [views])
 
+  const inputModeRef = useRef(inputMode)
+  inputModeRef.current = inputMode
   // ── Settings, the input mode, the frame readout ──────────────────────────────────────────────────────────────
   const setAppearance = useCallback((patch) => { views?.setAppearance(patch) }, [views])
   useEffect(() => {
     if (!isActive) return undefined
-    const mode = createInputMode({ onChange: setInputMode })
+    const mode = createInputMode({ onChange: setInputMode, initial: inputModeRef.current })
     mode.attach(typeof window !== 'undefined' ? window : null)
     let mq = null
     const onMotion = () => setCalm(prefersReducedMotion())
@@ -494,9 +538,9 @@ export default function MothPage({ isActive = true, worldFactory }) {
     } catch { mq = null }
     return () => { mode.detach(); mq?.removeEventListener?.('change', onMotion) }
   }, [isActive])
-  // The frame readout, for the measured replays (her Q6): only when asked for in the address, never otherwise.
+  // The frame readout, for the measured replays (her Q6): in a development build, only when asked for in the address.
   const recorder = useMemo(() => {
-    const asked = typeof window !== 'undefined' && /[?&]mothFrames=1\b/.test(window.location?.search ?? '')
+    const asked = import.meta.env.DEV && typeof window !== 'undefined' && /[?&]mothFrames=1\b/.test(window.location?.search ?? '')
     return asked ? createFrameRecorder() : null
   }, [])
   const onFrame = useCallback((f) => {
@@ -509,6 +553,8 @@ export default function MothPage({ isActive = true, worldFactory }) {
     if (draw.count > 0 && draw.count % 30 === 0) setFrameLine(`${f.dots} dots${f.clusters ? `, ${f.clusters} clusters` : ''}, ${f.edges} lines${f.light ? ', lighter' : ''} · ${draw.count} frames · frame time p50 ${ms(gap.p50)} p95 ${ms(gap.p95)} max ${ms(gap.max)} ms · drawing p95 ${ms(draw.p95)} ms (target ${TARGETS.normal.p95Ms} ms)`)
   }, [recorder])
 
+  const scrubbing = useRef(false)
+  scrubbing.current = scrubAt != null
   // ── The keyboard ─────────────────────────────────────────────────────────────────────────────────────────────
   // Ctrl+Z and Ctrl+Y, only while on this page. Taken before any other listener: every page stays mounted, and a
   // hidden page's own undo on the document must not also run. A box with its own undo keeps it; nothing happens
@@ -525,6 +571,7 @@ export default function MothPage({ isActive = true, worldFactory }) {
       if (typingIn(event.target)) return
       event.preventDefault()
       if (event.repeat || visibleDialogCount() > 0) return
+      if (scrubbing.current) { setNote('Looking back changes nothing. Come back to now to undo or redo.'); return }
       act(() => (undoing ? history.undo() : history.redo()))
     }
     window.addEventListener('keydown', onKey, true)
@@ -542,7 +589,16 @@ export default function MothPage({ isActive = true, worldFactory }) {
     return () => { live = false }
   }, [adapter, officeRoot, insideProject])
 
-  // Looking back: the window once, then the rows from the chosen time on, read once per time chosen.
+  // Looking back: when the record begins, read on the way in; then the rows from a week before the chosen time (so
+  // what changed that week shows), kept only while the catalogue they were read against is the one on screen.
+  useEffect(() => {
+    if (!isActive || !adapter || localOnly || scrub.floor != null || scrub.available === false) return undefined
+    let live = true
+    Promise.resolve().then(() => adapter.fetchMothHistoryWindow(null))
+      .then((rows) => { if (live) setScrub((s) => ({ ...s, available: true, floor: recordedSince(rows) })) })
+      .catch((err) => { if (live && err?.code === 'moth_absent') setScrub((s) => ({ ...s, available: false })) })
+    return () => { live = false }
+  }, [isActive, adapter, localOnly, scrub.floor, scrub.available])
   useEffect(() => {
     if (scrubAt == null || !adapter || localOnly) return undefined
     let live = true
@@ -553,25 +609,25 @@ export default function MothPage({ isActive = true, worldFactory }) {
         const windowRows = await adapter.fetchMothHistoryWindow(null)
         floor = recordedSince(windowRows)
       }
-      const since = Math.max(scrubAt, floor)
-      const kept = scrub.rows && scrub.since != null && scrub.since <= since
+      const since = Math.max(scrubAt - RECENT_DAYS * 86400000, floor)
+      const kept = scrub.rows && scrub.since != null && scrub.since <= since && scrub.version === snap.version
       const read = kept ? { rows: scrub.rows, complete: !scrub.incomplete } : await readHistory(adapter, since)
-      if (live) setScrub({ available: true, floor, rows: read.rows, since: kept ? scrub.since : since, loading: false, error: '', incomplete: !read.complete })
+      if (live) setScrub({ available: true, floor, rows: read.rows, since: kept ? scrub.since : since, version: snap.version, loading: false, error: '', incomplete: !read.complete })
     })().catch((err) => {
       if (!live) return
       if (err?.code === 'moth_absent') setScrub((s) => ({ ...s, available: false, loading: false }))
       else setScrub((s) => ({ ...s, loading: false, error: 'The record could not be read just now.' }))
     })
     return () => { live = false }
-    // The kept rows and floor are read, not followed.
+    // The kept rows and floor are read, not followed; a new catalogue reads the record again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scrubAt, adapter, localOnly])
+  }, [scrubAt, adapter, localOnly, snap.version])
   const lookBack = useMemo(() => ({
     available: localOnly ? false : scrub.available,
     localOnly,
     floor: scrub.floor,
     at: scrubAt,
-    setAt: setScrubAt,
+    setAt: (t) => setScrubAt(t == null ? null : Math.max(t, scrub.floor ?? t)),
     loading: scrub.loading,
     error: scrub.error,
     incomplete: scrub.incomplete,
@@ -586,7 +642,8 @@ export default function MothPage({ isActive = true, worldFactory }) {
   const oneFile = pickedFiles.length === 1
   const whatDeleting = oneFile ? `"${pickedFiles[0].name}"` : `${pickedFiles.length} files`
   const selectedNode = selected.length === 1 ? graph.nodes.find((n) => n.id === selected[0]) ?? index.rows.get(selected[0]) ?? null : null
-  const jumpFor = selectedNode ? mothJump(selectedNode) : null
+  // A person's own space never becomes another tool's open project (her PS-8, PSA-08): nothing in it jumps.
+  const jumpFor = selectedNode && !islandOf(selectedNode.projectId)?.is_personal ? mothJump(selectedNode) : null
 
   return (
     <div className="moth-page" data-moth-page data-input={inputMode} data-calm={calm ? 'true' : undefined}>
@@ -616,8 +673,8 @@ export default function MothPage({ isActive = true, worldFactory }) {
           onBloom={setBloom}
           onDrag={setDrag}
           onDrop={onDrop}
-          onArranged={queueSavePlaces}
-          onSettled={() => { if (viewSnap?.needsPlaces) queueSavePlaces() }}
+          onArranged={onArranged}
+          onSettled={onSettled}
           onFrame={recorder ? onFrame : undefined}
           onDropFile={dropFile}
         />
@@ -631,6 +688,12 @@ export default function MothPage({ isActive = true, worldFactory }) {
             )}
             {error && <Banner tone="danger" data-moth-error>{error}</Banner>}
             {note && <Banner tone="info" data-moth-note>{note}</Banner>}
+            {viewUndo && (
+              <Banner tone="info" data-moth-view-undo>
+                The view "{viewUndo.name}" was deleted.{' '}
+                <Button variant="ghost" size="sm" onClick={() => { const u = viewUndo; setViewUndo(null); u.undo().catch((err) => setError(err?.message || String(err))) }}>Undo</Button>
+              </Banner>
+            )}
             {unfinishedMoves > 0 && (
               <Banner tone="info" data-moth-unfinished>
                 {unfinishedMoves === 1 ? 'A move on this computer did not finish.' : `${unfinishedMoves} moves on this computer did not finish.`}
@@ -648,8 +711,8 @@ export default function MothPage({ isActive = true, worldFactory }) {
             selectedNode={selectedNode}
             pickedCount={pickedFiles.length}
             gate={gate}
-            canUndo={canUndo}
-            canRedo={canRedo}
+            canUndo={canUndo && scrubAt == null}
+            canRedo={canRedo && scrubAt == null}
             jump={jumpFor}
             localOnly={localOnly}
             history={lookBack}
@@ -663,6 +726,7 @@ export default function MothPage({ isActive = true, worldFactory }) {
             onNewView={() => setNewView(true)}
             onRelayout={() => worldRef.current?.relayout()}
             onError={setError}
+            onViewDeleted={(undo, name) => setViewUndo({ undo, name })}
           />
           <MothListWidget
             adapter={adapter}

@@ -11,14 +11,18 @@ const TABLE_KIND = Object.freeze({
   phases: 'phase', assets: 'asset', tasks: 'task', scenes: 'scene', shots: 'shot', levels: 'level', experiences: 'experience',
 })
 
-const clone = (c) => ({
-  islands: (c.islands || []).map((r) => ({ ...r })),
-  folders: Object.fromEntries(Object.entries(c.folders || {}).map(([k, v]) => [k, v.map((r) => ({ ...r }))])),
-  files: Object.fromEntries(Object.entries(c.files || {}).map(([k, v]) => [k, v.map((r) => ({ ...r }))])),
-  items: Object.fromEntries(Object.entries(c.items || {}).map(([k, v]) => [k, v.map((r) => ({ ...r }))])),
-  relations: [...(c.relations || [])],
-})
-const take = (list, id) => { const i = list.findIndex((r) => r.id === id); return i < 0 ? null : list.splice(i, 1)[0] }
+// Each kind's rows by id, with the project each is in: a row is taken out and put back by id, so a rewind over
+// 20,000 recorded rows and a large project costs a lookup a row, not a search (MO2 review round 1).
+function byId(bag) {
+  const rows = new Map()
+  for (const [pid, list] of Object.entries(bag || {})) for (const r of list || []) if (r && r.id != null) rows.set(r.id, { pid, row: { ...r } })
+  return rows
+}
+function toBag(rows, pids) {
+  const out = Object.fromEntries([...pids].map((pid) => [pid, []]))
+  for (const { pid, row } of rows.values()) (out[pid] ||= []).push(row)
+  return out
+}
 const ms = (t) => (typeof t === 'number' ? t : Date.parse(t))
 
 /**
@@ -26,10 +30,14 @@ const ms = (t) => (typeof t === 'number' ? t : Date.parse(t))
  * answers). Returns { catalogue, changed: Set of entity ids changed in the RECENT_DAYS before atMs }.
  */
 export function rewind(live, rows, atMs) {
-  const c = clone(live)
+  const pids = new Set([...Object.keys(live.files || {}), ...Object.keys(live.folders || {}), ...Object.keys(live.items || {})])
+  const files = byId(live.files)
+  const folders = byId(live.folders)
+  const items = byId(live.items)
+  let islands = (live.islands || []).map((r) => ({ ...r }))
+  let relations = [...(live.relations || [])]
   const changed = new Set()
   const recentFrom = atMs - RECENT_DAYS * 86400000
-  const where = (bag, pid) => { if (!bag[pid]) bag[pid] = []; return bag[pid] }
   for (const r of rows || []) {
     const t = ms(r.observed_at)
     if (!Number.isFinite(t)) continue
@@ -39,49 +47,60 @@ export function rewind(live, rows, atMs) {
     }
     const before = r.prior || null
     const pidBefore = r.prior_project_id || null
-    const pidNow = r.state_project_id || null
     const id = r.entity_id
+    if (pidBefore) pids.add(pidBefore)
     if (r.entity_type === 'files') {
-      const now = pidNow ? take(where(c.files, pidNow), id) : Object.values(c.files).map((l) => take(l, id)).find(Boolean) || null
+      const now = files.get(id)?.row || null
+      const nowPid = files.get(id)?.pid
+      files.delete(id)
       if (r.action === 'added' || r.action === 'restored') continue
-      if (!before || !pidBefore) continue
-      where(c.files, pidBefore).push({
+      if (!before || !pidBefore) { if (now) files.set(id, { pid: nowPid, row: now }); continue }
+      files.set(id, { pid: pidBefore, row: {
         ...(now || { id, tags: [] }), id, project_id: pidBefore, folder_id: before.folder_id ?? null,
         name: before.name ?? now?.name ?? '', mime_type: before.mime_type ?? now?.mime_type ?? null,
         kind: before.kind ?? now?.kind ?? null, tags: Array.isArray(before.categories) ? before.categories : now?.tags ?? [],
-      })
+      } })
     } else if (r.entity_type === 'folders') {
-      const now = pidNow ? take(where(c.folders, pidNow), id) : Object.values(c.folders).map((l) => take(l, id)).find(Boolean) || null
+      const now = folders.get(id)?.row || null
+      const nowPid = folders.get(id)?.pid
+      folders.delete(id)
       if (r.action === 'added' || r.action === 'restored') continue
-      if (!before || !pidBefore) continue
-      where(c.folders, pidBefore).push({
+      if (!before || !pidBefore) { if (now) folders.set(id, { pid: nowPid, row: now }); continue }
+      folders.set(id, { pid: pidBefore, row: {
         ...(now || { id }), id, parent_id: before.parent_id ?? null, kind: before.kind ?? now?.kind ?? 'custom',
         slug: before.slug ?? now?.slug ?? '', label: before.name ?? now?.label ?? null,
-      })
+      } })
     } else if (TABLE_KIND[r.entity_type]) {
       const kind = TABLE_KIND[r.entity_type]
-      const now = pidNow ? take(where(c.items, pidNow), id) : Object.values(c.items).map((l) => take(l, id)).find(Boolean) || null
+      const now = items.get(id)?.row || null
+      const nowPid = items.get(id)?.pid
+      items.delete(id)
       if (r.action === 'added' || r.action === 'restored') continue
-      if (!before || !pidBefore) continue
-      where(c.items, pidBefore).push({ ...(now || { id, kind }), id, kind, name: before.name ?? before.title ?? now?.name ?? '' })
+      if (!before || !pidBefore) { if (now) items.set(id, { pid: nowPid, row: now }); continue }
+      // Under the parent it had then: a phase's parent phase, a shot's scene.
+      const parent = kind === 'phase' ? { parent_kind: before.parent_phase_id ? 'phase' : null, parent_id: before.parent_phase_id ?? null }
+        : kind === 'shot' ? { parent_kind: before.scene_id ? 'scene' : null, parent_id: before.scene_id ?? null } : {}
+      items.set(id, { pid: pidBefore, row: { ...(now || { id, kind }), id, kind, name: before.name ?? before.title ?? now?.name ?? '', ...parent } })
     } else if (r.entity_type === 'projects') {
-      const isle = c.islands.find((x) => x.id === id)
-      if (r.action === 'added') { c.islands = c.islands.filter((x) => x.id !== id); continue }
+      const isle = islands.find((x) => x.id === id)
+      if (r.action === 'added' || r.action === 'restored') { islands = islands.filter((x) => x.id !== id); continue }
+      if ((r.action === 'trashed' || r.action === 'removed') && !isle) { islands.push({ id, title: before?.title ?? '' }); continue }
       if (isle && before?.title) isle.title = before.title
     } else if (r.entity_type === 'task_items') {
       const s = r.state
-      const p = before
+      const pr = before
       if (r.action === 'added' && s) {
-        c.relations = c.relations.filter((l) => !(l.source.kind === 'task' && l.source.id === s.task_id && l.target.id === s.item_id))
-      } else if ((r.action === 'removed' || r.action === 'trashed') && p) {
-        c.relations.push({ source: { kind: 'task', id: p.task_id }, target: { kind: p.item_type, id: p.item_id }, label: 'task_item' })
+        relations = relations.filter((l) => !(l.source.kind === 'task' && l.source.id === s.task_id && l.target.id === s.item_id))
+      } else if ((r.action === 'removed' || r.action === 'trashed') && pr) {
+        relations.push({ source: { kind: 'task', id: pr.task_id }, target: { kind: pr.item_type, id: pr.item_id }, label: 'task_item' })
       }
     }
   }
+  const c = { islands, folders: toBag(folders, pids), files: toBag(files, pids), items: toBag(items, pids), relations }
   // A file shows at a time only if its folder does.
   for (const [pid, list] of Object.entries(c.files)) {
-    const folders = new Set((c.folders[pid] || []).map((f) => f.id))
-    c.files[pid] = list.filter((f) => f.folder_id == null || folders.has(f.folder_id))
+    const kept = new Set((c.folders[pid] || []).map((f) => f.id))
+    c.files[pid] = list.filter((f) => f.folder_id == null || kept.has(f.folder_id))
   }
   return { catalogue: c, changed }
 }

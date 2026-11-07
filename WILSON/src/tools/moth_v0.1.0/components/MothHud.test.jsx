@@ -51,7 +51,17 @@ describe('MothCards', () => {
     expect(document.querySelectorAll('[data-moth-card="pinned"]')).toHaveLength(MAX_PINNED)
     fireEvent.click(screen.getAllByRole('button', { name: 'Unpin this card' })[0])
     expect(document.querySelectorAll('[data-moth-card="pinned"]')).toHaveLength(MAX_PINNED - 1)
-    expect(props.onOpenCard).toHaveBeenCalledTimes(MAX_PINNED)
+    // Every folder whose card showed is noted among those opened last.
+    for (let i = 0; i < MAX_PINNED; i++) expect(props.onOpenCard).toHaveBeenCalledWith(`folder:d${i}`)
+  })
+  it('a new selection is followed afresh: a shut card comes back for it, and every shown card is noted as opened', () => {
+    const { props, again } = mount({ selectedId: 'folder:d0' })
+    fireEvent.click(screen.getByRole('button', { name: 'Close this card' }))
+    expect(screen.queryByRole('region')).toBeNull()
+    again({ selectedId: 'folder:d1' })
+    again({ selectedId: 'folder:d0' })
+    expect(screen.getByRole('region', { name: 'Folder 0' })).toBeTruthy()
+    expect(props.onOpenCard).toHaveBeenCalledWith('folder:d1')
   })
   it('a card closes, and a click on a row selects it', () => {
     const { props } = mount({ selectedId: 'folder:d0' })
@@ -151,6 +161,10 @@ describe('MothTimeSlider', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Back to now' }))
     expect(setAt).toHaveBeenLastCalledWith(null)
   })
+  it('says it is reading when the record begins until it knows', () => {
+    render(<MothTimeSlider history={{ available: true, now: NOW, floor: null, at: null, setAt: () => {} }} />)
+    expect(document.querySelector('[data-moth-time-says]').textContent).toMatch(/Reading when the record begins/)
+  })
   it('shows nothing with no history to give', () => {
     const { container } = render(<MothTimeSlider history={null} />)
     expect(container.textContent).toBe('')
@@ -172,6 +186,16 @@ describe('MothFirstVisit', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Tasks' }))
     fireEvent.click(screen.getByRole('button', { name: 'Map it' }))
     expect(onChoose).toHaveBeenLastCalledWith('unsaved', { nodeKinds: ['task'], edgeKinds: ['lives_in'], layout: 'force' })
+  })
+  it('offers Tags only with Files, and turning Files off takes Tags with it (MO2a R1-13)', () => {
+    const onChoose = vi.fn()
+    render(<MothFirstVisit first onChoose={onChoose} onClose={() => {}} />)
+    fireEvent.click(screen.getByText('Build your own'))
+    fireEvent.click(screen.getByRole('button', { name: 'Tags' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Files' }))
+    expect(screen.getByRole('button', { name: 'Tags' }).disabled).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Map it' }))
+    expect(onChoose).toHaveBeenLastCalledWith('unsaved', { nodeKinds: ['project', 'folder'], edgeKinds: ['lives_in'], layout: 'force' })
   })
   it('the first time it offers Not now; afterwards Cancel', () => {
     const onClose = vi.fn()

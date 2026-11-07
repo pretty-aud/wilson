@@ -119,6 +119,7 @@ export function createRenderer({
   let fly = null // { path, start }
   let tween = null // { from, to, start, ms }
   let last = null // the last drawn frame's draw list, with its ids
+  let paused = false // hidden: nothing asks a frame until shown again
   let lastFrameEnd = null
   let lastFrameAt = null
   let frames = 0
@@ -136,7 +137,7 @@ export function createRenderer({
   }
 
   function invalidate() {
-    if (pending != null || destroyed) return
+    if (pending != null || destroyed || paused) return
     requests++
     requestedAt = now()
     pending = requestFrame(onAnimationFrame)
@@ -463,6 +464,8 @@ export function createRenderer({
     invalidate,
     setScene(graph) {
       lastGraph = graph
+      // A new scene starts its clusters' cell afresh: a grown cell is kept only within one scene (R1-3).
+      if (last) last.cell = null
       scene = buildScene(graph)
       tween = null
       selected = selectedIds.length && scene.index.has(selectedIds[0]) ? scene.index.get(selectedIds[0]) : -1
@@ -585,6 +588,8 @@ export function createRenderer({
     },
     /** glowParams() output; only the shadows read it here (the glow has its own canvas). */
     setGlow(next) { glow = next || null; invalidate() },
+    /** Hidden, no frame is asked for, whatever changes; shown again, it draws once. */
+    setPaused(v) { paused = !!v; if (!paused) invalidate() },
     setReducedMotion(v) {
       calm = !!v
       if (calm && fly) { cam = fly.path.at(fly.path.duration); fly = null }

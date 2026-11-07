@@ -205,7 +205,8 @@ export function createMothCatalogue({ adapter }) {
       const whole = { islands: [], folders: {}, files: {}, items: {} }
       for (const isle of islands || []) {
         const p = projects.get(isle.id)
-        if (!p || p.status !== 'ready' || p.truncated) continue
+        // A project read only in part counts as what was read: the largest projects light the most.
+        if (!p || p.status !== 'ready') continue
         whole.islands.push(isle)
         whole.folders[isle.id] = p.folders
         whole.files[isle.id] = p.files

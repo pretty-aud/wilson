@@ -67,6 +67,31 @@ describe('rewind', () => {
     expect(catalogue.islands[0].title).toBe('Salt')
     expect(catalogue.relations).toEqual([{ source: { kind: 'task', id: 't1' }, target: { kind: 'shot', id: 's1' }, label: 'task_item' }])
   })
+  it('an item goes back under the parent it had then, and a trashed project comes back (MO2 round 1)', () => {
+    const c = live()
+    c.items.p1.push({ id: 'sh1', kind: 'shot', name: 'Wide', parent_kind: 'scene', parent_id: 'sc2' })
+    c.islands = []
+    const rows = [
+      { entity_type: 'shots', entity_id: 'sh1', action: 'moved', observed_at: at(1), state_project_id: 'p1', prior_project_id: 'p1', prior: { name: 'Wide', scene_id: 'sc1' } },
+      { entity_type: 'projects', entity_id: 'p1', action: 'trashed', observed_at: at(1), prior: { title: 'Salt Hours' } },
+    ]
+    const { catalogue } = rewind(c, rows, NOW - 2 * DAY)
+    expect(catalogue.items.p1.find((i) => i.id === 'sh1')).toMatchObject({ parent_kind: 'scene', parent_id: 'sc1' })
+    expect(catalogue.islands).toEqual([{ id: 'p1', title: 'Salt Hours' }])
+  })
+  it('a project restored after the time was not there before it', () => {
+    const rows = [{ entity_type: 'projects', entity_id: 'p1', action: 'restored', observed_at: at(1) }]
+    expect(rewind(live(), rows, NOW - 2 * DAY).catalogue.islands).toEqual([])
+  })
+  it('rewinds 20,000 rows over 30,000 files without a search per row', () => {
+    const c = live()
+    c.files.p1 = Array.from({ length: 30000 }, (_, i) => ({ id: `f${i}`, project_id: 'p1', folder_id: null, name: `f${i}`, tags: [] }))
+    const rows = Array.from({ length: 20000 }, (_, i) => ({ entity_type: 'files', entity_id: `f${i}`, action: 'added', observed_at: at(1), state_project_id: 'p1' }))
+    const t0 = Date.now()
+    const { catalogue } = rewind(c, rows, NOW - 2 * DAY)
+    expect(catalogue.files.p1).toHaveLength(10000)
+    expect(Date.now() - t0).toBeLessThan(2000)
+  })
   it('a project added after the time is not there', () => {
     const rows = [{ entity_type: 'projects', entity_id: 'p1', action: 'added', observed_at: at(1) }]
     expect(rewind(live(), rows, NOW - 2 * DAY).catalogue.islands).toEqual([])

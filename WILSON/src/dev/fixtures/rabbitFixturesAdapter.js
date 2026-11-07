@@ -319,11 +319,13 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
   // MO2 (0122, 0123): Moth's gates over the dataset, as _moth_target_eligible answers them.
   const MOTH_ITEM_TABLES = { phase: 'phases', asset: 'assets', task: 'tasks', scene: 'scenes', shot: 'shots', level: 'levels', experience: 'experiences' }
   const MOTH_TAG_WORDS = ['production', 'creative', 'reference', 'assets', 'code', 'shots', 'documentation']
+  // A phase or task set aside by its bid version is not live, as 0122's reads leave it out.
+  const mothRowLive = (kind, r) => !r.deleted_at && !((kind === 'phase' || kind === 'task') && r.set_aside_at)
   const mothItemRows = (projectId) => Object.entries(MOTH_ITEM_TABLES).flatMap(([kind, table]) =>
-    (store[table] || []).filter(r => r.project_id === projectId && !r.deleted_at).map(row => ({ kind, row })))
+    (store[table] || []).filter(r => r.project_id === projectId && mothRowLive(kind, r)).map(row => ({ kind, row })))
   const mothItemLive = (kind, id, projectId) => {
     const table = MOTH_ITEM_TABLES[kind]
-    return !!table && (store[table] || []).some(r => r.id === id && r.project_id === projectId && !r.deleted_at)
+    return !!table && (store[table] || []).some(r => r.id === id && r.project_id === projectId && mothRowLive(kind, r))
   }
   const mothShownFiles = (projectId) => {
     const folders = store.folders.filter(f => f.project_id === projectId)
@@ -938,6 +940,12 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
         .map(({ view_id: _v, owner_id: owner, ...p }) => ({ ...p, mine: owner != null })))
     },
     async putMothPositions(viewId, places) {
+      // As the cloud's adapter: a list longer than the server's 1,000 goes a thousand at a time.
+      if (Array.isArray(places) && places.length > 1000) {
+        let n = 0
+        for (let i = 0; i < places.length; i += 1000) n += await this.putMothPositions(viewId, places.slice(i, i + 1000))
+        return n
+      }
       const view = store.mothViews.find(v => v.id === viewId)
       if (!Array.isArray(places) || places.length > 1000) throw tvError('22023', 'Places come as a list of at most 1,000.')
       if (!view || !mothViewVisible(view)) throw tvError('23503', 'insert or update on table "moth_layout_positions" violates foreign key constraint "moth_layout_positions_view_fk"')
@@ -948,6 +956,7 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
       for (const p of places) {
         const bad = !p || typeof p.t !== 'string' || !Number.isFinite(p.x) || !Number.isFinite(p.y)
           || (p.t === 'tag' ? typeof p.tag !== 'string' || 'id' in p : !/^[0-9a-f-]{36}$/i.test(String(p.id ?? '')) || 'tag' in p)
+          || ['pinned', 'open', 'focus'].some(k => k in p && typeof p[k] !== 'boolean')
         if (bad) throw tvError('22023', 'A place is not of the right shape.')
         if (Math.abs(p.x) > 1e7 || Math.abs(p.y) > 1e7) throw tvError('23514', 'new row for relation "moth_layout_positions" violates check constraint "moth_layout_positions_xy_chk"')
         if (p.t === 'tag' ? !MOTH_TAG_WORDS.includes(p.tag) : !mothTargetVisible(p.t, p.id)) {

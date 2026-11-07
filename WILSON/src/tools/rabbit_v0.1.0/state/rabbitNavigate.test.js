@@ -4,7 +4,7 @@
 // "Keep editing" at the leave guard).
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { renderHook, cleanup } from '@testing-library/react'
-import { navigateTo, dropPendingNavigate, useNavigateTarget, mothItemTarget } from './rabbitNavigate'
+import { navigateTo, dropPendingNavigate, useNavigateTarget, mothItemTarget, openFromMoth } from './rabbitNavigate'
 
 // A mounted target consumes every later jump to its view: unmount each.
 afterEach(cleanup)
@@ -58,5 +58,42 @@ describe('mothItemTarget (MO2: Open in R.A.B.B.I.T. from M.O.T.H.)', () => {
     expect(seen).toEqual(['t1'])
     rerender({ h: handlerFor(['t1', 't2']) })
     expect(seen).toEqual(['t1'])
+  })
+})
+
+describe('openFromMoth (MO2 review round 1)', () => {
+  const deps = (over = {}) => {
+    const calls = []
+    return {
+      calls,
+      currentId: () => 'p1',
+      confirm: vi.fn(async () => { calls.push('confirm'); return true }),
+      switchProject: vi.fn(async (id) => { calls.push(`switch:${id}`) }),
+      navigate: vi.fn((d) => { calls.push(`go:${d.view}`) }),
+      ...over,
+    }
+  }
+  it('in the open project, opens the tab and the item at once, asking nothing', async () => {
+    const d = deps()
+    expect(await openFromMoth({ projectId: 'p1', target: { view: 'tasks', itemId: 't1' } }, d)).toBe(true)
+    expect(d.calls).toEqual(['go:tasks'])
+    expect(d.navigate).toHaveBeenCalledWith({ projectId: 'p1', view: 'tasks', itemId: 't1' })
+  })
+  it('in another project, asks first, switches, and only then opens the tab', async () => {
+    const d = deps()
+    await openFromMoth({ projectId: 'p2', target: { view: 'files', fileId: 'f1' } }, d)
+    expect(d.calls).toEqual(['confirm', 'switch:p2', 'go:files'])
+  })
+  it('Keep editing changes nothing: no switch, no tab', async () => {
+    const d = deps({ confirm: vi.fn(async () => false) })
+    expect(await openFromMoth({ projectId: 'p2', target: { view: 'tasks', itemId: 't1' } }, d)).toBe(false)
+    expect(d.switchProject).not.toHaveBeenCalled()
+    expect(d.navigate).not.toHaveBeenCalled()
+  })
+  it('nothing to open opens nothing', async () => {
+    const d = deps()
+    expect(await openFromMoth({ projectId: null, target: { view: 'tasks' } }, d)).toBe(false)
+    expect(await openFromMoth({ projectId: 'p1', target: null }, d)).toBe(false)
+    expect(d.navigate).not.toHaveBeenCalled()
   })
 })
