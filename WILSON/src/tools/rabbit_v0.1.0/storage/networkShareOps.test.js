@@ -1,6 +1,6 @@
 // @vitest-environment node
 // networkShareOps.test.js — MO1 (MOTH_DESIGN §1.8): the renames an office-server operation owes, on real files.
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createRequire } from 'node:module'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -8,7 +8,7 @@ import path from 'node:path'
 import express from 'express'
 
 const require = createRequire(import.meta.url)
-const { mountNetworkShareOps, makeShareLocate, ROUTE, PUT_ROUTE, PURGE_ROUTE, FILE_ROUTE } = require('../../../../electron/networkShareOps.cjs')
+const { mountNetworkShareOps, makeShareLocate, ROUTE, PUT_ROUTE, PURGE_ROUTE, FILE_ROUTE, LOOK_ROUTE } = require('../../../../electron/networkShareOps.cjs')
 const { checkShareLocator } = require('../../../../electron/networkShare.cjs')
 const { makeRootQuestions } = require('../../../../electron/rootReachable.cjs')
 const { makeShareContain } = require('../../../../electron/shareContain.cjs')
@@ -320,12 +320,56 @@ describe('a rename that is interrupted', () => {
     expect(has('Pepper/a.mov')).toBe(false)
     expect(has('Salt/a.mov')).toBe(true)
   })
-  it('🚨 an empty file left at the target by an interrupted rename does not hold the name', async () => {
+  const aged = (rel) => { const then = new Date(Date.now() - 3600000); fs.utimesSync(path.join(root, rel), then, then) }
+  it('🚨 an empty file an interrupted rename left long ago does not hold the name', async () => {
     put('Salt/a.mov', 'abc')
     put('Pepper/a.mov', '')
+    aged('Pepper/a.mov')
     const { body } = await ask([{ from: 'Salt/a.mov', to: 'Pepper/a.mov' }])
     expect(body.results[0].ok).toBe(true)
     expect(fs.readFileSync(path.join(root, 'Pepper/a.mov'), 'utf8')).toBe('abc')
+  })
+  it('🚨 a young one may be another computer\'s rename under way: it is not removed, and nobody says what happened yet', async () => {
+    put('Salt/a.mov', 'abc')
+    put('Pepper/a.mov', '')
+    const { body } = await ask([{ from: 'Salt/a.mov', to: 'Pepper/a.mov' }])
+    expect(body.results[0]).toMatchObject({ ok: false, code: 'failed' })
+    expect(has('Salt/a.mov')).toBe(true)
+    expect(has('Pepper/a.mov')).toBe(true)
+  })
+  it('🚨 two asks for one rename on this computer take turns, and the file survives', async () => {
+    put('Salt/a.mov', 'abc')
+    let release
+    let reached
+    const held = new Promise((ok) => { release = ok })
+    const atRename = new Promise((ok) => { reached = ok })
+    await remount(heldFsp(async (from, to) => { reached(); await held; await fs.promises.rename(from, to) }))
+    const first = ask([{ from: 'Salt/a.mov', to: 'Pepper/a.mov' }])
+    await atRename
+    const second = ask([{ from: 'Salt/a.mov', to: 'Pepper/a.mov' }])
+    await new Promise((ok) => setTimeout(ok, 80))
+    release()
+    const [a, b] = await Promise.all([first, second])
+    expect(a.body.results[0].ok).toBe(true)
+    expect(b.body.results[0]).toMatchObject({ ok: true, already: true })
+    expect(fs.readFileSync(path.join(root, 'Pepper/a.mov'), 'utf8')).toBe('abc')
+  })
+  it('🚨 an empty file with its size not known is not called the file that left', async () => {
+    put('Pepper/a.mov', '')
+    expect((await ask([{ from: 'Salt/a.mov', to: 'Pepper/a.mov' }])).body.results[0]).toMatchObject({ ok: false, code: 'not_verified' })
+    expect((await ask([{ from: 'Salt/a.mov', to: 'Pepper/a.mov', size: 3 }])).body.results[0]).toMatchObject({ ok: false, code: 'not_there' })
+    expect((await ask([{ from: 'Salt/a.mov', to: 'Pepper/a.mov', size: 0 }])).body.results[0]).toMatchObject({ ok: true, already: true })
+  })
+  it('🚨 a far end that cannot be read is not called empty: the row must not go back', async () => {
+    const real = contain
+    const blind = Object.assign(async (r, rel) => (rel.startsWith('Pepper') ? { ok: false, code: 'unreachable' } : real(r, rel)), { withSlot: real.withSlot })
+    contain = blind
+    await remount({ ...fs.promises })
+    expect((await ask([{ from: 'Salt/a.mov', to: 'Pepper/a.mov' }])).body.results[0]).toMatchObject({ ok: false, code: 'unreachable' })
+    contain = Object.assign(async (r, rel) => (rel.startsWith('Pepper') ? { ok: false, code: 'a_link' } : real(r, rel)), { withSlot: real.withSlot })
+    await remount({ ...fs.promises })
+    expect((await ask([{ from: 'Salt/a.mov', to: 'Pepper/a.mov' }])).body.results[0]).toMatchObject({ ok: false, code: 'failed' })
+    contain = real
   })
   it('a real file at the target still holds it, however small', async () => {
     put('Salt/a.mov', 'abc')
@@ -347,6 +391,84 @@ describe('a rename that is interrupted', () => {
     const { body } = await ask([{ from: `Salt/.wilson-bin/${id}/a.mov`, to: 'Salt/a.mov' }])
     expect(body.results[0].ok).toBe(true)
     expect(has(`Salt/.wilson-bin/${id}`)).toBe(false)
+  })
+})
+
+describe('round 2: a copy in', () => {
+  const src = () => { const p = path.join(outside, 'src.mov'); fs.writeFileSync(p, 'abc'); return p }
+  it('🚨 a young empty file at the target may be someone\'s copy finishing: it stays, and the answer says wait', async () => {
+    picked.add(src())
+    put('Salt/a.mov', '')
+    const out = await post(PUT_ROUTE, { to: 'Salt/a.mov', from: { picked: src() } })
+    expect(out.status).toBe(409)
+    expect(out.body.code).toBe('in_use')
+    expect(fs.readFileSync(path.join(root, 'Salt/a.mov'), 'utf8')).toBe('')
+  })
+  it('an old one is what a crash left, and the copy takes its place', async () => {
+    picked.add(src())
+    put('Salt/a.mov', '')
+    const then = new Date(Date.now() - 3600000)
+    fs.utimesSync(path.join(root, 'Salt/a.mov'), then, then)
+    expect((await post(PUT_ROUTE, { to: 'Salt/a.mov', from: { picked: src() } })).status).toBe(201)
+    expect(fs.readFileSync(path.join(root, 'Salt/a.mov'), 'utf8')).toBe('abc')
+  })
+  it('🚨 a temp file a killed copy left is swept once it is a day old, and a young one is not', async () => {
+    picked.add(src())
+    put('Salt/.wilson-upload-old.tmp', 'part')
+    put('Salt/.wilson-upload-young.tmp', 'part')
+    const then = new Date(Date.now() - 25 * 3600000)
+    fs.utimesSync(path.join(root, 'Salt/.wilson-upload-old.tmp'), then, then)
+    expect((await post(PUT_ROUTE, { to: 'Salt/a.mov', from: { picked: src() } })).status).toBe(201)
+    await vi.waitFor(() => expect(has('Salt/.wilson-upload-old.tmp')).toBe(false))
+    expect(has('Salt/.wilson-upload-young.tmp')).toBe(true)
+  })
+  it('🚨 a device name is refused, as the add route refuses one', async () => {
+    picked.add(src())
+    expect((await post(PUT_ROUTE, { to: 'Salt/aux', from: { picked: src() } })).status).toBe(400)
+    expect((await post(PUT_ROUTE, { to: 'Salt/CON.mov', from: { picked: src() } })).status).toBe(400)
+    put('Salt/a.mov')
+    expect((await ask([{ from: 'Salt/a.mov', to: 'Salt/nul.mov' }])).body.results[0].code).toBe('bad_locator')
+  })
+})
+
+describe('round 2: a purge', () => {
+  const id = '22222222-2222-4222-8222-222222222222'
+  const bin = `Salt/.wilson-bin/${id}`
+  it('🚨 what a NAS keeps beside the frames goes with them, and the bin entry clears', async () => {
+    put(`${bin}/plates/a.0001.exr`)
+    put(`${bin}/plates/a.0002.exr`)
+    put(`${bin}/plates/.@__thumb/a.0001.jpg`)
+    put(`${bin}/.AppleDouble/x`)
+    const { body } = await post(PURGE_ROUTE, { paths: [bin] })
+    expect(body.results[0]).toMatchObject({ ok: true })
+    expect(has(bin)).toBe(false)
+  })
+  it('🚨 anything deeper is refused before the first file is removed', async () => {
+    put(`${bin}/plates/a.0001.exr`)
+    put(`${bin}/plates/a.0002.exr`)
+    put(`${bin}/plates/.@__thumb/deeper/a.jpg`)
+    const { body } = await post(PURGE_ROUTE, { paths: [bin] })
+    expect(body.results[0]).toMatchObject({ ok: false, code: 'not_a_file' })
+    expect(has(`${bin}/plates/a.0001.exr`)).toBe(true)
+  })
+})
+
+describe('round 2: a look', () => {
+  it('🚨 says what is at each path, a bin path too, and refuses what the routes refuse', async () => {
+    const id = '33333333-3333-4333-8333-333333333333'
+    put('Salt/a.mov', 'abc')
+    put(`Salt/.wilson-bin/${id}/b.mov`, 'xy')
+    const { body } = await post(LOOK_ROUTE, { paths: ['Salt/a.mov', `Salt/.wilson-bin/${id}/b.mov`, 'Salt/gone.mov', 'INVOICES/a.pdf'] })
+    expect(body.results).toEqual([
+      { path: 'Salt/a.mov', there: true, size: 3 },
+      { path: `Salt/.wilson-bin/${id}/b.mov`, there: true, size: 2 },
+      { path: 'Salt/gone.mov', there: false },
+      { path: 'INVOICES/a.pdf', code: 'bad_locator' },
+    ])
+  })
+  it('somebody else\'s personal folder is not looked in', async () => {
+    put(`_WILSON_PERSONAL/${OTHER}/a.mov`)
+    expect((await post(LOOK_ROUTE, { paths: [`_WILSON_PERSONAL/${OTHER}/a.mov`] })).status).toBe(403)
   })
 })
 

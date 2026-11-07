@@ -34,6 +34,7 @@ function walkFolder(input, fs, path, classify) {
   const deadline = Date.now() + limits.deadlineMs;
   const refused = new RegExp(lists.refusedChars, 'u');
   const shortName = new RegExp(lists.shortName, 'u');
+  const device = new RegExp(lists.deviceName, 'i');
   const money = new Set(lists.refusedExact);
   const skipped = new Set(['NODE_MODULES', 'DESKTOP.INI', 'THUMBS.DB']);
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -42,7 +43,7 @@ function walkFolder(input, fs, path, classify) {
     const upper = name.toUpperCase();
     if (name.startsWith('.') || skipped.has(upper) || money.has(upper)) return false;
     if (lists.refusedSuffix.some((suffix) => upper.endsWith(suffix))) return false;
-    if (refused.test(name) || shortName.test(name) || /[. ]$/.test(name)) return false;
+    if (refused.test(name) || shortName.test(name) || device.test(name) || /[. ]$/.test(name)) return false;
     if (name.normalize('NFC') !== name) return false;
     const whole = `${rel}/${name}`;
     return Array.from(whole).length <= 1024 && Buffer.byteLength(whole, 'utf8') <= lists.maxBytes;
@@ -67,6 +68,13 @@ function walkFolder(input, fs, path, classify) {
   // A folder of one frame series is one entry, in its parent's list (NS-X07). One that cannot be read now
   // says so: it may be a series, and its row must not be called missing because the look failed.
   const UNREADABLE = { unreadable: true };
+  // The same question without a frame's lstat, for a folder whose parent this walk is only passing through.
+  function isSeries(rel) {
+    let entries;
+    try { entries = fs.readdirSync(at(rel), { withFileTypes: true }); } catch { return false; }
+    if (entries.some((e) => !e.name.startsWith('.') && !e.isFile())) return false;
+    return Boolean(classify(entries.filter((e) => !e.name.startsWith('.')).map((e) => e.name), lists.sequenceExts));
+  }
   function asSequence(rel) {
     let entries;
     try { entries = fs.readdirSync(at(rel), { withFileTypes: true }); } catch { return UNREADABLE; }
@@ -133,7 +141,10 @@ function walkFolder(input, fs, path, classify) {
       if (Date.now() > deadline) { record.complete = false; break; }
       const child = `${rel}/${entry.name}`;
       if (onTheWay) {
-        if (entry.isDirectory() && compare(child, start.split('/').slice(0, rel.split('/').length + 1).join('/')) >= 0) below.push(child);
+        const order = compare(child, start.split('/').slice(0, rel.split('/').length + 1).join('/'));
+        // A later frame folder is one entry, which its parent's call told: walked as a folder here, each of
+        // its frames would become a row, called missing by the next walk from the top.
+        if (entry.isDirectory() && order >= 0 && !(order > 0 && isSeries(child))) below.push(child);
         continue;
       }
       let st;
@@ -250,6 +261,7 @@ function mountNetworkShareWalk(expressApp, {
       lists: {
         refusedChars: lists.refusedChars,
         shortName: lists.shortName,
+        deviceName: lists.deviceName,
         refusedExact: lists.refusedExact,
         refusedSuffix: lists.refusedSuffix,
         maxBytes: lists.maxBytes,

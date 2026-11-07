@@ -72,7 +72,8 @@ describe('refreshing', () => {
     const out = await catalogue.refreshNow({ id: 'p1' }, { root: '//s/d', folder: 'Salt' })
     expect(ops.walkFolder.mock.calls).toEqual([['Salt', 'Salt/b'], ['Salt', 'Salt/c']])
     expect(apply.map((c) => [c.final, c.stoppedAt])).toEqual([[false, 'Salt/c'], [true, null]])
-    expect(out.complete).toBe(false)
+    // The second walk read what the first did not reach, so nothing is left to call unread.
+    expect(out.complete).toBe(true)
   })
   it('🚨 what is left of a call stops before the server\'s limit, and the last call records where to carry on', async () => {
     const many = Array.from({ length: 40 }, (_, i) => dir(`Salt/d${i}`, 400))
@@ -247,7 +248,7 @@ describe('an operation\'s rename', () => {
   it('🚨 a copy-up left over is looked at: there, it settles done; not there, not_moved; and not while it is still copying', async () => {
     const { catalogue, ops, adapter } = setup()
     ops.statFile = vi.fn(async (at) => (at === 'there' ? { size: 3, modified_at: 'then' } : null))
-    adapter.networkSharePending = vi.fn(async () => [{ op_id: 'a', op: 'adopt', from: null, to: 'there' }, { op_id: 'b', op: 'adopt', from: null, to: 'gone' }])
+    adapter.networkSharePending = vi.fn(async () => [{ op_id: 'a', op: 'adopt', from: null, to: 'there' }, { op_id: 'b', op: 'adopt', from: null, to: 'gone', created_at: '2026-11-04T12:00:00Z' }])
     await catalogue.settlePending()
     expect(adapter.settleNetworkShareOps).toHaveBeenCalledWith(['a'], 'done', { a: { s: '3', m: 'then' } })
     expect(adapter.settleNetworkShareOps).toHaveBeenCalledWith(['b'], 'not_moved')
@@ -266,7 +267,7 @@ describe('an operation\'s rename', () => {
   it('an empty file at a copy-up\'s target is a reservation, not the copy', async () => {
     const { catalogue, ops, adapter } = setup()
     ops.statFile = vi.fn(async () => ({ size: 0 }))
-    adapter.networkSharePending = vi.fn(async () => [{ op_id: 'a', op: 'adopt', from: null, to: 'there' }])
+    adapter.networkSharePending = vi.fn(async () => [{ op_id: 'a', op: 'adopt', from: null, to: 'there', created_at: '2026-11-04T12:00:00Z' }])
     await catalogue.settlePending()
     expect(adapter.settleNetworkShareOps).toHaveBeenCalledWith(['a'], 'not_moved')
   })
@@ -346,3 +347,74 @@ describe('a refusal in words', () => {
     expect(mothRefusal({ message: 'moth_move:not_found' }).message).not.toMatch(/money|invoice|legal|private/i)
   })
 })
+
+describe('round 2', () => {
+  it('🚨 a copy not there yet is not a copy that failed: another computer may be making it, for up to a day', async () => {
+    const { catalogue, ops, adapter } = setup()
+    ops.statFile = vi.fn(async () => null)
+    adapter.networkSharePending = vi.fn(async () => [
+      { op_id: 'young', op: 'adopt', from: null, to: 'a', created_at: '2026-11-06T11:00:00Z' },
+      { op_id: 'unknown', op: 'adopt', from: null, to: 'b' },
+      { op_id: 'old', op: 'adopt', from: null, to: 'c', created_at: '2026-11-05T11:00:00Z' },
+    ])
+    const out = await catalogue.settlePending()
+    expect(adapter.settleNetworkShareOps.mock.calls).toEqual([[['old'], 'not_moved']])
+    expect(out.left.map((op) => op.op_id).sort()).toEqual(['unknown', 'young'])
+  })
+  it('🚨 a stop that really stops says part was not read; one the next walk carries on from does not', async () => {
+    const stops = setup({ walks: Array.from({ length: 31 }, (_, i) => ({ dirs: [dir(`Salt/w${i}`)], bin: [], stopped_at: `Salt/w${i + 1}` })) })
+    expect((await stops.catalogue.refreshNow({ id: 'p1' }, { root: '//s/d', folder: 'Salt' })).complete).toBe(false)
+    const goesOn = setup({ walks: [{ dirs: [dir('Salt/a')], bin: [], stopped_at: 'Salt/b' }, { dirs: [dir('Salt/b', 1, false)], bin: [], stopped_at: null }] })
+    expect((await goesOn.catalogue.refreshNow({ id: 'p1' }, { root: '//s/d', folder: 'Salt' })).complete).toBe(false)
+  })
+  it('🚨 where the last check stopped counts only inside this folder: a project whose folder changed starts from the top', async () => {
+    const { catalogue, ops, adapter } = setup()
+    adapter.getNetworkShareCheck = vi.fn(async () => ({ next_start: 'Old/sub' }))
+    await catalogue.refreshNow({ id: 'p1' }, { root: '//s/d', folder: 'New' })
+    expect(ops.walkFolder.mock.calls[0]).toEqual(['New', null])
+    const same = setup()
+    same.adapter.getNetworkShareCheck = vi.fn(async () => ({ next_start: 'salt/b' }))
+    await same.catalogue.refreshNow({ id: 'p1' }, { root: '//s/d', folder: 'Salt' })
+    expect(same.ops.walkFolder.mock.calls[0]).toEqual(['Salt', 'salt/b'])
+    const sibling = setup()
+    sibling.adapter.getNetworkShareCheck = vi.fn(async () => ({ next_start: 'Salted/b' }))
+    await sibling.catalogue.refreshNow({ id: 'p1' }, { root: '//s/d', folder: 'Salt' })
+    expect(sibling.ops.walkFolder.mock.calls[0]).toEqual(['Salt', null])
+  })
+  describe('calling off a move', () => {
+    const op = { op_id: 'o', op: 'move', from: 'Salt/a.mov', to: 'Pepper/a.mov' }
+    const look = (...results) => vi.fn(async () => ({ results }))
+    it('🚨 a file that has reached the far end and left the start is not sent back to where it is not', async () => {
+      const { catalogue, ops, adapter } = setup()
+      ops.look = look({ path: op.to, there: true, size: 3 }, { path: op.from, there: false })
+      await expect(catalogue.callOff(op)).rejects.toThrow(/already reached/)
+      expect(ops.look).toHaveBeenCalledWith([op.to, op.from])
+      expect(adapter.settleNetworkShareOps).not.toHaveBeenCalled()
+    })
+    it('a file still at the start, or an empty reservation at the far end, is called off', async () => {
+      const a = setup()
+      a.ops.look = look({ path: op.to, there: false }, { path: op.from, there: true, size: 3 })
+      await a.catalogue.callOff(op)
+      expect(a.adapter.settleNetworkShareOps).toHaveBeenCalledWith(['o'], 'not_moved')
+      const b = setup()
+      b.ops.look = look({ path: op.to, there: true, size: 0 }, { path: op.from, there: true, size: 3 })
+      await b.catalogue.callOff(op)
+      expect(b.adapter.settleNetworkShareOps).toHaveBeenCalledWith(['o'], 'not_moved')
+    })
+    it('a look that cannot be made says so and changes nothing', async () => {
+      const { catalogue, ops, adapter } = setup()
+      ops.look = look({ path: op.to, code: 'unreachable' }, { path: op.from, there: true, size: 3 })
+      await expect(catalogue.callOff(op)).rejects.toThrow(/could not look/)
+      expect(adapter.settleNetworkShareOps).not.toHaveBeenCalled()
+    })
+    it('a browser cannot look, so the person is asked to check, and it goes through', async () => {
+      const { catalogue, ops, adapter } = setup()
+      ops.available = () => false
+      ops.look = vi.fn()
+      await catalogue.callOff(op)
+      expect(ops.look).not.toHaveBeenCalled()
+      expect(adapter.settleNetworkShareOps).toHaveBeenCalledWith(['o'], 'not_moved')
+    })
+  })
+})
+

@@ -506,6 +506,16 @@ describe('POST /api/network-share/personal-space/files', () => {
     expect(isShareRoot(u('.', 'C:', 'Users'))).toBe(false)
     expect(isShareRoot('//?/C:/Users')).toBe(false)
     expect(isShareRoot(u('nas', 'share'))).toBe(false)
+    // 🚨 This computer, or a door to it, whatever it is called (rabbitBins.cjs's isUncPath asks the same).
+    for (const host of ['localhost', 'LOCALHOST@8080', '127.0.0.1', '127.1', '0.0.0.0', '2130706433', 'wsl$', 'wsl.localhost', 'tsclient']) {
+      expect(isShareRoot(u(host, 'share', 'wilson')), host).toBe(false)
+    }
+    expect(isShareRoot(u('nas', 'c$', 'wilson'))).toBe(false)
+    expect(isShareRoot(u('nas', 'admin$', 'wilson'))).toBe(false)
+    expect(isShareRoot(u('nas', 'footage$', 'wilson'))).toBe(true)
+    // 🚨 A colleague's folder would read as '<uuid>/x', which names no owner, and the owner check would not run.
+    expect(isShareRoot(u('nas', 'share', '_WILSON_PERSONAL'))).toBe(false)
+    expect(isShareRoot(u('nas', 'share', '_wilson_personal', 'x'))).toBe(false)
     expect(isShareRoot(u('nas', 'share', 'INVOICES'))).toBe(false)
     expect(isShareRoot(u('nas', 'share', 'work', 'legal'))).toBe(false)
     expect(isShareRoot(u('nas', 'share', 'Acme_RECEIPTS&INVOICES'))).toBe(false)

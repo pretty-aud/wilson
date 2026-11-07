@@ -558,3 +558,16 @@ describe('round 2: this computer', () => {
   })
 })
 
+describe('round 2: a move left over', () => {
+  it('🚨 from a browser the person is asked to check, and shown both places', async () => {
+    adapter.networkShareStaleMoves = vi.fn(async () => [{ op_id: 'o', from: 'Salt/a.mov', to: 'Pepper/a.mov', name: 'a.mov' }])
+    adapter.settleNetworkShareOps = vi.fn(async () => {})
+    render(<MothPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Trash' }))
+    expect(await screen.findByText(/Check the file is still in the first place/)).toBeTruthy()
+    expect(screen.getByText('Salt/a.mov to Pepper/a.mov')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Call it off' }))
+    await waitFor(() => expect(adapter.settleNetworkShareOps).toHaveBeenCalledWith(['o'], 'not_moved'))
+  })
+})
+

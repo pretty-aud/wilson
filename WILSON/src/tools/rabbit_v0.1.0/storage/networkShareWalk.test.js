@@ -248,3 +248,33 @@ describe('review round 1', () => {
   })
 })
 
+describe('round 2', () => {
+  it('🚨 a walk carried on from a stop still counts a later frame folder as one entry, told by its parent', async () => {
+    put('Salt/sh020/a.mov')
+    put('Salt/sh010/a.mov')
+    put('Salt/sh030_plates/a.0001.exr')
+    put('Salt/sh030_plates/a.0002.exr')
+    put('Salt/sh040/b.mov')
+    const out = await walk({ folder: 'Salt', start: 'Salt/sh020' })
+    expect(out.body.dirs.map((d) => d.d)).toEqual(['Salt/sh020', 'Salt/sh040'])
+    expect(dirOf(out, 'Salt/sh030_plates')).toBeUndefined()
+  })
+  it('a later folder that cannot be told from one, and the start itself, are still walked', async () => {
+    put('Salt/sh020/a.0001.exr')
+    put('Salt/sh020/a.0002.exr')
+    put('Salt/sh030/b.mov')
+    const out = await walk({ folder: 'Salt', start: 'Salt/sh020' })
+    expect(out.body.dirs.map((d) => d.d)).toEqual(['Salt/sh020', 'Salt/sh030'])
+  })
+  it('🚨 a device name is not listed, because no locator can name it', async () => {
+    put('Salt/aux.mov')
+    put('Salt/CON')
+    put('Salt/auxiliary.mov')
+    const out = await walk({ folder: 'Salt' })
+    expect(names(dirOf(out, 'Salt'))).toEqual(['auxiliary.mov'])
+    expect(checkShareLocator('Salt/aux.mov')).toBe(false)
+    expect(checkShareLocator('Salt/auxiliary.mov')).toBe(true)
+    expect(checkShareLocator('nul/a.mov')).toBe(false)
+  })
+})
+

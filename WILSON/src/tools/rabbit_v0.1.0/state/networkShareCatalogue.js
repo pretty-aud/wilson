@@ -18,6 +18,9 @@ const MAX_CALLS = 50
 const MAX_REPEATS = 20
 const OPEN_EVERY_MS = 10 * 60 * 1000
 const OVER_ONE_READ = 5000
+// A copy-up not there yet may still be coming, from another computer or a page reloaded while main goes on
+// copying. As long as a move is left before anyone can call it off.
+const COPY_PATIENCE_MS = 24 * 60 * 60 * 1000
 // The route's limit on one request, and the server's on one settle.
 const OPS_PER_CALL = 500
 // Nobody can say whether these happened, so they stay pending and are looked at again.
@@ -25,6 +28,8 @@ const UNKNOWN_OUTCOME = new Set(['failed', 'not_verified', 'unreachable'])
 
 export const CANNOT_READ_WHOLE = 'A folder here holds more than 5,000 files, so WILSON cannot tell when one has gone from it.'
 const CHANGED_TOO_MUCH = 'This folder changed too much at once for WILSON to list it. Try again in a few minutes.'
+export const ALREADY_THERE_SENTENCE = 'This file has already reached its new place on the office server, so this move cannot be called off. The computer that started it will finish it when it next opens WILSON.'
+const COULD_NOT_LOOK = 'WILSON could not look on the office server just now, so nothing changed. Try again.'
 
 const outOfTime = (err) => /statement timeout/i.test(String(err?.message ?? ''))
 const entriesOf = (dirs) => dirs.reduce((n, d) => n + d.files.length, 0)
@@ -152,7 +157,8 @@ export function createNetworkShareCatalogue({ adapter, ops = desktopFileOps, now
   }
 
   // A copy-up left over from a crash. Its copy lands whole or not at all, so a file there is it, unless it
-  // is the empty reservation. Asked of the server, because the row is already there saying so.
+  // is the empty reservation. Asked of the server, because the row is already there saying so. Nothing there is
+  // a failed copy only once it is old enough: a copy under way is a dot-led temp, which a look cannot see.
   async function settleLeftCopy(op, outcome) {
     if (copying.has(op.op_id)) return
     let there
@@ -166,13 +172,33 @@ export function createNetworkShareCatalogue({ adapter, ops = desktopFileOps, now
       if (there && there.size > 0) {
         await adapter.settleNetworkShareOps([op.op_id], 'done', { [op.op_id]: { s: String(there.size), m: there.modified_at } })
         outcome.done.push(op)
-      } else {
+      } else if (now() - Date.parse(op.created_at) > COPY_PATIENCE_MS) {
         await adapter.settleNetworkShareOps([op.op_id], 'not_moved')
         outcome.notMoved.push(op)
+      } else {
+        outcome.left.push(op)
       }
     } catch {
       outcome.left.push(op)
     }
+  }
+
+  // Calling off a move whose computer is away (MothTrashView). Where this computer can look it does: a file at
+  // the far end that has left the start would have its row sent back to where it is not. A browser cannot look,
+  // and the person is asked to check.
+  async function callOff(op) {
+    if (ops.available()) {
+      let results
+      try {
+        ({ results } = await ops.look([op.to, ...(op.from ? [op.from] : [])]))
+      } catch {
+        throw new Error(COULD_NOT_LOOK)
+      }
+      if (results.some((one) => one.code)) throw new Error(COULD_NOT_LOOK)
+      const [target, source] = results
+      if (target.there && target.size !== 0 && !source?.there) throw new Error(ALREADY_THERE_SENTENCE)
+    }
+    await adapter.settleNetworkShareOps([op.op_id], 'not_moved')
   }
 
   // At sign-in, on opening M.O.T.H. and before a check. What is pending is read from the server first: a
@@ -197,14 +223,17 @@ export function createNetworkShareCatalogue({ adapter, ops = desktopFileOps, now
     const back = new Map()
     const stale = new Map()
     const check = await adapter.getNetworkShareCheck(project.id)
-    let start = check?.next_start ?? null
+    // Where the last check stopped, if that is in this folder: a project pointed elsewhere starts from the top,
+    // or the route refuses every walk and nothing ever rewrites it.
+    const carriesOn = (at) => at.toLowerCase() === folder.toLowerCase() || at.toLowerCase().startsWith(`${folder.toLowerCase()}/`)
+    let start = check?.next_start && carriesOn(check.next_start) ? check.next_start : null
     let first = true
     let used = 0
     let cap = ENTRIES_PER_CALL
     for (let walk = 0; walk < MAX_WALKS; walk += 1) {
       const found = await ops.walkFolder(folder, start)
       if (found.dirs.some((d) => !d.complete && d.files.length >= OVER_ONE_READ)) summary.tooBig = true
-      if (found.dirs.some((d) => !d.complete) || found.stopped_at) summary.complete = false
+      if (found.dirs.some((d) => !d.complete)) summary.complete = false
       const queue = splitDirs(found.dirs, cap)
       if (queue.length === 0) queue.push([])
       // What fits under the server's limit, and the next directory is where to carry on. The last call that
@@ -218,6 +247,7 @@ export function createNetworkShareCatalogue({ adapter, ops = desktopFileOps, now
       }
       const stopping = Boolean(stoppedAt) && (walk === MAX_WALKS - 1 || used + queue.length >= MAX_CALLS)
       const ending = !stoppedAt || stopping
+      if (stoppedAt && ending) summary.complete = false
       while (queue.length > 0) {
         const dirs = queue.shift()
         const last = queue.length === 0
@@ -282,5 +312,5 @@ export function createNetworkShareCatalogue({ adapter, ops = desktopFileOps, now
     }
   }
 
-  return { runNasOp, runCopyUp, settlePending, refreshNow, refreshOnOpen }
+  return { runNasOp, runCopyUp, settlePending, callOff, refreshNow, refreshOnOpen }
 }

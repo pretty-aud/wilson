@@ -1,9 +1,11 @@
 // MothTrashView.jsx — MO1 (MOTH_DESIGN §1.10): what can come back, and how long for. 'Could not look' is kept
 // apart from 'Nothing here': an empty list must not read as a safe one when it was never read.
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Banner, Button, EmptyState } from '../../../ui'
 import { Trash2 } from 'lucide-react'
 import GatedAction from '../../../permissions/GatedAction'
+import { createNetworkShareCatalogue } from '../../rabbit_v0.1.0/state/networkShareCatalogue.js'
+import { desktopFileOps } from '../../rabbit_v0.1.0/storage/desktopFileOps.js'
 
 const DAY = 24 * 60 * 60 * 1000
 // The server's page runs on to the end of a batch deleted together, so a page this long may have more behind it.
@@ -15,9 +17,12 @@ export function daysLeft(purgesAt, now = Date.now()) {
   return Math.max(0, Math.ceil(left / DAY))
 }
 
+export const CHECK_FIRST_SENTENCE = 'WILSON cannot look on the office server from a browser. Check the file is still in the first place shown before you call a move off.'
+
 // 0118's owed: a move left over a day ago, that only its own computer could say had happened. Whoever may check
-// both ends can call it off, which puts the row back where the file still is.
+// both ends can call it off, which puts the row back at the start. The desktop looks first, and a browser asks.
 function StaleMoves({ adapter }) {
+  const catalogue = useMemo(() => createNetworkShareCatalogue({ adapter }), [adapter])
   const [rows, setRows] = useState([])
   const [error, setError] = useState('')
   const load = useCallback(() => {
@@ -29,7 +34,7 @@ function StaleMoves({ adapter }) {
   const callOff = async (row) => {
     setError('')
     try {
-      await adapter.settleNetworkShareOps([row.op_id], 'not_moved')
+      await catalogue.callOff(row)
       load()
     } catch (err) {
       setError(err?.message || String(err))
@@ -38,11 +43,13 @@ function StaleMoves({ adapter }) {
   return (
     <div data-moth-stale>
       <p className="moth-quiet">These moves on the office server did not finish on the computer that started them.</p>
+      {!desktopFileOps.available() && <p className="moth-quiet" data-moth-check-first>{CHECK_FIRST_SENTENCE}</p>}
       {error && <Banner tone="danger">{error}</Banner>}
       <ul className="moth-rows">
         {rows.map((row) => (
           <li key={row.op_id} className="moth-row">
             <span className="moth-row-name">{row.name || row.to || row.op_id}</span>
+            {!desktopFileOps.available() && row.from && <span className="moth-quiet">{row.from} to {row.to}</span>}
             <Button variant="ghost" onClick={() => callOff(row)}>Call it off</Button>
           </li>
         ))}

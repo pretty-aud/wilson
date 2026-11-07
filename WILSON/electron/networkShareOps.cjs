@@ -3,6 +3,7 @@
 // 0118); these move the file, and the renderer then settles the operation with what happened.
 //
 //   GET  /api/network-share/reachable                                   is the server there, before anything is written
+//   POST /api/network-share/look    { paths: [locator] }                what is at each, a bin's path too
 //   POST /api/network-share/op      { pairs: [{ from, to, size? }] }    the renames
 //   POST /api/network-share/put     { to, from: { picked } | { media_key } }   a copy in, never over
 //   POST /api/network-share/purge   { paths: ['<space>/.wilson-bin/<id>'] }    a bin's file gone for good
@@ -10,8 +11,11 @@
 //
 // Each pair and path answers for itself, because each settles for itself: { ok } or { ok: false, code }.
 // A target that exists is refused, never overwritten: its name is reserved with an exclusive create, and
-// the rename replaces only that empty reservation, as the add route does. A rename is verified by looking,
-// and one that threw is looked at too: it may have happened, with only the answer lost.
+// the rename replaces only that empty reservation, as the add route does. An empty file at the target may be
+// another rename under way, here or on another computer, and removing it then would remove the file as it
+// lands: renames of one locator take turns here, and only a reservation too old to be anyone's is removed. A
+// rename is verified by looking, and one that threw is looked at too: it may have happened, with only the
+// answer lost.
 // Same origin and the launch token are asked first, a UNC drive, and the drive reachable. File work is
 // async and bounded, never synchronous on the main thread: a dead SMB path can hold a call for the OS
 // timeout (bins, measured).
@@ -27,14 +31,18 @@ const { classifySequence, SEQUENCE_EXTS } = require('./frameSequence.cjs');
 const { mimeForLeaf, contentDisposition } = require('./localMedia.cjs');
 const { attachWhenAsked } = require('./fileReads.cjs');
 const { copyVerified } = require('./copyInWorker.cjs');
-const { isShareRoot: isShareRootReal, personalOwnerOf } = require('./networkShare.cjs');
+const { isShareRoot: isShareRootReal, personalOwnerOf, STALE_UPLOAD_MS } = require('./networkShare.cjs');
 
 const ROUTE = '/api/network-share/op';
 const REACHABLE_ROUTE = '/api/network-share/reachable';
+const LOOK_ROUTE = '/api/network-share/look';
 const PUT_ROUTE = '/api/network-share/put';
 const PURGE_ROUTE = '/api/network-share/purge';
 const FILE_ROUTE = '/api/rabbit/network-share/file';
 const MAX_PAIRS = 500;
+// A rename follows its reservation at once, and a dead server holds it for the OS timeout (42 s, measured).
+// Clocks differ between computers, so this is well past that.
+const RESERVATION_STALE_MS = 10 * 60 * 1000;
 
 const OFF = 'The office server cannot be reached from this computer.';
 const NOT_HERE = 'This file is not on this computer.';
@@ -78,10 +86,33 @@ function mountNetworkShareOps(expressApp, {
 
   const at = (root, rel) => pathImpl.join(root, ...rel.split('/'));
   const parentOf = (rel) => rel.split('/').slice(0, -1).join('/');
-  // Every call here goes through the contained slots (shareContain.cjs).
+  // A call on the server here takes one of the contained slots (shareContain.cjs). Two do not: a file's bytes
+  // (sendFile, below) and the add route (networkShare.cjs), each of which holds a pool thread for as long as a
+  // dead server takes. A stream cannot wait in a slot for its whole length, and adds run one at a time.
   const io = (call) => (contain.withSlot ? contain.withSlot(call) : call());
   const lookAt = (p) => io(() => fsp.lstat(p)).catch((err) => (err.code === 'ENOENT' || err.code === 'ENOTDIR' ? null : Promise.reject(err)));
   const reserve = (p) => io(async () => { await (await fsp.open(p, 'wx')).close(); });
+  const leftLongAgo = (stat) => Date.now() - stat.mtimeMs > RESERVATION_STALE_MS;
+
+  // Asks for the same file take turns: a banner's refresh and a page's settle can send one pair together.
+  const running = new Map();
+  async function inTurn(locators, call) {
+    const keys = [...new Set(locators.map((locator) => String(locator).toLowerCase()))];
+    for (;;) {
+      const waits = keys.map((key) => running.get(key)).filter(Boolean);
+      if (waits.length === 0) break;
+      await Promise.all(waits);
+    }
+    let free;
+    const finished = new Promise((ok) => { free = ok; });
+    for (const key of keys) running.set(key, finished);
+    try {
+      return await call();
+    } finally {
+      for (const key of keys) running.delete(key);
+      free();
+    }
+  }
 
   async function gate(req, res) {
     if (!isSameOriginRequest(req)) { refuse(res, 403, 'not_allowed', 'This can only be asked by WILSON itself.'); return null; }
@@ -137,10 +168,14 @@ function mountNetworkShareOps(expressApp, {
       if (!source.ok) {
         if (source.code !== 'not_there') return answer({ ok: false, code: source.code === 'not_contained' ? 'bad_locator' : source.code });
         // Already at the far end: a repeat of a rename that worked, whose answer was lost, if what is
-        // there is what left. A colleague's other file at that name is not, or the row would claim it.
+        // there is what left. A colleague's other file at that name is not, or the row would claim it. A far
+        // end that cannot be read says nothing about where the file is, so the row must not go back on it.
         const target = await contain(root, to);
-        if (!target.ok) return answer({ ok: false, code: 'not_there' });
-        if (Number.isFinite(pair?.size) && target.stat.isFile() && target.stat.size !== pair.size) return answer({ ok: false, code: 'not_there' });
+        if (!target.ok) return answer({ ok: false, code: target.code === 'not_there' || target.code === 'unreachable' ? target.code : 'failed' });
+        if (target.stat.isFile()) {
+          if (Number.isFinite(pair?.size) && target.stat.size !== pair.size) return answer({ ok: false, code: 'not_there' });
+          if (!Number.isFinite(pair?.size) && target.stat.size === 0) return answer({ ok: false, code: 'not_verified' });
+        }
         return answer({ ok: true, already: true });
       }
       const fromAt = source.abs;
@@ -149,8 +184,10 @@ function mountNetworkShareOps(expressApp, {
       if (folder ? !(await isFrameFolder(fromAt)) : !source.stat.isFile()) return answer({ ok: false, code: 'not_a_file' });
       const inTheWay = await lookAt(toAt);
       if (inTheWay) {
-        // A reservation an interrupted rename left: empty, while the file it was for is still here.
+        // A reservation an interrupted rename left: empty, while the file it was for is still here. A young
+        // one may be that rename still under way, so nobody can say yet, and this stays pending.
         if (folder || !inTheWay.isFile() || inTheWay.size !== 0 || source.stat.size === 0) return answer({ ok: false, code: 'name_taken' });
+        if (!leftLongAgo(inTheWay)) return answer({ ok: false, code: 'failed' });
         await io(() => fsp.unlink(toAt));
       }
       if (!(await ensureDir(root, parentOf(to), checked))) return answer({ ok: false, code: 'a_link' });
@@ -193,6 +230,29 @@ function mountNetworkShareOps(expressApp, {
     return root ? res.json({ ok: true }) : undefined;
   });
 
+  // What a person is told before a move is called off, because only a look can say where the file is. A bin's
+  // path is looked at too, which the file route will not serve.
+  expressApp.post(LOOK_ROUTE, async (req, res) => {
+    const root = await gate(req, res);
+    if (!root) return undefined;
+    const paths = req.body?.paths;
+    if (!Array.isArray(paths) || paths.length === 0 || paths.length > MAX_PAIRS) {
+      return refuse(res, 400, 'bad_request', `Between 1 and ${MAX_PAIRS} files are looked at a time.`);
+    }
+    if (!(await mayTouch(req, res, paths))) return undefined;
+    const results = [];
+    for (const rel of paths) {
+      if (!locatorOk(rel, checkShareLocator)) {
+        results.push({ path: rel, code: 'bad_locator' });
+        continue;
+      }
+      const found = await contain(root, rel);
+      if (found.ok) results.push({ path: rel, there: true, size: found.stat.isFile() ? found.stat.size : null });
+      else results.push(found.code === 'not_there' ? { path: rel, there: false } : { path: rel, code: found.code });
+    }
+    return res.json({ results });
+  });
+
   expressApp.post(ROUTE, async (req, res) => {
     const root = await gate(req, res);
     if (!root) return undefined;
@@ -204,9 +264,21 @@ function mountNetworkShareOps(expressApp, {
     // One at a time, in the order asked: a batch may free a name for a later pair.
     const results = [];
     const checked = new Set();
-    for (const pair of pairs) results.push(await onePair(root, pair, checked));
+    for (const pair of pairs) results.push(await inTurn([pair?.from, pair?.to], () => onePair(root, pair, checked)));
     return res.json({ results });
   });
+
+  // A killed copy's temp file is dot-led, so no walk lists it and nothing else would ever remove it. Not waited
+  // on, as the add route's is not.
+  async function sweepStaleCopies(dir) {
+    const cutoff = Date.now() - STALE_UPLOAD_MS;
+    for (const name of await io(() => fsp.readdir(dir))) {
+      if (!name.startsWith('.wilson-upload-') || !name.endsWith('.tmp')) continue;
+      const where = pathImpl.join(dir, name);
+      const stat = await lookAt(where);
+      if (stat && stat.mtimeMs < cutoff) await io(() => fsp.unlink(where));
+    }
+  }
 
   expressApp.post(PUT_ROUTE, async (req, res) => {
     const root = await gate(req, res);
@@ -228,11 +300,13 @@ function mountNetworkShareOps(expressApp, {
       const toAt = at(root, to);
       const inTheWay = await lookAt(toAt);
       if (inTheWay) {
-        // A reservation a crash left: empty, where this copy is not.
+        // A reservation a crash left: empty, where this copy is not. A young one may be a copy finishing.
         if (!inTheWay.isFile() || inTheWay.size !== 0 || source.size === 0) return refuse(res, 409, 'name_taken', 'A file with this name is already there.');
+        if (!leftLongAgo(inTheWay)) return refuse(res, 409, 'in_use', 'A file with this name is arriving on the office server just now. Try again in a few minutes.');
         await io(() => fsp.unlink(toAt));
       }
       if (!(await ensureDir(root, parentOf(to), new Set()))) return refuse(res, 403, 'a_link', 'WILSON does not write through a link on the office server.');
+      sweepStaleCopies(pathImpl.dirname(toAt)).catch(() => {});
       // Dot-led, so a walk never lists a copy that has not finished. In a worker: as long as the file is big,
       // and a server that stops answering holds that thread and no other.
       tmp = pathImpl.join(pathImpl.dirname(toAt), `.wilson-upload-${crypto.randomUUID()}.tmp`);
@@ -270,7 +344,26 @@ function mountNetworkShareOps(expressApp, {
     }
   });
 
-  // A bin holds <id>/<leaf>: one file, or one frame folder. Anything else in it is not WILSON's to remove.
+  // A folder's files, and what a NAS keeps in it (.@__thumb, .AppleDouble) if that holds only files. Read whole
+  // before anything is removed: a purge stopped half way leaves a bin entry that can be neither restored nor cleared.
+  async function whatIsIn(dir) {
+    const entries = await io(() => fsp.readdir(dir, { withFileTypes: true }));
+    const files = entries.filter((e) => e.isFile()).map((e) => pathImpl.join(dir, e.name));
+    const folders = [];
+    for (const entry of entries) {
+      if (entry.isFile()) continue;
+      if (!entry.isDirectory() || !entry.name.startsWith('.')) return null;
+      const inner = pathImpl.join(dir, entry.name);
+      const within = await io(() => fsp.readdir(inner, { withFileTypes: true }));
+      if (within.some((e) => !e.isFile())) return null;
+      files.push(...within.map((e) => pathImpl.join(inner, e.name)));
+      folders.push(inner);
+    }
+    return { dir, files, folders };
+  }
+
+  // A bin holds <id>/<leaf>: one file, or one frame folder, and what a NAS keeps beside them. Anything else in it
+  // is not WILSON's to remove.
   async function purgeOne(root, rel) {
     const shape = typeof rel === 'string' ? BIN_FOLDER.exec(rel) : null;
     if (!shape || !checkShareLocator(shape[1])) return { path: rel, ok: false, code: 'bad_locator' };
@@ -282,15 +375,18 @@ function mountNetworkShareOps(expressApp, {
       }
       if (!found.stat.isDirectory()) return { path: rel, ok: false, code: 'bad_locator' };
       const entries = await io(() => fsp.readdir(found.abs, { withFileTypes: true }));
-      const dirs = entries.filter((e) => e.isDirectory());
-      for (const dir of dirs) {
-        if (!(await isFrameFolder(pathImpl.join(found.abs, dir.name)))) return { path: rel, ok: false, code: 'not_a_file' };
+      const plans = [];
+      for (const dir of entries.filter((e) => e.isDirectory())) {
+        const inside = pathImpl.join(found.abs, dir.name);
+        const plan = dir.name.startsWith('.') || (await isFrameFolder(inside)) ? await whatIsIn(inside) : null;
+        if (!plan) return { path: rel, ok: false, code: 'not_a_file' };
+        plans.push(plan);
       }
       if (entries.some((e) => !e.isDirectory() && !e.isFile())) return { path: rel, ok: false, code: 'a_link' };
-      for (const dir of dirs) {
-        const inside = pathImpl.join(found.abs, dir.name);
-        for (const frame of await io(() => fsp.readdir(inside))) await io(() => fsp.unlink(pathImpl.join(inside, frame)));
-        await io(() => fsp.rmdir(inside));
+      for (const plan of plans) {
+        for (const file of plan.files) await io(() => fsp.unlink(file));
+        for (const folder of plan.folders) await io(() => fsp.rmdir(folder));
+        await io(() => fsp.rmdir(plan.dir));
       }
       for (const entry of entries) if (entry.isFile()) await io(() => fsp.unlink(pathImpl.join(found.abs, entry.name)));
       await io(() => fsp.rmdir(found.abs));
@@ -345,4 +441,4 @@ function makeShareLocate({ getWorkspaceRoot, checkShareLocator, reach, contain, 
   };
 }
 
-module.exports = { mountNetworkShareOps, makeShareLocate, ROUTE, REACHABLE_ROUTE, PUT_ROUTE, PURGE_ROUTE, FILE_ROUTE };
+module.exports = { mountNetworkShareOps, makeShareLocate, ROUTE, REACHABLE_ROUTE, LOOK_ROUTE, PUT_ROUTE, PURGE_ROUTE, FILE_ROUTE };

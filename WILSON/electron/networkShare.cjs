@@ -81,7 +81,9 @@ function checkShareLocator(p) {
   if (/(^|\/)\./.test(p)) return false;
   if (/[. ](\/|$)/.test(p)) return false;
   if (SHORT_NAME.test(p)) return false;
-  return !p.split('/').some(moneyName);
+  // Node's long-path form would hand a device name to the server as a name, and the file could then not be
+  // opened or deleted from ordinary Windows programs.
+  return !p.split('/').some((segment) => moneyName(segment) || DEVICE_NAME.test(segment));
 }
 
 const moneyName = (segment) => {
@@ -89,10 +91,17 @@ const moneyName = (segment) => {
   return SHARE_REFUSED_EXACT.includes(upper) || SHARE_REFUSED_SUFFIX.some((suffix) => upper.endsWith(suffix));
 };
 
+// This computer, or a door to it, whatever it is called: the loopback spellings and administrative shares
+// rabbitBins.cjs's isUncPath refuses for a location, and the names Windows gives a Linux or a remote session's
+// disk. This computer's own name is not among them: the studio's one shared folder may be on the desk it runs on.
+const NOT_A_SERVER = /^(localhost|127(\.\d+)*|0[\d.x].*|\d+|wsl\$|wsl\.localhost|tsclient)$/i;
+const ADMIN_SHARE = /^([a-z]|admin|ipc)\$$/i;
+
 /**
  * What counts as a company's office server. Two leading slashes alone would let a device path through (two
  * slashes, a question mark and a drive letter is the local disk), and a root that is itself a money folder
- * would make every locator under it read as an ordinary name to the lists above. Every office-server gate
+ * would make every locator under it read as an ordinary name to the lists above. A root inside the personal
+ * parent would make a colleague's folder read as '<uuid>/x', which names no owner. Every office-server gate
  * asks this one question.
  */
 function isShareRoot(root) {
@@ -100,7 +109,8 @@ function isShareRoot(root) {
   if (/^[\\/]{2}[?.]([\\/]|$)/.test(root)) return false;
   const segments = root.replace(/^[\\/]+/, '').split(/[\\/]+/).filter(Boolean);
   if (segments.length < 3) return false;
-  return !segments.slice(1).some(moneyName);
+  if (NOT_A_SERVER.test(segments[0].split('@')[0]) || ADMIN_SHARE.test(segments[1])) return false;
+  return !segments.slice(1).some((segment) => moneyName(segment) || segment.toUpperCase() === PERSONAL_PARENT.toUpperCase());
 }
 
 // Whose personal folder a locator is in: its second segment, or '-' when it names no one. null when it
@@ -343,6 +353,7 @@ function mountNetworkShare(expressApp, {
 }
 
 module.exports = {
+  STALE_UPLOAD_MS,
   mountNetworkShare,
   checkShareLocator,
   isShareRoot,
@@ -353,6 +364,7 @@ module.exports = {
   walkLists: {
     refusedChars: REFUSED_CHARS.source,
     shortName: SHORT_NAME.source,
+    deviceName: DEVICE_NAME.source,
     refusedExact: SHARE_REFUSED_EXACT,
     refusedSuffix: SHARE_REFUSED_SUFFIX,
     maxBytes: LOCATOR_MAX_BYTES,

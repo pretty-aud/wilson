@@ -51,6 +51,8 @@ export function createDesktopFileOps({ available = hasLocalServer, fetchImpl = l
     walkFolder: (folder, start = null) => post('/api/network-share/walk', { folder, start }),
     // { results: [{ from, to, ok, code?, already? }] }, each pair for itself. A pair may say the size it expects.
     rename: (pairs) => post('/api/network-share/op', { pairs }),
+    // { results: [{ path, there, size } | { path, code }] }: a bin's path too, which statFile cannot ask.
+    look: (paths) => post('/api/network-share/look', { paths }),
     // from: { picked: <path from rabbit:pick-files> } or { media_key }
     put: (to, from) => post('/api/network-share/put', { to, from }),
     purgeBin: (paths) => post('/api/network-share/purge', { paths }),
