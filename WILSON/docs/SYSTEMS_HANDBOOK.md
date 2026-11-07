@@ -5165,7 +5165,7 @@ nothing checks them before executing an action.
 
 **What is left unfinished on the office server.** A rename nobody can say happened stays pending (`failed`, `not_verified`, no answer) and `settlePending` looks again, at sign-in, on opening M.O.T.H. and before a check. A copy-up left over is looked at: a file there settles done, none settles not_moved. `network_share_pending_mine` holds back a refused project's operations only. After 24 hours an admin may call off what a person who has left began in their own space (`network_share_stale_moves` lists it), and may only say it did not happen. A folder change inside a project on the server is refused, because the row would move and the file would not.
 
-**The graph's reads (MO2, 0122).** Three reads, each the caller's own and each asking Moth's project gate once:
+**The graph's reads (MO2, 0122).** Three reads, each the caller's own; the first two ask Moth's project gate once, and the file page asks the file gate for each file, after the fence:
 `moth_project_items(p)` gives `{ items, truncated }`, the project's live phases, assets, tasks, scenes, shots, levels
 and experiences (none trashed, none set aside by a bid version, names cut to 300, at most 20,000); `moth_project_links(p)`
 gives `{ links, truncated }`, the stored relationships between two live ends (a task and what it is about, an asset and

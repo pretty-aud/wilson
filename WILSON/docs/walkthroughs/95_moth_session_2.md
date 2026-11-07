@@ -26,9 +26,12 @@ own branch until it is merged into the integration branch.
   text file appear beside it. It goes the moment you press or move away. Files kept on the office server or on one
   computer are not previewed from a browser, and it says why.
 - **Views.** The panel on the left picks the view, saves it (for you alone, or for everyone on a project if you may
-  change that project), resets it, or lays it out again. Where you put each dot, which folders are open and what is in
-  focus are kept with a saved view. A project's reviewer can arrange its shared view on screen, but nothing of it is
-  saved.
+  change that project), renames or deletes it (with Undo straight after), resets it, or lays it out again. In a saved
+  view, a dot you move, a folder you open or close and the focus are kept a moment later, each in the view you changed
+  it in; only what you changed is written, so two people arranging one shared view each keep what they moved. Reset
+  goes back to the view as last saved and clears nothing for anyone else. *Lay out again* rearranges the picture for
+  this visit; what you then move is kept. A project's reviewer can arrange its shared view on screen, but nothing of
+  it is saved.
 - **The list on the right** does everything from the keyboard, with breadcrumbs to step back up.
 - **Folder cards.** Select a folder and a small card lists what is in it, bottom left. Pin up to five; a sixth is
   refused with a sentence. The clock icon there lists the folders you opened last, and shows nothing until you press
@@ -57,7 +60,8 @@ own branch until it is merged into the integration branch.
 
 - **Above a thousand dots, nearby dots gather into clusters** that open as you zoom in, so the picture stays smooth.
 - **A view's places belong to the view.** Reset clears them; a new layout keeps only what you pinned by hand.
-- **On a project kept only on this computer, views and settings last for the visit.** There is no table for them
+- **Where views and settings cannot be kept (a project kept only on this computer, signed out), they last until
+  WILSON closes**, and the first question is asked again the next time. There is no table for them
   until the project moves to the cloud, and the page says so when you save.
 - **Looking back reads the record from your test database.** A project's history starts when M.O.T.H. began
   recording it; before that the slider says it was not recorded.
@@ -70,7 +74,8 @@ own branch until it is merged into the integration branch.
 
 ## What was checked
 
-- **Tests:** every new part has its own tests; the whole suite passed (476 files, 12,286 tests).
+- **Tests:** every new part has its own tests. The whole suite is run again on the final code before the merge; its
+  count is in the session's close-out.
 - **The database changes** were rehearsed on your test database and undone, run under every database test (120
   suites), and checked with 206 planted mistakes on a throwaway test server: 168 were caught, and each of the 38 that
   were not is covered by another rule, named in the design document, or too large to plant on a small database. Then

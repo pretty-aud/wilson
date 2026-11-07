@@ -2016,7 +2016,7 @@ the scope; her rulings in MOTH_PLANNING_BRIEF §12a are the shape.
 
 - **`0122_moth_graph_reads`.** The two gates restated with seven kinds more (phase, asset, task, scene, shot, level,
   experience). `phases` has no `workspace_id`, so a phase answers through its project's company, which the gate's last
-  clause asks of every kind. Three reads, each the caller's own (INVOKER), each asking Moth's project gate once:
+  clause asks of every kind. Three reads, each the caller's own (INVOKER); the first two ask Moth's project gate once, and the file page asks the file gate for each file after the fence:
   `moth_project_items` (live items only: none trashed or set aside by a bid version; names cut to 300; at most 20,000
   and says when cut), `moth_project_links` (stored relationships between two live ends, one line a pair, entity
   folders through the folder gate; at most 60,000) and `moth_project_file_facts` (a page of at most 1,000 files on the
@@ -2095,7 +2095,7 @@ server's development build (the fixtures and the replay are development only), s
 transforms. The PC was shared (34% CPU load from other work during the runs). Each case loaded fresh, answered the
 first visit, waited for every project, then 3 s of wheel zoom and 3 s of drag pans; the numbers are the page's own
 readout (`?mothFrames=1`): a frame as seen is the longest of its drawing, its lateness and the gap in continuous
-motion. Two runs each.
+motion. Two runs each, three for the 10,000 replay.
 
 | Case | View | Drawn | Frame as seen, p50 / p95 / max (ms) | Drawing p95 (ms) | Load | Heap |
 |---|---|---|---|---|---|---|
