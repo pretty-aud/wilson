@@ -392,6 +392,7 @@ export default function MothPage({ isActive = true }) {
                     <input type="checkbox" checked={picked.has(file.id)} onChange={() => toggle(file.id)} />
                     {' '}{file.name}
                   </label>
+                  {file.share_missing_since && <span className="moth-quiet">Not found on the server at the last check</span>}
                 </li>
               ))}
             </ul>

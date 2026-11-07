@@ -109,6 +109,13 @@ describe('the files', () => {
     expect(await screen.findByText('The bundle could not be read.')).toBeTruthy()
     expect(screen.queryByText('a.mov')).toBeNull()
   })
+  it('🚨 a file the last check did not find says so', async () => {
+    adapter.listMothFiles = vi.fn(async () => [file('a'), file('gone', { share_missing_since: '2026-11-01T00:00:00Z' })])
+    render(<MothPage />)
+    await openProject()
+    expect(screen.getByText('gone.mov').closest('li').textContent).toMatch(/Not found on the server at the last check/)
+    expect(screen.getByText('a.mov').closest('li').textContent).not.toMatch(/Not found/)
+  })
   it('follows pages by the last id, with no total', async () => {
     const page = Array.from({ length: 500 }, (_, i) => file(`f${i}`))
     adapter.listMothFiles = vi.fn(async (_p, after) => (after ? [file('last')] : page))

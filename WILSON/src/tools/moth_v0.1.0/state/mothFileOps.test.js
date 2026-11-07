@@ -88,6 +88,16 @@ describe('on the office server', () => {
     await expect(fileOps.restoreFiles([file('a', { storage_provider: 'network_share' })], 'p1')).rejects.toThrow('cannot be reached')
     expect(adapter.restoreFiles).not.toHaveBeenCalled()
   })
+  it('🚨 a folder change inside a project is refused: WILSON would say it moved, and the server would not', async () => {
+    make({ planFileMove: vi.fn(async () => ({ items: [{ id: 'a', how: 'metadata' }] })) })
+    await expect(fileOps.moveFiles([file('a', { storage_provider: 'network_share' })], 'p1', 'p1', 'f1')).rejects.toThrow('on the server itself')
+    expect(adapter.moveFiles).not.toHaveBeenCalled()
+  })
+  it('CONTROL: a project change with no copy, on the same provider, is not that', async () => {
+    make({ planFileMove: vi.fn(async () => ({ items: [{ id: 'a', how: 'metadata' }] })) })
+    await fileOps.moveFiles([file('a')], 'p1', 'p1', 'f1')
+    expect(adapter.moveFiles).toHaveBeenCalled()
+  })
   it('a rename carries the size it expects, for a repeat to compare', async () => {
     make({ planFileMove: planShare, moveFiles: vi.fn(async () => ({ move_id: 'm1', ops: [{ op_id: 'o1', id: 'a', from: 'Salt/a.mov', to: 'Moon/a.mov' }] })) })
     await fileOps.moveFiles([file('a', { storage_provider: 'network_share', size_bytes: 7 })], 'p1', 'p2')

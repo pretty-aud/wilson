@@ -151,6 +151,7 @@ import { personalSpaceLabel } from '../../cloud/personalSpace'
 import { canSeeProjectMoney, canSeeProjectLegal } from '../../permissions/projectRoleMatrix'
 import GatedAction from '../../permissions/GatedAction'
 import NetworkShareBanner from './NetworkShareBanner'
+import LeaverFilesDialog from './LeaverFilesDialog'
 import RelinkDialog from '../../tools/rabbit_v0.1.0/components/RelinkDialog'
 import FileAuditDrawer from '../../tools/rabbit_v0.1.0/components/FileAuditDrawer'
 import FileEditor from './FileEditor'
@@ -258,6 +259,8 @@ function safeList(fn, id) {
 // loses, and so does one of the same age. Only the cloud stamps `updated_at`:
 // a Local Server row carries none, so there the provider's copy always wins
 // (round 2, R2-TST-13).
+// MO1 (0117, NS-D5): a walk does not delete. A row it did not find stays, and says so.
+const NOT_FOUND_ON_SERVER = 'Not found on the server at the last check'
 // MO1 (0110): the two things Files says about someone else's personal space.
 const PERSONAL_RECORD_FAILED = 'This personal space was not opened: the record of opening it could not be written. Try Reload.'
 const PERSONAL_OPEN_NOTED = 'Opening it is noted in Logs, where other admins see it.'
@@ -551,6 +554,22 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
   useNavigateTarget('files', showPicker ? declineNavigate : showFileTarget, showPicker ? null : (projectId || null))
 
   const project = projects.find(p => p.id === projectId) || personalRow || null
+
+  // MO1 (0121, her answer): what of a former member's space an admin may move. The server's answer decides:
+  // nothing is offered while the person is active, or to anyone else.
+  const [leaverFiles, setLeaverFiles] = useState([])
+  const [movingLeaver, setMovingLeaver] = useState(false)
+  const [leaverAsked, setLeaverAsked] = useState(0)
+  useEffect(() => {
+    const a = getAdapter?.()
+    if (!needsRecord || typeof a?.listLeaverFiles !== 'function') { setLeaverFiles([]); return undefined }
+    let off = false
+    Promise.resolve().then(() => a.listLeaverFiles(projectId))
+      .then((rows) => { if (!off) setLeaverFiles(Array.isArray(rows) ? rows : []) })
+      .catch(() => { if (!off) setLeaverFiles([]) })
+    return () => { off = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needsRecord, projectId, leaverAsked])
 
   // ── Who may change what, for the project on screen ──────────────────────
   // The open project's seat is known (useProjectAccess, canSeeProjectMoney).
@@ -1180,6 +1199,21 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
         {error && <Banner tone="danger">{error}</Banner>}
         {recordError && <Banner tone="danger" data-personal-record-error>{recordError}</Banner>}
         {needsRecord && !recordError && <Banner tone="info" live={false} data-personal-read-only>{writeReason} {PERSONAL_OPEN_NOTED}</Banner>}
+        {needsRecord && !recordError && leaverFiles.length > 0 && (
+          <Banner tone="info" live={false} data-personal-leaver>
+            This person has left the company.{' '}
+            <Button variant="ghost" size="sm" onClick={() => setMovingLeaver(true)}>Move files to a project…</Button>
+          </Banner>
+        )}
+        {movingLeaver && (
+          <LeaverFilesDialog
+            adapter={getAdapter?.()}
+            files={leaverFiles}
+            projects={projects}
+            onClose={() => setMovingLeaver(false)}
+            onMoved={() => { setLeaverAsked(n => n + 1); setReloads(n => n + 1) }}
+          />
+        )}
         {uploadError && <Banner tone="danger" data-upload-error>{uploadError}</Banner>}
         {project && !noRoles && (
           <NetworkShareBanner
@@ -1654,6 +1688,7 @@ function TableView({ rows, mode, sortKey, sortDir, onSort, onPick, onOpen, onEnt
                       : <FileIcon className="fx-name-icon" aria-hidden="true" />}
                     <span className="fx-name-text">{node.name}</span>
                   </button>
+                  {!isFolder && node.row?.share_missing_since && <span data-file-missing> {NOT_FOUND_ON_SERVER}</span>}
                 </Td>
                 <Td>{isFolder ? 'Folder' : m.type}</Td>
                 <Td numeric>{isFolder ? '' : formatBytes(m.sizeBytes)}</Td>

@@ -143,6 +143,19 @@ describe('the office server', () => {
     delete rpcAnswers.network_share_record_added
     delete rpcAnswers.network_share_catalogue_apply
   })
+  it('🚨 a former member\'s files: each of its arguments, and a refusal in words', async () => {
+    await adapter.listLeaverFiles('s')
+    await adapter.planLeaverMove(['f'], 'p')
+    await adapter.moveLeaverFiles(['f'], 'p', [{ file_id: 'f', path: 'x' }])
+    expect(rpcs.slice(-3)).toEqual([
+      { fn: 'moth_leaver_files', args: { p_project: 's' } },
+      { fn: 'moth_move_leaver_files', args: { p_file_ids: ['f'], p_dest_project: 'p', p_dest_folder: null, p_plan_only: true } },
+      { fn: 'moth_move_leaver_files', args: { p_file_ids: ['f'], p_dest_project: 'p', p_dest_folder: null, p_plan_only: false, p_bodies: [{ file_id: 'f', path: 'x' }] } },
+    ])
+    rpcAnswers.moth_move_leaver_files = { data: null, error: { message: 'moth_move:in_their_server_folder' } }
+    await expect(adapter.moveLeaverFiles(['f'], 'p')).rejects.toMatchObject({ code: 'in_their_server_folder' })
+    delete rpcAnswers.moth_move_leaver_files
+  })
   it('the last check, and who is calling', async () => {
     expect(await adapter.getNetworkShareCheck('p')).toEqual({ last_checked_at: 'then' })
     expect(await adapter.getAccessToken()).toBe('tok')

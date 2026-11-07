@@ -581,9 +581,10 @@ export default function FileManager({
           if (!refused.includes(verdict.message)) refused.push(verdict.message)
           continue
         }
-        notices.push(...verdict.notes.filter(n => n.code === 'slow'))
+        notices.push(...verdict.notes.filter(n => n.code === 'slow' || n.code === 'nearly_full'))
         queued.push(file)
-        if (planCursor) {
+        // No figure to carry (anyone but an admin, 0121): the server weighs each file.
+        if (planCursor && planCursor.usedBytes != null) {
           planCursor = {
             ...planCursor,
             usedBytes: planCursor.usedBytes + (Number(file?.size) || 0),

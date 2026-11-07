@@ -159,10 +159,13 @@ export async function fetchStorageUsage() {
     // safe-integer range. Number() is correct at these magnitudes (100 TiB is
     // ~1.1e14, well inside 2^53) but the coercion has to be explicit or the
     // percentage arithmetic below silently concatenates strings.
-    usedBytes: Number(row.used_bytes ?? 0),
-    quotaBytes: Number(row.quota_bytes ?? 0),
+    // MO1 (0121, her answer "Full or nearly full"): the figures are an admin's. For anyone else they are
+    // absent, and absent is not zero: fullness is what they are told.
+    usedBytes: row.used_bytes == null ? null : Number(row.used_bytes),
+    quotaBytes: row.quota_bytes == null ? null : Number(row.quota_bytes),
     status: row.status ?? 'active',
     hasPlan: !!row.has_plan,
+    fullness: row.fullness ?? 'ok',
   }
 }
 

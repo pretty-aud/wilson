@@ -55,6 +55,7 @@ export const ERROR_CODES = Object.freeze({
   // MO1 (0110): written by record_personal_space_opened (DEFINER), never by a
   // client: an admin opening another person's personal space in Files.
   'WIL-4114': 'An admin opened someone else\'s personal space',
+  'WIL-4115': 'An admin moved a former member\'s personal files into a project',
   'WIL-4201': 'Admin action failed',
   'WIL-4202': 'Last-admin protection triggered',
   'WIL-4203': 'Invite delivery failed',

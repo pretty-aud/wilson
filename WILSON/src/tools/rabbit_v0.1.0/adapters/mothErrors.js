@@ -28,6 +28,7 @@ const SENTENCES = {
   changed_since: 'This file has changed since that move, so it cannot be undone.',
   needs_copy: 'Undoing this needs a fresh copy. Move it back with Move to.',
   moves_not_ready: 'Moves on this company\'s storage are not ready yet.',
+  in_their_server_folder: 'This file is in that person\'s folder on the office server, which only they can open from WILSON. Copy it from the server by hand.',
   // The office server's own.
   bad_name: 'WILSON cannot keep a file with this name on the office server. Rename it and try again.',
   bad_entry: 'WILSON could not read this file\'s details on the office server, so it was not added.',

@@ -6098,6 +6098,25 @@ export function supabaseAdapter() {
       }
     },
 
+    // MO1 (0121, her answer "Yes, once they've left"): a former member's personal files, for an admin. The
+    // list is the server's: empty for anyone else and while the person is active. The move is moveFiles'.
+    async listLeaverFiles(projectId) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('moth_leaver_files', { p_project: projectId }), 'moth_leaver_files') || [];
+    },
+    async planLeaverMove(ids, destProject) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('moth_move_leaver_files', {
+        p_file_ids: ids, p_dest_project: destProject, p_dest_folder: null, p_plan_only: true,
+      }), 'moth_move_leaver_files');
+    },
+    async moveLeaverFiles(ids, destProject, bodies = null) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('moth_move_leaver_files', {
+        p_file_ids: ids, p_dest_project: destProject, p_dest_folder: null, p_plan_only: false, p_bodies: bodies,
+      }), 'moth_move_leaver_files');
+    },
+
     // MO1 (0118): the trash. { done, ops }, where ops are the renames an office-server file owes.
     async trashFiles(ids) {
       const client = await requireClient();

@@ -322,7 +322,7 @@ describe('a refusal in words', () => {
   it('🚨 every code the two migrations can raise has a sentence of its own, not the fallback', () => {
     const fs = require('node:fs')
     const dir = new URL('../../../../supabase/migrations/', import.meta.url)
-    const text = ['0117_network_share_catalogue.sql', '0118_moth_moves_and_trash.sql'].map((n) => fs.readFileSync(new URL(n, dir), 'utf8')).join('\n')
+    const text = ['0117_network_share_catalogue.sql', '0118_moth_moves_and_trash.sql', '0121_moth_repairs.sql'].map((n) => fs.readFileSync(new URL(n, dir), 'utf8')).join('\n')
     const codes = new Set([...text.matchAll(/(?:moth_(?:move|trash):|network_share: )([a-z][a-z_0-9 ]*[a-z_0-9])/g)].map((m) => m[1]))
     expect(codes.size).toBeGreaterThan(20)
     for (const code of codes) {

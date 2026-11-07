@@ -77,6 +77,11 @@ export function createMothFileOps({ adapter, catalogue, ops, history, onChanged 
     const ids = files.map((f) => f.id)
     const plan = await adapter.planFileMove(ids, destProject, destFolder)
     const items = plan?.items ?? []
+    // Within a project the server changes only the row's folder, so WILSON would say it moved and the file would
+    // not have. The real folder is on the server, and the next check follows a file moved there.
+    if (items.some((i) => i.how === 'metadata' && files.find((f) => f.id === i.id)?.storage_provider === NETWORK_SHARE)) {
+      throw new Error('A file on the office server moves between folders on the server itself. Move it there, and WILSON\'s next check will follow it.')
+    }
     const needsHands = items.some((i) => i.how === 'share_move' || (i.how === 'copy_up' && i.to_provider === NETWORK_SHARE))
     if (needsHands && !onDesktop()) throw new Error(DESKTOP_ACTION_SENTENCE)
     if (needsHands) await ops.reachable()
