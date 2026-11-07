@@ -638,7 +638,7 @@ Plan §0, the four conditions, as boxes:
 - [ ] `[Cloud]` Select a task and press **Open in R.A.B.B.I.T.**: it asks first. **Stay here** changes nothing. Say yes: R.A.B.B.I.T. opens that project at Tasks with the task open. Do the same for a file: Files, with it selected.
 - [ ] `[Cloud]` Open **M.O.T.H. settings** (the cog beside Help): change the light's colour and *Colour by*; reload, and they are kept. On a computer that asks for less motion, the light holds still.
 - [ ] `[Cloud]` Pin a folder card, then four more: a sixth is refused with *Five cards at most. Unpin one to pin this.* The clock icon bottom left lists the folders opened last, and shows nothing until pressed.
-- [ ] `[Cloud]` Drag **Look back** a week: the picture shows the projects as they were, says from when it is recorded, and changes nothing. **Back to now**.
+- [ ] `[Cloud]` On a company whose record is more than a week old, drag **Look back** a week: the picture shows the projects as they were, says from when it is recorded, and changes nothing. **Back to now**.
 - [ ] `[Cloud]` On a tablet or with a pen, touch the graph: the controls grow. Move a real mouse: they shrink again.
 - [ ] `[Cloud]` Look for invoices, Legal files, a private project you are not on, and someone else's personal space: none is a dot, a line, a search result or a card, for any role.
 - [ ] `[Desktop]` Signed out, on a project kept on this computer: the graph shows it; **Save as…** is greyed and the panel says *This view lasts for this visit only*. Quit and reopen WILSON: the first question is asked again.

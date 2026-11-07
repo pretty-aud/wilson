@@ -30,7 +30,7 @@ own branch until it is merged into the integration branch.
   view, a dot you move, a folder you open or close and the focus are kept a moment later, each in the view you changed
   it in; only what you changed is written, so two people arranging one shared view each keep what they moved. Reset
   goes back to the view as last saved and clears nothing for anyone else. *Lay out again* rearranges the picture for
-  this visit; what you then move is kept. A project's reviewer can arrange its shared view on screen, but nothing of
+  this visit; what you then move is kept. A project's reviewer can look at its shared view, and cannot rearrange it; nothing of
   it is saved.
 - **The list on the right** does everything from the keyboard, with breadcrumbs to step back up.
 - **Folder cards.** Select a folder and a small card lists what is in it, bottom left. Pin up to five; a sixth is
@@ -59,10 +59,11 @@ own branch until it is merged into the integration branch.
 ## Worth knowing
 
 - **Above a thousand dots, nearby dots gather into clusters** that open as you zoom in, so the picture stays smooth.
-- **A view's places belong to the view.** Reset clears them; a new layout keeps only what you pinned by hand.
+- **A view's places belong to the view.** Reset goes back to them as last saved; *Lay out again* keeps only what you
+  pinned by hand.
 - **Where views and settings cannot be kept (a project kept only on this computer, signed out), they last until
   WILSON closes**, and the first question is asked again the next time. There is no table for them
-  until the project moves to the cloud, and the page says so when you save.
+  until the project moves to the cloud: *Save as…* is greyed there, and the panel says the view lasts for this visit.
 - **Looking back reads the record from your test database.** A project's history starts when M.O.T.H. began
   recording it; before that the slider says it was not recorded.
 
@@ -121,6 +122,10 @@ Tick each when you have seen it work; anything that does not is a note for the n
 - [ ] Look back shows the past and changes nothing.
 - [ ] Settings change the light and the dots, and are kept.
 - [ ] Invoices, Legal files, others' private projects and personal spaces never appear.
+- [ ] Pen and touch make the controls larger, and a mouse makes them small again.
+- [ ] A file deleted in M.O.T.H. is in its Trash with its days left, and Undo brings it back.
+- [ ] The clock icon bottom left lists the folders you opened last.
+- [ ] What M.O.T.H. shows of a project agrees with Files: the same folders and files.
 
 ## Questions
 
