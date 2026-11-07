@@ -200,6 +200,16 @@ describe('🚨 Delete asks first', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     expect(adapter.trashFiles).not.toHaveBeenCalled()
   })
+  it('reads right for one file, even one the search has hidden', async () => {
+    render(<MothPage />)
+    await openProject()
+    fireEvent.click(screen.getByRole('checkbox', { name: /a\.mov/ }))
+    fireEvent.change(screen.getByLabelText('Search these files'), { target: { value: 'b.mov' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    const said = (await screen.findByRole('dialog')).textContent
+    expect(said).toMatch(/It is not shown by your search\. It stays in the trash for 30 days\./)
+    expect(said).not.toMatch(/of them|They/)
+  })
   it('a double click on the answer deletes once', async () => {
     render(<MothPage />)
     await openProject()

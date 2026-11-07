@@ -328,7 +328,8 @@ export default function MothPage({ isActive = true }) {
   if (!adapter || !fileOps) return <p className="moth-quiet moth-page">Opening M.O.T.H.…</p>
 
   const onServerNow = pickedFiles.some((f) => f.storage_provider === 'network_share')
-  const whatDeleting = pickedFiles.length === 1 ? `"${pickedFiles[0].name}"` : `${pickedFiles.length} files`
+  const oneFile = pickedFiles.length === 1
+  const whatDeleting = oneFile ? `"${pickedFiles[0].name}"` : `${pickedFiles.length} files`
 
   return (
     <div className="moth-page" data-moth-page>
@@ -417,12 +418,14 @@ export default function MothPage({ isActive = true }) {
           )}
         >
           <p data-moth-delete-question>
-            {pickedHidden > 0 ? `${pickedHidden} of them ${pickedHidden === 1 ? 'is' : 'are'} not shown by your search. ` : ''}
+            {pickedHidden > 0 ? (oneFile ? 'It is not shown by your search. ' : `${pickedHidden} of them ${pickedHidden === 1 ? 'is' : 'are'} not shown by your search. `) : ''}
             {onServerNow
-              ? 'On the office server, they move to the company server\'s bin, so they leave their folders. They stay there for 30 days.'
+              ? (oneFile
+                ? 'It moves to the company server\'s bin on the office server, so it leaves its folder. It stays there for 30 days.'
+                : 'They move to the company server\'s bin on the office server, so they leave their folders. They stay there for 30 days.')
               : localOnly
-                ? 'They stay in this project\'s trash on this computer for 30 days.'
-                : 'They stay in the trash for 30 days.'}
+                ? `${oneFile ? 'It stays' : 'They stay'} in this project's trash on this computer for 30 days.`
+                : `${oneFile ? 'It stays' : 'They stay'} in the trash for 30 days.`}
           </p>
         </Dialog>
       )}
