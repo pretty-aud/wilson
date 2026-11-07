@@ -78,8 +78,7 @@ own branch until it is merged into the integration branch.
 - **Tests:** every new part has its own tests. The whole suite is run again on the final code before the merge; its
   count is in the session's close-out.
 - **The database changes** were rehearsed on your test database and undone, run under every database test (120
-  suites), and checked with 206 planted mistakes on a throwaway test server: 168 were caught, and each of the 38 that
-  were not is covered by another rule, named in the design document, or too large to plant on a small database. Then
+  suites), and checked with 208 planted mistakes on a throwaway test server: 172 were caught, and each of the 36 that were not is covered by another rule, named in the design document, or too large to plant on a small database. Then
   they were put on your test database on 2026-11-07 at 22:17 UTC, and their tests passed again there (1,674 of 1,674).
 - **Speed, on your PC** (Intel Core i9-13900K, RTX 4080, 64 GB; Chrome, headless):
 
