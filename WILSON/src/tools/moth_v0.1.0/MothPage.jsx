@@ -48,7 +48,7 @@ import './moth.css'
 
 // An asset's own file on this computer: its asset deletes it, and Moth's batches do not take it.
 export const MANAGED_ROW_SENTENCE = 'This file belongs to an asset. Change it from the asset.'
-const LINKS_LATER = 'Links between things are saved from the next update of M.O.T.H. For now this only moves the picture.'
+const LINKS_LATER = 'Links between things come with the next update of M.O.T.H. Nothing was linked, and the dot is back where it was.'
 const SAVE_PLACES_MS = 1500
 
 // A key pressed in a box that has its own undo. A ticked row's checkbox has none.
