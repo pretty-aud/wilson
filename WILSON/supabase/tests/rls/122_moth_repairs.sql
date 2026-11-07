@@ -14,7 +14,7 @@
 
 BEGIN;
 
-SELECT plan(107);
+SELECT plan(110);
 
 SELECT * FROM tests.rls_setup();
 
@@ -543,6 +543,33 @@ SELECT is((SELECT count(*)::int FROM public.files WHERE project_id = 'aaaa1220-0
   '🚨 a listing older than a move does not add the moved file back at its old place');
 SELECT is((SELECT count(*)::int FROM public.files WHERE project_id = 'aaaa1220-0000-0000-0000-000000000011' AND lower(storage_path) = 'nas:salt-hours/new.mov' AND deleted_at IS NULL), 1,
   'CONTROL: a new file beside it is added');
+UPDATE public.network_share_ops SET settled_at = now() - interval '11 minutes' WHERE id = (public.t122_v('gone') -> 'ops' -> 0 ->> 'op_id')::uuid;
+SET LOCAL ROLE authenticated;
+SELECT public.t122_c();
+INSERT INTO t122_ret SELECT 'later_listing', public.network_share_catalogue_apply('aaaa1220-0000-0000-0000-000000000011', public.t122_root(), 'Salt-Hours',
+  jsonb_build_array(jsonb_build_object('d', 'Salt-Hours', 'complete', true, 'subdirs', '[]'::jsonb, 'files', jsonb_build_array(
+    jsonb_build_object('n', 'left.mov', 's', '1'),
+    jsonb_build_object('n', 'new.mov', 's', '1')))),
+  '[]'::jsonb, true, NULL, true);
+RESET ROLE;
+SELECT is((SELECT count(*)::int FROM public.files WHERE project_id = 'aaaa1220-0000-0000-0000-000000000011' AND lower(storage_path) = 'nas:salt-hours/left.mov' AND deleted_at IS NULL), 1,
+  'past ten minutes the name is free for a new file');
+
+-- An operation left over a day, as the walk hands it back to finish: with the size a repeat compares.
+SELECT public.t122_share('12200000-0000-0000-0000-000000000093', 'aaaa1220-0000-0000-0000-000000000012', 'Moon-Film/old.mov');
+SET LOCAL ROLE authenticated;
+SELECT public.t122_c();
+INSERT INTO t122_ret SELECT 'old_op', public.moth_trash_files(ARRAY['12200000-0000-0000-0000-000000000093'::uuid]);
+RESET ROLE;
+UPDATE public.network_share_ops SET created_at = now() - interval '25 hours' WHERE id = (public.t122_v('old_op') -> 'ops' -> 0 ->> 'op_id')::uuid;
+SET LOCAL ROLE authenticated;
+SELECT public.t122_c();
+INSERT INTO t122_ret SELECT 'stale_walk', public.network_share_catalogue_apply('aaaa1220-0000-0000-0000-000000000012', public.t122_root(), 'Moon-Film',
+  jsonb_build_array(jsonb_build_object('d', 'Moon-Film', 'complete', true, 'subdirs', '[]'::jsonb, 'files', '[]'::jsonb)),
+  '[]'::jsonb, true, NULL, true);
+RESET ROLE;
+SELECT is((SELECT count(*)::int FROM jsonb_array_elements(public.t122_v('stale_walk') -> 'stale') e WHERE e ->> 'op_id' = public.t122_v('old_op') -> 'ops' -> 0 ->> 'op_id'), 1, 'CONTROL: the walk hands that operation back');
+SELECT is((SELECT e ->> 'size' FROM jsonb_array_elements(public.t122_v('stale_walk') -> 'stale') e WHERE e ->> 'op_id' = public.t122_v('old_op') -> 'ops' -> 0 ->> 'op_id'), '1', '🚨 and says its size');
 
 SELECT * FROM finish();
 ROLLBACK;
