@@ -257,7 +257,12 @@ SELECT is((SELECT string_agg(attname || ':' || format_type(atttypid, atttypmod),
               AND attnum > 0 AND NOT attisdropped),
   'share_bin_path:text,share_missing_since:timestamp with time zone',
   'the two office-server columns are there');
-SELECT is(rabbit_private.s3_body_moves_on(), false, 's3_body_moves_on answers false until 0120');
+SELECT is(rabbit_private.s3_body_moves_on(), true, 's3_body_moves_on answers true since 0120');
+-- 0120 turned the switch on. What this suite says of a file in a company's own bucket is the switch off,
+-- which still stands if it is turned off again; suite 123 has it on.
+CREATE OR REPLACE FUNCTION rabbit_private.s3_body_moves_on()
+RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path = public AS $$ SELECT false; $$;
+DISCARD PLANS;
 
 -- The indexes bind the runner too, who passes every guard.
 INSERT INTO public.files (id, project_id, name, storage_provider, storage_path) VALUES
@@ -1705,7 +1710,10 @@ UPDATE public.workspace_storage
        provider_config = '{"bucket":"b","region":"r","accessKeyId":"k"}'::jsonb
  WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
 
--- The s3 arms stand behind the switch, so the switch goes on as 0120 will, and back.
+-- The s3 arms stand behind the switch, so the switch goes on as 0120 has it, and back. A copy in the
+-- bucket is taken only on a look by Petal's server, which suite 123 tests; here it has been made.
+INSERT INTO rabbit_private.s3_body_looks (workspace_id, object_path, seen_by)
+VALUES ('11111111-1111-1111-1111-111111111111', 'projects/11500000-aaaa-0000-0000-000000000002/files/a317/copy.bin', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
 CREATE OR REPLACE FUNCTION rabbit_private.s3_body_moves_on()
 RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path = public AS $$ SELECT true; $$;
 DISCARD PLANS;

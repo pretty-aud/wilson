@@ -103,7 +103,7 @@ import {
 } from '../storage/videoThumbnails';
 import { getWorkspaceStorageCached } from '../../../cloud/workspaceStorage';
 import { personalSpacesAvailable, isPersonalSpace, resetPersonalSpaceProbe } from '../../../cloud/personalSpace';
-import { presignStorage, presignReadUrls } from '../../../cloud/storageApi';
+import { presignStorage, presignReadUrls, lookAtStorageObject } from '../../../cloud/storageApi';
 import { serializeProjectRates, projectRatesPath } from '../projectRates';
 import {
   LEGAL_SEGMENT, LEGAL_UNAVAILABLE, LEGAL_GATE_REFUSAL,
@@ -228,7 +228,7 @@ registerStorageProvider(
 // preview, the player) through storage-read-urls, the batch GET signer.
 registerStorageProvider(
   FILE_PROVIDERS.S3,
-  createS3StorageProvider(presignStorage, presignReadUrls),
+  createS3StorageProvider(presignStorage, presignReadUrls, { lookAtObject: lookAtStorageObject }),
 );
 // Demo 2026-09-11: the desktop's own disk, for PRIVATE projects (see
 // uploadFile). Registered on EVERY surface so a row that names it resolves
@@ -6092,6 +6092,16 @@ export function supabaseAdapter() {
         const body = await getStorageProvider(from).get(file.storage_path);
         await getStorageProvider(to).put(item.to_path, body, { contentType: file.mime_type || undefined });
       }
+      // MO1 (0120): in a company's own bucket the commit takes the copy only on the server's look. If that
+      // refuses, the copy this just made has no move to go with, and the caller's clean-up does not know of it.
+      if (to === FILE_PROVIDERS.S3) {
+        try {
+          await getStorageProvider(to).look(item.to_path);
+        } catch (err) {
+          await getStorageProvider(to).del(item.to_path).catch(() => {});
+          throw err;
+        }
+      }
       // Its picture too, at the key the plan minted beside the body. A picture is not worth refusing a
       // move over: if it will not copy, the row goes without one, and the file is what was asked for.
       let thumbnail = null;
@@ -6101,7 +6111,8 @@ export function supabaseAdapter() {
           thumbnail = item.to_thumb;
         } catch { /* said above */ }
       }
-      return { file_id: file.id, path: item.to_path, thumbnail };
+      // to_provider: the plan's word for where the copy went, which the commit compares (0120).
+      return { file_id: file.id, to_provider: to, path: item.to_path, thumbnail };
     },
     // Undoes a copy whose move the server then refused: the file is still where it was.
     async removeMoveCopy(item) {

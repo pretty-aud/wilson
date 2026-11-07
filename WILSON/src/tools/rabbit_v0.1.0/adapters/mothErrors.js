@@ -21,6 +21,7 @@ const SENTENCES = {
   name_taken: 'A file with this name is already there.',
   occupied: 'A file with this name is already there. Rename it, then try again.',
   copy_refused: 'This file cannot be copied to its new place, so nothing moved.',
+  copy_not_seen: 'The new copy could not be found in your company\'s bucket, so nothing moved.',
   copy_not_needed: 'This move needs no copy. Try it again.',
   plan_changed: 'Something changed while this was being moved. Try it again.',
   pending: 'This file is still being moved. Try again in a moment.',

@@ -16,7 +16,7 @@ function adapterWith(extra = {}) {
   return {
     calls,
     planLeaverMove: note('plan', { items: [{ id: 'a', how: 'rehome', to_provider: 'supabase', to_path: 'new/a.mov' }] }),
-    copyBodyForMove: note('copy', (f, i) => ({ file_id: f.id, path: i.to_path, thumbnail: null })),
+    copyBodyForMove: note('copy', (f, i) => ({ file_id: f.id, to_provider: i.to_provider, path: i.to_path, thumbnail: null })),
     moveLeaverFiles: note('commit', { move_id: 'm', moved: 1 }),
     removeMoveCopy: note('uncopy'),
     ...extra,
@@ -50,7 +50,7 @@ describe('moving a former member\'s files', () => {
     await waitFor(() => expect(onMoved).toHaveBeenCalledTimes(1))
     expect(adapter.calls).toEqual(['plan', 'copy', 'commit'])
     expect(adapter.planLeaverMove).toHaveBeenCalledWith(['a'], 'p2')
-    expect(adapter.moveLeaverFiles).toHaveBeenCalledWith(['a'], 'p2', [{ file_id: 'a', path: 'new/a.mov', thumbnail: null }])
+    expect(adapter.moveLeaverFiles).toHaveBeenCalledWith(['a'], 'p2', [{ file_id: 'a', to_provider: 'supabase', path: 'new/a.mov', thumbnail: null }])
   })
   it('🚨 a refused commit takes the copy back out, says why, and the dialog stays', async () => {
     const adapter = adapterWith({ moveLeaverFiles: vi.fn(async () => { throw Object.assign(new Error('That file or folder is not there.'), { code: 'not_found' }) }) })

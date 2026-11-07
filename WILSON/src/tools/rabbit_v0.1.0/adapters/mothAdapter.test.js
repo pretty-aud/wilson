@@ -85,7 +85,7 @@ describe('moves', () => {
       { id: 'a', how: 'rehome', to_provider: 'supabase', to_path: 'new/a.mov' },
     )
     expect(copied).toEqual([{ bucket: 'rabbit-files', from: 'old/a.mov', to: 'new/a.mov' }])
-    expect(out).toEqual({ file_id: 'a', path: 'new/a.mov', thumbnail: null })
+    expect(out).toEqual({ file_id: 'a', to_provider: 'supabase', path: 'new/a.mov', thumbnail: null })
   })
   const WITH_PICTURE = [
     { id: 'a', storage_path: 'old/a.mov', storage_provider: 'supabase', thumbnail_url: 'old/a.jpg' },
@@ -96,10 +96,53 @@ describe('moves', () => {
     expect(copied[1]).toEqual({ bucket: 'rabbit-thumbnails', from: 'old/a.jpg', to: 'new/a.mov.jpg' })
     expect(out.thumbnail).toBe('new/a.mov.jpg')
   })
+  describe('🚨 into a company\'s own bucket (0120)', () => {
+    const FILE = { id: 'a', storage_path: 'old/a.mov', storage_provider: 'supabase', mime_type: 'video/quicktime' }
+    const ITEM = { id: 'a', how: 'rehome', to_provider: 's3', to_path: 'new/a.mov' }
+    let s3
+    let order
+    beforeEach(async () => {
+      const { getStorageProvider } = await import('../storage/index.js')
+      s3 = getStorageProvider('s3')
+      order = []
+      const supabase = getStorageProvider('supabase')
+      vi.spyOn(supabase, 'get').mockImplementation(async () => { order.push('get'); return new Blob(['x']) })
+      vi.spyOn(s3, 'put').mockImplementation(async () => { order.push('put'); return {} })
+      vi.spyOn(s3, 'look').mockImplementation(async () => { order.push('look') })
+      vi.spyOn(s3, 'del').mockImplementation(async () => { order.push('del') })
+    })
+    afterEach(() => vi.restoreAllMocks())
+    it('the server looks after the copy lands, and the body says where it went', async () => {
+      const out = await adapter.copyBodyForMove(FILE, ITEM)
+      expect(order).toEqual(['get', 'put', 'look'])
+      expect(s3.look).toHaveBeenCalledWith('new/a.mov')
+      expect(out).toEqual({ file_id: 'a', to_provider: 's3', path: 'new/a.mov', thumbnail: null })
+    })
+    it('a look that refuses takes back the copy it just made, and says why', async () => {
+      s3.look.mockImplementation(async () => { order.push('look'); throw new Error('not there') })
+      await expect(adapter.copyBodyForMove(FILE, ITEM)).rejects.toThrow('not there')
+      expect(order).toEqual(['get', 'put', 'look', 'del'])
+      expect(s3.del).toHaveBeenCalledWith('new/a.mov')
+    })
+    it('and a clean-up that fails does not hide the reason', async () => {
+      s3.look.mockImplementation(async () => { throw new Error('not there') })
+      s3.del.mockImplementation(async () => { throw new Error('gone already') })
+      await expect(adapter.copyBodyForMove(FILE, ITEM)).rejects.toThrow('not there')
+    })
+    it('a copy that did not land is not looked at', async () => {
+      s3.put.mockImplementation(async () => { throw new Error('no room') })
+      await expect(adapter.copyBodyForMove(FILE, ITEM)).rejects.toThrow('no room')
+      expect(s3.look).not.toHaveBeenCalled()
+    })
+    it('a copy within Petal\'s storage needs no look: the database sees it', async () => {
+      await adapter.copyBodyForMove(FILE, { ...ITEM, to_provider: 'supabase' })
+      expect(s3.look).not.toHaveBeenCalled()
+    })
+  })
   it('a picture that will not copy does not stop the move', async () => {
     pictureRefused = 'rabbit-thumbnails'
     const out = await adapter.copyBodyForMove(...WITH_PICTURE)
-    expect(out).toEqual({ file_id: 'a', path: 'new/a.mov', thumbnail: null })
+    expect(out).toEqual({ file_id: 'a', to_provider: 'supabase', path: 'new/a.mov', thumbnail: null })
   })
 })
 
