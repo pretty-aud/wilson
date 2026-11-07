@@ -84,6 +84,18 @@ async function jfetch(url, init) {
 // the bundle and mutating it would reorder the file on the next write.
 // MO1 (0111): a project the desktop no longer holds is an empty answer for Moth,
 // as a hidden or missing project is on the cloud.
+// MO2: a project kept only on this computer keeps no saved views, places or Moth settings: they wait until the
+// project moves to the cloud (her answer of 2026-11-02, "Wait for the cloud"). Said with the cloud adapter's code,
+// so the page reads it as "not here", not as a failure.
+const MOTH_LOCAL_VIEWS = 'Saved views and layouts come when this project moves to the cloud.';
+function mothLocalAbsent() {
+  const err = new Error(MOTH_LOCAL_VIEWS);
+  err.code = 'moth_absent';
+  return err;
+}
+const MOTH_LOCAL_ITEMS = [['phase', 'phases'], ['asset', 'assets'], ['task', 'tasks'], ['scene', 'scenes'],
+  ['shot', 'shots'], ['level', 'levels'], ['experience', 'experiences']];
+
 async function mothBundle(projectId) {
   try {
     return await jfetch(`${BASE}/projects/${projectId}`);
@@ -291,6 +303,83 @@ export function localServerAdapter() {
         .filter(f => !f.deleted_at && !moneyKey(f) && (after == null || String(f.id) > String(after)))
         .sort((a, b) => (String(a.id) < String(b.id) ? -1 : 1))
         .slice(0, Math.min(Math.max(Number(limit) || 500, 1), 1000));
+    },
+    // MO2 (the cloud's 0122): the project's items and the links its bundle stores. Every row is this person's
+    // (one person, one computer); a line to a file the page hides is dropped by the graph, which draws only
+    // what it was given.
+    async listMothItems(projectId) {
+      const bundle = await mothBundle(projectId);
+      if (!bundle) return { items: [], truncated: false };
+      const live = (kind, id) => (bundle[MOTH_LOCAL_ITEMS.find(([k]) => k === kind)?.[1]] || []).some(r => r.id === id && !r.deleted_at && !r.set_aside_at);
+      return { truncated: false, items: MOTH_LOCAL_ITEMS.flatMap(([kind, key]) => (bundle[key] || []).filter(r => !r.deleted_at && !r.set_aside_at).map(r => ({
+        kind,
+        id: r.id,
+        name: String((kind === 'task' ? r.title : r.name) ?? '').slice(0, 300),
+        parent_kind: kind === 'phase' && r.parent_phase_id && live('phase', r.parent_phase_id) ? 'phase'
+          : kind === 'shot' && r.scene_id && live('scene', r.scene_id) ? 'scene' : null,
+        parent_id: kind === 'phase' && r.parent_phase_id && live('phase', r.parent_phase_id) ? r.parent_phase_id
+          : kind === 'shot' && r.scene_id && live('scene', r.scene_id) ? r.scene_id : null,
+        updated_at: r.updated_at ?? null,
+      }))) };
+    },
+    async listMothLinks(projectId) {
+      const bundle = await mothBundle(projectId);
+      if (!bundle) return { links: [], truncated: false };
+      const live = (kind, id) => !!id && (bundle[MOTH_LOCAL_ITEMS.find(([k]) => k === kind)?.[1]] || []).some(r => r.id === id && !r.deleted_at && !r.set_aside_at);
+      const out = new Map();
+      const add = (sk, sid, tk, tid, link) => {
+        if (!live(tk, tid)) return;
+        const key = `${sk}|${sid}|${tk}|${tid}`;
+        if (!out.has(key)) out.set(key, { source_kind: sk, source_id: sid, target_kind: tk, target_id: tid, link });
+      };
+      for (const ti of bundle.taskItems || []) if (live('task', ti.task_id)) add('task', ti.task_id, ti.entity_type, ti.entity_id, 'task_item');
+      for (const tk of (bundle.tasks || []).filter(r => !r.deleted_at)) {
+        add('task', tk.id, 'asset', tk.asset_id, 'task_asset');
+        add('task', tk.id, 'scene', tk.scene_id, 'task_scene');
+        add('task', tk.id, 'shot', tk.shot_id, 'task_shot');
+        add('task', tk.id, 'phase', tk.phase_id, 'task_phase');
+      }
+      for (const a of (bundle.assets || []).filter(r => !r.deleted_at)) {
+        add('asset', a.id, 'phase', a.phase_id, 'asset_phase');
+        for (const id of a.scene_ids || []) add('asset', a.id, 'scene', id, 'asset_scene');
+        for (const id of a.shot_ids || []) add('asset', a.id, 'shot', id, 'asset_shot');
+        for (const id of a.level_ids || []) add('asset', a.id, 'level', id, 'asset_level');
+        for (const id of a.experience_ids || []) add('asset', a.id, 'experience', id, 'asset_experience');
+      }
+      return { links: [...out.values()], truncated: false };
+    },
+    // A file's items from its own row; no editor (one person, one computer: nobody else to tell apart).
+    async listMothFileFacts(projectId, after = null, limit = 1000) {
+      const bundle = await mothBundle(projectId);
+      if (!bundle) return [];
+      const live = (kind, id) => (!!id && (bundle[MOTH_LOCAL_ITEMS.find(([k]) => k === kind)?.[1]] || []).some(r => r.id === id && !r.deleted_at && !r.set_aside_at) ? id : null);
+      return (bundle.files || [])
+        .filter(f => !f.deleted_at && (after == null || String(f.id) > String(after)))
+        .sort((a, b) => (String(a.id) < String(b.id) ? -1 : 1))
+        .slice(0, Math.min(Math.max(Number(limit) || 1000, 1), 1000))
+        .map(f => ({
+          file_id: f.id, editor_id: null,
+          phase_id: live('phase', f.phase_id), asset_id: live('asset', f.asset_id), task_id: live('task', f.task_id),
+          scene_id: live('scene', f.scene_id), shot_id: live('shot', f.shot_id), level_id: live('level', f.level_id),
+          experience_id: live('experience', f.experience_id),
+        }));
+    },
+    async listMothViews() { throw mothLocalAbsent(); },
+    async createMothView() { throw mothLocalAbsent(); },
+    async updateMothView() { throw mothLocalAbsent(); },
+    async deleteMothView() { throw mothLocalAbsent(); },
+    async listMothPositions() { throw mothLocalAbsent(); },
+    async putMothPositions() { throw mothLocalAbsent(); },
+    async clearMothPositions() { throw mothLocalAbsent(); },
+    async getMothPrefs() { return null; },
+    async setMothPrefs() { throw mothLocalAbsent(); },
+    // Not recorded for projects kept only on this computer (MOTH_DESIGN H2): no rows, and every kind recorded
+    // only from now, so the scrub labels everything before as not recorded.
+    async fetchMothHistory() { return []; },
+    async fetchMothHistoryWindow() {
+      const now = new Date().toISOString();
+      return ['projects', 'folders', 'files', 'phases', 'assets', 'tasks', 'scenes', 'shots', 'levels', 'experiences', 'task_items']
+        .map(entity_type => ({ entity_type, project_id: null, recording_since: now }));
     },
 
     async loadProject(id) {

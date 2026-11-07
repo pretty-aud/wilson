@@ -86,8 +86,10 @@ describe('rls.yml\'s failure-replay list', () => {
     // table; and 0117's: suites 116 and 117, network_share_checks and
     // network_share_ops, both in RLS_TABLES too, and suite 118, no table.
     // 0118's: suites 119 and 120, no table. 0121's: suite 122, no table. 0120's:
-    // suite 123, whose one table is private, outside what RLS_TABLES lists.
-    expect(listed.slice(-8)).toEqual(['116_network_share_checks.sql', '117_network_share_ops.sql', '118_network_share_catalogue.sql', '119_moth_moves.sql', '120_moth_trash.sql', '121_moth_history.sql', '122_moth_repairs.sql', '123_s3_body_moves_on.sql'])
+    // suite 123, whose one table is private, outside what RLS_TABLES lists. MO2's
+    // 0122: suite 124, no table; 0123: suites 125 and 126, moth_views and
+    // moth_layout_positions, both in RLS_TABLES too (suite 57 carries moth_prefs).
+    expect(listed.slice(-8)).toEqual(['119_moth_moves.sql', '120_moth_trash.sql', '121_moth_history.sql', '122_moth_repairs.sql', '123_s3_body_moves_on.sql', '124_moth_graph_reads.sql', '125_moth_views.sql', '126_moth_layout_positions.sql'])
   })
 })
 
@@ -135,7 +137,7 @@ describe('scripts/tap-all.mjs picks suites by number', () => {
     const files = readdirSync(SUITE_DIR)
     const picked = pickSuites(files)
     expect(picked).toHaveLength(files.filter((f) => f.endsWith('.sql')).length)
-    expect(picked.slice(-9)).toEqual(['115_stable_file_bodies.sql', '116_network_share_checks.sql', '117_network_share_ops.sql', '118_network_share_catalogue.sql', '119_moth_moves.sql', '120_moth_trash.sql', '121_moth_history.sql', '122_moth_repairs.sql', '123_s3_body_moves_on.sql'])
+    expect(picked.slice(-9)).toEqual(['118_network_share_catalogue.sql', '119_moth_moves.sql', '120_moth_trash.sql', '121_moth_history.sql', '122_moth_repairs.sql', '123_s3_body_moves_on.sql', '124_moth_graph_reads.sql', '125_moth_views.sql', '126_moth_layout_positions.sql'])
     expect(picked.indexOf('10_task_dependencies.sql')).toBeLessThan(picked.indexOf('11_task_links.sql'))
   })
 })

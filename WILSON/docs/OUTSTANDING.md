@@ -1332,6 +1332,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| MO2 (M.O.T.H. Session 2, 2026-11-07; `po/moth2-graph`) — the graph engine merged with its callers, migrations 0122 and 0123 on wilson-dev, the graph, glow, HUD and navigation; two whole-session review rounds. | MO2-01 to MO2-23 (above, after MO2a's list). | MO2a's R1-17, R1-18, R1-4, 5, 22, 52, R1-11, 23, R1-8, 24, R1-25, R1-13, R1-6, R1-3, R1-7, R1-32, R1-33, R1-34. |
 | MO1 (M.O.T.H. Session 1, 2026-11-02 to 2026-11-07; `po/moth1-foundations-9l5hbg`) — migrations 0107 to 0119 and 0121, the Edge Functions, the desktop's trash, moves and office-server routes, and the lazy Moth page; two whole-session review rounds. | MO1-01 to MO1-15 (below, at the end of this file). | The workspace channel's private rows and the write hops on `tasks` and `assets` (A-R1-04, A-R2-03), `files_delete`'s hop (C-R2-01), S4d-01, S4d-02: 0107 to 0109. OSP-01, OSP-07, S4c-12 for claimed keys: 0114, 0115 and the Edge Functions. S4b-06's first half and the receipts' residual 1: 0121, 0115. |
 | Post-overhaul DG8 (2026-11-06; `po/dg8-limit-bar-words` into `feat/post-overhaul-edit-versioning`) — her words, verbatim *"sorry dont say that its an estimate"*: the limit bar's sentence, card 1's header and the hover no longer say it, by the brief's table; *About* and *about* stay; the meter's arithmetic unchanged; one new group of tests over every word and attribute of the bar and the header in each state; walkthrough 94 corrected in place. | DG7-01 restated: the number can still read low, and the bar does not say it is an estimate; recorded, not fixed. DG8-01. | nothing: DG7-01 stays open. Comment markers: 4 → 4. |
 | Post-overhaul DG7 (2026-11-05; `po/dg7-refs-uploads-side-by-side` into `feat/post-overhaul-edit-versioning`) — her ask, verbatim *"lets have references and the uploads be side by side in the card. this makes the card shorter and fills in the negative space a bit. when doing this, the uploads and references selected/uploaded files should show up on the list together showing what its reading."*, and on the limit bar *"Fix it in the D.O.G. session (Recommended)"*: card 1's References and Uploads two columns (416px to the 576px measure, 24 apart, no query), the first controls on one line, one list of every tile with the contract line and the meter under *The deck reads* (the brief's words, her Q1); `focusAfterRemove` by a tile's kind; card 1 40 to 227px shorter at 1280 to 2560 in every state measured but folded (34, unchanged), 20 to 36 taller only where the columns stack with little listed (DG7-07); the meter: the model's input limit in the registry from the provider's documentation (Sonnet 5, 1,000,000, less the 16,384 reserved), a PDF page at 3,000, *(an estimate)* in its words and the number past the limit, the page cap 600 or 100 by the model and on an upload's tile, the count by mode; a 110-page text PDF 248 percent → 34; Help's step 1 in the card's order; two review rounds on Opus; 76 plants each red; no migration, no SQL, no Edge Function | DG7-01 to DG7-08 | DG6-03, MTR-01, MTR-02, MTR-03. Comment markers: 4 → 4. |
@@ -4292,3 +4293,116 @@ order: 0107 after any replay of 0013, 0020, 0040, 0041, 0044, 0061 or 0082; 0108
 0037, 0061 or 0092; 0109 after 0016, 0018, 0098 or 0101. 0092 refuses after 0108, and 0098
 refuses after 0109. The definer re-measure: every SECURITY DEFINER body calling a write
 gate also calls `passes_project_privacy` or reads under a hop.
+
+## MO2a (2026-11-04, the graph engine on `po/moth2a-engine`, merged by MO2 on 2026-11-07) — left open
+
+Copied from the engine's hand-off (`docs/sessions/handoffs/po-moth2a-2026-11-02.md`, its OTHER list), as it asked.
+Each was upheld by a checker told to refute it: MEASURED where the line gives a run or a count, INFERRED
+where it reads the code. Line numbers are of `src/tools/moth_v0.1.0/engine/` at `b72c77ce`. MO2 closes
+what part A needs as it wires the page, and removes each closed entry here. **MO2 closed and removed R1-17, R1-18, R1-4, 5, 22, 52, R1-11, 23, R1-8, 24, R1-25, R1-13, R1-6, R1-3, R1-7, R1-32, R1-33, R1-34** (the session log's MO2 row).
+
+Each stood against a checker told to refute it. R1 is round 1, R2 round 2 on the label fix, RL round 2 on the line fix.
+
+**A. A person will see or save it once the page is wired: decide these first.**
+
+- **R1-2** `frame.js:156` Clustering triggered by lines does not reduce them: the growth tests dots only, so in light mode the 601st line removes every label and about 676 lines still draw.
+- **R1-9** `governor.js:75` The back-off also gates the drop to light: a machine failing in full but fine in light sits failing for stretches of 5.9, 11.9, 21.7 … up to 301 s (fake clock). The manual override is the way out.
+- **R1-10** `renderer.js:366` The model's summed line weight never reaches the frame; cluster lines count edges and nothing draws either.
+- **RL-4** `renderer.js:197` Same-style lines now blend line by line, so fans brighten where many meet, most at a tag dot (a bright star at 138 lines on one fixture tag, in screenshots). Scale 1 already drew so; scale 1.5 used to show a flat haze. Judge it when the page is live.
+
+**B. Robustness of the worker and the frame.**
+
+- **R1-19** `layoutClient.js:63` Watchdog gaps: a refused pin or a `settled` crossing a pin disarms it during a run, and pins keep re-arming it.
+- **R1-20** `layoutWorkerCore.js:134` A coordinate at or above about 9e307 in a saved place or a pin: one tick allocates without limit (over a gigabyte in 5 s) until the watchdog ends it, at every opening of that view. The engine cannot write such a value; validate saved places on read.
+- **R1-21** `layoutWorkerCore.js:39` Bad radii or options, or coordinates past float32, come back as NaN or Infinity under a normal `settled`; marked placed, and the next save silently drops them.
+- **R1-26** `layoutClient.js:94` `run` throws instead of reporting; a failed post leaves it busy, and a spurious timeout later kills a healthy worker.
+- **R1-27** `layoutWorkerCore.js:137` After a capped run, unpinning a dot never pinned sets the whole graph moving, saved dots included.
+- **R1-28** `layoutClient.js:74` An error event from a replaced worker kills the current one (a narrow window).
+- **R1-12** `frame.js:196` FAR culling ignores the radius: a big cluster at the edge pops in up to 12 px late.
+- **R1-15** `navigation.js:46` A two-finger pan at a zoom limit sits one small step inside it (8 to 7.8); no cumulative drift.
+
+**C. Hygiene.**
+
+- **R1-30, 43** `model.js:151` "Never storage_path" has no failing control (the code is right; a one-line check on the fixture closes it).
+- **R1-31** `model.js:271` The header says only drawn columns are copied; `mime`, `sizeBytes`, `fileKind`, `updatedAt`, `tags` and `edge.label` have no reader yet.
+
+**D. Test gaps: the code is right today; a slip would ship green.**
+
+- **R1-35** `renderer.js:170` The governor's mode reaching the draw list (cut it, and the frame draws full while reporting light).
+- **R1-38** `layoutWorkerCore.js:144` `stop` at either end of the protocol.
+- **R1-41** `model.js:290` A view's `edgeKinds`, and hiding kinds other than files.
+- **R1-42** `model.js:67` Tag case folding, duplicate rows, the deep-folder limit.
+- **R1-44** `frame.js:225` FAR details: off-screen cluster lines, negative coordinates, pair merging, lone dots, repeated growth, the radius cap.
+- **R1-45** `glow.js:65,82` The size in fortieths, the flicker's fade, no white core on a first flicker.
+- **R1-46** `renderer.js:492` Calm mode switched on during a tween, and off again.
+- **R1-47** `renderer.js:149` Which frames feed the governor (settling out; zoom, pinch and fly in).
+- **R1-48** `governor.js:71` Hysteresis edges: a bad window resetting the good run, the dwell cap, measuring while overridden.
+- **R1-49** `layoutWorkerCore.js:59` Later runs' bounds, a refused init during a run, a throwing init, hold release, the post throttle, the saved-view entry.
+- **R1-50** `layoutClient.js:63` The watchdog's re-arm on a tick (dropping it would kill every layout over 5 s), the arm on a restart, worker reuse.
+- **R1-51** `renderer.js:485` A repeated hover or selection asking a frame.
+- **R2-1** `renderer.test.js` The label test has no sample far right of the centre, so dropping the max clamp passes and every label right of the light gets the full shadow.
+- **R2-2** `renderer.test.js` Its label is exactly 32 characters, so judging the raw length instead of the drawn text passes.
+- **RL-1** `renderer.test.js` "In the style of its kind" checks only that a colour is in the palette, not that it is the line's kind's.
+- **RL-2** `renderer.test.js:48` The line loops' mist branch: no renderer test has a dim dot, and the fake context records no `globalAlpha`.
+- **RL-3** `renderer.test.js` The test named "at MID and NEAR" runs at NEAR only (the loop has no branch on level).
+
+## MO2 (2026-11-07, M.O.T.H. Session 2 on `po/moth2-graph`) — left open
+
+- **MO2-01 Her saved local test project is not measured.** PLAN_MOTH §5 Session 2 asks for it beside the debug sample;
+  it is in her own app data, which the session's rules say is never read. Asked at the session's close.
+- **MO2-02 The 10,000 replay's p95 was 32.9 ms once in three runs** (17.3 and 17.4 the others), with drawing under 3 ms.
+  The long frames are elsewhere, most likely the layout's ticks on the main thread while it settles. Not a target (the
+  plan's is 1,000 dots, met), not measured further.
+- **MO2-03 Links between things are not saved.** A link drop puts the dot back and says so. Session 3.
+- **MO2-04 A project kept only on this computer keeps no saved view, place or setting**: the signed-out desktop has no
+  table for them, and the page says they last the visit.
+- **MO2-05 The three graph reads are not timed on a large real project.** Dev's projects are small. The runbook's 0122
+  row asks for it on staging and production first.
+- **MO2-06 Five limits are pinned only by their functions' md5, not by rows**: the 20,001st item, the 60,001st line, a
+  1,001-file page, two saves at once against the 200-view cap, the 20,001st place.
+- **MO2-07 The desktop app was not driven this session**: the measurements and pictures are from Chrome, headless, on
+  the dev fixtures.
+- **MO2-08 Looking back reads at most 20,000 rows of the record** (20 pages); past that the slider says only part of
+  the period could be read.
+- **MO2-09 A set-aside phase or task still passes Moth's gate** (0122's phase and task arms ask `deleted_at` only),
+  while the three reads leave it out. No one sees more than R.A.B.B.I.T. shows them; the page never offers such a dot,
+  so no place is made for one. For the next database change, or Session 3's writers: refuse `set_aside_at` in the gate
+  and pin it with a probe (whole-session round 1).
+- **MO2-10 `moth_put_positions` counts a focus before it folds a target named twice**, so one target sent twice with
+  focus then without clears the old focus and leaves none. The page sends each target once. Fold first, next time 0123
+  is restated.
+- **MO2-11 One revision sequence serves every company's views**, as 0098's `table_views` does, so a person polling
+  their own view's revision can read how busy the whole platform is. A per-row counter closes it; next restatement.
+- **MO2-12 0123's pre-flight does not pin `moth_view_access`**, and a re-run matches its two unique indexes and the
+  settings CHECK by name only. Only a draft left on a stack could slip through. Next restatement.
+- **MO2-13 One hidden target refuses a whole write of places** (a file moved where the writer cannot follow, between
+  the read and the write). The page now sends only the dots moved, of the live catalogue, and says so in words; the
+  server could leave a hidden target out instead of refusing, without telling anything. A first save of more than
+  1,000 dots goes in chunks, and a refused chunk leaves the earlier ones written.
+- **MO2-14 A jump whose project takes a while to open still switches the tab** if the person moved to another
+  project meanwhile; the item itself is not opened there (its request names the project). Needs a check after the
+  next render, not before.
+- **MO2-15 A view built from scratch is not reopened on the next visit**: `moth_prefs` keeps only a quick start or a
+  saved view as the last view. Keeping a config needs a key `set_moth_prefs` accepts.
+- **MO2-16 Touch mode changes gaps and padding at once, and inputs, ticks and icons do not grow.** Her ruling asks it to
+  animate; the buttons do.
+- **MO2-17 An asset has no card of its own, and a phase opens R.A.B.B.I.T.'s Timeline without selecting the phase.**
+  Session 3's items work.
+- **MO2-18 Looking back can bring back a file or item that was emptied from the trash while in it**: the record's prior
+  side does not say a row was in the trash (0119's projection). Needs `in_trash` in the projection, a migration.
+- **MO2-19 "Who last changed it" counts an office-server re-check as a change** (the walker's `updated_by`), and an
+  update with no person names the uploader. Needs the catalogue's writers to keep `updated_by`, or an editor from
+  `file_events`.
+- **MO2-20 The suites do not run a cut answer (20,001 items, 60,001 lines), every same-project arm of the file facts,
+  the places read policy's view term, the S6 scan's escape hatch, or a deactivated and reactivated person's settings;
+  0122's pre-flight does not list every column its plpgsql reads use.** Each is right in the code today (whole-session
+  round 2).
+- **MO2-21 The page, small:** Undo of a deleted shared view brings back only the places its deleter could see, under a
+  new id; a refresh that fails after a move drops that project's last good read; the colour picker writes a setting at
+  every step (the newest answer wins); a bloom shown stays while the camera pans; the canvas does not follow a monitor
+  with another scaling; the Settings drawer has no close button and does not take the focus; the tags list is not
+  grouped by kind; no test holds the HUD's contrast or the development-only switches.
+- **MO2-22 The dev fixtures accept settings the server refuses and count a view's name in UTF-16 units**; on the
+  signed-out desktop no folder-to-item lines are drawn.
+- **MO2-23 R.A.B.B.I.T.'s Files can show the last project's files for a moment during a project switch**, older than
+  Moth, met on the jump path.

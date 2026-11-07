@@ -6,7 +6,8 @@
 --   * Structure: the two guards are SECURITY DEFINER, attached, and no client
 --     role executes them; the catalogue scans S1 (one SELECT policy on
 --     projects), S2 (every permissive clause on a project-scoped table hops),
---     S3 (both dependency endpoints) and S5 (every same-project link guarded)
+--     S3 (both dependency endpoints), S5 (every same-project link guarded) and,
+--     from MO2's 0123, S6 (every Moth table's policy asks Moth's gate)
 --     come back clean at the tip, so a later table that forgets its hop
 --     fails here; and each scan is shown able to see a planted breakage.
 --   * A second manager who has a private project's id can neither write into
@@ -27,7 +28,7 @@
 
 BEGIN;
 
-SELECT plan(51);
+SELECT plan(54);
 
 SELECT * FROM tests.rls_setup();
 
@@ -172,6 +173,27 @@ SELECT is((SELECT count(*)::int FROM s5_offenders), 0,
   'S5: every single-column link between two project-scoped tables is guarded to one project');
 
 
+-- S6 (MOTH_DESIGN R3, due as Moth's own tables arrive, MO2's 0123): every permissive policy of every
+-- client-privileged table named moth_% asks Moth's gate (moth_can_read_target or moth_can_write_target), or
+-- compares a personal space's owner in an arm with no current_app_role. Moth's gate is what keeps a personal
+-- space its owner's alone, admins included; a policy without it is the hole SEC-01 names.
+CREATE TEMP VIEW s6_offenders AS
+SELECT p.tablename, p.policyname
+  FROM pg_policies p
+  JOIN pg_class c ON c.relname = p.tablename AND c.relnamespace = 'public'::regnamespace AND c.relkind = 'r'
+ WHERE p.schemaname = 'public' AND p.permissive = 'PERMISSIVE' AND p.tablename LIKE 'moth\_%'
+   AND (has_table_privilege('authenticated', c.oid, 'SELECT') OR has_table_privilege('authenticated', c.oid, 'INSERT')
+        OR has_table_privilege('authenticated', c.oid, 'UPDATE') OR has_table_privilege('authenticated', c.oid, 'DELETE'))
+   AND COALESCE(p.qual, '') || ' ' || COALESCE(p.with_check, '') !~ 'moth_can_(read|write)_target\('
+   AND NOT (COALESCE(p.qual, '') || ' ' || COALESCE(p.with_check, '') ~ 'personal_owner_id = auth\.uid\(\)'
+            AND COALESCE(p.qual, '') || ' ' || COALESCE(p.with_check, '') !~ 'current_app_role');
+
+SELECT is((SELECT count(*)::int FROM s6_offenders), 0,
+  'S6: every policy of a client-privileged Moth table asks Moth''s gate');
+SELECT ok((SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename LIKE 'moth\_%') >= 5,
+  'S6 reads the Moth tables there are (views'' four policies, and their places'' one for reading)');
+
+
 -- ── 8-10: each scan sees a planted breakage (and the breakage is removed) ────
 
 CREATE POLICY projects_planted_wide ON public.projects FOR SELECT USING (true);
@@ -193,6 +215,11 @@ SELECT is(
   2, 'CONTROL: S5 sees both of tasks'' links once the guard''s trigger is gone');
 CREATE TRIGGER trg_tasks_same_project_refs BEFORE INSERT OR UPDATE ON public.tasks
   FOR EACH ROW EXECUTE FUNCTION public.fn_same_project_refs_guard();
+
+CREATE POLICY moth_views_planted_owner ON public.moth_views FOR SELECT USING (owner_id = auth.uid() OR current_app_role() = 'admin');
+SELECT is((SELECT count(*)::int FROM s6_offenders WHERE policyname = 'moth_views_planted_owner'), 1,
+  'CONTROL: S6 sees a planted Moth policy that does not ask Moth''s gate');
+DROP POLICY moth_views_planted_owner ON public.moth_views;
 
 
 -- ── 11-12: the creator makes a private project; a sent created_by is ignored ─

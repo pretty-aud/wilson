@@ -2450,6 +2450,17 @@ export default function App() {
     window.addEventListener('wilson:open-otter-course', onOpenOtterCourse);
     return () => window.removeEventListener('wilson:open-otter-course', onOpenOtterCourse);
   }, []);
+  // MO2: M.O.T.H.'s "Open in R.A.B.B.I.T." and "Open in Files", after its own question (tools/moth_v0.1.0/state/
+  // mothJumps.js). The shell goes to R.A.B.B.I.T.; Rabbit.jsx, always mounted, opens the project and the item.
+  useEffect(() => {
+    const toRabbit = () => { navigateToRef.current('rabbit'); };
+    window.addEventListener('wilson:open-rabbit-item', toRabbit);
+    window.addEventListener('wilson:open-project-file', toRabbit);
+    return () => {
+      window.removeEventListener('wilson:open-rabbit-item', toRabbit);
+      window.removeEventListener('wilson:open-project-file', toRabbit);
+    };
+  }, []);
   useEffect(() => {
     if (!URL_ROUTING_ENABLED) return;
     // Deep links land with no history state — stamp the entry so the first

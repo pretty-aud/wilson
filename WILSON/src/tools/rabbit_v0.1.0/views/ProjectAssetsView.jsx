@@ -71,6 +71,7 @@ import {
   applyViewFilters, applyViewSorts, effectiveFields, effectiveLeading, filterCount, withFirstSort, withFirstSortReversed,
 } from './tableViews/viewScreenModel'
 import { useRabbit } from '../state/RabbitProvider'
+import { useNavigateTarget } from '../state/rabbitNavigate'
 // FX2 (0096): an asset's task count and its window's tasks count every task
 // ABOUT it (any of its items).
 import { taskCountsByEntity, tasksAbout } from '../state/taskItemsModel'
@@ -196,6 +197,16 @@ export default function ProjectAssetsView() {
   // Detail / warning
   const [warningAssetId, setWarningAssetId] = useState(null)
   const [detailAssetId, setDetailAssetId]   = useState(null)
+
+  // MO2: Moth's "Open in R.A.B.B.I.T." (wilson:open-rabbit-item): open this item once its row is here; until then
+  // the request waits (state/rabbitNavigate.js).
+  const onNavigate = useCallback((p) => {
+    if (!p?.itemId) return true
+    if (!(ctx?.assets || []).some((x) => x.id === p.itemId)) return false
+    setDetailAssetId(p.itemId)
+    return true
+  }, [ctx?.assets])
+  useNavigateTarget('assets', onNavigate, ctx?.activeProjectId || null)
   const [thumbRevision, setThumbRevision]   = useState(0)
 
   // Edit history (Session 5) — DB-side RLS is the real gate; this only

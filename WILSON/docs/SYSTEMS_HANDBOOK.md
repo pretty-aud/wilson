@@ -1306,6 +1306,7 @@ only matter if someone **replays a migration by hand**:
 
 | If you re-run… | You must then re-run… | Because |
 |---|---|---|
+| `0111` **or** `0121` | `0121`, then `0122` | **(MO2)** 0122 restates `_moth_target_eligible` and `moth_can_write_target` from 0121's bodies with the seven item kinds, and its pre-flight accepts 0121's body or its own: after a replay of 0111 re-run 0121 first, then 0122. A replay of either drops the item arms (every item answers false, so Moth shows no item, keeps no item's place and writes none). 0123 needs 0122 (it refuses without `moth_project_items`), and its places ask the same gates. |
 | `0042`, `0053`, `0073` **or** `0114` | `0115` | **(MO1)** 0115 restates the eight base storage policies (0042, 0053), `workspace_petal_committed_bytes` (0073) and three of 0114's helpers (`storage_object_claimed`, `storage_object_current_project`, `file_key_admissible`). Re-running any of those without 0115 puts the key's prefix back in charge of every stored copy, or loses the moved-copies arm or the picture's arm, and 0115's pre-flight pins each by md5. |
 | `0107` **or** `0110` | `0114` | **(MO1)** 0114 restates `fn_same_project_refs_guard` (0107) without its skip, and `fn_projects_owner_guard` (0110) with the id-tied arm. Re-running either without 0114 brings the skip back or loses the arm, and 0114's preflight pins both bodies by md5. |
 | `0013`, `0084` **or** `0107` | `0110` | **(MO1)** 0110 restates `projects_insert` and `projects_delete` and the four write helpers (`can_write_project`, `can_comment_project`, `can_manage_project_roster` from 0013, `can_edit_shot_lists` from 0084) with the personal arm, and `projects_update` and `fn_projects_owner_guard` (0107) with the personal and id-reuse arms. A replay of any of them puts back a body that lets an admin write into someone's personal space, silently. 0110's pre-flight accepts 0107's guard (md5 `ab21a087…`) or its own (`b6b800f4448eb9723f4afab2e6d97ec0`), so it refuses once 0114 or 0117 have restated the guard: re-run 0107, then 0110, then those |
@@ -5164,6 +5165,41 @@ nothing checks them before executing an action.
 
 **What is left unfinished on the office server.** A rename nobody can say happened stays pending (`failed`, `not_verified`, no answer) and `settlePending` looks again, at sign-in, on opening M.O.T.H. and before a check. A copy-up left over is looked at: a file there settles done, none settles not_moved. `network_share_pending_mine` holds back a refused project's operations only. After 24 hours an admin may call off what a person who has left began in their own space (`network_share_stale_moves` lists it), and may only say it did not happen. A folder change inside a project on the server is refused, because the row would move and the file would not.
 
+**The graph's reads (MO2, 0122).** Three reads, each the caller's own; the first two ask Moth's project gate once, and the file page asks the file gate for each file, after the fence:
+`moth_project_items(p)` gives `{ items, truncated }`, the project's live phases, assets, tasks, scenes, shots, levels
+and experiences (none trashed, none set aside by a bid version, names cut to 300, at most 20,000); `moth_project_links(p)`
+gives `{ links, truncated }`, the stored relationships between two live ends (a task and what it is about, an asset and
+where it is used, an entity folder and its item through the folder gate), one line a pair, at most 60,000;
+`moth_project_file_facts(p, after, limit)` pages, at most 1,000 on the last id, what each file Moth shows is filed
+against (an id only while it names a live item of the same project) and who last changed it. The gates answer the
+seven item kinds too; a phase, whose table has no company column, answers through its project's company. The client
+reads them through `listMothItems`, `listMothLinks` and `listMothFileFacts`; on a database without 0122 each answers
+`moth_absent` and the page shows files and folders.
+
+**Views, places and settings (MO2, 0123).** `moth_views` holds a person's own views across their projects
+(`scope_kind = 'aggregate'`, owner the person, admins included) and a project's shared views (`'project'`, read by those
+Moth shows the project to, written by those who may change it). A config is at most 32 KB and holds no id (a CHECK, with
+or without hyphens); a client sends only scope, project, name, position and config, and the database says the company
+and the owner (trigger). A config change takes a new revision, and `updateMothView` saves only over the revision it
+opened. 200 views a person or a project. `moth_layout_positions` holds where each dot is, open and focus: one row a
+target and owner, one focus, one typed reference per kind (so a place goes with its thing, and a moved file keeps its
+places), the key to its view composite with the company. Clients read it through one policy and never write it: only
+`moth_put_positions(view, places)` (at most 1,000 a call, each target through the gate, a project's view taking that
+project's things only, at most 20,000 a view), `moth_clear_positions(view)` and `moth_view_positions(view)`, each asking
+`rabbit_private.moth_view_access` once. A view's places have one owner: a shared view's are everyone's, an own view's
+and a personal space's are its person's. A hidden or missing view is refused in the words a missing key would give,
+and the clear's count is only of places the caller could see. `user_settings.moth_prefs` keeps one entry a company
+(last view, first visit done, appearance, the eight folders opened last), stamped with the membership's start, so a
+person removed and added again starts afresh; `moth_prefs()` reads it back trusting nothing stored. Nothing of these
+goes on a channel: the page reads them when it opens a view.
+
+**The page (MO2).** Session 2's page is the graph with its glow, the HUD and navigation, as `docs/design/MOTH_DESIGN.md`
+§3 records: one controller over the engine (`state/mothWorld.js`), the catalogue read whole (`state/mothCatalogue.js`),
+views (`state/mothViews.js`), tool jumps (`wilson:open-rabbit-item`, `wilson:open-project-file`, each after a question,
+answered by the shell and by `Rabbit.jsx` through `mothItemTarget`), and looking back (`state/mothHistoryScrub.js`, read
+only). Links between things are not saved until Session 3. Development only: `?mothFrames=1` shows a frame readout and
+`?mothReplay=N` maps a generated catalogue of N dots for the measured replays.
+
 ## 14. Who talks to whom
 
 **M.O.T.H.'s arrows (MO1).** Personal spaces and private projects' content are off every workspace realtime topic. `moth_history` is
@@ -5171,6 +5207,8 @@ pull-only and on no topic, and neither it nor a personal space goes in a takeout
 RPCs, each ending in a journal row; a desktop carries out what they say on an office server. There is no live channel for Moth yet: another
 person's change shows when the list next reads. **A join is judged when it is made (measured, Realtime v2.140.3, OUTSTANDING MO1-01):** someone deactivated or demoted goes on
 hearing a project channel they had joined until their token refreshes or runs out, each of which closes it. A new join is judged afresh.
+
+**M.O.T.H.'s arrows (MO2).** Two more cross-tool events, Moth to R.A.B.B.I.T.: `wilson:open-rabbit-item` `{ projectId, kind, id }` and `wilson:open-project-file` `{ projectId, fileId }`, each sent only after the person says yes to leaving. Views, places and settings are read when a view opens; none is on a channel, and a post-condition of 0123 keeps both tables off every broadcast.
 
 Every arrow in the system, in prose. Read this section if you read nothing
 else.
@@ -5273,7 +5311,7 @@ else.
 
 ## 15. Testing and verification
 
-**As of MO1 (2026-11-07):** 117 pgTAP suites, 6,252 checks with 0120 and 0121, read by running them on wilson-dev, rolled back. The counts just below are dated history.
+**As of MO2 (2026-11-07):** 120 pgTAP suites, 6,511 checks with 0122 and 0123 (by count, after both review rounds) (the whole set read 6,493 on wilson-dev, rolled back, before the 15 probes the planted breakages asked for; the four suites they went into were read again). **As of MO1 (2026-11-07):** 117 pgTAP suites, 6,252 checks with 0120 and 0121, read by running them on wilson-dev, rolled back. The counts just below are dated history.
 
 **pgTAP** — 55 suites under `supabase/tests/rls/` (Session 20 added 39–42, one
 per model control-plane table; **Session 24 added 43–47, one per money table;

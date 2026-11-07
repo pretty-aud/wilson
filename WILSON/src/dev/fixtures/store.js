@@ -254,6 +254,12 @@ export function createStore() {
     itemGroupings: [],
     tableViewRevision: 0,
     tableViewLast: {},
+    // MO2 (0123): Moth's saved views, their places and the person's Moth settings, in memory for the session.
+    // Nothing is seeded: the first visit asks what to map.
+    mothViews: [],
+    mothPositions: [],
+    mothViewRevision: 0,
+    mothPrefs: {},
 
     folders: clone(FOLDERS),
     files: [...clone(FILES), ...clone(PERSONAL_SPACE_FILES)],

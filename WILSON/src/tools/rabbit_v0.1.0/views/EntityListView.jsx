@@ -92,6 +92,7 @@ import {
   applyViewFilters, applyViewSorts, effectiveFields, filterCount, withFirstSort, withFirstSortReversed,
 } from './tableViews/viewScreenModel'
 import { useRabbit } from '../state/RabbitProvider'
+import { useNavigateTarget } from '../state/rabbitNavigate'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { useRateCard } from '../../../components/RateCard/useRateCard'
 import TaskDetailPopup from '../components/TaskDetailPopup'
@@ -197,6 +198,16 @@ export default function EntityListView({ entity }) {
 
   // ── Popup state ──
   const [detailId, setDetailId] = useState(null)
+
+  // MO2: Moth's "Open in R.A.B.B.I.T." (wilson:open-rabbit-item): open this item once its row is here; until then
+  // the request waits (state/rabbitNavigate.js).
+  const onNavigate = useCallback((p) => {
+    if (!p?.itemId) return true
+    if (!(ctx?.[entity.collection] || []).some((x) => x.id === p.itemId)) return false
+    setDetailId(p.itemId)
+    return true
+  }, [ctx, entity.collection])
+  useNavigateTarget(entity.collection, onNavigate, ctx?.activeProjectId || null)
   const [confirmDelete, setConfirmDelete]   = useState(null) // { id, name }
   const [showCreatePopup, setShowCreatePopup] = useState(false)
 
