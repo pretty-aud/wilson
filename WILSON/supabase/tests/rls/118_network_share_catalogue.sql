@@ -1420,11 +1420,13 @@ INSERT INTO public.network_share_ops (id, workspace_id, file_id, project_id, op,
 SELECT public.t118_repoint('aaaa1111-0000-0000-0000-000000011815', 'Tree/Branch');
 SET LOCAL ROLE authenticated;
 SELECT public.t118_c();
-SELECT throws_ok($$ SELECT public.network_share_pending_mine() $$, 'P0001', 'network_share: folder_shared', 'pending_mine refuses while the folder is not its own');
+SELECT is((SELECT count(*)::int FROM jsonb_array_elements(public.network_share_pending_mine()) e WHERE e ->> 'op_id' = '11800000-0000-0000-0000-00000000a903'), 0,
+  'pending_mine holds an operation back while its folder is not its own (0121: that project''s, not the whole call)');
 RESET ROLE;
 UPDATE public.workspace_storage SET mode = 'central' WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
 SET LOCAL ROLE authenticated;
-SELECT throws_ok($$ SELECT public.network_share_pending_mine() $$, 'P0001', 'network_share: drive_changed', 'or the company has left its server');
+SELECT is((SELECT count(*)::int FROM jsonb_array_elements(public.network_share_pending_mine()) e WHERE e ->> 'op_id' = '11800000-0000-0000-0000-00000000a903'), 0,
+  'or the company has left its server');
 RESET ROLE;
 UPDATE public.workspace_storage SET mode = 'byos' WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
 SELECT public.t118_repoint('aaaa1111-0000-0000-0000-000000011815', 'Branch-Free');
