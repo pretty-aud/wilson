@@ -274,6 +274,14 @@ describe('the wiring is real — every link in the presign chain has a caller', 
     expect(sql).toContain('GRANT EXECUTE ON FUNCTION public.s3_body_look_record(uuid, text, uuid) TO service_role;')
   })
 
+  it('🚨 the drain asks both columns of a key in a company\'s bucket, and a failed second read deletes nothing (0120)', () => {
+    const fn = read('supabase', 'functions', 'storage-gc', 'index.ts')
+    expect(fn).toContain("const other = refColumn === 'thumbnail_url' ? 'storage_path' : 'thumbnail_url'")
+    expect(fn).toContain("(row as { provider?: string }).provider === 's3') {\n        const other")
+    expect(fn).toContain('refErr = second.error')
+    expect(fn.indexOf('refErr = second.error')).toBeLessThan(fn.indexOf('if (refErr) {'))
+  })
+
   it('0051 widens the enqueue trigger by TEXT comparison (the same-transaction enum rule)', () => {
     const sql = read('supabase', 'migrations', '0051_s3_storage_provider.sql')
     expect(sql).toContain("WHEN (OLD.storage_provider::text IN ('supabase', 's3'))")

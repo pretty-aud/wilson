@@ -13,11 +13,15 @@
 --       own bucket would be taken on the caller's word, and the only body queued for deletion. A database
 --       cannot reach a bucket: storage-presign's server does (its `look` op, a signed HEAD through
 --       _shared/s3Reach.ts), and tells this file through s3_body_look_record, which only service_role may
---       call. So rabbit_private.s3_body_looks says: Petal's server saw an object at this key, on this day.
+--       call. So rabbit_private.s3_body_looks says: Petal's server saw an object at this key, in this bucket,
+--       on this day. A look never spent is a copy nobody moved, and no scan ever walks a company's bucket
+--       (SYSTEMS_HANDBOOK 12.4): a nightly job queues it for the drain, whose row check keeps what a row names.
 --   §2  files_body_follow takes a key in a company's own bucket only on such a look, and spends it.
 --   §3  fn_moth_apply_moves compares the plan's to_provider at the commit. A company whose storage changed
---       between the plan and the commit holds its copy in the wrong place, whatever the key says.
---   §4  s3_body_moves_on() answers true.
+--       between the plan and the commit holds its copy in the wrong place, whatever the key says. And a copy
+--       offered for a file already at its destination is refused, so the client takes it back.
+--   §4  s3_body_moves_on() answers true, and is stable now, not immutable. An immutable function folds to a
+--       constant in a connection's cached plans, so turning it off again would not reach a live connection.
 --
 -- ORDER, AND WHY BOTH ARE GOOD
 -- ----------------------------
@@ -35,7 +39,8 @@
 --   answers bad_request, nothing is recorded, and a move into the bucket is refused here: safe, and it says
 --   why. On an older storage-read-urls a moved file's picture and preview are refused: the reason for the rule.
 --
--- One table in a private schema, no policy, no client grant. Suite 123_s3_body_moves_on.sql.
+-- One table in a private schema, no policy, no client grant; its foreign key takes SHARE ROW EXCLUSIVE on
+-- public.workspaces for a moment. One nightly job. Suite 123_s3_body_moves_on.sql.
 -- =============================================================================
 
 SET LOCAL lock_timeout = '15s';
@@ -62,8 +67,8 @@ BEGIN
   FOR v_fn IN
     SELECT * FROM (VALUES
       ('rabbit_private.s3_body_moves_on()', '7d69bbf21ad55293e15c24da50eaaa11', 'ad10d2d261acf04c0fdea047663ee33d'),
-      ('rabbit_private.files_body_follow(uuid,uuid,jsonb)', '7fbcada9dbca2acb598c44931fa4824e', 'fa7d9d4ae5a6a35f1fea5df9cc81503b'),
-      ('public.fn_moth_apply_moves(jsonb,uuid,boolean)', '9ac229b02757bd23beac8ef17a36d18b', '076c041eed3b9c61dfc228448f5b64b2')
+      ('rabbit_private.files_body_follow(uuid,uuid,jsonb)', '7fbcada9dbca2acb598c44931fa4824e', 'f158bac580bbd4d2841ae7fc5141d121'),
+      ('public.fn_moth_apply_moves(jsonb,uuid,boolean)', '9ac229b02757bd23beac8ef17a36d18b', '9255a74c810834f59b349701b8cdf38f')
     ) AS t(sig, was, now_is)
   LOOP
     SELECT md5(replace(prosrc, chr(13), '')) INTO v_md5 FROM pg_proc WHERE oid = v_fn.sig::regprocedure;
@@ -74,19 +79,36 @@ BEGIN
 END $$;
 
 -- §1 The look --------------------------------------------------------------------
--- Petal's server saw an object at this key. Nothing here is read by a client, and the key holds a file's
--- name, so the table is closed to every client role and lives outside what PostgREST serves. It goes with
--- its company, and a look that is never spent goes at the next look a day on. Its rows are few: one for
--- each copy between its look and its commit.
+-- Petal's server saw an object at this key, in the bucket bucket_mark names. Nothing here is read by a client,
+-- and the key holds a file's name, so the table is closed to every client role and lives outside what
+-- PostgREST serves. It goes with its company. Its rows are few: one for each copy between its look and its
+-- commit, and the nightly sweep takes what was never spent.
 CREATE TABLE IF NOT EXISTS rabbit_private.s3_body_looks (
   workspace_id UUID NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
   object_path  TEXT NOT NULL,
+  bucket_mark  TEXT NOT NULL,
   seen_by      UUID NOT NULL,
   seen_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (workspace_id, object_path)
 );
 ALTER TABLE rabbit_private.s3_body_looks ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE rabbit_private.s3_body_looks FROM PUBLIC, anon, authenticated, service_role;
+
+-- Which bucket a company's new bodies go to, as a mark: an admin who repoints it has a different bucket, and
+-- a look at the old one says nothing about the new. NULL for a company not on its own bucket now.
+CREATE OR REPLACE FUNCTION rabbit_private.s3_bucket_mark(p_workspace uuid)
+RETURNS text
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+SET row_security = off
+AS $$
+  SELECT md5(concat_ws('|', ws.provider_config ->> 'endpoint', ws.provider_config ->> 'bucket', ws.provider_config ->> 'prefix'))
+    FROM public.workspace_storage ws
+   WHERE ws.workspace_id = p_workspace AND ws.mode = 'byos' AND ws.provider = 's3';
+$$;
+REVOKE ALL ON FUNCTION rabbit_private.s3_bucket_mark(uuid) FROM PUBLIC, anon, authenticated;
 
 -- The only writer. The Edge Function has already asked can_presign_object as the caller, for the rights to
 -- write this key, and made the look; this asks again only what the shape and the company can say.
@@ -97,8 +119,10 @@ SECURITY DEFINER
 SET search_path = public
 SET row_security = off
 AS $$
+DECLARE
+  v_mark TEXT := rabbit_private.s3_bucket_mark(p_workspace);
 BEGIN
-  IF p_workspace IS NULL OR p_user IS NULL OR NOT COALESCE(rabbit_private.file_key_shape_ok(p_path), false)
+  IF v_mark IS NULL OR p_user IS NULL OR NOT COALESCE(rabbit_private.file_key_shape_ok(p_path), false)
      OR NOT EXISTS (SELECT 1 FROM public.projects p
                      WHERE p.id = public.fn_try_uuid(split_part(p_path, '/', 2))
                        AND p.workspace_id = p_workspace
@@ -107,17 +131,66 @@ BEGIN
                      WHERE wm.workspace_id = p_workspace AND wm.user_id = p_user AND wm.is_active) THEN
     RETURN false;
   END IF;
-  -- A look that was never spent has nothing more to say: the copy it saw was refused or abandoned.
-  DELETE FROM rabbit_private.s3_body_looks l
-   WHERE l.workspace_id = p_workspace AND l.seen_at <= now() - interval '1 day';
-  INSERT INTO rabbit_private.s3_body_looks (workspace_id, object_path, seen_by, seen_at)
-  VALUES (p_workspace, p_path, p_user, now())
-  ON CONFLICT (workspace_id, object_path) DO UPDATE SET seen_by = EXCLUDED.seen_by, seen_at = EXCLUDED.seen_at;
+  INSERT INTO rabbit_private.s3_body_looks (workspace_id, object_path, bucket_mark, seen_by, seen_at)
+  VALUES (p_workspace, p_path, v_mark, p_user, now())
+  ON CONFLICT (workspace_id, object_path) DO UPDATE
+    SET bucket_mark = EXCLUDED.bucket_mark, seen_by = EXCLUDED.seen_by, seen_at = EXCLUDED.seen_at;
   RETURN true;
 END;
 $$;
 REVOKE ALL ON FUNCTION public.s3_body_look_record(uuid, text, uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.s3_body_look_record(uuid, text, uuid) TO service_role;
+
+-- A look a day old is past spending, so its copy will never be named: queue it and its picture for the drain,
+-- unless a row names the key after all, and let the name go. A PUT that never reached its look has no record,
+-- and stays with the company's own lifecycle rules, as a stranded upload always has (SYSTEMS_HANDBOOK 12.7a).
+CREATE OR REPLACE FUNCTION rabbit_private.s3_body_looks_sweep()
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+SET row_security = off
+AS $$
+DECLARE
+  v_n INTEGER;
+BEGIN
+  WITH gone AS (
+    DELETE FROM rabbit_private.s3_body_looks l
+     WHERE l.seen_at <= now() - interval '1 day'
+    RETURNING l.workspace_id, l.object_path
+  ), said AS (
+    SELECT count(*)::int AS n FROM gone
+  ), queued AS (
+    INSERT INTO public.storage_gc_queue (bucket_id, object_path, workspace_id, file_id, reason, provider, kind)
+    SELECT 'byo-s3', k.path, g.workspace_id, NULL, 'orphan-scan', 's3', k.kind
+      FROM gone g
+     CROSS JOIN LATERAL (VALUES (g.object_path, 'body'), (g.object_path || '.jpg', 'thumbnail')) AS k(path, kind)
+     WHERE NOT EXISTS (SELECT 1 FROM public.files f
+                        WHERE f.storage_provider = 's3' AND k.path IN (f.storage_path, f.thumbnail_url))
+    RETURNING 1
+  )
+  SELECT said.n INTO v_n FROM said LEFT JOIN (SELECT count(*) FROM queued) q ON true;
+  RETURN v_n;
+END;
+$$;
+REVOKE ALL ON FUNCTION rabbit_private.s3_body_looks_sweep() FROM PUBLIC, anon, authenticated;
+
+-- cron.schedule() upserts by job name, so a re-run is idempotent.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_cron') THEN
+    CREATE EXTENSION IF NOT EXISTS pg_cron;
+    PERFORM cron.schedule(
+      'wilson-sweep-s3-looks',
+      '53 4 * * *',
+      $job$ SELECT rabbit_private.s3_body_looks_sweep(); $job$
+    );
+  ELSE
+    RAISE NOTICE 'pg_cron unavailable — the sweep of unspent looks is not scheduled (expected in CI local stack)';
+  END IF;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING 'could not schedule the sweep of unspent looks via pg_cron: %', SQLERRM;
+END $$;
 
 -- §2 A key in a company's own bucket, only on a look --------------------------------
 CREATE OR REPLACE FUNCTION rabbit_private.files_body_follow(p_file uuid, p_dest_project uuid, p_rehome jsonb DEFAULT '[]'::jsonb)
@@ -215,6 +288,7 @@ BEGIN
     DELETE FROM rabbit_private.s3_body_looks l
      WHERE l.workspace_id = v_f.workspace_id
        AND l.object_path = v_to_path
+       AND l.bucket_mark = rabbit_private.s3_bucket_mark(v_f.workspace_id)
        AND l.seen_at > now() - interval '1 day';
     IF NOT FOUND THEN
       RAISE EXCEPTION 'copy_not_seen' USING DETAIL = 'The new copy could not be found in your company''s bucket, so nothing moved.';
@@ -368,6 +442,11 @@ BEGIN
       v_to_core := f.is_core_definer;
 
       IF f.project_id = v_to_project THEN
+        -- 0120: someone else moved it here first. Its copy has no move to go with, and a refusal is what
+        -- tells the client to take it back; a company's bucket has no scan to find it later.
+        IF v_body IS NOT NULL THEN
+          RAISE EXCEPTION 'moth_move:plan_changed' USING ERRCODE = 'P0001';
+        END IF;
         -- Within one project only the folder changes, whatever holds the body (MV-1, MV-4).
         v_how := CASE WHEN f.folder_id IS NOT DISTINCT FROM v_to_folder THEN 'none' ELSE 'metadata' END;
       ELSE
@@ -443,7 +522,7 @@ BEGIN
             END IF;
             -- 0120: the plan said where the copy was to go, and the client made it there. A company whose
             -- storage changed since holds that copy in the wrong place, whatever the key says.
-            IF NOT v_plan AND v_body IS NOT NULL AND v_body ->> 'to_provider' IS DISTINCT FROM v_company THEN
+            IF v_body IS NOT NULL AND v_body ->> 'to_provider' IS DISTINCT FROM v_company THEN
               RAISE EXCEPTION 'moth_move:plan_changed' USING ERRCODE = 'P0001';
             END IF;
 
@@ -597,7 +676,7 @@ REVOKE ALL ON FUNCTION public.fn_moth_apply_moves(jsonb, uuid, boolean) FROM PUB
 CREATE OR REPLACE FUNCTION rabbit_private.s3_body_moves_on()
 RETURNS boolean
 LANGUAGE sql
-IMMUTABLE
+STABLE
 SET search_path = public
 AS $$
   SELECT true;
@@ -610,7 +689,7 @@ COMMENT ON TABLE rabbit_private.s3_body_looks IS
 COMMENT ON FUNCTION public.s3_body_look_record(uuid, text, uuid) IS
   'Records a look, for service_role alone: storage-presign calls it after its own signed HEAD answers 200. False for a key no project of this company could hold, or a person not an active member of it. 0120.';
 COMMENT ON FUNCTION rabbit_private.s3_body_moves_on() IS
-  'True since 0120, which is applied on an environment only after its storage-presign and storage-read-urls are verified deployed. Back to false stops new moves into a company''s own bucket, and of files in one; a file already moved stays readable.';
+  'True since 0120, which is applied on an environment only after its storage-presign and storage-read-urls are verified deployed. Back to false stops new moves into a company''s own bucket, and of files in one; a file already moved stays readable. Stable, so that reaches a live connection.';
 
 -- §5 Post-conditions -------------------------------------------------------------
 DO $$
@@ -624,9 +703,11 @@ BEGIN
   FOR v_fn IN
     SELECT * FROM (VALUES
       ('rabbit_private.s3_body_moves_on()', 'ad10d2d261acf04c0fdea047663ee33d'),
-      ('rabbit_private.files_body_follow(uuid,uuid,jsonb)', 'fa7d9d4ae5a6a35f1fea5df9cc81503b'),
-      ('public.fn_moth_apply_moves(jsonb,uuid,boolean)', '076c041eed3b9c61dfc228448f5b64b2'),
-      ('public.s3_body_look_record(uuid,text,uuid)', '3faa373bceae7f61932055a15439cc4e')
+      ('rabbit_private.files_body_follow(uuid,uuid,jsonb)', 'f158bac580bbd4d2841ae7fc5141d121'),
+      ('public.fn_moth_apply_moves(jsonb,uuid,boolean)', '9255a74c810834f59b349701b8cdf38f'),
+      ('public.s3_body_look_record(uuid,text,uuid)', '97882da3735db6ad63a9fe4889b6c875'),
+      ('rabbit_private.s3_bucket_mark(uuid)', '2a94f478addfcd8b22994d05e4a0610e'),
+      ('rabbit_private.s3_body_looks_sweep()', 'becd72a140ff9dbb6dc0c917c9df3abd')
     ) AS t(sig, now_is)
   LOOP
     SELECT md5(replace(prosrc, chr(13), '')) INTO v_md5 FROM pg_proc WHERE oid = v_fn.sig::regprocedure;
@@ -634,8 +715,20 @@ BEGIN
       RAISE EXCEPTION '0120 post-condition: % is not this file''s body (md5 %)', v_fn.sig, v_md5;
     END IF;
   END LOOP;
-  IF (SELECT provolatile FROM pg_proc WHERE oid = 'rabbit_private.s3_body_moves_on()'::regprocedure) <> 'i' THEN
-    RAISE EXCEPTION '0120 post-condition: s3_body_moves_on must stay immutable';
+  IF (SELECT provolatile FROM pg_proc WHERE oid = 'rabbit_private.s3_body_moves_on()'::regprocedure) <> 's' THEN
+    RAISE EXCEPTION '0120 post-condition: s3_body_moves_on must be stable, or turning it off would not reach a live connection';
+  END IF;
+  -- Nested: one expression is parsed whole, so cron.job would be read with no pg_cron to hold it.
+  IF to_regclass('cron.job') IS NOT NULL THEN
+    IF NOT EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'wilson-sweep-s3-looks') THEN
+      RAISE EXCEPTION '0120 post-condition: the sweep of unspent looks is not scheduled';
+    END IF;
+  END IF;
+  IF has_function_privilege('authenticated', 'rabbit_private.s3_bucket_mark(uuid)', 'EXECUTE')
+     OR has_function_privilege('anon', 'rabbit_private.s3_bucket_mark(uuid)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'rabbit_private.s3_body_looks_sweep()', 'EXECUTE')
+     OR has_function_privilege('anon', 'rabbit_private.s3_body_looks_sweep()', 'EXECUTE') THEN
+    RAISE EXCEPTION '0120 post-condition: a private helper is open to a client';
   END IF;
   IF has_function_privilege('anon', 'public.s3_body_look_record(uuid,text,uuid)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.s3_body_look_record(uuid,text,uuid)', 'EXECUTE')

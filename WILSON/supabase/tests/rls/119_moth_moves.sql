@@ -19,8 +19,7 @@ SELECT * FROM tests.rls_setup();
 -- 0120 turned the switch on. What this suite says of a file in a company's own bucket is the switch off,
 -- which still stands if it is turned off again; suite 123 has it on.
 CREATE OR REPLACE FUNCTION rabbit_private.s3_body_moves_on()
-RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path = public AS $$ SELECT false; $$;
-DISCARD PLANS;
+RETURNS boolean LANGUAGE sql STABLE SET search_path = public AS $$ SELECT false; $$;
 
 INSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at,
                         raw_app_meta_data, raw_user_meta_data, aud, role,

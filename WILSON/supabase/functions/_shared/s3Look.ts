@@ -25,7 +25,7 @@ export type LookSteps<V> = {
   /** The host the signer will name. May throw on a config it cannot use. */
   host: () => string
   /** s3Reach's vet of that host: nothing is contacted unless every answer is public. */
-  vet: (host: string) => Promise<({ ok: true } & V) | { ok: false; detail: string }>
+  vet: (host: string) => Promise<({ ok: true } & V) | { ok: false; reason?: string; detail: string }>
   /** A signed HEAD for the key, the company's prefix applied. */
   sign: () => Promise<string>
   /** One request to the vetted address. */
@@ -37,13 +37,16 @@ export type LookSteps<V> = {
 const failed = (detail: string): LookAnswer => ({ status: 502, body: { error: 'look_failed', detail } })
 
 export async function lookAtObject<V>(steps: LookSteps<V>): Promise<LookAnswer> {
-  let vetted: ({ ok: true } & V) | { ok: false; detail: string }
+  let vetted: ({ ok: true } & V) | { ok: false; reason?: string; detail: string }
   try {
     vetted = await steps.vet(steps.host())
   } catch (err) {
     return failed(`the bucket's address could not be checked (${err instanceof Error ? err.message : String(err)})`)
   }
-  if (!vetted.ok) return { status: 409, body: { error: 'refused', detail: vetted.detail } }
+  // A name that did not resolve just now is a fault, which may pass. The rest are the endpoint's own.
+  if (!vetted.ok) {
+    return vetted.reason === 'dns' ? failed(vetted.detail) : { status: 409, body: { error: 'refused', detail: vetted.detail } }
+  }
 
   let answer: { status: number; redirect: boolean }
   try {
@@ -53,10 +56,13 @@ export async function lookAtObject<V>(steps: LookSteps<V>): Promise<LookAnswer> 
   }
   if (answer.redirect) return failed('the bucket answered with a redirect, which is not followed')
   if (answer.status === 404) return { status: 200, body: { ok: true, seen: false } }
+  if (answer.status === 403) {
+    return { status: 409, body: { error: 'refused', detail: 'your company\'s bucket refused WILSON\'s server a look at the new copy, so nothing moved. An admin can check the bucket\'s access rules' } }
+  }
   if (answer.status !== 200) return failed(`the bucket answered ${answer.status}`)
 
   const { data, error } = await steps.record()
-  if (error) return { status: 500, body: { error: 'look_not_recorded', detail: 'the copy is there, but WILSON could not note that it saw it' } }
+  if (error) return { status: 500, body: { error: 'look_not_recorded', detail: 'WILSON could not check the new copy in your company\'s bucket just now, so nothing moved' } }
   if (data !== true) return { status: 409, body: { error: 'refused', detail: 'this copy is not one this company can move a file to' } }
   return { status: 200, body: { ok: true, seen: true } }
 }

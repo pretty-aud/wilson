@@ -35,7 +35,22 @@ describe('the look at an object in a company\'s own bucket', () => {
     expect(s.record).not.toHaveBeenCalled()
   })
 
-  it.each([403, 500, 503, 204, 206])('a %i is a fault, not an answer either way', async (status) => {
+  it('a 403 says the bucket refused the server, in words an admin can act on, and is not read as absent', async () => {
+    const s = steps({ request: vi.fn(async () => ({ status: 403, redirect: false })) })
+    const out = await lookAtObject(s)
+    // 409: patiently() would upload the whole file again for a 5xx, and this will not pass.
+    expect(out.status).toBe(409)
+    expect(out.body.detail).toContain('access rules')
+    expect(out.body.seen).toBeUndefined()
+  })
+
+  it('a name that does not resolve just now is a fault that may pass, not a refusal', async () => {
+    const s = steps({ vet: vi.fn(async () => ({ ok: false, reason: 'dns', detail: 'no such name' })) })
+    expect(await lookAtObject(s)).toEqual({ status: 502, body: { error: 'look_failed', detail: 'no such name' } })
+    expect(s.request).not.toHaveBeenCalled()
+  })
+
+  it.each([500, 503, 204, 206])('a %i is a fault, not an answer either way', async (status) => {
     const s = steps({ request: vi.fn(async () => ({ status, redirect: false })) })
     const out = await lookAtObject(s)
     expect(out.status).toBe(502)
@@ -80,6 +95,8 @@ describe('the look at an object in a company\'s own bucket', () => {
     const out = await lookAtObject(s)
     expect(out.status).toBe(500)
     expect(out.body.error).toBe('look_not_recorded')
+    // The client has deleted the copy by the time a person reads this, so it must not say the copy is there.
+    expect(out.body.detail).not.toContain('is there')
     expect(out.body.seen).toBeUndefined()
   })
 

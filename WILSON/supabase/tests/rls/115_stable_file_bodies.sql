@@ -261,8 +261,7 @@ SELECT is(rabbit_private.s3_body_moves_on(), true, 's3_body_moves_on answers tru
 -- 0120 turned the switch on. What this suite says of a file in a company's own bucket is the switch off,
 -- which still stands if it is turned off again; suite 123 has it on.
 CREATE OR REPLACE FUNCTION rabbit_private.s3_body_moves_on()
-RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path = public AS $$ SELECT false; $$;
-DISCARD PLANS;
+RETURNS boolean LANGUAGE sql STABLE SET search_path = public AS $$ SELECT false; $$;
 
 -- The indexes bind the runner too, who passes every guard.
 INSERT INTO public.files (id, project_id, name, storage_provider, storage_path) VALUES
@@ -1712,10 +1711,11 @@ UPDATE public.workspace_storage
 
 -- The s3 arms stand behind the switch, so the switch goes on as 0120 has it, and back. A copy in the
 -- bucket is taken only on a look by Petal's server, which suite 123 tests; here it has been made.
-INSERT INTO rabbit_private.s3_body_looks (workspace_id, object_path, seen_by)
-VALUES ('11111111-1111-1111-1111-111111111111', 'projects/11500000-aaaa-0000-0000-000000000002/files/a317/copy.bin', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+INSERT INTO rabbit_private.s3_body_looks (workspace_id, object_path, bucket_mark, seen_by)
+VALUES ('11111111-1111-1111-1111-111111111111', 'projects/11500000-aaaa-0000-0000-000000000002/files/a317/copy.bin',
+        rabbit_private.s3_bucket_mark('11111111-1111-1111-1111-111111111111'), 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
 CREATE OR REPLACE FUNCTION rabbit_private.s3_body_moves_on()
-RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path = public AS $$ SELECT true; $$;
+RETURNS boolean LANGUAGE sql STABLE SET search_path = public AS $$ SELECT true; $$;
 DISCARD PLANS;
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
@@ -1740,7 +1740,7 @@ SELECT lives_ok($$ SELECT rabbit_private.files_body_retire('11500000-0000-0000-0
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 CREATE OR REPLACE FUNCTION rabbit_private.s3_body_moves_on()
-RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path = public AS $$ SELECT false; $$;
+RETURNS boolean LANGUAGE sql STABLE SET search_path = public AS $$ SELECT false; $$;
 DISCARD PLANS;
 UPDATE public.workspace_storage SET mode = 'central' WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
 

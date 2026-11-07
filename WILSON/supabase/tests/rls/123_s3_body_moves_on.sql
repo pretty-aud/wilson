@@ -12,7 +12,7 @@
 -- =============================================================================
 BEGIN;
 
-SELECT plan(91);
+SELECT plan(108);
 
 SELECT * FROM tests.rls_setup();
 
@@ -93,6 +93,23 @@ CREATE FUNCTION public.t123_looks(p_path text) RETURNS int LANGUAGE sql SECURITY
 $f$;
 GRANT EXECUTE ON FUNCTION public.t123_looks(text) TO authenticated;
 
+-- A look as the sweep or a clock would find it.
+CREATE FUNCTION public.t123_put_look(p_ws uuid, p_path text, p_by uuid, p_at timestamptz DEFAULT now())
+RETURNS void LANGUAGE sql AS $f$
+  INSERT INTO rabbit_private.s3_body_looks (workspace_id, object_path, bucket_mark, seen_by, seen_at)
+  VALUES (p_ws, p_path, rabbit_private.s3_bucket_mark(p_ws), p_by, p_at)
+$f$;
+-- Whether the job is there, where the stack has pg_cron at all. EXECUTE, so a stack without it can parse this.
+CREATE FUNCTION public.t123_job(OUT schedule text) LANGUAGE plpgsql AS $f$
+BEGIN
+  IF to_regclass('cron.job') IS NULL THEN
+    schedule := 'no pg_cron here';
+  ELSE
+    EXECUTE $q$ SELECT schedule FROM cron.job WHERE jobname = 'wilson-sweep-s3-looks' $q$ INTO schedule;
+  END IF;
+END;
+$f$;
+
 CREATE TEMP TABLE t123_ret (k text PRIMARY KEY, v jsonb) ON COMMIT DROP;
 GRANT ALL ON t123_ret TO authenticated;
 CREATE FUNCTION public.t123_v(p_key text) RETURNS jsonb LANGUAGE sql STABLE AS $f$ SELECT v FROM t123_ret WHERE k = p_key $f$;
@@ -131,7 +148,11 @@ SELECT ok(NOT has_function_privilege('anon', 'public.s3_body_look_record(uuid,te
 SELECT ok(NOT has_function_privilege('authenticated', 'public.s3_body_look_record(uuid,text,uuid)', 'EXECUTE'), 'a signed-in person cannot');
 SELECT ok(has_function_privilege('service_role', 'public.s3_body_look_record(uuid,text,uuid)', 'EXECUTE'), 'the service role can');
 SELECT ok((SELECT prosecdef AND proconfig @> ARRAY['search_path=public'] FROM pg_proc WHERE oid = 'public.s3_body_look_record(uuid,text,uuid)'::regprocedure), 'it runs as its owner, on a fixed path');
-SELECT ok((SELECT provolatile = 'i' FROM pg_proc WHERE oid = 'rabbit_private.s3_body_moves_on()'::regprocedure), 'the switch stays immutable');
+SELECT ok((SELECT provolatile = 's' FROM pg_proc WHERE oid = 'rabbit_private.s3_body_moves_on()'::regprocedure), 'the switch is stable, so turning it off reaches a live connection');
+SELECT ok(NOT has_function_privilege('authenticated', 'rabbit_private.s3_bucket_mark(uuid)', 'EXECUTE') AND NOT has_function_privilege('anon', 'rabbit_private.s3_bucket_mark(uuid)', 'EXECUTE'), 'a client cannot ask which bucket');
+SELECT ok(NOT has_function_privilege('authenticated', 'rabbit_private.s3_body_looks_sweep()', 'EXECUTE') AND NOT has_function_privilege('anon', 'rabbit_private.s3_body_looks_sweep()', 'EXECUTE'), 'nor run the sweep');
+SELECT ok((SELECT prosecdef FROM pg_proc WHERE oid = 'rabbit_private.s3_body_looks_sweep()'::regprocedure) AND (SELECT prosecdef FROM pg_proc WHERE oid = 'rabbit_private.s3_bucket_mark(uuid)'::regprocedure), 'both run as their owner');
+SELECT ok(public.t123_job() IN ('no pg_cron here', '53 4 * * *'), 'the sweep is a nightly job, where the stack has pg_cron');
 SET LOCAL ROLE authenticated;
 SELECT public.t123_c();
 SELECT throws_ok($$ SELECT public.s3_body_look_record('11111111-1111-1111-1111-111111111111', 'projects/aaaa1230-0000-0000-0000-00000000000b/files/x/y.mov', 'cccccccc-cccc-cccc-cccc-cccccccccccc') $$,
@@ -139,6 +160,12 @@ SELECT throws_ok($$ SELECT public.s3_body_look_record('11111111-1111-1111-1111-1
 SELECT throws_ok($$ SELECT count(*) FROM rabbit_private.s3_body_looks $$, '42501', NULL, 'a signed-in person cannot read a look');
 SELECT throws_ok($$ INSERT INTO rabbit_private.s3_body_looks (workspace_id, object_path, seen_by) VALUES ('11111111-1111-1111-1111-111111111111', 'x', 'cccccccc-cccc-cccc-cccc-cccccccccccc') $$, '42501', NULL, 'nor write one');
 RESET ROLE;
+
+-- Both companies go onto their own buckets.
+INSERT INTO public.workspace_storage (workspace_id, mode, provider, provider_config)
+VALUES ('11111111-1111-1111-1111-111111111111', 'byos', 's3', '{"region":"r","bucket":"b","accessKeyId":"A"}'::jsonb),
+       ('22222222-2222-2222-2222-222222222222', 'byos', 's3', '{"region":"r","bucket":"theirs","accessKeyId":"B"}'::jsonb)
+ON CONFLICT (workspace_id) DO UPDATE SET mode = 'byos', provider = 's3', root_path = NULL, root_kind = NULL, provider_config = EXCLUDED.provider_config;
 
 -- ── B. The writer's arms ───────────────────────────────────────────────────────────────
 SET LOCAL ROLE service_role;
@@ -148,30 +175,23 @@ SELECT is((SELECT row(seen_by, seen_at = now())::text FROM rabbit_private.s3_bod
 SELECT is(public.s3_body_look_record(NULL, public.t123_key('12300000-0000-0000-0000-000000000b02', 'aaaa1230-0000-0000-0000-00000000000b', 'b.mov'), 'cccccccc-cccc-cccc-cccc-cccccccccccc'), false, 'no company, no look');
 SELECT is(public.s3_body_look_record('11111111-1111-1111-1111-111111111111', public.t123_key('12300000-0000-0000-0000-000000000b02', 'aaaa1230-0000-0000-0000-00000000000b', 'b.mov'), NULL), false, 'nobody asking, no look');
 SELECT is(public.s3_body_look_record('11111111-1111-1111-1111-111111111111', 'somewhere/else.mov', 'cccccccc-cccc-cccc-cccc-cccccccccccc'), false, 'a key that is not a file''s shape');
+SELECT is(public.s3_body_look_record('11111111-1111-1111-1111-111111111111', 'projects/aaaa1230-0000-0000-0000-00000000000b/too-shallow.mov', 'cccccccc-cccc-cccc-cccc-cccccccccccc'), false, 'under a real project, too shallow');
+SELECT is(public.s3_body_look_record('11111111-1111-1111-1111-111111111111', 'projects/aaaa1230-0000-0000-0000-00000000000b/files/x/a b.mov', 'cccccccc-cccc-cccc-cccc-cccccccccccc'), false, 'under a real project, with a character no key holds');
 SELECT is(public.s3_body_look_record('11111111-1111-1111-1111-111111111111', NULL, 'cccccccc-cccc-cccc-cccc-cccccccccccc'), false, 'no key at all');
 SELECT is(public.s3_body_look_record('11111111-1111-1111-1111-111111111111', 'projects/aaaa1230-0000-0000-0000-0000000000ff/files/x/y.mov', 'cccccccc-cccc-cccc-cccc-cccccccccccc'), false, 'a project that is not there');
 SELECT is(public.s3_body_look_record('11111111-1111-1111-1111-111111111111', 'projects/aaaa1230-0000-0000-0000-00000000000e/files/x/y.mov', 'cccccccc-cccc-cccc-cccc-cccccccccccc'), false, 'a project in the bin');
 SELECT is(public.s3_body_look_record('22222222-2222-2222-2222-222222222222', 'projects/aaaa1230-0000-0000-0000-00000000000b/files/x/y.mov', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'), false, 'another company''s project');
 SELECT is(public.s3_body_look_record('11111111-1111-1111-1111-111111111111', 'projects/aaaa1230-0000-0000-0000-00000000000b/files/x/y.mov', 'ffffffff-ffff-ffff-ffff-ffffffffffff'), false, 'a person who has left');
 SELECT is(public.s3_body_look_record('11111111-1111-1111-1111-111111111111', 'projects/aaaa1230-0000-0000-0000-00000000000b/files/x/y.mov', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'), false, 'a person of another company');
+UPDATE public.workspace_storage SET mode = 'central' WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
+SELECT is(public.s3_body_look_record('11111111-1111-1111-1111-111111111111', 'projects/aaaa1230-0000-0000-0000-00000000000b/files/x/y.mov', 'cccccccc-cccc-cccc-cccc-cccccccccccc'), false, 'a company on Petal''s storage now has no bucket to have looked in');
+UPDATE public.workspace_storage SET mode = 'byos' WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
 SELECT is((SELECT count(*)::int FROM rabbit_private.s3_body_looks), 1, 'and none of those wrote anything');
 -- A second look at one key is one row, the latest.
-UPDATE rabbit_private.s3_body_looks SET seen_at = now() - interval '1 hour', seen_by = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+UPDATE rabbit_private.s3_body_looks SET seen_at = now() - interval '1 hour', seen_by = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', bucket_mark = 'old';
 SELECT is(public.s3_body_look_record('11111111-1111-1111-1111-111111111111', public.t123_key('12300000-0000-0000-0000-000000000b01', 'aaaa1230-0000-0000-0000-00000000000b', 'b.mov'), 'cccccccc-cccc-cccc-cccc-cccccccccccc'), true, 'a second look');
-SELECT is((SELECT array_agg(row(seen_by, seen_at = now())::text) FROM rabbit_private.s3_body_looks), ARRAY['(cccccccc-cccc-cccc-cccc-cccccccccccc,t)'], 'is the one row, the latest');
--- A look never spent goes at the next look a day on: this company's, and at the day, not before.
-INSERT INTO rabbit_private.s3_body_looks (workspace_id, object_path, seen_by, seen_at) VALUES
-  ('11111111-1111-1111-1111-111111111111', 'old/at-the-day', 'cccccccc-cccc-cccc-cccc-cccccccccccc', now() - interval '1 day'),
-  ('11111111-1111-1111-1111-111111111111', 'old/within-the-day', 'cccccccc-cccc-cccc-cccc-cccccccccccc', now() - interval '23 hours 59 minutes'),
-  ('22222222-2222-2222-2222-222222222222', 'old/theirs', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', now() - interval '2 days');
-SELECT is(public.s3_body_look_record('11111111-1111-1111-1111-111111111111', public.t123_key('12300000-0000-0000-0000-000000000b02', 'aaaa1230-0000-0000-0000-00000000000b', 'b.mov'), 'cccccccc-cccc-cccc-cccc-cccccccccccc'), true, 'the next look');
-SELECT is((SELECT array_agg(object_path ORDER BY object_path) FROM rabbit_private.s3_body_looks WHERE object_path LIKE 'old/%'), ARRAY['old/theirs', 'old/within-the-day'], 'clears this company''s at the day, and nobody else''s');
+SELECT is((SELECT array_agg(row(seen_by, seen_at = now(), bucket_mark = rabbit_private.s3_bucket_mark('11111111-1111-1111-1111-111111111111'))::text) FROM rabbit_private.s3_body_looks), ARRAY['(cccccccc-cccc-cccc-cccc-cccccccccccc,t,t)'], 'is the one row, the latest');
 DELETE FROM rabbit_private.s3_body_looks;
-
--- The company goes onto its own bucket.
-INSERT INTO public.workspace_storage (workspace_id, mode, provider, provider_config)
-VALUES ('11111111-1111-1111-1111-111111111111', 'byos', 's3', '{"region":"r","bucket":"b","accessKeyId":"A"}'::jsonb)
-ON CONFLICT (workspace_id) DO UPDATE SET mode = 'byos', provider = 's3', root_path = NULL, root_kind = NULL, provider_config = EXCLUDED.provider_config;
 
 -- ── C. By association: the key stays, the row answers ────────────────────────────────────
 SELECT public.t123_a();
@@ -199,6 +219,10 @@ SELECT is(public.can_presign_object('projects/aaaa1230-0000-0000-0000-0000000000
 SELECT is((SELECT count(*)::int FROM public.files WHERE storage_path LIKE 'projects/aaaa1230-0000-0000-0000-00000000000a/files/12300000-0000-0000-0000-000000000c01/%'), 1, 'and the row read vouches for it');
 SELECT is(public.can_presign_object('projects/aaaa1230-0000-0000-0000-00000000000a/files/12300000-0000-0000-0000-000000000c01/plain.mov', 'put'), false, 'no one writes over a key a row names');
 SELECT is(public.can_presign_object('projects/aaaa1230-0000-0000-0000-00000000000a/files/12300000-0000-0000-0000-000000000c01/plain.mov', 'del'), false, 'or deletes it');
+-- Someone else moved it here first, and this person's copy has no move to go with.
+SELECT throws_ok(format($q$ SELECT public.t123_m(ARRAY['12300000-0000-0000-0000-000000000c01'::uuid], 'aaaa1230-0000-0000-0000-00000000000b', false, public.t123_body('12300000-0000-0000-0000-000000000c01', 's3', %L)) $q$,
+    public.t123_key('12300000-0000-0000-0000-000000000c01', 'aaaa1230-0000-0000-0000-00000000000b', 'plain.mov')),
+  'P0001', 'moth_move:plan_changed', 'a copy offered for a file already there is refused, so the client takes it back');
 RESET ROLE;
 
 -- ── D. A new copy in the bucket, only on a look ─────────────────────────────────────────
@@ -224,8 +248,7 @@ SELECT is((SELECT row(project_id, storage_path)::text FROM public.files WHERE id
 SELECT is((SELECT count(*)::int FROM public.storage_gc_queue WHERE file_id = '12300000-0000-0000-0000-000000000d01'), 0, 'its only body not queued');
 -- A look at another key, at the right key in another company, and an old look say nothing.
 SELECT public.s3_body_look_record('11111111-1111-1111-1111-111111111111', public.t123_key('12300000-0000-0000-0000-000000000d01', 'aaaa1230-0000-0000-0000-00000000000d', 'other.mov'), 'cccccccc-cccc-cccc-cccc-cccccccccccc');
-INSERT INTO rabbit_private.s3_body_looks (workspace_id, object_path, seen_by)
-VALUES ('22222222-2222-2222-2222-222222222222', public.t123_key('12300000-0000-0000-0000-000000000d01', 'aaaa1230-0000-0000-0000-00000000000d', 'hidden.mov'), 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb');
+SELECT public.t123_put_look('22222222-2222-2222-2222-222222222222', public.t123_key('12300000-0000-0000-0000-000000000d01', 'aaaa1230-0000-0000-0000-00000000000d', 'hidden.mov'), 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb');
 SET LOCAL ROLE authenticated;
 SELECT public.t123_c();
 SELECT throws_ok(format($q$ SELECT public.t123_m(ARRAY['12300000-0000-0000-0000-000000000d01'::uuid], 'aaaa1230-0000-0000-0000-00000000000d', false, public.t123_body('12300000-0000-0000-0000-000000000d01', 's3', %L)) $q$,
@@ -233,8 +256,7 @@ SELECT throws_ok(format($q$ SELECT public.t123_m(ARRAY['12300000-0000-0000-0000-
   'P0001', 'moth_move:copy_not_seen', 'a look at another key, or by another company, says nothing');
 RESET ROLE;
 DELETE FROM rabbit_private.s3_body_looks;
-INSERT INTO rabbit_private.s3_body_looks (workspace_id, object_path, seen_by, seen_at)
-VALUES ('11111111-1111-1111-1111-111111111111', public.t123_key('12300000-0000-0000-0000-000000000d01', 'aaaa1230-0000-0000-0000-00000000000d', 'hidden.mov'), 'cccccccc-cccc-cccc-cccc-cccccccccccc', now() - interval '1 day');
+SELECT public.t123_put_look('11111111-1111-1111-1111-111111111111', public.t123_key('12300000-0000-0000-0000-000000000d01', 'aaaa1230-0000-0000-0000-00000000000d', 'hidden.mov'), 'cccccccc-cccc-cccc-cccc-cccccccccccc', now() - interval '1 day');
 SET LOCAL ROLE authenticated;
 SELECT public.t123_c();
 SELECT throws_ok(format($q$ SELECT public.t123_m(ARRAY['12300000-0000-0000-0000-000000000d01'::uuid], 'aaaa1230-0000-0000-0000-00000000000d', false, public.t123_body('12300000-0000-0000-0000-000000000d01', 's3', %L)) $q$,
@@ -242,6 +264,30 @@ SELECT throws_ok(format($q$ SELECT public.t123_m(ARRAY['12300000-0000-0000-0000-
   'P0001', 'moth_move:copy_not_seen', 'a look a day old says nothing');
 RESET ROLE;
 UPDATE rabbit_private.s3_body_looks SET seen_at = now() - interval '23 hours 59 minutes';
+UPDATE public.workspace_storage SET provider_config = provider_config || '{"bucket":"moved"}'::jsonb WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
+SET LOCAL ROLE authenticated;
+SELECT public.t123_c();
+SELECT throws_ok(format($q$ SELECT public.t123_m(ARRAY['12300000-0000-0000-0000-000000000d01'::uuid], 'aaaa1230-0000-0000-0000-00000000000d', false, public.t123_body('12300000-0000-0000-0000-000000000d01', 's3', %L)) $q$,
+    public.t123_key('12300000-0000-0000-0000-000000000d01', 'aaaa1230-0000-0000-0000-00000000000d', 'hidden.mov')),
+  'P0001', 'moth_move:copy_not_seen', 'a look says nothing once the company''s bucket has changed');
+RESET ROLE;
+UPDATE public.workspace_storage SET provider_config = '{"region":"r","bucket":"b","accessKeyId":"A"}'::jsonb WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
+UPDATE public.workspace_storage SET provider_config = provider_config || '{"endpoint":"https://elsewhere.example.com"}'::jsonb WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
+SET LOCAL ROLE authenticated;
+SELECT public.t123_c();
+SELECT throws_ok(format($q$ SELECT public.t123_m(ARRAY['12300000-0000-0000-0000-000000000d01'::uuid], 'aaaa1230-0000-0000-0000-00000000000d', false, public.t123_body('12300000-0000-0000-0000-000000000d01', 's3', %L)) $q$,
+    public.t123_key('12300000-0000-0000-0000-000000000d01', 'aaaa1230-0000-0000-0000-00000000000d', 'hidden.mov')),
+  'P0001', 'moth_move:copy_not_seen', 'a look says nothing once the company''s endpoint has changed');
+RESET ROLE;
+UPDATE public.workspace_storage SET provider_config = '{"region":"r","bucket":"b","accessKeyId":"A"}'::jsonb WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
+UPDATE public.workspace_storage SET provider_config = provider_config || '{"prefix":"somewhere"}'::jsonb WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
+SET LOCAL ROLE authenticated;
+SELECT public.t123_c();
+SELECT throws_ok(format($q$ SELECT public.t123_m(ARRAY['12300000-0000-0000-0000-000000000d01'::uuid], 'aaaa1230-0000-0000-0000-00000000000d', false, public.t123_body('12300000-0000-0000-0000-000000000d01', 's3', %L)) $q$,
+    public.t123_key('12300000-0000-0000-0000-000000000d01', 'aaaa1230-0000-0000-0000-00000000000d', 'hidden.mov')),
+  'P0001', 'moth_move:copy_not_seen', 'a look says nothing once the company''s prefix has changed');
+RESET ROLE;
+UPDATE public.workspace_storage SET provider_config = '{"region":"r","bucket":"b","accessKeyId":"A"}'::jsonb WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
 -- A batch that fails on its second file spends nothing.
 SET LOCAL ROLE authenticated;
 SELECT public.t123_c();
@@ -306,6 +352,7 @@ SELECT public.t123_petal('12300000-0000-0000-0000-000000000f01', 'aaaa1230-0000-
 INSERT INTO public.files (id, project_id, name, storage_provider, storage_path) VALUES
   ('12300000-0000-0000-0000-000000000f02', 'aaaa1230-0000-0000-0000-00000000000a', 'desk.mov', 'local_server', 'projects/aaaa1230-0000-0000-0000-00000000000a/files/12300000-0000-0000-0000-000000000f02/desk.mov');
 SELECT public.t123_petal('12300000-0000-0000-0000-000000000f03', 'aaaa1230-0000-0000-0000-0000000000f0', 'left.mov');
+SELECT public.t123_s3('12300000-0000-0000-0000-000000000f05', 'aaaa1230-0000-0000-0000-0000000000f0', 'bucketed.mov');
 INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, is_financial) VALUES
   ('12300000-0000-0000-0000-000000000f04', 'aaaa1230-0000-0000-0000-00000000000a', 'inv.pdf', 'supabase', 'projects/aaaa1230-0000-0000-0000-00000000000a/invoices/a/inv.pdf', true);
 SET LOCAL ROLE authenticated;
@@ -332,6 +379,7 @@ SELECT is((SELECT count(*)::int FROM public.storage_gc_queue WHERE file_id = '12
 -- A former member's personal file, for an admin: the same move, the same look.
 SET LOCAL ROLE authenticated;
 SELECT public.t123_a();
+SELECT is((SELECT array_agg(name) FROM public.moth_leaver_files('aaaa1230-0000-0000-0000-0000000000f0')), ARRAY['left.mov'], 'the list offers a leaver''s Petal body on a company with its own bucket, and not one already in the bucket');
 SELECT is((public.moth_move_leaver_files(ARRAY['12300000-0000-0000-0000-000000000f03'::uuid], 'aaaa1230-0000-0000-0000-00000000000d', NULL, true, NULL)) -> 'items' -> 0 ->> 'to_provider', 's3', 'a leaver''s Petal body is copied to the company''s bucket');
 SELECT throws_ok(format($q$ SELECT public.moth_move_leaver_files(ARRAY['12300000-0000-0000-0000-000000000f03'::uuid], 'aaaa1230-0000-0000-0000-00000000000d', NULL, false, public.t123_body('12300000-0000-0000-0000-000000000f03', 's3', %L)) $q$,
     public.t123_key('12300000-0000-0000-0000-000000000f03', 'aaaa1230-0000-0000-0000-00000000000d', 'left.mov')),
@@ -374,17 +422,41 @@ RESET ROLE;
 
 -- ── H. The switch, turned off again, still stands ──────────────────────────────────────────
 CREATE OR REPLACE FUNCTION rabbit_private.s3_body_moves_on()
-RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path = public AS $$ SELECT false; $$;
-DISCARD PLANS;
+RETURNS boolean LANGUAGE sql STABLE SET search_path = public AS $$ SELECT false; $$;
 SELECT public.t123_a();
 SELECT public.t123_s3('12300000-0000-0000-0000-000000000901', 'aaaa1230-0000-0000-0000-00000000000a', 'off.mov');
 SELECT public.t123_petal('12300000-0000-0000-0000-000000000902', 'aaaa1230-0000-0000-0000-00000000000c', 'offpetal.mov');
+SELECT public.t123_petal('12300000-0000-0000-0000-000000000903', 'aaaa1230-0000-0000-0000-0000000000f0', 'offleft.mov');
 SET LOCAL ROLE authenticated;
 SELECT public.t123_c();
 SELECT throws_ok($$ SELECT public.t123_m(ARRAY['12300000-0000-0000-0000-000000000901'::uuid], 'aaaa1230-0000-0000-0000-00000000000b') $$, 'P0001', 'moth_move:s3_moves_off', 'a file in the bucket does not move');
 SELECT throws_ok($$ SELECT public.t123_m(ARRAY['12300000-0000-0000-0000-000000000902'::uuid], 'aaaa1230-0000-0000-0000-00000000000d', true) $$, 'P0001', 'moth_move:s3_moves_off', 'and nothing new goes in');
-SELECT is(public.can_presign_object('projects/aaaa1230-0000-0000-0000-00000000000c/files/12300000-0000-0000-0000-000000000d01/hidden.mov', 'get'), false, 'CONTROL: a key no row names any more is the project''s to refuse, the switch aside');
+SELECT public.t123_a();
+SELECT is((SELECT count(*)::int FROM public.moth_leaver_files('aaaa1230-0000-0000-0000-0000000000f0')), 0, 'and a leaver''s list offers nothing');
+SELECT public.t123_c();
 SELECT is(public.can_presign_object(public.t123_key('12300000-0000-0000-0000-000000000d01', 'aaaa1230-0000-0000-0000-00000000000d', 'hidden.mov'), 'get'), true, 'and a file moved while it was on stays readable');
+RESET ROLE;
+CREATE OR REPLACE FUNCTION rabbit_private.s3_body_moves_on()
+RETURNS boolean LANGUAGE sql STABLE SET search_path = public AS $$ SELECT true; $$;
+
+-- ── I. The nightly sweep: what a look saw and nobody moved ───────────────────────────────────
+DELETE FROM rabbit_private.s3_body_looks;
+SELECT public.t123_put_look('11111111-1111-1111-1111-111111111111', 'projects/aaaa1230-0000-0000-0000-00000000000b/files/i/at-the-day.mov', 'cccccccc-cccc-cccc-cccc-cccccccccccc', now() - interval '1 day');
+SELECT public.t123_put_look('11111111-1111-1111-1111-111111111111', 'projects/aaaa1230-0000-0000-0000-00000000000b/files/i/within-the-day.mov', 'cccccccc-cccc-cccc-cccc-cccccccccccc', now() - interval '23 hours 59 minutes');
+SELECT public.t123_put_look('22222222-2222-2222-2222-222222222222', 'projects/other/files/i/theirs.mov', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', now() - interval '2 days');
+-- A row names this key, and a row names this picture: neither is queued, whatever the look says.
+SELECT public.t123_put_look('11111111-1111-1111-1111-111111111111', 'projects/aaaa1230-0000-0000-0000-00000000000a/files/12300000-0000-0000-0000-000000000c01/plain.mov', 'cccccccc-cccc-cccc-cccc-cccccccccccc', now() - interval '2 days');
+SELECT is(rabbit_private.s3_body_looks_sweep(), 3, 'the sweep takes the three past the day');
+SELECT is((SELECT array_agg(object_path) FROM rabbit_private.s3_body_looks), ARRAY['projects/aaaa1230-0000-0000-0000-00000000000b/files/i/within-the-day.mov'], 'and leaves the one within it');
+SELECT is((SELECT array_agg(row(bucket_id, provider, kind, reason, status, workspace_id, file_id)::text ORDER BY kind) FROM public.storage_gc_queue WHERE object_path LIKE 'projects/aaaa1230-0000-0000-0000-00000000000b/files/i/at-the-day.mov%'),
+  ARRAY['(byo-s3,s3,body,orphan-scan,pending,11111111-1111-1111-1111-111111111111,)', '(byo-s3,s3,thumbnail,orphan-scan,pending,11111111-1111-1111-1111-111111111111,)'], 'its copy and picture go to the drain, from the bucket');
+SELECT is((SELECT array_agg(object_path ORDER BY object_path) FROM public.storage_gc_queue WHERE object_path LIKE 'projects/other/files/i/%' AND workspace_id = '22222222-2222-2222-2222-222222222222'),
+  ARRAY['projects/other/files/i/theirs.mov', 'projects/other/files/i/theirs.mov.jpg'], 'each company''s from its own');
+SELECT is((SELECT count(*)::int FROM public.storage_gc_queue WHERE object_path LIKE 'projects/aaaa1230-0000-0000-0000-00000000000a/files/12300000-0000-0000-0000-000000000c01/%'), 0, 'and what a row names is not queued');
+SELECT is(rabbit_private.s3_body_looks_sweep(), 0, 'a second night finds nothing');
+SET LOCAL ROLE authenticated;
+SELECT public.t123_a();
+SELECT throws_ok($$ SELECT rabbit_private.s3_body_looks_sweep() $$, '42501', NULL, 'an admin cannot run it');
 RESET ROLE;
 
 SELECT * FROM finish();

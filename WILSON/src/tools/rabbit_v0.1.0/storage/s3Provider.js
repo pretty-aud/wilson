@@ -192,9 +192,14 @@ export function createS3StorageProvider(presign, presignReads = null, { now = ()
     // MO1 (0120): the server's look at a move's new copy, which the commit asks for. `exists` above is
     // this client's own word, and the commit does not take it. Absent, or no way to ask, is a refusal.
     async look(key) {
-      if (!lookAtObject || (await lookAtObject(key)) !== true) {
-        throw new Error('The new copy could not be found in your company\'s bucket, so nothing moved.')
+      let seen = false
+      try {
+        seen = lookAtObject ? await lookAtObject(key) : false
+      } catch (err) {
+        // This one a person reads. The status rides on, so a caller can tell a fault from a refusal.
+        throw Object.assign(new Error(String(err?.message ?? err).replace(/^\[s3\] /, '')), { status: err?.status })
       }
+      if (seen !== true) throw new Error('The new copy could not be found in your company\'s bucket, so nothing moved.')
     },
 
     // P1: the URL a preview stage or a player reads — signed fresh every time,

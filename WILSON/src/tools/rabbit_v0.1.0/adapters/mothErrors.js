@@ -16,7 +16,7 @@ const SENTENCES = {
   body_elsewhere: 'This file is stored somewhere WILSON cannot move it from here.',
   s3_moves_off: 'A file cannot move to or from a company\'s own storage yet.',
   only_on_a_computer: 'This file is only on one computer, and that project is private, so it cannot go there.',
-  needs_desktop: 'This file is on the computer that added it. Move it from there.',
+  needs_desktop: 'This file is on the computer that added it. Move it from there. If you are on that computer, try it again.',
   no_folder: 'That project has no folder on the office server.',
   name_taken: 'A file with this name is already there.',
   occupied: 'A file with this name is already there. Rename it, then try again.',
