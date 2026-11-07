@@ -59,7 +59,7 @@
 
 BEGIN;
 
-SELECT plan(87);
+SELECT plan(89);
 
 SELECT * FROM tests.rls_setup();
 
@@ -924,6 +924,51 @@ SELECT ok(
     has_function_privilege('authenticated', 'public.backfill_shot_lists()', 'EXECUTE')
   ),
   'no client role executes backfill_shot_lists (§11)');
+
+-- ═════════════════════════════════════════════════════════════════════════
+-- MO1 (2026-11-04, migration 0110): can_edit_shot_lists has the personal arm
+-- in front of 0084's body: on a personal space the owner may, the admin may
+-- not; an ordinary project still answers as 0084 (CONTROL).
+-- ═════════════════════════════════════════════════════════════════════════
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+INSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at,
+                        raw_app_meta_data, raw_user_meta_data, aud, role,
+                        instance_id, created_at, updated_at)
+VALUES
+  ('84840000-0000-0000-0000-0000000000c1', 'mo1_v@test.local', crypt('testpw', gen_salt('bf')), now(),
+   '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
+   'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000', now(), now())
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.workspace_members (workspace_id, user_id, app_role, username, display_name, is_active)
+VALUES ('11111111-1111-1111-1111-111111111111', '84840000-0000-0000-0000-0000000000c1', 'user', 'mo1_v', 'MO1 V', true)
+ON CONFLICT (workspace_id, user_id) DO NOTHING;
+INSERT INTO public.projects (id, workspace_id, title, is_private, personal_owner_id, created_by) VALUES
+  ('84840000-0000-0000-0000-0000000000d1', '11111111-1111-1111-1111-111111111111', 'Personal space', true,
+   '84840000-0000-0000-0000-0000000000c1', '84840000-0000-0000-0000-0000000000c1');
+
+CREATE FUNCTION pg_temp.mo1_as(p_uid UUID, p_app_role TEXT, p_ws UUID DEFAULT '11111111-1111-1111-1111-111111111111')
+RETURNS VOID LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM set_config('request.jwt.claims', json_build_object(
+    'sub', p_uid, 'role', 'authenticated',
+    'app_metadata', json_build_object('workspace_id', p_ws, 'app_role', p_app_role))::text, true);
+  PERFORM set_config('role', 'authenticated', true);
+END;
+$$;
+
+SELECT pg_temp.mo1_as('84840000-0000-0000-0000-0000000000c1', 'user');
+SELECT ok(public.can_edit_shot_lists('84840000-0000-0000-0000-0000000000d1'),
+  'MO1: the owner edits shot lists in their personal space');
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT pg_temp.mo1_as('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'admin');
+SELECT ok(NOT public.can_edit_shot_lists('84840000-0000-0000-0000-0000000000d1')
+          AND public.can_edit_shot_lists('aaaa1111-0000-0000-0000-000000000001'),
+  'MO1: the admin edits none in someone else''s space, and still does on an ordinary project (CONTROL)');
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
 
 SELECT * FROM finish();
 ROLLBACK;

@@ -223,6 +223,7 @@ describe('the Supabase provider satisfies the contract', () => {
     upload: async (k) => { calls.push(['upload', k]); return { error: null } },
     download: async (k) => { calls.push(['download', k]); return { data: new Blob(['x']), error: null } },
     remove: async (k) => { calls.push(['remove', k]); return { error: null } },
+    exists: async (k) => { calls.push(['exists', k]); return { data: true, error: null } },
     list: async (dir, opts) => { calls.push(['list', dir, opts.search]); return { data: [{ name: 'f.mov' }], error: null } },
   }
   const requireClient = async () => ({ storage: { from: () => fakeBucket } })
@@ -234,15 +235,21 @@ describe('the Supabase provider satisfies the contract', () => {
     }
   })
 
-  it('splits a key into directory and leaf for exists()', async () => {
+  it('asks one HEAD for exists(), not a list, which reads the whole bucket', async () => {
     calls.length = 0
     const p = createSupabaseStorageProvider(requireClient)
     await expect(p.exists('projects/p1/asset/a1/f.mov')).resolves.toBe(true)
-    expect(calls).toEqual([['list', 'projects/p1/asset/a1', 'f.mov']])
+    expect(calls).toEqual([['exists', 'projects/p1/asset/a1/f.mov']])
+  })
+
+  it('throws what storage throws, because a server that is off is not an empty folder', async () => {
+    const off = { ...fakeBucket, exists: async () => { throw new Error('off') } }
+    const p = createSupabaseStorageProvider(async () => ({ storage: { from: () => off } }))
+    await expect(p.exists('projects/p1/asset/a1/f.mov')).rejects.toThrow('off')
   })
 
   it('reports a missing key as false rather than throwing', async () => {
-    const empty = { ...fakeBucket, list: async () => ({ data: [], error: null }) }
+    const empty = { ...fakeBucket, exists: async () => ({ data: false, error: { status: 404 } }) }
     const p = createSupabaseStorageProvider(async () => ({ storage: { from: () => empty } }))
     await expect(p.exists('projects/p1/asset/a1/gone.mov')).resolves.toBe(false)
   })

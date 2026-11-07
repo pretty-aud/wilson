@@ -46,8 +46,15 @@
 //                        unstaffed opening; the first seat is placed by an
 //                        app admin/manager.
 //
+// MO1 (0110): on a PERSONAL SPACE the seats do not decide. Its owner writes,
+// comments and builds shot lists there, and nobody else does, workspace admins
+// included (can_write_project, can_comment_project and can_edit_shot_lists, each
+// with the personal arm first); nobody manages its roster (it has one seat).
+// project.shotlist.activate and project.bins.vet keep their rules: 0110 did not
+// restate their SQL.
+//
 // Consumers call canOnProject(ctx, action) with
-//   ctx = { appRole, projectRole, isStaffed, ready, noRoles }
+//   ctx = { appRole, projectRole, isStaffed, ready, noRoles, isPersonal, isPersonalOwner }
 // (appRole/ready from usePermissions(); projectRole/isStaffed from the
 // RABBIT provider's project bundle; noRoles true on the Local Server, which
 // has no roles at all). useProjectAccess() assembles it in one place. Like
@@ -73,6 +80,17 @@ export const PROJECT_ACTIONS = Object.freeze([
   'project.roster.manage',
   'project.settings.open',
   'project.shotlist.activate',
+  'project.shotlist.write',
+])
+
+// The actions the personal arm decides (0110's restated helpers). The other two
+// keep their rules on a personal space.
+const PERSONAL_ARM_ACTIONS = Object.freeze([
+  'project.bins.write',
+  'project.comment.write',
+  'project.entity.write',
+  'project.roster.manage',
+  'project.settings.open',
   'project.shotlist.write',
 ])
 
@@ -302,8 +320,16 @@ export function projectFolderDeniedReason(ctx) {
 export function projectActionDeniedReason(ctx, action) {
   if (canOnProject(ctx, action)) return null
 
-  const { projectRole } = ctx || {}
+  const { projectRole, isPersonal } = ctx || {}
   const seated = projectRole != null
+
+  // MO1 (0110): the personal arm's two refusals. Its owner is refused only the
+  // roster, so "only the owner" is not what they are told about that.
+  if (isPersonal === true && PERSONAL_ARM_ACTIONS.includes(action)) {
+    return action === 'project.roster.manage'
+      ? 'A personal space has one seat, its owner\'s.'
+      : 'Only the owner of a personal space can change it.'
+  }
 
   switch (action) {
     // Denied only when staffed AND (reviewer | no seat).
@@ -377,7 +403,7 @@ export function canOnProject(ctx, action) {
     }
     return false
   }
-  const { appRole, projectRole, isStaffed, ready = true, noRoles = false } = ctx || {}
+  const { appRole, projectRole, isStaffed, ready = true, noRoles = false, isPersonal = false, isPersonalOwner = false } = ctx || {}
 
   // Session 23: "still loading" must never masquerade as "denied".
   //
@@ -400,6 +426,13 @@ export function canOnProject(ctx, action) {
   //
   // Callers that do NOT pass `ready` are unaffected: it defaults to true.
   if (ready === false) return true
+
+  // MO1 (0110): a personal space, decided before every seat and every bypass
+  // below (the SQL helpers test it first too). An app admin or manager gets no
+  // short-circuit here: admins reach the space read-only from Files.
+  if (isPersonal === true && PERSONAL_ARM_ACTIONS.includes(action)) {
+    return action === 'project.roster.manage' ? false : isPersonalOwner === true
+  }
 
   // ── Post-overhaul S3a (0084): shot lists and edits ──
   //

@@ -17,7 +17,7 @@
 -- CASCADE and SET NULL differ by one word in the DDL and by "the blob is
 -- still there but nothing knows where" in production.
 BEGIN;
-SELECT plan(12);
+SELECT plan(15);
 
 SELECT * FROM tests.rls_setup();
 
@@ -26,6 +26,12 @@ INSERT INTO public.files (id, project_id, name, storage_provider, storage_path) 
    'aaaa1111-0000-0000-0000-000000000001', 'a.txt', 'supabase', 'projects/a/a.txt'),
   ('bbbb2222-0000-0000-0000-00000000ff02',
    'bbbb2222-0000-0000-0000-000000000001', 'b.txt', 'supabase', 'projects/b/b.txt');
+
+-- MO1 (0114): a member's row names a stored copy already in the bucket, as an upload leaves it.
+INSERT INTO storage.objects (bucket_id, name, owner_id)
+VALUES ('rabbit-files',
+        'projects/aaaa1111-0000-0000-0000-000000000001/files/a1/audit.txt',
+        'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
 
 SELECT tests.login_as(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
@@ -51,7 +57,7 @@ SELECT is((SELECT count(*)::int FROM upd), 0, 'user_a cannot UPDATE workspace-B 
 INSERT INTO public.files (id, project_id, name, storage_provider, storage_path)
 VALUES ('aaaa1111-0000-0000-0000-00000000ff99',
         'aaaa1111-0000-0000-0000-000000000001',
-        'audit.txt', 'supabase', 'projects/a/audit.txt');
+        'audit.txt', 'supabase', 'projects/aaaa1111-0000-0000-0000-000000000001/files/a1/audit.txt');
 
 SELECT is(
   (SELECT created_by FROM public.files WHERE id = 'aaaa1111-0000-0000-0000-00000000ff99'),
@@ -209,7 +215,21 @@ SELECT lives_ok(
             'aaaa1111-0000-0000-0000-0000000000a1')$$,
   '0043: a file may carry folder_id, scene_id and asset_id at once');
 
--- 11: deleting the SCENE must not delete the file. A CASCADE here would
+-- 11-12 (MO1, 0113): the composite key on (folder_id, project_id). A patch that
+-- resends the row's own project passes while the file is filed, as updateFile's
+-- and patchFile's do.
+SELECT lives_ok($$
+  UPDATE public.files SET project_id = 'aaaa1111-0000-0000-0000-000000000001', name = 'ref-renamed.png'
+   WHERE id = 'aaaa1111-0000-0000-0000-00000000fe01'
+$$, '0113: a patch that resends the same project_id passes');
+SELECT is(
+  (SELECT count(*)::int FROM public.files
+    WHERE id = 'aaaa1111-0000-0000-0000-00000000fe01'
+      AND folder_id = 'aaaa1111-0000-0000-0000-0000000000d1' AND name = 'ref-renamed.png'),
+  1,
+  '0113: and the file is renamed and still filed');
+
+-- 13: deleting the SCENE must not delete the file. A CASCADE here would
 -- destroy the only record of where the blob lives, leaving an object in the
 -- bucket that nothing references and only the GC orphan scan can ever find.
 DELETE FROM public.scenes WHERE id = 'aaaa1111-0000-0000-0000-0000000000c1';
@@ -220,7 +240,7 @@ SELECT is(
   1,
   '0043: deleting a scene clears files.scene_id and KEEPS the file row');
 
--- 12: and the same for the folder. This is also Audrey's requirement seen from
+-- 14: and the same for the folder. This is also the owner's requirement seen from
 -- the other side — "toggling a category off must never delete the folders"
 -- would mean little if removing a folder deleted the files that were in it.
 DELETE FROM public.folders WHERE id = 'aaaa1111-0000-0000-0000-0000000000d1';
@@ -230,6 +250,16 @@ SELECT is(
     WHERE id = 'aaaa1111-0000-0000-0000-00000000fe01' AND folder_id IS NULL),
   1,
   '0043: deleting a folder clears files.folder_id and KEEPS the file row');
+
+-- 15 (MO1, 0113): a filing in another project's folder is refused, here for the
+-- runner, whom no guard stops (suite 110 pins a client's refusal, suite 114 the
+-- rest of the key).
+INSERT INTO public.folders (id, project_id, kind, slug, path)
+VALUES ('bbbb2222-0000-0000-0000-0000000000d2', 'bbbb2222-0000-0000-0000-000000000001', 'root', 'Project-B', '');
+SELECT throws_ok($$
+  UPDATE public.files SET folder_id = 'bbbb2222-0000-0000-0000-0000000000d2'
+   WHERE id = 'aaaa1111-0000-0000-0000-00000000fe01'
+$$, '23503', NULL, '0113: a file cannot be filed in another project''s folder');
 
 SELECT * FROM finish();
 ROLLBACK;

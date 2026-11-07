@@ -142,11 +142,20 @@ function paramKey(req) {
  * — the demo folder that vanished, say. `resolveContainedFilePath` is
  * pathContainment's; `safeMediaContentType` is main.cjs's media whitelist.
  */
+const RETIRED_DIR = '.trash';
+const RETIRED_KEEP_MS = 30 * 24 * 60 * 60 * 1000;
+const OP_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+// <stamp>-<op>-<leaf>, and nothing a path could read as a step: no slash of either kind, no colon, no leading dot.
+const RETIRED_NAME = /^[0-9]+-[0-9a-f-]{36}-[^\\/:]+$/;
+
 function mountLocalMedia(expressApp, {
   getRoot,
   resolveContainedFilePath,
   safeMediaContentType = (m) => m,
   log = () => {},
+  movesDir = null,
+  writeJsonAtomic = null,
+  now = () => Date.now(),
 } = {}) {
   if (typeof getRoot !== 'function') throw new Error('mountLocalMedia: getRoot is required');
   if (typeof resolveContainedFilePath !== 'function') throw new Error('mountLocalMedia: resolveContainedFilePath is required');
@@ -214,6 +223,80 @@ function mountLocalMedia(expressApp, {
       return res.status(500).json({ error: `media move failed: ${err.message}` });
     }
   });
+
+  // MO1 (MOTH §1.8): after a copy-up commits, the holding desktop keeps its copy 30 days. It moves into
+  // <root>/.trash, where no key can name it (checkMediaKey refuses a dot-led segment), and the journal
+  // goes first, so a crash between the two is finished at the next start.
+  const retireJournal = (op) => path.join(movesDir(), `retire-${op}.json`);
+  function finishRetire(root, journal) {
+    // A journal may come from a folder someone handed over: its name must be a bare name, or a rename
+    // here could put any file anywhere the person can write.
+    if (journal?.kind !== 'retire' || !OP_ID.test(String(journal.op)) || !RETIRED_NAME.test(String(journal.trash_name))
+        || journal.trash_name !== path.basename(journal.trash_name)) {
+      throw new Error('this is not a journal of a retire');
+    }
+    const from = locateKey(root, journal.key);
+    if (from && fs.existsSync(from.diskPath)) {
+      const trash = path.join(root, RETIRED_DIR);
+      fs.mkdirSync(trash, { recursive: true });
+      fs.renameSync(from.diskPath, path.join(trash, journal.trash_name));
+    }
+    fs.unlinkSync(retireJournal(journal.op));
+  }
+  expressApp.post(`${ROUTE_BASE}/retire`, (req, res) => {
+    const root = rootOr503(res);
+    if (!root) return;
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const op = typeof body.op === 'string' && OP_ID.test(body.op) ? body.op : null;
+    const found = locateKey(root, typeof body.key === 'string' ? body.key : '');
+    if (!op || !found) return res.status(404).json({ error: 'media not found' });
+    if (!movesDir || !writeJsonAtomic) return res.status(503).json({ error: 'the move journal is not available' });
+    let stat = null;
+    try { stat = fs.statSync(found.diskPath); } catch { /* already gone: a repeat whose answer was lost */ }
+    if (stat && !stat.isFile()) return res.status(404).json({ error: 'media not found' });
+    if (!stat) return res.json({ retired: false, already: true });
+    const journal = { kind: 'retire', op, key: found.key, trash_name: `${now()}-${op}-${path.basename(found.diskPath)}` };
+    try {
+      fs.mkdirSync(movesDir(), { recursive: true });
+      writeJsonAtomic(retireJournal(op), journal, { fs, durable: true });
+      finishRetire(root, journal);
+      return res.json({ retired: true });
+    } catch (err) {
+      // The journal stands, so the next start finishes it.
+      return res.status(500).json({ error: `media retire failed: ${err.message}` });
+    }
+  });
+
+  // At start-up: what a crash left, then what has been kept its 30 days.
+  function recoverRetires() {
+    let root;
+    try { root = getRoot(); } catch { return { recovered: 0, left: 0, purged: 0 }; }
+    let recovered = 0;
+    let left = 0;
+    let purged = 0;
+    if (movesDir && fs.existsSync(movesDir())) {
+      for (const name of fs.readdirSync(movesDir())) {
+        if (!name.startsWith('retire-') || !name.endsWith('.json')) continue;
+        try {
+          const journal = JSON.parse(fs.readFileSync(path.join(movesDir(), name), 'utf8'));
+          if (name !== `retire-${journal?.op}.json`) throw new Error('this journal is named for something else');
+          finishRetire(root, journal);
+          recovered += 1;
+        } catch {
+          left += 1;
+        }
+      }
+    }
+    const trash = path.join(root, RETIRED_DIR);
+    if (fs.existsSync(trash)) {
+      for (const name of fs.readdirSync(trash)) {
+        const stamp = Number(name.split('-')[0]);
+        if (!Number.isFinite(stamp) || now() - stamp < RETIRED_KEEP_MS) continue;
+        try { fs.unlinkSync(path.join(trash, name)); purged += 1; } catch { /* next start */ }
+      }
+    }
+    return { recovered, left, purged };
+  }
 
   expressApp.get(ROUTE_BASE, (req, res) => {
     const root = rootOr503(res);
@@ -308,6 +391,8 @@ function mountLocalMedia(expressApp, {
       return res.status(500).json({ error: `media delete failed: ${err.message}` });
     }
   });
+
+  return { recoverRetires };
 }
 
 // insideByRealPath: post-overhaul S4a's rabbit:open-path IPC applies the same

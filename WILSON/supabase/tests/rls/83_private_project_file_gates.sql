@@ -141,6 +141,26 @@ SELECT ok(
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
+
+-- MO1 (0114): a member's row names a stored copy already in the bucket, as an upload leaves it.
+INSERT INTO storage.objects (bucket_id, name, owner_id) VALUES
+  ('rabbit-files', 'projects/aaaa1111-0000-0000-0000-000000000001/ASSETS/a83/1-public-brief.pdf', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
+  ('rabbit-files', 'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/a83/1-public-invoice.pdf', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
+  ('rabbit-files', 'projects/aaaa1111-0000-0000-0000-000000000001/ASSETS/a83/4-second-manager.png', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee');
+
+-- MO1 (0114): fn_files_body_guard is a BEFORE trigger, so it answers a client ahead of the
+-- policies and a policy's own refusal cannot be heard with it on. No runner can stand in, a
+-- runner passes RLS. So a probe that names a policy runs with the guard off, as suites 96
+-- and 103 do: the guard only ever refuses more, so what is refused here is refused with it
+-- on, and suite 115 pins the guard itself. DEFINER because only the table's owner may say
+-- this.
+CREATE FUNCTION pg_temp.body_guard(p_switch TEXT)
+RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  EXECUTE format('ALTER TABLE public.files %s TRIGGER trg_files_body_guard', p_switch);
+END;
+$$;
+
 SELECT set_config('request.jwt.claims', json_build_object(
   'sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
   'role', 'authenticated',
@@ -158,7 +178,7 @@ SELECT lives_ok($$
      'projects/aaaa1111-0000-0000-0000-000000000001/ASSETS/a83/1-public-brief.pdf', 2048, false),
     ('83830000-0000-0000-0000-0000000000b2', '11111111-1111-1111-1111-111111111111',
      'aaaa1111-0000-0000-0000-000000000001', 'public-invoice.pdf', 'supabase',
-     'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/1-public-invoice.pdf', 1024, true)
+     'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/a83/1-public-invoice.pdf', 1024, true)
 $$, 'CONTROL SETUP: the admin files a plain file and an invoice on the PUBLIC project');
 
 
@@ -182,6 +202,21 @@ SELECT lives_ok($$
   VALUES ('aaaa1111-0000-0000-0000-000000000083',
           '11111111-1111-1111-1111-111111111111', 'Private P', true)
 $$, 'a manager can insert a private project (created_by stamped by fn_audit_touch)');
+
+-- MO1 (0114): its stored copy comes after the project: a copy under an id no project
+-- holds ties that id, and the project could not be made.
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+INSERT INTO storage.objects (bucket_id, name, owner_id) VALUES
+  ('rabbit-files', 'projects/aaaa1111-0000-0000-0000-000000000083/ASSETS/a1/1-private-plate.png', 'dddddddd-dddd-dddd-dddd-dddddddddddd');
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'dddddddd-dddd-dddd-dddd-dddddddddddd',
+  'role', 'authenticated',
+  'app_metadata', json_build_object(
+    'workspace_id', '11111111-1111-1111-1111-111111111111',
+    'app_role', 'manager')
+)::text, true);
+SET LOCAL ROLE authenticated;
 
 SELECT ok(
   (SELECT public.reserve_upload_bytes(
@@ -259,14 +294,17 @@ SELECT ok(
 -- runs as the caller and reads projects under RLS, so on a private project it
 -- would fill nothing and the row would fail the WORKSPACE arm — a refusal for
 -- the wrong reason, which is what an attacker's client never hands us. With
--- the column supplied, the only arm that can refuse is the new hop.
+-- the column supplied, the only arm that can refuse is the new hop. With the guard
+-- off (MO1, 0114), which would otherwise answer first for the same privacy reason.
+SELECT pg_temp.body_guard('DISABLE');
 SELECT throws_ok($$
   INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path, size_bytes, is_financial)
   VALUES ('83830000-0000-0000-0000-0000000000e1', '11111111-1111-1111-1111-111111111111',
           'aaaa1111-0000-0000-0000-000000000083', 'intruder.png', 'supabase',
           'projects/aaaa1111-0000-0000-0000-000000000083/ASSETS/a1/2-intruder.png', 10, false)
-$$, '42501', NULL,
+$$, '42501', 'new row violates row-level security policy for table "files"',
   'another manager cannot file a row INTO a private project (files_insert''s new hop)');
+SELECT pg_temp.body_guard('ENABLE');
 
 SELECT lives_ok($$
   INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path, size_bytes, is_financial)
@@ -283,13 +321,16 @@ $$, 'CONTROL: the same INSERT into the PUBLIC project lives — workspace, membe
 -- that check with or without 0083's hop, so this probe throws 42501 either
 -- way (suite 79's probe-15 note found the same thing). It stays as the
 -- documented behaviour of a filtered move; probe 20 is the one that can only
--- pass with 0083.
+-- pass with 0083. With the guard off (MO1, 0114), which refuses any client's patch
+-- of project_id first, so that the hop this names is still what answers.
+SELECT pg_temp.body_guard('DISABLE');
 SELECT throws_ok($$
   UPDATE public.files
      SET project_id = 'aaaa1111-0000-0000-0000-000000000083'
    WHERE id = '83830000-0000-0000-0000-0000000000e2'
-$$, '42501', NULL,
+$$, '42501', 'new row violates row-level security policy for table "files"',
   'a filtered move of a file INTO it is refused too — by files_select''s hop on the NEW row, which any UPDATE that reads a column already meets (defence in depth, not 0083''s doing)');
+SELECT pg_temp.body_guard('ENABLE');
 
 -- PRESENCE CONTROL for the refused move: the row is where it was, on the
 -- public project, and the refusal was of a row this caller can see.
@@ -315,10 +356,12 @@ SELECT is(
 -- reads back that the abort undid all of it. (On the hosted API this is the
 -- statement pg-safeupdate refuses for the API role — unmeasured on this
 -- project's envs; the hop is the gate that does not depend on it.)
-SELECT throws_ok(
+-- Since 0107 files_update's USING carries the hop too, so the statement no
+-- longer reaches a1 at all: it runs and rewrites only the public file b1
+-- (probe 24 reads both back). Before 0107 it aborted on a1's new row.
+SELECT lives_ok(
   $$UPDATE public.files SET description = 'x'$$,
-  '42501', NULL,
-  '🚨 an UPDATE that reads no column cannot rewrite a private project''s file (files_update''s WITH CHECK hop — the one shape files_select never sees)');
+  '🚨 an UPDATE that reads no column runs and never reaches a private project''s file (files_update''s USING hop, 0107; its WITH CHECK hop since 0083)');
 
 
 -- ── 21-24: nothing was written by the refused calls (read as postgres) ─────
@@ -349,18 +392,15 @@ SELECT is(
       AND actor_user_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'),
   1, 'PRESENCE CONTROL: the creator''s read of the same file was logged');
 
--- PRESENCE CONTROL for probe 20: the refused column-free UPDATE aborted as a
--- WHOLE. The private file's description is untouched — and so is the public
--- file's, which the same statement reached through files_update's USING: a
--- per-row refusal that left the rows before it rewritten would be the same
--- hole with a different exit code. Two rows, both still NULL; a missing row
--- would count 1 or 0, a rewritten one 1.
+-- CONTROL for probe 20 (0107): the private file's description is untouched
+-- and the public file's was rewritten by the same statement, so the statement
+-- ran and the USING hop is what kept a1 out. A missing row would count 1 or 0.
 SELECT is(
   (SELECT count(*)::int FROM public.files
-    WHERE id IN ('83830000-0000-0000-0000-0000000000a1',
-                 '83830000-0000-0000-0000-0000000000b1')
-      AND description IS NULL),
-  2, 'PRESENCE CONTROL: the refused column-free UPDATE rewrote neither the private file nor the public one');
+    WHERE id = '83830000-0000-0000-0000-0000000000a1' AND description IS NULL)
+  + (SELECT count(*)::int FROM public.files
+    WHERE id = '83830000-0000-0000-0000-0000000000b1' AND description = 'x'),
+  2, 'CONTROL: the column-free UPDATE rewrote the public file and not the private one');
 
 
 -- ── 25-26: a plain member — can_write_project TRUE (unstaffed), and refused ─

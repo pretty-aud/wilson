@@ -14,7 +14,7 @@
 import { WORKSPACE, MEMBERS } from './data/workspace'
 import {
   PROJECT, PHASES, MILESTONES, ASSETS, TASKS, DEPENDENCIES, TASK_LINKS,
-  COMMENTS, ASSET_VERSIONS, EDIT_HISTORY, PROJECT_MEMBERS, TASK_TEMPLATES,
+  COMMENTS, ASSET_VERSIONS, EDIT_HISTORY, PROJECT_MEMBERS, PERSONAL_SPACES, PERSONAL_SPACE_FILES, PERSONAL_SPACE_MEMBERS, TASK_TEMPLATES,
 } from './data/project'
 import {
   SCENES, SHOTS, LEVELS, EXPERIENCES, BINS, BIN_FILES, BIN_ROOTS, BIN_LOCATIONS, SHOT_TAKES,
@@ -137,6 +137,69 @@ export function connectionFixtureMode(search = typeof location === 'undefined' ?
   return v === 'files-down' || v === 'offline' ? v : null
 }
 
+// MO1 (MOTH_DESIGN §1.9): `?storage=network` is a company whose files are on its office server: the workspace's storage
+// row, Salt Hours' folder under the drive, a dozen listed files (one the last check did not find, one in a working
+// folder, one in the trash), the row of that check, and a move a laptop left a day ago. A dev build is a browser, so
+// what the desktop must do says so, and the writes are refused as every fixture write is.
+export function storageFixtureMode(search = typeof location === 'undefined' ? '' : location.search) {
+  return new URLSearchParams(search).get('storage') === 'network' ? 'network' : null
+}
+
+const OFFICE_ROOT = '//office-server/share/Projects'
+const NAS_NAMES = [
+  'rushes/A001_C001.mov', 'rushes/A001_C002.mov', 'rushes/A001_C003.mov', 'rushes/A002_C001.mov', 'rushes/B001_C001.mov',
+  'sound/day1_mix.wav', 'sound/day2_mix.wav', 'plates/sh010_plate', 'refs/location_walk.mov', 'refs/colour_chart.png',
+  'gone_from_server.mov', 'deleted_last_week.mov',
+]
+
+export function applyNetworkStorageVariant(store, userId) {
+  const project = store.projects.find(p => !p.personal_owner_id)
+  const folderName = 'Salt-Hours'
+  project.folder_root = `${OFFICE_ROOT}/${folderName}`
+  const workingFolder = store.folders.find(f => f.project_id === project.id && f.kind !== 'root' && !/^(invoices|finance|legal)/i.test(f.path))
+  const at = (daysAgo) => new Date(Date.parse('2026-11-06T09:00:00Z') - daysAgo * 86400000).toISOString()
+  NAS_NAMES.forEach((rel, i) => {
+    const leaf = rel.split('/').pop()
+    const sequence = rel === 'plates/sh010_plate'
+    store.files.push({
+      id: `f1c70000-5a5a-4000-8000-${String(i + 1).padStart(12, '0')}`,
+      workspace_id: store.workspace.id,
+      project_id: project.id,
+      folder_id: rel === 'refs/location_walk.mov' ? workingFolder?.id ?? null : null,
+      name: leaf,
+      mime_type: sequence ? 'inode/x-frame-sequence' : leaf.endsWith('.wav') ? 'audio/wav' : leaf.endsWith('.png') ? 'image/png' : 'video/quicktime',
+      size_bytes: 1048576 * (i + 3),
+      storage_provider: 'network_share',
+      storage_path: `nas:${folderName}/${rel}`,
+      thumbnail_url: null,
+      tags: [],
+      is_financial: false,
+      source_modified_at: at(10),
+      uploaded_at: at(10),
+      created_at: at(10),
+      updated_at: at(1),
+      share_missing_since: rel === 'gone_from_server.mov' ? at(1) : null,
+      share_bin_path: rel === 'deleted_last_week.mov' ? `${folderName}/.wilson-bin/f1c70000-5a5a-4000-8000-${String(i + 1).padStart(12, '0')}/${leaf}` : null,
+      deleted_at: rel === 'deleted_last_week.mov' ? at(7) : null,
+    })
+  })
+  store.workspaceStorage = {
+    workspace_id: store.workspace.id, mode: 'byos', provider: 'network', provider_config: null,
+    root_path: OFFICE_ROOT, root_kind: 'unc', updated_at: at(30), updated_by: userId,
+  }
+  store.networkShareChecks = {
+    [project.id]: {
+      project_id: project.id, last_checked_at: at(1), last_checked_by: userId, last_complete_at: at(1),
+      files_seen: NAS_NAMES.length - 1, missing_count: 1, next_start: null,
+    },
+  }
+  store.networkShareStale = [{
+    op_id: 'f1c70000-5a5b-4000-8000-000000000001', file_id: 'f1c70000-5a5a-4000-8000-000000000005', op: 'move',
+    from: `${folderName}/rushes/B001_C001.mov`, to: `${folderName}/selects/B001_C001.mov`, name: 'B001_C001.mov',
+  }]
+  return store
+}
+
 export function createStore() {
   const progress = {}
   progress[COURSE.id] = clone(PROGRESS)
@@ -144,7 +207,9 @@ export function createStore() {
     workspace: clone(WORKSPACE),
     members: clone(MEMBERS),
 
-    projects: [clone(PROJECT)],
+    projects: [clone(PROJECT), ...clone(PERSONAL_SPACES)],
+    // MO1 (0110): the fixtures' stand-in for the WIL-4114 line in app_events.
+    personalSpaceOpens: [],
     phases: clone(PHASES),
     milestones: clone(MILESTONES),
     assets: clone(ASSETS),
@@ -156,7 +221,7 @@ export function createStore() {
     comments: clone(COMMENTS),
     assetVersions: clone(ASSET_VERSIONS),
     editHistory: clone(EDIT_HISTORY),
-    projectMembers: clone(PROJECT_MEMBERS),
+    projectMembers: [...clone(PROJECT_MEMBERS), ...clone(PERSONAL_SPACE_MEMBERS)],
     taskTemplates: clone(TASK_TEMPLATES),
     ingestionRuns: [],
     ingestionChunks: [],
@@ -191,7 +256,7 @@ export function createStore() {
     tableViewLast: {},
 
     folders: clone(FOLDERS),
-    files: clone(FILES),
+    files: [...clone(FILES), ...clone(PERSONAL_SPACE_FILES)],
     fileEvents: clone(FILE_EVENTS),
     thumbnails: new Map(THUMBNAILS),
     manifests: {},

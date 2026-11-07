@@ -337,10 +337,14 @@ SELECT is(
   'the broadcast trigger is on exactly the eighteen project-scoped tables (§10)');
 
 -- 18
+-- MO1 (2026-11-02): 0109 restates 0098's body (every arm kept, table_views
+-- and item_groupings included; each side to its own project's topic), so the
+-- tip read 0109's md5. MO1 (0116) restates 0109's body with one early return (a
+-- catalogue check), so the tip reads 0116's, the one 0116's pre-flight names beside 0109's.
 SELECT is(
   (SELECT md5(replace(prosrc, chr(13), '')) FROM pg_proc WHERE oid = 'public.fn_realtime_broadcast()'::regprocedure),
-  'e5abdcf2b8abce914416acb148144971',
-  'fn_realtime_broadcast is 0098''s body, the one §0''s re-run guard names (§10)');
+  '34686e6bbb9ba89ecf012e003856e6da',
+  'fn_realtime_broadcast is 0116''s restatement of 0109''s body, the one 0116''s pre-flight names');
 
 -- 19
 SELECT ok(

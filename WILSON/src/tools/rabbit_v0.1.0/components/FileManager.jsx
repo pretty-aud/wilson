@@ -581,9 +581,10 @@ export default function FileManager({
           if (!refused.includes(verdict.message)) refused.push(verdict.message)
           continue
         }
-        notices.push(...verdict.notes.filter(n => n.code === 'slow'))
+        notices.push(...verdict.notes.filter(n => n.code === 'slow' || n.code === 'nearly_full'))
         queued.push(file)
-        if (planCursor) {
+        // No figure to carry (anyone but an admin, 0121): the server weighs each file.
+        if (planCursor && planCursor.usedBytes != null) {
           planCursor = {
             ...planCursor,
             usedBytes: planCursor.usedBytes + (Number(file?.size) || 0),
@@ -1300,7 +1301,11 @@ export default function FileManager({
           <p className="rb-fm-confirm">
             {managed
               ? `Delete "${displayName(deleteTarget)}"? This will move the file to trash.`
-              : `Delete "${displayName(deleteTarget)}"? It can be restored by an admin.`}
+              : deleteTarget.storage_provider === 'network_share'
+                ? `Delete "${displayName(deleteTarget)}"? It moves to the company server's bin for 30 days.`
+                : deleteTarget.storage_provider === 'local_server'
+                  ? `Delete "${displayName(deleteTarget)}"? It stays in this project's trash for 30 days.`
+                  : `Delete "${displayName(deleteTarget)}"? It can be restored by an admin.`}
           </p>
         </Dialog>,
         document.body,

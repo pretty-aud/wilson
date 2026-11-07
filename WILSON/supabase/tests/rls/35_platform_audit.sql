@@ -303,12 +303,12 @@ SELECT ok(
 SELECT is(
   (SELECT count(*)::int
      FROM pg_proc p
-    WHERE p.pronamespace = 'public'::regnamespace
+    WHERE p.pronamespace IN ('public'::regnamespace, 'rabbit_private'::regnamespace)
       AND p.prokind = 'f'
       AND p.prosecdef
       AND has_function_privilege('anon', p.oid, 'EXECUTE')),
   0,
-  '0033: no SECURITY DEFINER function in public is executable by anon'
+  '0033, 0114: no SECURITY DEFINER function in public or rabbit_private is executable by anon'
 );
 
 

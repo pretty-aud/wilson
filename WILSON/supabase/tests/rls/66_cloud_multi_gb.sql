@@ -97,7 +97,7 @@
 
 BEGIN;
 
-SELECT plan(30);
+SELECT plan(37);
 
 SELECT * FROM tests.rls_setup();
 
@@ -510,6 +510,87 @@ SELECT ok(
   AND NOT has_function_privilege('authenticated', 'public.workspace_petal_bytes(uuid)', 'EXECUTE'),
   'the policy predicates are callable by authenticated; the unfiltered aggregate is not');
                                                                             -- 30
+
+-- ══ 9. 0115: a copy moved out of a project still counts after that project is purged ══
+-- The meter finds a project by the key's second segment, so without its second arm
+-- purging a project would free the quota of the copies moved out of it. Fixture ids are
+-- hex: 66000000-aaaa-…-01 the project purged below, 66000000-bbbb-…-01 another company's,
+-- 66000000-eeee-…-01 an id no project holds. Every delta is against the meter as it stood
+-- here, so this section is deaf to what the sections above left.
+CREATE TEMP TABLE t66_m0 ON COMMIT DROP AS
+  SELECT public.workspace_petal_committed_bytes('11111111-1111-1111-1111-111111111111') AS a,
+         public.workspace_petal_committed_bytes('22222222-2222-2222-2222-222222222222') AS b;
+
+INSERT INTO public.projects (id, workspace_id, title) VALUES
+  ('66000000-aaaa-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'Purged origin'),
+  ('66000000-aaaa-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'Stays alive'),
+  ('66000000-bbbb-0000-0000-000000000001', '22222222-2222-2222-2222-222222222222', 'Their project');
+
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, thumbnail_url) VALUES
+  -- Moved out of the origin into project A, with a picture.
+  ('66000000-0000-0000-0000-00000000f001', 'aaaa1111-0000-0000-0000-000000000001', 'moved.mov', 'supabase', 'projects/66000000-aaaa-0000-0000-000000000001/files/f001/moved.mov', 'projects/66000000-aaaa-0000-0000-000000000001/files/f001/moved.mov.jpg'),
+  -- A picture a second moved row names too: one object, counted once.
+  ('66000000-0000-0000-0000-00000000f002', 'aaaa1111-0000-0000-0000-000000000001', 'moved2.mov', 'supabase', 'projects/66000000-aaaa-0000-0000-000000000001/files/f002/moved2.mov', 'projects/66000000-aaaa-0000-0000-000000000001/files/f001/moved.mov.jpg'),
+  -- A moved row with no object at its key.
+  ('66000000-0000-0000-0000-00000000f003', 'aaaa1111-0000-0000-0000-000000000001', 'gone.mov', 'supabase', 'projects/66000000-aaaa-0000-0000-000000000001/files/f003/gone.mov', NULL),
+  -- Not moved: counted by the first arm alone.
+  ('66000000-0000-0000-0000-00000000f004', 'aaaa1111-0000-0000-0000-000000000001', 'stayed.mov', 'supabase', 'projects/aaaa1111-0000-0000-0000-000000000001/files/f004/stayed.mov', NULL),
+  -- An s3 row whose key has the same shape: what it names is not in Petal's buckets.
+  ('66000000-0000-0000-0000-00000000f005', 'aaaa1111-0000-0000-0000-000000000001', 's3.mov', 's3', 'projects/66000000-aaaa-0000-0000-000000000001/files/f005/s3.mov', 'projects/66000000-aaaa-0000-0000-000000000001/files/f005/s3.mov.jpg'),
+  -- Each object answers for itself: a body under the purged project, its picture under a live one;
+  -- and a body under a live one, its picture under the purged one. No write path makes these today.
+  ('66000000-0000-0000-0000-00000000f008', 'aaaa1111-0000-0000-0000-000000000001', 'split1.mov', 'supabase', 'projects/66000000-aaaa-0000-0000-000000000001/files/f008/split1.mov', 'projects/aaaa1111-0000-0000-0000-000000000001/files/f008/split1.mov.jpg'),
+  ('66000000-0000-0000-0000-00000000f009', 'aaaa1111-0000-0000-0000-000000000001', 'split2.mov', 'supabase', 'projects/66000000-aaaa-0000-0000-000000000002/files/f009/split2.mov', 'projects/66000000-aaaa-0000-0000-000000000001/files/f009/split2.mov.jpg'),
+  -- Another company's: its id, its copy, under an id no project holds.
+  ('66000000-0000-0000-0000-00000000f006', '66000000-bbbb-0000-0000-000000000001', 'theirs.mov', 'supabase', 'projects/66000000-eeee-0000-0000-000000000001/files/f006/theirs.mov', NULL);
+INSERT INTO storage.objects (bucket_id, name, owner_id, metadata) VALUES
+  ('rabbit-files', 'projects/66000000-aaaa-0000-0000-000000000001/files/f001/moved.mov', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"size":1000}'::jsonb),
+  ('rabbit-thumbnails', 'projects/66000000-aaaa-0000-0000-000000000001/files/f001/moved.mov.jpg', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"size":100}'::jsonb),
+  ('rabbit-files', 'projects/66000000-aaaa-0000-0000-000000000001/files/f002/moved2.mov', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"size":2000}'::jsonb),
+  ('rabbit-files', 'projects/aaaa1111-0000-0000-0000-000000000001/files/f004/stayed.mov', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"size":7}'::jsonb),
+  ('rabbit-files', 'projects/66000000-aaaa-0000-0000-000000000001/files/f005/s3.mov', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"size":40000}'::jsonb),
+  -- Nothing names this one, under the origin.
+  ('rabbit-files', 'projects/66000000-aaaa-0000-0000-000000000001/files/f007/orphan.mov', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"size":500000}'::jsonb),
+  ('rabbit-files', 'projects/66000000-eeee-0000-0000-000000000001/files/f006/theirs.mov', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '{"size":9000}'::jsonb),
+  ('rabbit-thumbnails', 'projects/66000000-aaaa-0000-0000-000000000001/files/f005/s3.mov.jpg', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"size":70000}'::jsonb),
+  ('rabbit-thumbnails', 'projects/aaaa1111-0000-0000-0000-000000000001/files/f008/split1.mov.jpg', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"size":30}'::jsonb),
+  ('rabbit-files', 'projects/66000000-aaaa-0000-0000-000000000002/files/f009/split2.mov', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"size":50}'::jsonb),
+  ('rabbit-thumbnails', 'projects/66000000-aaaa-0000-0000-000000000001/files/f009/split2.mov.jpg', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"size":300}'::jsonb),
+  -- In the picture bucket, under a moved body's own name: not that body, and no row's picture.
+  ('rabbit-thumbnails', 'projects/66000000-aaaa-0000-0000-000000000001/files/f002/moved2.mov', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"size":3000000}'::jsonb);
+
+-- While the origin lives, everything under it counts once, by the first arm.
+SELECT is(public.workspace_petal_committed_bytes('11111111-1111-1111-1111-111111111111') - (SELECT a FROM t66_m0),
+  (1000 + 100 + 2000 + 7 + 40000 + 500000 + 3000000 + 70000 + 30 + 50 + 300)::bigint,
+  'while a project lives, what sits under it counts once, moved out or not');
+SELECT is(public.workspace_petal_committed_bytes('22222222-2222-2222-2222-222222222222') - (SELECT b FROM t66_m0),
+  9000::bigint,
+  'a moved copy under an id no project holds counts for the company whose file names it');
+
+DELETE FROM public.projects WHERE id = '66000000-aaaa-0000-0000-000000000001';
+
+SELECT is(public.workspace_petal_committed_bytes('11111111-1111-1111-1111-111111111111') - (SELECT a FROM t66_m0),
+  (1000 + 100 + 2000 + 7 + 30 + 50 + 300)::bigint,
+  '🚨 the project purged, the copies moved out of it still count, each once, each by its own key; what nothing names and an s3 row''s look-alikes do not');
+SELECT is(public.workspace_petal_bytes('11111111-1111-1111-1111-111111111111') - (SELECT a FROM t66_m0),
+  (1000 + 100 + 2000 + 7 + 30 + 50 + 300)::bigint,
+  'and the gate''s meter reads the same');
+SELECT is(public.workspace_petal_committed_bytes('22222222-2222-2222-2222-222222222222') - (SELECT b FROM t66_m0),
+  9000::bigint,
+  'another company''s copies are never counted for this one, nor this one''s for it');
+
+-- The id taken again in this company: the first arm counts them, and the second must not.
+INSERT INTO public.projects (id, workspace_id, title) VALUES
+  ('66000000-aaaa-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'Taken again');
+SELECT is(public.workspace_petal_committed_bytes('11111111-1111-1111-1111-111111111111') - (SELECT a FROM t66_m0),
+  (1000 + 100 + 2000 + 7 + 40000 + 500000 + 3000000 + 70000 + 30 + 50 + 300)::bigint,
+  'a key whose second segment names a project is not counted twice');
+
+SELECT ok(
+  NOT has_function_privilege('authenticated', 'public.workspace_petal_committed_bytes(uuid)', 'EXECUTE')
+  AND NOT has_function_privilege('anon', 'public.workspace_petal_committed_bytes(uuid)', 'EXECUTE')
+  AND has_function_privilege('service_role', 'public.workspace_petal_committed_bytes(uuid)', 'EXECUTE'),
+  'the meter takes any company''s id, so no client calls it');
 
 SELECT * FROM finish();
 ROLLBACK;

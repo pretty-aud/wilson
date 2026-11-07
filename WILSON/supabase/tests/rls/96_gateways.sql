@@ -45,7 +45,7 @@
 
 BEGIN;
 
-SELECT plan(162);
+SELECT plan(164);
 
 SELECT * FROM tests.rls_setup();
 
@@ -1616,6 +1616,17 @@ SELECT ok(
   AND EXISTS (SELECT 1 FROM public.gateway_ticket_mints WHERE jti = '0123456789abcdef0123456789abcdef'::uuid)
   AND (public.gateway_sync_apply(current_setting('wg96.gw')::uuid, '{}'::jsonb, NULL, '[]'::jsonb) ->> 'revoked')::boolean,
   '🚨 the sweep deletes the forgotten gateway''s credential (gateway.revoked) and the mints past thirty days; its sync reads revoked');
+
+-- 0117 (NS-D14): an office-server row never authorizes the gateway. Comments stripped.
+SELECT ok((SELECT regexp_replace(prosrc, '--[^' || chr(10) || ']*', '', 'g') NOT LIKE '%public.files%'
+                  AND regexp_replace(prosrc, '--[^' || chr(10) || ']*', '', 'g') NOT LIKE '%network_share%'
+             FROM pg_proc WHERE oid = 'public.gateway_clips_for_tickets(uuid[])'::regprocedure),
+  'gateway_clips_for_tickets reads neither files nor the office-server catalogue');
+SELECT is((SELECT count(*)::int FROM pg_proc
+            WHERE pronamespace = 'public'::regnamespace AND proname = 'gateway_sync_apply'
+              AND (regexp_replace(prosrc, '--[^' || chr(10) || ']*', '', 'g') LIKE '%public.files%'
+                   OR regexp_replace(prosrc, '--[^' || chr(10) || ']*', '', 'g') LIKE '%network_share%')), 0,
+  'and neither does gateway_sync_apply');
 
 SELECT * FROM finish();
 ROLLBACK;

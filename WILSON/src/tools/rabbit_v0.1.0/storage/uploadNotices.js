@@ -154,8 +154,22 @@ export function classifyUpload(file, {
     // same shape lets a brand-new free-tier workspace land an object fifty times
     // its entire 5 GiB allowance on its first upload, so the argument that made
     // `used < quota` correct is the argument that now makes it wrong.
-    const used = Number(storagePlan.usedBytes)
-    const quota = Number(storagePlan.quotaBytes)
+    // MO1 (0121, her answer "Full or nearly full"): anyone but an admin has no figures, and is told only
+    // that. The server still weighs each file, and says so in the same words.
+    if (storagePlan.usedBytes == null) {
+      if (storagePlan.fullness === 'full') {
+        return {
+          blocked: true,
+          code: 'over_quota',
+          message: 'This company\'s Petal cloud storage is full (uploads in progress count). Contact an admin to raise ' +
+            'the plan — deleting files does not free space straight away, because deleted files stay recoverable for 30 days.',
+          notes,
+        }
+      }
+      if (storagePlan.fullness === 'nearly_full') notes.push({ code: 'nearly_full' })
+    }
+    const used = storagePlan.usedBytes == null ? NaN : Number(storagePlan.usedBytes)
+    const quota = storagePlan.quotaBytes == null ? NaN : Number(storagePlan.quotaBytes)
     const known = Number.isFinite(used) && Number.isFinite(quota) && quota > 0
     if (known && used + size > quota) {
       // 🚨 DO NOT TELL THEM TO DELETE FILES. The obvious sentence — "remove some
@@ -326,11 +340,14 @@ function desktopPreviewSentence(desktopDecoder) {
  * §5f: "3 files won't have preview images — add them from the desktop app."
  * Counted rather than listed, because the per-row notes already say WHICH.
  */
+export const NEARLY_FULL_NOTICE = 'This company\'s Petal cloud storage is nearly full'
+
 export function summarizeBatch(notices) {
   const codes = (notices || []).filter(Boolean).map(n => n.code)
   const noPreview = codes.filter(c => c === 'no_preview' || c === 'maybe_no_preview').length
   const slow = codes.filter(c => c === 'slow').length
   const parts = []
+  if (codes.includes('nearly_full')) parts.push(NEARLY_FULL_NOTICE)
   if (noPreview > 0) {
     parts.push(
       `${noPreview} file${noPreview === 1 ? '' : 's'} ` +

@@ -59,6 +59,7 @@ import { COLUMN_ALLOWLIST } from '../../tools/rabbit_v0.1.0/adapters/supabaseAda
 import { isLegalFile, writableTags } from '../../tools/rabbit_v0.1.0/fileTags'
 import { toIsoDate } from '../../tools/rabbit_v0.1.0/dates'
 import { FOLDER_CATEGORIES } from '../../tools/rabbit_v0.1.0/folderPaths'
+import { moneyFolderChainLocked } from '../../tools/rabbit_v0.1.0/storage/index.js'
 import { AGENCY_DEFAULT_PCT } from '../../components/Budget/budgetMath'
 
 const isRow = (r) => r != null && typeof r === 'object' && !Array.isArray(r)
@@ -488,12 +489,28 @@ export function invoicesFolderOf(folders) {
 }
 
 /**
+ * MO1 (0114, SFB-07): a file that is not money whose desktop folder is under
+ * INVOICES, FINANCE or LEGAL. The cloud takes no such file in that folder
+ * (fn_files_body_guard, through moth_folder_chain_locked, which
+ * moneyFolderChainLocked mirrors), so it goes to the project's top and the run
+ * says so, and the guard's 42501 is never the first refusal. `money` as
+ * cloudHomeOfFile's. A Legal file has no desktop folder here, so never this.
+ */
+export function fileLeavesLockedFolder(file, folders, money = false) {
+  if (money || !isRow(file)) return false
+  const desk = desktopFolderOfFile(file, folders)
+  return !!desk && moneyFolderChainLocked(desk.id, (folders || []).filter(isRow))
+}
+
+/**
  * The bundle folder a desktop file goes into in the cloud: the one the
- * desktop shows it in (desktopFolderOfFile), else, for money (`money`: an
- * invoice, or a receipt carried as money), the INVOICES folder; null: the
- * project's top. A Legal file is never filed (LEGAL has no row).
+ * desktop shows it in (desktopFolderOfFile), unless the cloud would refuse it
+ * there (fileLeavesLockedFolder), else, for money (`money`: an invoice, or a
+ * receipt carried as money), the INVOICES folder; null: the project's top. A
+ * Legal file is never filed (LEGAL has no row).
  */
 export function cloudHomeOfFile(file, folders, money = false) {
+  if (fileLeavesLockedFolder(file, folders, money)) return null
   const desk = desktopFolderOfFile(file, folders)
   if (desk || !money || !isRow(file) || isLegalFile(file)) return desk
   return invoicesFolderOf(folders)

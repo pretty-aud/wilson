@@ -425,6 +425,8 @@ export const NOT_CARRIED = Object.freeze([
   // The project team is a derived copy (BudgetView's effect mirrors team
   // members ∩ assignments to team.json): the cloud derives it from the roster.
   ['projectTeam', 'project team mirrors (derived in the cloud from the roster)', 'project team mirror (derived in the cloud from the roster)'],
+  // MO1 (MOTH §1.8): what someone deleted here stays in this computer's trash, for its 30 days.
+  ['trashedFiles', "files in a project's trash on this computer (they stay here)", "file in a project's trash on this computer (it stays here)"],
   // The desktop has a route and a bundle key for asset versions and no writer
   // (upsertAssetVersion is defined by four adapters and called by nothing);
   // counted only when a bundle holds any, which the dry run measures.
@@ -452,6 +454,10 @@ export const NOT_CARRIED = Object.freeze([
   // desktop-only builds before InvoiceAttachment), no address in the cloud:
   // the actual goes up without it.
   ['invoicePaths', 'invoices attached by a path on this computer', 'invoice attached by a path on this computer'],
+  // MO1 (MOTH_DESIGN §2.2 PSA-05): the signed-out desktop's personal space, which
+  // archive-and-clear does not reach either, so the sentence's archive line is
+  // not about it. Not counted from a bundle: runMigration asks its own route.
+  ['personalSpace', 'personal spaces on this computer (archive and clear leaves them where they are)', 'personal space on this computer (archive and clear leaves it where it is)'],
 ].map(Object.freeze))
 
 /** The report's word for `count` of `key`: the plural, or the one given for a single (the plural less its s, else). */
@@ -472,7 +478,7 @@ const PICTURED = ['scenes', 'shots', 'levels', 'experiences']
 /** What a bundle holds that the migration leaves on this computer: `[{ key, label, count }]`, only the non-empty. */
 // The kinds a bundle's own arrays count (the rest the runner counts as it
 // goes: the people map says whose rows are left, the stores say the rest).
-const BUNDLE_COUNTED = new Set(['thumbnails', 'deckAttachments', 'projectTeam', 'assetVersions'])
+const BUNDLE_COUNTED = new Set(['thumbnails', 'deckAttachments', 'projectTeam', 'assetVersions', 'trashedFiles'])
 export function notCarriedOf(bundle) {
   const out = []
   for (const [key] of NOT_CARRIED) {

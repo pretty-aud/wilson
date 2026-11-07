@@ -338,6 +338,59 @@ const ROSTER = [
   [M.dev,   'reviewer', 'Production Coordinator'],
 ]
 
+// MO1 (0110): Mara's and Priya's personal spaces, each with its one seat. The
+// rows are shaped as ensure_personal_space makes them; they are in no list but
+// listPersonalSpaces (the fixtures adapter keeps them out, as the cloud's does).
+const personalSpaceRow = (n, owner, offset) => ({
+  id: fid('project', n),
+  workspace_id: WORKSPACE_ID,
+  title: 'Personal space',
+  is_private: true,
+  personal_owner_id: owner,
+  folder_slug: `Personal_${owner.replace(/-/g, '')}`,
+  status: 'active',
+  created_at: stamp(offset, 9),
+  updated_at: stamp(offset, 9),
+  created_by: owner,
+  updated_by: owner,
+  deleted_at: null,
+})
+export const PERSONAL_SPACES = [
+  personalSpaceRow(901, M.mara, -9),
+  personalSpaceRow(902, M.priya, -7),
+]
+// One file in Priya's, so an admin's read-only view has a row to look at.
+export const PERSONAL_SPACE_FILES = [{
+  id: fid('file', 901),
+  project_id: PERSONAL_SPACES[1].id,
+  workspace_id: WORKSPACE_ID,
+  folder_id: null,
+  name: 'lens-tests-notes.txt',
+  kind: 'document',
+  mime_type: 'text/plain',
+  size_bytes: 2048,
+  storage_provider: 'supabase',
+  storage_path: `projects/${PERSONAL_SPACES[1].id}/documents/lens-tests-notes.txt`,
+  tags: [],
+  is_financial: false,
+  is_core_definer: false,
+  created_at: stamp(-6, 11),
+  updated_at: stamp(-6, 11),
+  created_by: M.priya,
+  deleted_at: null,
+}]
+export const PERSONAL_SPACE_MEMBERS = PERSONAL_SPACES.map((p) => ({
+  project_id: p.id,
+  user_id: p.personal_owner_id,
+  workspace_id: WORKSPACE_ID,
+  project_role: 'manager',
+  project_title: null,
+  created_at: p.created_at,
+  created_by: p.personal_owner_id,
+  updated_at: p.created_at,
+  updated_by: p.personal_owner_id,
+}))
+
 export const PROJECT_MEMBERS = ROSTER.map(([user_id, project_role, project_title], i) => ({
   project_id: PROJECT_ID,
   user_id,

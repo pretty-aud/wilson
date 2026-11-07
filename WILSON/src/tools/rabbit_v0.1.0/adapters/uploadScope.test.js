@@ -18,6 +18,7 @@
 // =============================================================================
 
 import { describe, it, expect, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
 
 vi.mock('../../../cloud/auth/supabaseClient.js', () => ({ supabase: null }))
 
@@ -87,6 +88,20 @@ describe('no container segment can reach the money-gated namespace', () => {
       const seg = uploadContainerFor(scope, 'p1').seg
       expect(seg).toMatch(/^[a-z]+$/)
     }
+  })
+
+  // MO1 (0114): a third segment the guard does not know refuses the INSERT, after
+  // the body has already landed. A new container arrives with its word in
+  // rabbit_private.file_key_shape_ok, or this fails.
+  it('uses only third segments rabbit_private.file_key_shape_ok takes, as the uploaders\' money, Legal and migration keys do', () => {
+    const sql = readFileSync(new URL('../../../../supabase/migrations/0114_stable_file_bodies.sql', import.meta.url), 'utf8')
+    const list = /lower\(v_segs\[3\]\) NOT IN \(([^)]*)\)/.exec(sql)
+    expect(list, 'file_key_shape_ok no longer lists its segments this way: fix this reader').toBeTruthy()
+    const taken = [...list[1].matchAll(/'([^']+)'/g)].map((m) => m[1])
+    const used = [...EVERY_SCOPE.map((scope) => uploadContainerFor(scope, 'p1').seg), 'INVOICES', LEGAL_SEGMENT, 'files', 'scenes', 'shots']
+    for (const seg of used) expect(taken, seg).toContain(seg.toLowerCase())
+    // CONTROL: the row-less shapes a bucket also holds are not files rows' words.
+    for (const seg of ['bin_files', 'connection-check', RATES_SEGMENT]) expect(taken, seg).not.toContain(seg.toLowerCase())
   })
 
   // ── Track C, bundle C3 (MASTER_PLAN §6 #31) ─────────────────────────────

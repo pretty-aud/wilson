@@ -44,6 +44,8 @@
 --   * Review round 2 (§L): the quota meter never tells anyone whether
 --     another person's key is reserved; the hourly sweep's certificate for an
 --     abandoned Legal upload is flagged, so a member never reads it.
+--   * MO1, 0114 (§M): the person's own statements behind the runner probes in
+--     §H and §K, which its guard now answers first.
 --
 -- Every absence probe has a presence control, so an empty answer cannot pass
 -- by accident. Proven by breakers against 0088 before it was applied
@@ -56,7 +58,7 @@
 
 BEGIN;
 
-SELECT plan(109);
+SELECT plan(115);
 
 SELECT * FROM tests.rls_setup();
 
@@ -110,6 +112,19 @@ BEGIN
     'sub', p_uid, 'role', 'authenticated',
     'app_metadata', json_build_object('workspace_id', p_ws, 'app_role', p_app_role))::text, true);
   PERFORM set_config('role', 'authenticated', true);
+END;
+$$;
+
+-- MO1 (0114): fn_files_body_guard is a BEFORE trigger, so it answers a client ahead of the
+-- policies and a policy's own refusal cannot be heard with it on. No runner can stand in, a
+-- runner passes RLS. So a probe that names a policy runs with the guard off, as suites 96
+-- and 103 do: the guard only ever refuses more, so what is refused here is refused with it
+-- on, and suite 115 pins the guard itself. DEFINER because only the table's owner may say
+-- this.
+CREATE FUNCTION pg_temp.body_guard(p_switch TEXT)
+RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  EXECUTE format('ALTER TABLE public.files %s TRIGGER trg_files_body_guard', p_switch);
 END;
 $$;
 
@@ -170,8 +185,9 @@ SELECT is(
   'files_insert is 0083''s body with the money arm on both axes, and 0092''s Legal arm');               -- 6
 SELECT is(
   (SELECT qual FROM pg_policies WHERE schemaname = 'public' AND tablename = 'files' AND policyname = 'files_update'),
-  '((workspace_id = current_workspace_id()) AND has_active_membership(workspace_id) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id) OR (file_row_is_legal(is_financial, storage_path) AND can_access_project_legal(project_id))))',
-  'files_update USING is 0083''s with the money arm on both axes, and 0092''s Legal arm');             -- 7
+  '((workspace_id = current_workspace_id()) AND has_active_membership(workspace_id) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id) OR (file_row_is_legal(is_financial, storage_path) AND can_access_project_legal(project_id))) AND (EXISTS ( SELECT 1' || chr(10)
+  || '   FROM projects p' || chr(10) || '  WHERE (p.id = files.project_id))))',
+  'files_update USING is 0083''s with the money arm on both axes, and 0092''s Legal arm, and 0107''s project hop');             -- 7
 SELECT is(
   (SELECT with_check FROM pg_policies WHERE schemaname = 'public' AND tablename = 'files' AND policyname = 'files_update'),
   '((workspace_id = current_workspace_id()) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id) OR (file_row_is_legal(is_financial, storage_path) AND can_access_project_legal(project_id))) AND (EXISTS ( SELECT 1' || chr(10)
@@ -179,8 +195,9 @@ SELECT is(
   'files_update WITH CHECK is 0083''s with the money arm on both axes, and 0092''s Legal arm');        -- 8
 SELECT is(
   (SELECT qual FROM pg_policies WHERE schemaname = 'public' AND tablename = 'files' AND policyname = 'files_delete'),
-  '((workspace_id = current_workspace_id()) AND has_active_membership(workspace_id) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id) OR (file_row_is_legal(is_financial, storage_path) AND can_access_project_legal(project_id))))',
-  'files_delete is 0038''s body with the money arm on both axes, and 0092''s Legal arm');               -- 9
+  '((workspace_id = current_workspace_id()) AND has_active_membership(workspace_id) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id) OR (file_row_is_legal(is_financial, storage_path) AND can_access_project_legal(project_id))) AND (EXISTS ( SELECT 1' || chr(10)
+  || '   FROM projects p' || chr(10) || '  WHERE (p.id = files.project_id))))',
+  'files_delete is 0038''s body with the money arm on both axes, and 0092''s Legal arm, and 0107''s project hop');               -- 9
 
 SELECT is(
   (SELECT array_agg(policyname::TEXT ORDER BY policyname) FROM pg_policies
@@ -253,7 +270,10 @@ SELECT lives_ok(
 INSERT INTO storage.objects (bucket_id, name, owner_id, metadata)
 VALUES ('rabbit-files',
         'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/1-brief.pdf',
-        'dddddddd-dddd-dddd-dddd-dddddddddddd', '{"size": 300}'::jsonb);
+        'dddddddd-dddd-dddd-dddd-dddddddddddd', '{"size": 300}'::jsonb),
+       ('rabbit-files',
+        'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/aaaa1111-0000-0000-0000-000000000001/1-invoice.pdf',
+        'dddddddd-dddd-dddd-dddd-dddddddddddd', '{"size": 200}'::jsonb);
 INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path, size_bytes, is_financial)
 VALUES ('f9000000-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111',
         'aaaa1111-0000-0000-0000-000000000001', 'brief.pdf', 'supabase',
@@ -329,13 +349,17 @@ SELECT is(
     WHERE name ILIKE 'projects/aaaa1111-0000-0000-0000-000000000001/legal/%'),
   0, 'the member lists nothing under LEGAL/ in either bucket, in any case');                             -- 29
 
+-- With the guard off (MO1, 0114), which would refuse the member first, on the same gate.
+SELECT pg_temp.body_guard('DISABLE');
 SELECT throws_ok(
   $$INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path, size_bytes, is_financial, tags)
     VALUES ('f9000000-0000-0000-0000-0000000000c1', '11111111-1111-1111-1111-111111111111',
             'aaaa1111-0000-0000-0000-000000000001', 'm.pdf', 'supabase',
             'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/9-m.pdf',
             10, false, ARRAY['legal'])$$,
-  '42501', NULL, 'I7: the member cannot add a Legal row (files_insert''s money arm)');                   -- 30
+  '42501', 'new row violates row-level security policy for table "files"',
+  'I7: the member cannot add a Legal row (files_insert''s money arm)');                                  -- 30
+SELECT pg_temp.body_guard('ENABLE');
 SELECT throws_ok(
   $$INSERT INTO storage.objects (bucket_id, name, owner_id, metadata)
     VALUES ('rabbit-files', 'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/9-m.pdf',
@@ -405,11 +429,13 @@ SELECT lives_ok(
 -- has its own probe, 86, and this one isolates WITH CHECK on the flag axis.)
 -- Run in a sub-block that is undone whatever happens, so that if the gate
 -- ever fails here the changed rows do not take the rest of this suite down.
+-- With the guard off (MO1, 0114), which refuses any client's patch of the flag first.
 SELECT set_config('request.jwt.claims', '', true);
 RESET ROLE;
 CREATE TEMP TABLE legal90_move (outcome TEXT);
 GRANT ALL ON legal90_move TO PUBLIC;
 SELECT pg_temp.act_as('cccccccc-cccc-cccc-cccc-cccccccccccc', 'user');
+SELECT pg_temp.body_guard('DISABLE');
 DO $$
 DECLARE
   v_n INT;
@@ -426,6 +452,7 @@ BEGIN
   END;
   INSERT INTO legal90_move VALUES (v_outcome);
 END $$;
+SELECT pg_temp.body_guard('ENABLE');
 SELECT is((SELECT outcome FROM legal90_move), '42501',
   '🚨 the member cannot make a file money by flagging it (files_update WITH CHECK, alone)');             -- 38
 
@@ -550,6 +577,14 @@ SELECT is(
 SELECT lives_ok(
   $$SELECT public.log_file_downloaded('f9000000-0000-0000-0000-000000000001')$$,
   '…and they may log a read of it');                                                                     -- 61
+-- MO1 (0114): the row names a stored copy already in the bucket (counted by probe 66).
+SELECT set_config('request.jwt.claims', '', true);
+RESET ROLE;
+INSERT INTO storage.objects (bucket_id, name, owner_id, metadata)
+VALUES ('rabbit-files',
+        'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/9-w.pdf',
+        '90900000-0000-0000-0000-0000000000a2', '{"size": 10}'::jsonb);
+SELECT pg_temp.act_as('90900000-0000-0000-0000-0000000000a2', 'manager');
 SELECT lives_ok(
   $$INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path, size_bytes, is_financial, tags)
     VALUES ('f9000000-0000-0000-0000-0000000000c2', '11111111-1111-1111-1111-111111111111',
@@ -589,7 +624,7 @@ SELECT is(
   1, 'the workspace admin reads the Legal row');                                                         -- 65
 SELECT is(
   (SELECT count(*)::int FROM storage.objects WHERE name ILIKE 'projects/aaaa1111-0000-0000-0000-000000000001/legal/%'),
-  2, 'the workspace admin reads the Legal body and its thumbnail');                                      -- 66
+  3, 'the workspace admin reads the Legal body, its thumbnail and the body behind §E''s Legal row');     -- 66
 SELECT is(
   (SELECT count(*)::int FROM public.edit_history
     WHERE entity_type = 'files' AND entity_id = 'f9000000-0000-0000-0000-000000000001'),
@@ -634,6 +669,18 @@ SELECT is(
 -- ══ H. The CHECKs — as the project manager, so only the CHECK can refuse ═════
 -- Matched by the constraint's name: each row breaks exactly one CHECK.
 
+-- MO1 (0114): each row names a stored copy already in the bucket, so that the guard lets
+-- it through to the one CHECK it breaks. Seeded here, past §G's counts under LEGAL/.
+RESET ROLE;
+INSERT INTO storage.objects (bucket_id, name, owner_id, metadata) VALUES
+  ('rabbit-files', 'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/9-t.pdf',
+   'dddddddd-dddd-dddd-dddd-dddddddddddd', '{"size": 10}'::jsonb),
+  ('rabbit-files', 'projects/aaaa1111-0000-0000-0000-000000000001/legal/aaaa1111-0000-0000-0000-000000000001/9-u.pdf',
+   'dddddddd-dddd-dddd-dddd-dddddddddddd', '{"size": 10}'::jsonb),
+  ('rabbit-files', 'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/9-v.pdf',
+   'dddddddd-dddd-dddd-dddd-dddddddddddd', '{"size": 10}'::jsonb);
+SELECT set_config('role', 'authenticated', true);
+
 SELECT throws_ok(
   $$INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path, size_bytes, is_financial, tags)
     VALUES ('f9000000-0000-0000-0000-0000000000d1', '11111111-1111-1111-1111-111111111111',
@@ -654,12 +701,16 @@ SELECT throws_ok(
   $$UPDATE public.files SET tags = ARRAY[]::text[] WHERE id = 'f9000000-0000-0000-0000-000000000001'$$,
   '23514', 'new row for relation "files" violates check constraint "files_legal_folder_chk"',
   'I3: un-tagging a Legal file is refused');                                                             -- 73
+-- MO1 (0114): the guard answers a client's patch of a stored key first, so the runner
+-- proves the trigger; probe 112 is the project manager's own statement.
+RESET ROLE;
 SELECT throws_ok(
   $$UPDATE public.files
        SET storage_path = 'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/1-contract.pdf'
      WHERE id = 'f9000000-0000-0000-0000-000000000001'$$,
   '23514', 'files_legal_fixed: a file is Legal from the moment it is added, and only then — its path cannot move into or out of LEGAL',
   'I3: moving a Legal file out of LEGAL with its tag on is refused (trg_files_legal_fixed answers first)'); -- 74
+SELECT set_config('role', 'authenticated', true);
 SELECT throws_ok(
   $$UPDATE public.files SET tags = ARRAY['legal'] WHERE id = 'f9000000-0000-0000-0000-000000000002'$$,
   '23514', 'new row for relation "files" violates check constraint "files_legal_folder_chk"',
@@ -695,7 +746,7 @@ RESET ROLE;
 -- since 0092 (Audrey's Legal 1, 2026-10-09) a deleted file's record follows
 -- the file's own gate for both, so the member reads neither. The member's
 -- OWN plain file (04) is purged beside them: its certificate is the presence
--- control (the suite's last probe, 109).
+-- control (probe 109).
 
 DELETE FROM public.files WHERE id IN ('f9000000-0000-0000-0000-000000000001',
                                       'f9000000-0000-0000-0000-000000000003',
@@ -801,9 +852,12 @@ SELECT ok(
 -- whether it existed.
 
 SELECT pg_temp.act_as('cccccccc-cccc-cccc-cccc-cccccccccccc', 'user');
--- The old probe 38: the member's column-free MOVE into LEGAL, tag included.
+-- The old probe 38: a MOVE into LEGAL, tag included. MO1 (0114): the guard answers the
+-- member's column-free statement first (probe 110 is theirs), so the runner proves the
+-- trigger, on one plain row: a runner's column-free statement would reach every row there is.
 CREATE TEMP TABLE legal90_move2 (outcome TEXT);
 GRANT ALL ON legal90_move2 TO PUBLIC;
+RESET ROLE;
 DO $$
 DECLARE
   v_n INT;
@@ -812,10 +866,11 @@ BEGIN
   BEGIN
     UPDATE public.files
        SET storage_path = 'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/9-moved.pdf',
-           tags = ARRAY['legal'];
+           tags = ARRAY['legal']
+     WHERE id = 'f9000000-0000-0000-0000-000000000002';
     GET DIAGNOSTICS v_n = ROW_COUNT;
     v_outcome := 'moved ' || v_n || ' row(s)';
-    RAISE EXCEPTION 'legal90: undo the column-free move';
+    RAISE EXCEPTION 'legal90: undo the move';
   EXCEPTION
     WHEN raise_exception THEN NULL;
     WHEN OTHERS THEN v_outcome := SQLSTATE;
@@ -823,7 +878,8 @@ BEGIN
   INSERT INTO legal90_move2 VALUES (v_outcome);
 END $$;
 SELECT is((SELECT outcome FROM legal90_move2), '23514',
-  '🚨 the member cannot turn a file Legal by moving it, even with the tag (trg_files_legal_fixed)');       -- 86
+  '🚨 a file cannot be turned Legal by moving it, even with the tag (trg_files_legal_fixed)');             -- 86
+SELECT set_config('role', 'authenticated', true);
 SELECT throws_ok(
   $$SELECT public.reserve_upload_bytes(
     'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/9-big-guess.pdf', 27262976)$$,
@@ -842,6 +898,11 @@ SELECT isnt(
 
 SELECT set_config('request.jwt.claims', '', true);
 RESET ROLE;
+-- MO1 (0114): the fresh row below names a stored copy already in the bucket.
+INSERT INTO storage.objects (bucket_id, name, owner_id, metadata)
+VALUES ('rabbit-files',
+        'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/7-k-contract.pdf',
+        'dddddddd-dddd-dddd-dddd-dddddddddddd', '{"size": 10}'::jsonb);
 SELECT pg_temp.act_as('dddddddd-dddd-dddd-dddd-dddddddddddd', 'user');
 -- A fresh Legal row: the fixture Legal file was purged in §I, and an UPDATE
 -- of a row that is not there raises nothing (the first draft of 90 and 92
@@ -851,13 +912,16 @@ VALUES ('f9000000-0000-0000-0000-0000000000d7', '11111111-1111-1111-1111-1111111
         'aaaa1111-0000-0000-0000-000000000001', 'k-contract.pdf', 'supabase',
         'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/7-k-contract.pdf',
         10, false, ARRAY['legal']);
+-- MO1 (0114): probes 90 to 94 as the runner. The guard answers the project manager's own
+-- statements first: §M has them, and the runner proves the trigger and the CHECK.
+RESET ROLE;
 SELECT throws_ok(
   $$UPDATE public.files
        SET storage_path = 'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/7-k-contract.pdf',
            tags = ARRAY[]::text[]
      WHERE id = 'f9000000-0000-0000-0000-0000000000d7'$$,
   '23514', 'files_legal_fixed: a file is Legal from the moment it is added, and only then — its path cannot move into or out of LEGAL',
-  '🚨 the project manager cannot DECLASSIFY a Legal file (out of LEGAL, tag dropped) — measured open in round 1'); -- 90
+  '🚨 a Legal file cannot be DECLASSIFIED (out of LEGAL, tag dropped), whoever writes (trg_files_legal_fixed) — measured open in round 1; probe 111 is the project manager''s own'); -- 90
 SELECT throws_ok(
   $$UPDATE public.files
        SET storage_path = 'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/2-plain.pdf',
@@ -888,7 +952,7 @@ BEGIN
   INSERT INTO legal90_rename VALUES (v_outcome);
 END $$;
 SELECT is((SELECT outcome FROM legal90_rename), 'renamed 1',
-  'CONTROL: the project manager may change a Legal file''s path WITHIN LEGAL');                           -- 92
+  'CONTROL: a path change WITHIN LEGAL is not the trigger''s business (as the runner: since 0114 a client''s route is rekey_file_body)'); -- 92
 SELECT throws_ok(
   $$INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path, size_bytes, is_financial, tags)
     VALUES ('f9000000-0000-0000-0000-0000000000d5', '11111111-1111-1111-1111-111111111111',
@@ -903,6 +967,7 @@ SELECT throws_ok(
             'files/aaaa1111-0000-0000-0000-000000000001/LEGAL/x/1-release_form.pdf', 10, false, ARRAY['legal'])$$,
   '23514', 'new row for relation "files" violates check constraint "files_money_key_chk"',
   'nor one whose key does not start projects/ — its events would not be gated');                         -- 94
+SELECT set_config('role', 'authenticated', true);
 SELECT is(
   public.reserve_upload_bytes(
     'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/9-small-pm.pdf', 4000),
@@ -1028,6 +1093,76 @@ SELECT is(
   (SELECT count(*)::int FROM public.file_events
     WHERE file_id = 'f9000000-0000-0000-0000-000000000004' AND event = 'purged'),
   1, 'PRESENCE CONTROL for §I: the member reads the plain file''s deletion certificate');                -- 109
+SELECT set_config('request.jwt.claims', '', true);
+RESET ROLE;
+
+
+-- ══ M. MO1 (0114) — the client's own form of §H's and §K's runner probes ════════
+-- The guard answers these statements first, so the trigger or CHECK that probes 74,
+-- 86 and 90 to 94 pin no longer speaks to a client. The person is still refused:
+-- with the guard's 42501.
+
+SELECT pg_temp.act_as('cccccccc-cccc-cccc-cccc-cccccccccccc', 'user');
+CREATE TEMP TABLE legal90_move3 (outcome TEXT);
+GRANT ALL ON legal90_move3 TO PUBLIC;
+DO $$
+DECLARE
+  v_n INT;
+  v_outcome TEXT;
+BEGIN
+  BEGIN
+    UPDATE public.files
+       SET storage_path = 'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/9-moved.pdf',
+           tags = ARRAY['legal'];
+    GET DIAGNOSTICS v_n = ROW_COUNT;
+    v_outcome := 'moved ' || v_n || ' row(s)';
+    RAISE EXCEPTION 'legal90: undo the column-free move';
+  EXCEPTION
+    WHEN raise_exception THEN NULL;
+    WHEN OTHERS THEN v_outcome := SQLSTATE;
+  END;
+  INSERT INTO legal90_move3 VALUES (v_outcome);
+END $$;
+SELECT is((SELECT outcome FROM legal90_move3), '42501',
+  '🚨 the member cannot turn a file Legal by moving it, even with the tag, in a column-free statement');   -- 110
+SELECT set_config('request.jwt.claims', '', true);
+RESET ROLE;
+
+SELECT pg_temp.act_as('dddddddd-dddd-dddd-dddd-dddddddddddd', 'user');
+SELECT throws_ok(
+  $$UPDATE public.files
+       SET storage_path = 'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/7-k-contract.pdf',
+           tags = ARRAY[]::text[]
+     WHERE id = 'f9000000-0000-0000-0000-0000000000d7'$$,
+  '42501', NULL,
+  '🚨 the project manager cannot DECLASSIFY a Legal file (out of LEGAL, tag dropped)');                   -- 111
+SELECT throws_ok(
+  $$UPDATE public.files
+       SET storage_path = 'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/7-k-contract.pdf'
+     WHERE id = 'f9000000-0000-0000-0000-0000000000d7'$$,
+  '42501', NULL,
+  'nor move it out of LEGAL with its tag on');                                                           -- 112
+SELECT throws_ok(
+  $$UPDATE public.files
+       SET storage_path = 'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/2-plain.pdf',
+           tags = ARRAY['legal']
+     WHERE id = 'f9000000-0000-0000-0000-000000000002'$$,
+  '42501', NULL,
+  'nor make an existing file Legal by moving it in with the tag');                                       -- 113
+SELECT throws_ok(
+  $$INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path, size_bytes, is_financial, tags)
+    VALUES ('f9000000-0000-0000-0000-0000000000d8', '11111111-1111-1111-1111-111111111111',
+            'aaaa1111-0000-0000-0000-000000000001', 'settlement.pdf', 'supabase',
+            'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL', 10, false, ARRAY['legal'])$$,
+  '42501', NULL,
+  'nor add a Legal row at projects/{id}/LEGAL (no deeper)');                                             -- 114
+SELECT throws_ok(
+  $$INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path, size_bytes, is_financial, tags)
+    VALUES ('f9000000-0000-0000-0000-0000000000d9', '11111111-1111-1111-1111-111111111111',
+            'aaaa1111-0000-0000-0000-000000000001', 'release_form.pdf', 'supabase',
+            'files/aaaa1111-0000-0000-0000-000000000001/LEGAL/x/1-release_form.pdf', 10, false, ARRAY['legal'])$$,
+  '42501', NULL,
+  'nor one whose key does not start projects/');                                                         -- 115
 SELECT set_config('request.jwt.claims', '', true);
 RESET ROLE;
 

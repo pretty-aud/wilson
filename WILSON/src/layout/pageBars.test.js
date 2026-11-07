@@ -50,7 +50,7 @@ const VIEWPORTS = [700, 800, 845, 860, 900, 956, 982, 1034, 1076, 1200, 1330, 14
 // a deliberate change to this list too.
 const RESTING = {
   home: [268, 268],
-  dog: [95, 8], otter: [95, 8], rabbit: [95, 8],
+  dog: [95, 8], otter: [95, 8], rabbit: [95, 8], moth: [95, 8],
   // Q8(b), landed by each lane-C session for the pages it converted: the
   // resource-class rows go to 120/80, and Files takes the TOOL geometry
   // because it is a working page, not a reading one. UI overhaul D1b
@@ -161,16 +161,17 @@ describe('page bar geometry', () => {
   })
 
   it('keeps the tool pages\' 8px bottom bar at 8px on every real window size', () => {
-    for (const page of ['dog', 'otter', 'rabbit']) {
+    for (const page of ['dog', 'otter', 'rabbit', 'moth']) {
       for (const v of VIEWPORTS) {
         expect(resolveAt(PAGE_BARS[page].bottom, v), `${page} at ${v}px`).toBeCloseTo(8, 5)
       }
     }
   })
 
-  // Home's six page selections measure 444px in the running app (button stack
-  // only); the content wrapper adds 3vh top and bottom.
-  it('leaves room for all six of Home\'s page selections on a 14-inch Mac', () => {
+  // Home's seven page selections measure 408px in the running app (button stack
+  // only, 2026-11-06, with M.O.T.H. among them); the budget stays at the 444 it
+  // was set to. The content wrapper adds 3vh top and bottom.
+  it('leaves room for all seven of Home\'s page selections on a 14-inch Mac', () => {
     const HOME_STACK_PX = 444
     for (const v of [845, 860, 900, 956, 982]) {
       const content = v - resolveAt(PAGE_BARS.home.top, v) - resolveAt(PAGE_BARS.home.bottom, v)
@@ -323,7 +324,7 @@ describe('page bar geometry', () => {
         .toBeLessThanOrEqual(resolveAt(PAGE_BARS.home.top, 1440))
     })
 
-    it('a reserve too small for Home\'s six selections', () => {
+    it('a reserve too small for Home\'s seven selections', () => {
       const stingy = 'min(268px, max(120.60px, (100vh - 200px) * 0.5))'
       const content = 900 - 2 * resolveAt(stingy, 900)
       expect(content).toBeLessThan(444 + 0.06 * 900)

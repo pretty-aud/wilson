@@ -132,11 +132,11 @@ Deno.serve(async (req: Request) => {
     Deno.env.get('SUPABASE_ANON_KEY')!,
     { global: { headers: { Authorization: `Bearer ${token}` } } },
   )
-  const predicate = op === 'get' || op === 'head'
-    ? 'can_presign_project_read'
-    : 'can_presign_project_write'
-  const { data: allowed, error: predErr } = await asCaller.rpc(predicate, {
-    p_project: shape.projectId,
+  // MO1 (0115): the key no longer says where a file is, because a moved file keeps its key. The
+  // database decides: a key a row claims answers to that row; a new key answers to its project.
+  const { data: allowed, error: predErr } = await asCaller.rpc('can_presign_object', {
+    p_path: body.path,
+    p_op: op,
   })
   if (predErr) {
     return reply({ error: 'refused', detail: `the project check failed: ${predErr.message}` }, 403)

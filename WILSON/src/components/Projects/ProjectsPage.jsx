@@ -26,6 +26,7 @@ import { useState, useCallback, useEffect } from 'react'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { adapterSupportsWrites } from '../../tools/rabbit_v0.1.0/adapters'
 import { usePermissions } from '../../permissions/usePermissions'
+import { canOnProject } from '../../permissions/projectRoleMatrix'
 import { detectDocumentKind } from '../../tools/rabbit_v0.1.0/components/ProjectFilesTable'
 import { documentKindFor, NEW_ATTACHMENT_IS_CORE } from '../../tools/rabbit_v0.1.0/deckAttachments'
 import { isLegalFile, LEGAL_NOT_CORE_REASON } from '../../tools/rabbit_v0.1.0/fileTags'
@@ -49,7 +50,8 @@ export default function ProjectsPage({ onNavigate }) {
 
   // Create/delete affordances (Session 6) — DB-side RLS is the real gate;
   // cloud mode hides them below the matrix roles, local mode stays open.
-  const { can, offline } = usePermissions()
+  const perms = usePermissions()
+  const { can, offline } = perms
   const cloud = ctx?.adapterMode === 'supabase'
   // S2 (RECONNECT_DESIGN.md §11.8): a sign-in held at an offline launch, on the cloud.
   const heldOffline = !!offline && cloud
@@ -98,6 +100,22 @@ export default function ProjectsPage({ onNavigate }) {
   const [busy, setBusy] = useState(false)
 
   const activeProject = projects.find(p => p.id === activeId) || null
+  // MO1 (R11, SEC-6): only someone who manages this project's team may choose
+  // its producer (0107's guard refuses the rest). The seat is RABBIT's open
+  // project's, which opening a project here sets (handleOpen); until the two
+  // agree, there is no seat to read, and the matrix answers from the app role.
+  const sameOpen = !!activeProject && ctx?.activeProjectId === activeProject.id
+  // …and the roster must be this project's: right after opening, it is still
+  // the previous project's until refreshProjectMembers lands (review round 1,
+  // finding 8), which reads as "not known yet", never as that project's seat.
+  const rosterIsThis = sameOpen
+    && (ctx?.projectMembers || []).every(m => !m?.project_id || m.project_id === activeProject.id)
+  const canManageTeam = !cloud || canOnProject({
+    appRole: perms.role,
+    projectRole: rosterIsThis ? ctx?.myProjectRole : null,
+    isStaffed: rosterIsThis ? ctx?.projectIsStaffed : false,
+    ready: perms.ready && (rosterIsThis || !sameOpen),
+  }, 'project.roster.manage')
 
   // ── Create / open / delete ────────────────────────────────
   const handleCreateProject = async () => {
@@ -402,6 +420,11 @@ export default function ProjectsPage({ onNavigate }) {
         setSaveError('This backend is read-only — files cannot be deleted from it.')
         return
       }
+      // The server refuses this delete, because the row and the real file go together through Files and M.O.T.H.
+      if (storedRow.storage_provider === 'network_share') {
+        setSaveError('A file on the office server is deleted from Files or M.O.T.H., so the file itself goes with it.')
+        return
+      }
       const adapter = ctx?.getAdapter?.()
       if (!adapter?.deleteFile) return
       // 🚨 §6 #31 trap (g), AND IT IS TWO DIFFERENT THINGS. In CLOUD mode
@@ -576,6 +599,7 @@ export default function ProjectsPage({ onNavigate }) {
         onFileDelete={handleFileDelete}
         onFileUpload={handleFileUpload}
         canUpload={canStoreFiles}
+        canManageTeam={canManageTeam}
         // §6 #31 trap (g). Cloud deletes are soft and hold quota for 30 days;
         // Local Server deletes unlink the body there and then. The panel says
         // which, because "Delete" alone means the wrong one half the time.

@@ -66,7 +66,7 @@
 
 BEGIN;
 
-SELECT plan(173);
+SELECT plan(174);
 
 SELECT * FROM tests.rls_setup();
 
@@ -156,6 +156,19 @@ BEGIN
     'sub', p_uid, 'role', 'authenticated',
     'app_metadata', json_build_object('workspace_id', p_ws, 'app_role', p_app_role))::text, true);
   PERFORM set_config('role', 'authenticated', true);
+END;
+$$;
+
+-- MO1 (0114): fn_files_body_guard is a BEFORE trigger, so it answers a client ahead of the
+-- policies and a policy's own refusal cannot be heard with it on. No runner can stand in, a
+-- runner passes RLS. So a probe that names a policy runs with the guard off, as suites 96
+-- and 103 do: the guard only ever refuses more, so what is refused here is refused with it
+-- on, and suite 115 pins the guard itself. DEFINER because only the table's owner may say
+-- this.
+CREATE FUNCTION pg_temp.body_guard(p_switch TEXT)
+RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  EXECUTE format('ALTER TABLE public.files %s TRIGGER trg_files_body_guard', p_switch);
 END;
 $$;
 
@@ -268,8 +281,9 @@ SELECT is(
   'files_insert: 0088''s body with the Legal arm');                                                       -- 10
 SELECT is(
   (SELECT qual FROM pg_policies WHERE schemaname = 'public' AND tablename = 'files' AND policyname = 'files_update'),
-  '((workspace_id = current_workspace_id()) AND has_active_membership(workspace_id) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id) OR (file_row_is_legal(is_financial, storage_path) AND can_access_project_legal(project_id))))',
-  'files_update USING: 0088''s with the Legal arm');                                                      -- 11
+  '((workspace_id = current_workspace_id()) AND has_active_membership(workspace_id) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id) OR (file_row_is_legal(is_financial, storage_path) AND can_access_project_legal(project_id))) AND (EXISTS ( SELECT 1' || chr(10)
+  || '   FROM projects p' || chr(10) || '  WHERE (p.id = files.project_id))))',
+  'files_update USING: 0088''s with the Legal arm, and 0107''s project hop');                                                      -- 11
 SELECT is(
   (SELECT with_check FROM pg_policies WHERE schemaname = 'public' AND tablename = 'files' AND policyname = 'files_update'),
   '((workspace_id = current_workspace_id()) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id) OR (file_row_is_legal(is_financial, storage_path) AND can_access_project_legal(project_id))) AND (EXISTS ( SELECT 1' || chr(10)
@@ -277,8 +291,9 @@ SELECT is(
   'files_update WITH CHECK: 0088''s with the Legal arm');                                                 -- 12
 SELECT is(
   (SELECT qual FROM pg_policies WHERE schemaname = 'public' AND tablename = 'files' AND policyname = 'files_delete'),
-  '((workspace_id = current_workspace_id()) AND has_active_membership(workspace_id) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id) OR (file_row_is_legal(is_financial, storage_path) AND can_access_project_legal(project_id))))',
-  'files_delete: 0088''s body with the Legal arm');                                                       -- 13
+  '((workspace_id = current_workspace_id()) AND has_active_membership(workspace_id) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id) OR (file_row_is_legal(is_financial, storage_path) AND can_access_project_legal(project_id))) AND (EXISTS ( SELECT 1' || chr(10)
+  || '   FROM projects p' || chr(10) || '  WHERE (p.id = files.project_id))))',
+  'files_delete: 0088''s body with the Legal arm, and 0107''s project hop');                                                       -- 13
 SELECT is(
   (SELECT array_agg(policyname::TEXT ORDER BY policyname) FROM pg_policies
     WHERE schemaname = 'public' AND tablename = 'files' AND permissive = 'PERMISSIVE'),
@@ -286,20 +301,24 @@ SELECT is(
   'files keeps exactly its four permissive policies — none added beside');                               -- 14
 
 -- A15-A16: the eight money storage policies WHOLE (both buckets, every
--- clause), the eight base ones untouched in shape.
+-- clause), the eight base ones untouched in shape. MO1 (2026-11-04, 0110):
+-- the six write clauses also carry can_write_project on the path's project
+-- (a personal space's money is its owner's to write; the SELECTs keep the
+-- admins' read).
 CREATE TEMP TABLE legal95_obj AS
   SELECT b AS bucket, p AS prefix,
-         '((bucket_id = ''' || b || '''::text) AND (auth.role() = ''authenticated''::text) AND ((storage.foldername(name))[1] = ''projects''::text) AND rabbit_money_segment((storage.foldername(name))[3]) AND (can_access_project_money(fn_try_uuid((storage.foldername(name))[2])) OR (rabbit_legal_segment((storage.foldername(name))[3]) AND can_access_project_legal(fn_try_uuid((storage.foldername(name))[2])))))' AS gate
+         '((bucket_id = ''' || b || '''::text) AND (auth.role() = ''authenticated''::text) AND ((storage.foldername(name))[1] = ''projects''::text) AND rabbit_money_segment((storage.foldername(name))[3]) AND (can_access_project_money(fn_try_uuid((storage.foldername(name))[2])) OR (rabbit_legal_segment((storage.foldername(name))[3]) AND can_access_project_legal(fn_try_uuid((storage.foldername(name))[2])))))' AS gate,
+         '((bucket_id = ''' || b || '''::text) AND (auth.role() = ''authenticated''::text) AND ((storage.foldername(name))[1] = ''projects''::text) AND rabbit_money_segment((storage.foldername(name))[3]) AND (can_access_project_money(fn_try_uuid((storage.foldername(name))[2])) OR (rabbit_legal_segment((storage.foldername(name))[3]) AND can_access_project_legal(fn_try_uuid((storage.foldername(name))[2])))) AND can_write_project(fn_try_uuid((storage.foldername(name))[2])))' AS wgate
     FROM (VALUES ('rabbit-files', 'rabbit_files'), ('rabbit-thumbnails', 'rabbit_thumbnails')) v(b, p);
 SELECT ok(
   (SELECT bool_and(
       (SELECT qual FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = prefix || '_money_select' AND cmd = 'SELECT') = gate
-      AND (SELECT with_check FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = prefix || '_money_insert' AND cmd = 'INSERT') = gate
-      AND (SELECT qual FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = prefix || '_money_update' AND cmd = 'UPDATE') = gate
-      AND (SELECT with_check FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = prefix || '_money_update' AND cmd = 'UPDATE') = gate
-      AND (SELECT qual FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = prefix || '_money_delete' AND cmd = 'DELETE') = gate)
+      AND (SELECT with_check FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = prefix || '_money_insert' AND cmd = 'INSERT') = wgate
+      AND (SELECT qual FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = prefix || '_money_update' AND cmd = 'UPDATE') = wgate
+      AND (SELECT with_check FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = prefix || '_money_update' AND cmd = 'UPDATE') = wgate
+      AND (SELECT qual FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = prefix || '_money_delete' AND cmd = 'DELETE') = wgate)
      FROM legal95_obj),
-  'the eight money storage policies, both buckets, every clause: the segment still LOCKED (rabbit_money_segment), opened by the money gate OR, for LEGAL, the Legal gate'); -- 15
+  'the eight money storage policies, both buckets, every clause: the segment still LOCKED (rabbit_money_segment), opened by the money gate OR, for LEGAL, the Legal gate; the writes also need can_write_project (0110)'); -- 15
 SELECT ok(
   (SELECT count(*) FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects'
      AND (policyname LIKE 'rabbit\_files%' OR policyname LIKE 'rabbit\_thumbnails%')
@@ -317,15 +336,21 @@ SELECT ok(
 -- A17-A18: the two read policies, whole — no purged arm (Legal 1).
 SELECT is(
   (SELECT qual FROM pg_policies WHERE schemaname = 'public' AND tablename = 'edit_history' AND policyname = 'edit_history_select'),
-  '((workspace_id = current_workspace_id()) AND (current_app_role() = ANY (ARRAY[''admin''::text, ''manager''::text])) AND has_active_membership(workspace_id) AND ((NOT is_financial) OR (current_app_role() = ''admin''::text) OR COALESCE(can_access_project_money(project_id), false) OR (is_legal AND COALESCE(can_access_project_legal(project_id), false))))',
-  'edit_history_select: 0012''s arms, 0088''s money arm, and the Legal arm on is_legal rows');            -- 17
+  -- 0108 (MO1) added ONE conjunct after the Legal arm: the project audience
+  -- (rate cards, admins, or a topic reader; captured_private rows the
+  -- creator's). The arms this suite pins are unchanged; suite 111 proves the
+  -- new one caller by caller.
+  '((workspace_id = current_workspace_id()) AND (current_app_role() = ANY (ARRAY[''admin''::text, ''manager''::text])) AND has_active_membership(workspace_id) AND ((NOT is_financial) OR (current_app_role() = ''admin''::text) OR COALESCE(can_access_project_money(project_id), false) OR (is_legal AND COALESCE(can_access_project_legal(project_id), false))) AND ((entity_type = ANY (ARRAY[''rate_cards''::text, ''rate_card_entries''::text])) OR (current_app_role() = ''admin''::text) OR (can_read_project_topic(project_id) AND ((NOT captured_private) OR (EXISTS ( SELECT 1' || chr(10) || '   FROM projects p' || chr(10) || '  WHERE ((p.id = edit_history.project_id) AND (p.created_by = auth.uid()))))))))',
+  'edit_history_select: 0012''s arms, 0088''s money arm, the Legal arm on is_legal rows, and 0108''s project audience');            -- 17
 SELECT is(
   (SELECT qual FROM pg_policies WHERE schemaname = 'public' AND tablename = 'file_events' AND policyname = 'file_events_select'),
   -- 0093 (GW1) restated every arm below and added ONE conjunct: a
   -- viewed_remote row is a LIVE admin's. The arms this suite pins are
   -- unchanged; suite 96 re-proves each of them caller by caller.
-  '((workspace_id = current_workspace_id()) AND has_active_membership(workspace_id) AND (can_read_project_topic(project_id) OR (current_app_role() = ''admin''::text)) AND ((NOT is_financial) OR (current_app_role() = ''admin''::text) OR COALESCE(can_access_project_money(project_id), false) OR (file_event_is_legal(old_path, new_path) AND COALESCE(can_access_project_legal(project_id), false))) AND ((event <> ''viewed_remote''::text) OR is_live_workspace_admin(workspace_id)))',
-  '🚨 file_events_select: 0074''s arms, the money arm, the Legal arm — and NO purged exception (Legal 1); 0093''s live-admin conjunct for remote viewings'); -- 18
+  -- MO1 (0116, her ruling of 2026-11-05) adds one more: a row written while the project
+  -- was private stays with its creator and the admins; suite 78 proves it caller by caller.
+  '((workspace_id = current_workspace_id()) AND has_active_membership(workspace_id) AND (can_read_project_topic(project_id) OR (current_app_role() = ''admin''::text)) AND ((NOT is_financial) OR (current_app_role() = ''admin''::text) OR COALESCE(can_access_project_money(project_id), false) OR (file_event_is_legal(old_path, new_path) AND COALESCE(can_access_project_legal(project_id), false))) AND ((event <> ''viewed_remote''::text) OR is_live_workspace_admin(workspace_id)) AND ((NOT captured_private) OR (current_app_role() = ''admin''::text) OR (EXISTS ( SELECT 1' || chr(10) || '   FROM projects p' || chr(10) || '  WHERE ((p.id = file_events.project_id) AND (p.created_by = auth.uid()))))))',
+  '🚨 file_events_select: 0074''s arms, the money arm, the Legal arm — and NO purged exception (Legal 1); 0093''s live-admin conjunct for remote viewings; 0116''s private-time conjunct'); -- 18
 
 -- A19-A20: edit_history's is_legal snapshot column, the classifier's three
 -- answers, the trigger; the DEFINER pieces closed to clients.
@@ -402,21 +427,6 @@ SELECT lives_ok(
   'the project manager edits the Legal file''s note, and the invoice''s (edit history is written for both)'); -- 23
 UPDATE public.files SET description = 'net 30 (approved)' WHERE id = 'f9500000-0000-0000-0000-000000000003';
 
--- §P's two UNFLAGGED money rows (review round 1, finding 2): money by the
--- path alone — a note filed under FINANCE and a receipt under INVOICES, both
--- with is_financial false — each edited once so they have history.
-INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path, size_bytes, is_financial, description)
-VALUES ('f9500000-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111',
-        'aaaa1111-0000-0000-0000-000000000001', 'rates-note.pdf', 'supabase',
-        'projects/aaaa1111-0000-0000-0000-000000000001/FINANCE/aaaa1111-0000-0000-0000-000000000001/1-rates-note.pdf',
-        40, false, 'rates discussion'),
-       ('f9500000-0000-0000-0000-00000000000b', '11111111-1111-1111-1111-111111111111',
-        'aaaa1111-0000-0000-0000-000000000001', 'receipt.pdf', 'supabase',
-        'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/aaaa1111-0000-0000-0000-000000000001/2-receipt.pdf',
-        30, false, 'taxi receipt');
-UPDATE public.files SET description = 'rates discussion (final)' WHERE id = 'f9500000-0000-0000-0000-00000000000a';
-UPDATE public.files SET description = 'taxi receipt (filed)' WHERE id = 'f9500000-0000-0000-0000-00000000000b';
-
 SELECT is(
   (SELECT count(*)::int FROM public.files WHERE id IN ('f9500000-0000-0000-0000-000000000001', 'f9500000-0000-0000-0000-000000000003')),
   2, 'CONTROL: the project manager reads the Legal row and the invoice');                                 -- 24
@@ -425,6 +435,31 @@ SELECT is(
     WHERE name ILIKE 'projects/aaaa1111-0000-0000-0000-000000000001/invoices/%'
        OR name = 'projects/aaaa1111-0000-0000-0000-000000000001/FINANCE/RATES.json'),
   3, 'CONTROL: the project manager reads the invoice body, its thumbnail and the FINANCE mirror');        -- 25
+
+-- §P's two UNFLAGGED money rows (review round 1, finding 2): money by the
+-- path alone — a note filed under FINANCE and a receipt under INVOICES, both
+-- with is_financial false — each edited once so they have history.
+-- MO1 (0114): the receipt names a stored copy already in the bucket (seeded here, past
+-- probe 25's count). FINANCE is not on the guard's list, so no client adds the note any
+-- more: the runner does, with the project manager's claims still set, as an older row.
+RESET ROLE;
+INSERT INTO storage.objects (bucket_id, name, owner_id, metadata)
+VALUES ('rabbit-files',
+        'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/aaaa1111-0000-0000-0000-000000000001/2-receipt.pdf',
+        'dddddddd-dddd-dddd-dddd-dddddddddddd', '{"size": 30}'::jsonb);
+INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path, size_bytes, is_financial, description)
+VALUES ('f9500000-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-0000-0000-0000-000000000001', 'rates-note.pdf', 'supabase',
+        'projects/aaaa1111-0000-0000-0000-000000000001/FINANCE/aaaa1111-0000-0000-0000-000000000001/1-rates-note.pdf',
+        40, false, 'rates discussion');
+SELECT set_config('role', 'authenticated', true);
+INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path, size_bytes, is_financial, description)
+VALUES ('f9500000-0000-0000-0000-00000000000b', '11111111-1111-1111-1111-111111111111',
+        'aaaa1111-0000-0000-0000-000000000001', 'receipt.pdf', 'supabase',
+        'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/aaaa1111-0000-0000-0000-000000000001/2-receipt.pdf',
+        30, false, 'taxi receipt');
+UPDATE public.files SET description = 'rates discussion (final)' WHERE id = 'f9500000-0000-0000-0000-00000000000a';
+UPDATE public.files SET description = 'taxi receipt (filed)' WHERE id = 'f9500000-0000-0000-0000-00000000000b';
 
 SELECT set_config('request.jwt.claims', '', true);
 RESET ROLE;
@@ -607,13 +642,17 @@ SELECT lives_ok(
             'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/8-nda.pdf.jpg',
             10, false, ARRAY['legal'])$$,
   '…and adds the Legal row (files_insert''s Legal arm): Add as Legal works for them');                   -- 50
+-- With the guard off (MO1, 0114), which would refuse them first, on the same gate.
+SELECT pg_temp.body_guard('DISABLE');
 SELECT throws_ok(
   $$INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path, size_bytes, is_financial)
     VALUES ('f9500000-0000-0000-0000-0000000000c1', '11111111-1111-1111-1111-111111111111',
             'aaaa1111-0000-0000-0000-000000000001', 'w-invoice.pdf', 'supabase',
             'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/aaaa1111-0000-0000-0000-000000000001/9-w.pdf',
             10, true)$$,
-  '42501', NULL, '🚨 but cannot add an invoice row');                                                     -- 51
+  '42501', 'new row violates row-level security policy for table "files"',
+  '🚨 but cannot add an invoice row');                                                                    -- 51
+SELECT pg_temp.body_guard('ENABLE');
 SELECT throws_ok(
   $$INSERT INTO storage.objects (bucket_id, name, owner_id, metadata)
     VALUES ('rabbit-files', 'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/aaaa1111-0000-0000-0000-000000000001/9-w.pdf',
@@ -632,25 +671,35 @@ SELECT throws_ok(
      WHERE name = 'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/8-nda.pdf'$$,
   'new row violates row-level security policy for table "objects"',
   '🚨 nor rename a Legal object INTO INVOICES/ (the money UPDATE policy''s WITH CHECK: INVOICES is not Legal, and money refuses them)'); -- 54
+-- With the guard off (MO1, 0114), which refuses any client's patch of the flag first.
+SELECT pg_temp.body_guard('DISABLE');
 SELECT throws_ok(
   $$UPDATE public.files SET is_financial = true WHERE id = 'f9500000-0000-0000-0000-000000000008'$$,
-  '42501', NULL, '🚨 nor turn their Legal file into an invoice by flagging it (files_update WITH CHECK refuses before the CHECK)'); -- 55
+  '42501', 'new row violates row-level security policy for table "files"',
+  '🚨 nor turn their Legal file into an invoice by flagging it (files_update WITH CHECK refuses before the CHECK)'); -- 55
+SELECT pg_temp.body_guard('ENABLE');
+-- MO1 (0114): the guard answers a client's patch of a stored key first, so the runner
+-- proves the trigger; probe 174 is this person's own statement.
+RESET ROLE;
 SELECT throws_ok(
   $$UPDATE public.files
        SET storage_path = 'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/8-nda.pdf',
            tags = ARRAY[]::text[]
      WHERE id = 'f9500000-0000-0000-0000-000000000008'$$,
   '23514', 'files_legal_fixed: a file is Legal from the moment it is added, and only then — its path cannot move into or out of LEGAL',
-  'nor declassify it: Legal is fixed at add for the new audience too (trg_files_legal_fixed)');          -- 56
+  'a Legal file is not declassified, whoever writes: fixed at add for the new audience too (trg_files_legal_fixed; probe 174 is theirs)'); -- 56
+SELECT set_config('role', 'authenticated', true);
 
 -- The two column-free statements (0083 C-R2-01 / suite 90 probes 36-38): only
 -- files_delete''s and files_update''s own clauses judge them. Counted inside
--- a sub-block that is then undone, so the fixtures stay.
+-- a sub-block that is then undone, so the fixtures stay. With the guard off
+-- (MO1, 0114), which refuses any client's patch of the flag first.
 SELECT set_config('request.jwt.claims', '', true);
 RESET ROLE;
 CREATE TEMP TABLE legal95_cf (k TEXT, v TEXT);
 GRANT ALL ON legal95_cf TO PUBLIC;
 SELECT pg_temp.act_as('95950000-0000-0000-0000-0000000000a2', 'manager');
+SELECT pg_temp.body_guard('DISABLE');
 DO $$
 DECLARE
   v_n INT;
@@ -677,6 +726,7 @@ BEGIN
   END;
   INSERT INTO legal95_cf VALUES ('flag', v_out);
 END $$;
+SELECT pg_temp.body_guard('ENABLE');
 SELECT is((SELECT v FROM legal95_cf WHERE k = 'delete'), '4',
   '🚨 the workspace manager''s column-free DELETE reaches project A''s two plain rows and two Legal rows — never the invoice, never a private project''s Legal row (files_delete''s arm)'); -- 57
 SELECT is((SELECT v FROM legal95_cf WHERE k = 'flag'), '42501',
@@ -757,13 +807,17 @@ SELECT throws_ok(
     'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/9-small-c.pdf', 4000)$$,
   '42501', 'reserve_upload_bytes: you cannot write to this project',
   'nor reserve a LEGAL key — the Legal arm admits the Legal audience, not a member');                    -- 74
+-- With the guard off (MO1, 0114), which would refuse them first, on the same gate.
+SELECT pg_temp.body_guard('DISABLE');
 SELECT throws_ok(
   $$INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path, size_bytes, is_financial, tags)
     VALUES ('f9500000-0000-0000-0000-0000000000c2', '11111111-1111-1111-1111-111111111111',
             'aaaa1111-0000-0000-0000-000000000001', 'm.pdf', 'supabase',
             'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/9-m.pdf',
             10, false, ARRAY['legal'])$$,
-  '42501', NULL, 'nor add a Legal row');                                                                  -- 75
+  '42501', 'new row violates row-level security policy for table "files"',
+  'nor add a Legal row');                                                                                 -- 75
+SELECT pg_temp.body_guard('ENABLE');
 SELECT isnt(
   public.reserve_upload_bytes(
     'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/9-big-plain.mov', 27262976),
@@ -891,13 +945,17 @@ SELECT throws_ok(
     'projects/95950000-0000-0000-0000-000000000002/LEGAL/95950000-0000-0000-0000-000000000002/9-guess.pdf', 4000)$$,
   '42501', 'reserve_upload_bytes: you cannot write to this project',
   'nor reserve a LEGAL key under it — the same refusal, so P2''s existence is not confirmed');           -- 98
+-- With the guard off (MO1, 0114), which would refuse them first, on the same privacy.
+SELECT pg_temp.body_guard('DISABLE');
 SELECT throws_ok(
   $$INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path, size_bytes, is_financial, tags)
     VALUES ('f9500000-0000-0000-0000-0000000000c3', '11111111-1111-1111-1111-111111111111',
             '95950000-0000-0000-0000-000000000002', 'x.pdf', 'supabase',
             'projects/95950000-0000-0000-0000-000000000002/LEGAL/95950000-0000-0000-0000-000000000002/9-x.pdf',
             10, false, ARRAY['legal'])$$,
-  '42501', NULL, 'nor add a Legal row to it (files_insert''s parent hop, 0083)');                         -- 99
+  '42501', 'new row violates row-level security policy for table "files"',
+  'nor add a Legal row to it (files_insert''s parent hop, 0083)');                                        -- 99
+SELECT pg_temp.body_guard('ENABLE');
 -- P3 is user_n''s; user_m is not its creator either.
 SELECT is(
   (SELECT count(*)::int FROM public.files WHERE id = 'f9500000-0000-0000-0000-000000000006'),
@@ -1213,6 +1271,12 @@ SELECT ok(
 
 -- ══ N. The CHECK — as the project manager, so only the CHECK can refuse ═════
 
+-- MO1 (0114): the row names a stored copy already in the bucket, so that the guard lets it
+-- through to the CHECK. Past every count that reads Legal objects as present.
+INSERT INTO storage.objects (bucket_id, name, owner_id, metadata)
+VALUES ('rabbit-files',
+        'projects/aaaa1111-0000-0000-0000-000000000001/LEGAL/aaaa1111-0000-0000-0000-000000000001/9-both.pdf',
+        'dddddddd-dddd-dddd-dddd-dddddddddddd', '{"size": 10}'::jsonb);
 SELECT pg_temp.act_as('dddddddd-dddd-dddd-dddd-dddddddddddd', 'user');
 SELECT throws_ok(
   $$INSERT INTO public.files (id, workspace_id, project_id, name, storage_provider, storage_path, size_bytes, is_financial, tags)
@@ -1222,10 +1286,14 @@ SELECT throws_ok(
             10, true, ARRAY['legal'])$$,
   '23514', 'new row for relation "files" violates check constraint "files_legal_not_financial_chk"',
   'a Legal file cannot be added as an invoice too (files_legal_not_financial_chk)');                     -- 137
+-- With the guard off (MO1, 0114), which refuses any client's patch of the flag first: a
+-- runner would reach the CHECK too, but only this person proves that RLS admits them.
+SELECT pg_temp.body_guard('DISABLE');
 SELECT throws_ok(
   $$UPDATE public.files SET is_financial = true WHERE id = 'f9500000-0000-0000-0000-000000000008'$$,
   '23514', 'new row for relation "files" violates check constraint "files_legal_not_financial_chk"',
   'nor can the project manager flag an existing Legal file (RLS admits them; the CHECK refuses)');       -- 138
+SELECT pg_temp.body_guard('ENABLE');
 SELECT set_config('request.jwt.claims', '', true);
 RESET ROLE;
 
@@ -1463,8 +1531,9 @@ SELECT ok(
   '0088''s classifier keeps its signature (so 0088 stays replayable), the verdict is closed to clients, and the trigger''s definition is whole'); -- 166
 SELECT ok(
   (SELECT btrim(regexp_replace(prosrc, '\s+', ' ', 'g')) FROM pg_proc WHERE oid = 'public.can_access_project_money(uuid)'::regprocedure)
-    = 'SELECT EXISTS ( SELECT 1 FROM public.projects p WHERE p.id = p_project AND p.workspace_id = public.current_workspace_id() AND public.has_active_membership(p.workspace_id) ) AND ( public.current_app_role() = ''admin'' OR public.project_role_for(p_project) = ''manager'' );',
-  '🚨 can_access_project_money''s body is 0037''s, WHOLE (whitespace collapsed) — no additive leg of any kind');          -- 167
+    -- 0108 (MO1): 0037's body with ONE narrowing conjunct, the privacy arm.
+    = 'SELECT EXISTS ( SELECT 1 FROM public.projects p WHERE p.id = p_project AND p.workspace_id = public.current_workspace_id() AND public.has_active_membership(p.workspace_id) ) AND public.passes_project_privacy(p_project) AND ( public.current_app_role() = ''admin'' OR public.project_role_for(p_project) = ''manager'' );',
+  '🚨 can_access_project_money''s body is 0037''s plus 0108''s privacy arm, WHOLE (whitespace collapsed): money never widens; privacy narrows it');          -- 167
 SELECT ok(
   (SELECT btrim(regexp_replace(prosrc, '\s+', ' ', 'g')) FROM pg_proc WHERE oid = 'public.can_access_project_legal(uuid)'::regprocedure)
     = 'SELECT COALESCE(public.can_access_project_money(p_project), false) OR COALESCE( public.current_app_role() = ''manager'' AND EXISTS ( SELECT 1 FROM public.projects p WHERE p.id = p_project AND p.workspace_id = public.current_workspace_id() AND public.has_active_membership(p.workspace_id) ) AND public.passes_project_privacy(p_project), false);',
@@ -1494,17 +1563,17 @@ SELECT is(
   btrim(regexp_replace(substring(pg_get_functiondef('public.fn_realtime_broadcast()'::regprocedure)
                                  from 'WHEN ''files'' THEN.*?v_project := \(v_row ->> ''project_id''\)::uuid;'),
                        '\s+', ' ', 'g')),
-  'WHEN ''files'' THEN IF public.file_row_is_money((to_jsonb(NEW) ->> ''is_financial'')::boolean, to_jsonb(NEW) ->> ''storage_path'') OR public.file_row_is_money((to_jsonb(OLD) ->> ''is_financial'')::boolean, to_jsonb(OLD) ->> ''storage_path'') THEN RETURN NULL; END IF; v_project := (v_row ->> ''project_id'')::uuid;',
-  '🚨 the files arm of fn_realtime_broadcast is 0088''s, whole: every money row — a Legal row included — returns before the broadcast'); -- 170
+  'WHEN ''files'' THEN IF public.file_row_is_money((to_jsonb(NEW) ->> ''is_financial'')::boolean, to_jsonb(NEW) ->> ''storage_path'') OR public.file_row_is_money((to_jsonb(OLD) ->> ''is_financial'')::boolean, to_jsonb(OLD) ->> ''storage_path'') THEN RETURN NULL; END IF; -- 0116: a catalogue check writes many rows and says so once (0117): none of them -- goes on the channel. An ordinary file''s marker is never this. IF COALESCE(current_setting(''wilson.network_share_writer'', true), '''') = ''check:'' || (v_row ->> ''project_id'') THEN RETURN NULL; END IF; v_project := (v_row ->> ''project_id'')::uuid;',
+  '🚨 the files arm of fn_realtime_broadcast is 0088''s, whole: every money row — a Legal row included — returns before the broadcast; and 0116''s early return for a catalogue check'); -- 170
 
 -- The audit tables carry exactly their one trigger each, and the
 -- fixed-at-add trigger on files is ENABLED (a disabled one exists and lets a
 -- Legal row leave LEGAL in one UPDATE — review round 2, finding 5).
 SELECT ok(
   (SELECT string_agg(tgname, ', ' ORDER BY tgname) FROM pg_trigger WHERE tgrelid = 'public.edit_history'::regclass AND NOT tgisinternal) = 'trg_edit_history_money'
-  AND (SELECT string_agg(tgname, ', ' ORDER BY tgname) FROM pg_trigger WHERE tgrelid = 'public.file_events'::regclass AND NOT tgisinternal) = 'trg_file_events_money'
+  AND (SELECT string_agg(tgname, ', ' ORDER BY tgname) FROM pg_trigger WHERE tgrelid = 'public.file_events'::regclass AND NOT tgisinternal) = 'trg_file_events_money, trg_file_events_private'
   AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.files'::regclass AND tgname = 'trg_files_legal_fixed' AND tgenabled = 'O'),
-  'edit_history and file_events carry exactly their one snapshot trigger each; trg_files_legal_fixed is enabled');            -- 171
+  'edit_history carries its one snapshot trigger, file_events its two (0088''s money, 0116''s private time); trg_files_legal_fixed is enabled');            -- 171
 
 -- No storage.objects policy outside the sixteen names Legal, a Legal
 -- classifier or a gate; every PERMISSIVE one outside them that reads a key's
@@ -1562,6 +1631,19 @@ SELECT ok(
     WHERE entity_type = 'files' AND entity_id = '95950000-0000-0000-0000-00000000f001' AND action = 'create'
       AND diff::text LIKE '%LEGAL%'),
   '🚨 a purged invoice''s id reused for a Legal row: the invoice''s history (its note-only edit included) stays money and NOT Legal; the Legal row''s own is Legal'); -- 173
+
+-- 174 (MO1, 0114): probe 56's person. The guard answers their statement first, with its
+-- 42501.
+SELECT pg_temp.act_as('95950000-0000-0000-0000-0000000000a2', 'manager');
+SELECT throws_ok(
+  $$UPDATE public.files
+       SET storage_path = 'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/8-nda.pdf',
+           tags = ARRAY[]::text[]
+     WHERE id = 'f9500000-0000-0000-0000-000000000008'$$,
+  '42501', NULL,
+  'the workspace manager cannot declassify their Legal file: Legal is fixed at add for the new audience too'); -- 174
+SELECT set_config('request.jwt.claims', '', true);
+RESET ROLE;
 
 SELECT * FROM finish();
 ROLLBACK;

@@ -55,7 +55,7 @@
 
 BEGIN;
 
-SELECT plan(61);
+SELECT plan(90);
 
 SELECT * FROM tests.rls_setup();
 
@@ -154,6 +154,21 @@ SELECT ok(
 
 -- ══ 3. Capture, as a workspace admin (money access to CREATE the invoice) ═══
 
+-- MO1 (0114): a member's row names a stored copy already in the bucket, as an upload leaves it.
+INSERT INTO storage.objects (bucket_id, name, owner_id) VALUES
+  ('rabbit-files', 'projects/aaaa1111-0000-0000-0000-000000000001/ASSETS/c2/1-brief.pdf', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
+  ('rabbit-files', 'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/c2/1-invoice.pdf', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+
+-- Flagged false on the row, filed under FINANCE/: the PATH arm of the one
+-- definition, and the shape 0042's storage gate protects by key alone. Such a row
+-- stays in the world, and 0114's guard lets no client make a new one (FINANCE is
+-- not on its list), so the runner seeds it; the capture trigger reads it the same.
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, size_bytes, is_financial)
+VALUES
+  ('aaaa1111-0000-0000-0000-000000007803', 'aaaa1111-0000-0000-0000-000000000001',
+   'rates-note.pdf', 'supabase',
+   'projects/aaaa1111-0000-0000-0000-000000000001/FINANCE/1-rates-note.pdf', 512, false);
+
 SELECT set_config('request.jwt.claims', jsonb_build_object(
   'sub','aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa','role','authenticated',
   'app_metadata', jsonb_build_object(
@@ -168,12 +183,7 @@ VALUES
    'projects/aaaa1111-0000-0000-0000-000000000001/ASSETS/c2/1-brief.pdf', 2048, false),
   ('aaaa1111-0000-0000-0000-000000007802', 'aaaa1111-0000-0000-0000-000000000001',
    'invoice.pdf', 'supabase',
-   'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/1-invoice.pdf', 1024, true),
-  -- Flagged false on the row, filed under FINANCE/: the PATH arm of the one
-  -- definition, and the shape 0042's storage gate protects by key alone.
-  ('aaaa1111-0000-0000-0000-000000007803', 'aaaa1111-0000-0000-0000-000000000001',
-   'rates-note.pdf', 'supabase',
-   'projects/aaaa1111-0000-0000-0000-000000000001/FINANCE/1-rates-note.pdf', 512, false);
+   'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/c2/1-invoice.pdf', 1024, true);
 
 SELECT is(
   (SELECT is_financial FROM public.file_events
@@ -191,9 +201,13 @@ SELECT is(
   true, 'a row flagged false but filed under FINANCE/ is financial by its key');
                                                                             -- 9
 
+-- MO1 (0114): a client no longer patches a stored key, so the runner makes the change
+-- the capture trigger is pinned on (suite 115 pins the client's refusal).
+RESET ROLE;
 UPDATE public.files
-   SET storage_path = 'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/2-invoice.pdf'
+   SET storage_path = 'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/c2/2-invoice.pdf'
  WHERE id = 'aaaa1111-0000-0000-0000-000000007802';
+SET LOCAL ROLE authenticated;
 
 SELECT is(
   (SELECT is_financial FROM public.file_events
@@ -740,11 +754,11 @@ SELECT is(
     WHERE id = 'aaaa1111-0000-0000-0000-000000007613'),
   false, 'BLAST RADIUS: a project file no expense references is untouched');  -- 54
 
--- TRAP 2, pinned as a fact rather than left in a comment: the row is gated and
--- the BLOB is not. The receipt's body is still under its container segment, so
--- the FOUR base storage policies still serve it to anyone holding the path.
--- 0076 cannot move bytes; these probes are the standing record of what it did
--- not close, next to the thing it did.
+-- TRAP 2, pinned as a fact rather than left in a comment: until 0115 the row was
+-- gated and the BLOB was not. The receipt's body is still under its container
+-- segment; until 0115 the FOUR base storage policies served it to anyone holding
+-- the path. 0076 cannot move bytes; these probes are the standing record of what
+-- it did not close, next to the thing it did. 0115 closed it (probes 60 and 62).
 --
 -- 🚨 PROBE 55 IS A SHAPE ASSERTION AND PROBE 60 IS THE ACCESS ONE. Read them
 -- as a pair, and do not mistake the first for the second.
@@ -844,18 +858,15 @@ SELECT is(
   0, 'CONTROL: storage RLS IS applying — the member cannot read an object under the money segment');
                                                                             -- 59
 
--- 🚨 TRAP 2, MEASURED RATHER THAN ASSERTED. The row gate just closed for this
--- member — probe 58. The BLOB gate did not: the object still sits under the
--- `project` segment, so `rabbit_files_select` still serves it.
---
--- ⚠️ THIS PROBE IS EXPECTED TO FIND THE OBJECT READABLE. Green here means the
--- documented gap is still open; that is the limitation, not a failure, and it
--- is why a body-mover is still owed. The disposition is IN THE MESSAGE and not
--- only in this comment, because a comment is not printed in a CI log.
+-- 🚨 TRAP 2, MEASURED. The row gate closed for this member at probe 58. The BLOB
+-- gate closed with 0115: the object still sits under the `project` segment, but a
+-- key a row names now answers to that row as the caller reads it, so a member who
+-- cannot read the receipt's row cannot read its copy. Until 0115 this probe expected
+-- 1, on purpose, and said why in its message. Probe 62 shows the object is there.
 SELECT is(
   (SELECT count(*)::int FROM storage.objects
     WHERE name = 'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/1-receipt-cab.pdf'),
-  1, '🚨 TRAP 2 MEASURED (EXPECTED 1): the member who cannot read the receipt ROW can STILL read its BLOB. If this is 0 the blob gate was CLOSED — that is good news, and handbook §12.9, OUTSTANDING residual 1 and this probe must all be updated together');
+  0, '🚨 TRAP 2 CLOSED (0115): the member who cannot read the receipt ROW cannot read its BLOB either');
                                                                             -- 60
 
 -- 61 (0092, S4d review round 1): the PRESENCE CONTROL for probe 21's absence.
@@ -872,6 +883,353 @@ SELECT is(
     WHERE file_id = 'aaaa1111-0000-0000-0000-000000007801' AND event = 'purged'),
   1, 'PRESENCE CONTROL for 21: the plain member reads the plain file''s deletion certificate');
                                                                             -- 61
+
+-- 62: the PRESENCE CONTROL for probe 60. The object is there, and a money reader of
+-- the project reads it, so the member's 0 is a refusal and not an empty bucket.
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT tests.login_as(
+  'dddddddd-dddd-dddd-dddd-dddddddddddd',
+  '11111111-1111-1111-1111-111111111111'
+);
+SELECT is(
+  (SELECT count(*)::int FROM storage.objects
+    WHERE name = 'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/1-receipt-cab.pdf'),
+  1, 'PRESENCE CONTROL for 60: a money reader reads the receipt''s copy, so the member''s 0 is a refusal');
+                                                                            -- 62
+
+-- ══ MO1 (0116), her ruling of 2026-11-05: a file's log from a project's private time ═══
+-- "Keep them hidden (Recommended)": entries written while a project was private stay with
+-- its creator and the admins, once it is opened. The rule edit_history has since 0108.
+--
+-- user_e creates the project and holds no admin claim. user_f is a plain member of the
+-- company who is not on the project: a public project is readable by every member.
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+INSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at,
+                        raw_app_meta_data, raw_user_meta_data, aud, role,
+                        instance_id, created_at, updated_at)
+VALUES
+  ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'user_e@test.local',
+   crypt('testpw', gen_salt('bf')), now(),
+   '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
+   'authenticated', 'authenticated',
+   '00000000-0000-0000-0000-000000000000', now(), now()),
+  ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'user_f@test.local',
+   crypt('testpw', gen_salt('bf')), now(),
+   '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
+   'authenticated', 'authenticated',
+   '00000000-0000-0000-0000-000000000000', now(), now())
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO public.workspace_members
+  (workspace_id, user_id, app_role, username, display_name, is_active)
+VALUES
+  ('11111111-1111-1111-1111-111111111111',
+   'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'user', 'user_e', 'User E', true),
+  ('11111111-1111-1111-1111-111111111111',
+   'ffffffff-ffff-ffff-ffff-ffffffffffff', 'user', 'user_f', 'User F', true)
+ON CONFLICT (workspace_id, user_id) DO NOTHING;
+
+INSERT INTO public.projects (id, workspace_id, title, created_by) VALUES
+  ('aaaa1111-0000-0000-0000-000000007890', '11111111-1111-1111-1111-111111111111',
+   'Opened later', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee');
+
+INSERT INTO public.project_members (project_id, user_id, workspace_id, project_role) VALUES
+  ('aaaa1111-0000-0000-0000-000000007890', 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+   '11111111-1111-1111-1111-111111111111', 'member'),
+  ('aaaa1111-0000-0000-0000-000000007890', 'dddddddd-dddd-dddd-dddd-dddddddddddd',
+   '11111111-1111-1111-1111-111111111111', 'manager')
+ON CONFLICT (project_id, user_id) DO NOTHING;
+
+-- 7891 from its public time, 7892 and the invoice 7893 from its private time, 7895 and the
+-- invoice 7896 after it opened. 7894 starts in project A and moves in during the private time.
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, size_bytes) VALUES
+  ('aaaa1111-0000-0000-0000-000000007891', 'aaaa1111-0000-0000-0000-000000007890', 'before.png', 'supabase',
+   'projects/aaaa1111-0000-0000-0000-000000007890/project/aaaa1111-0000-0000-0000-000000007890/1-before.png', 10),
+  ('aaaa1111-0000-0000-0000-000000007894', 'aaaa1111-0000-0000-0000-000000000001', 'moving-in.png', 'supabase',
+   'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/1-moving-in.png', 10);
+
+UPDATE public.projects SET is_private = true WHERE id = 'aaaa1111-0000-0000-0000-000000007890';
+
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, size_bytes) VALUES
+  ('aaaa1111-0000-0000-0000-000000007892', 'aaaa1111-0000-0000-0000-000000007890', 'secret.png', 'supabase',
+   'projects/aaaa1111-0000-0000-0000-000000007890/project/aaaa1111-0000-0000-0000-000000007890/1-secret.png', 10),
+  ('aaaa1111-0000-0000-0000-000000007893', 'aaaa1111-0000-0000-0000-000000007890', 'secret-invoice.pdf', 'supabase',
+   'projects/aaaa1111-0000-0000-0000-000000007890/INVOICES/x/1-secret-invoice.pdf', 10);
+
+UPDATE public.files SET project_id = 'aaaa1111-0000-0000-0000-000000007890'
+ WHERE id = 'aaaa1111-0000-0000-0000-000000007894';
+
+-- A writer past the capture: log_file_downloaded, as the creator, during the private time.
+SELECT tests.login_as('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', '11111111-1111-1111-1111-111111111111');
+SELECT public.log_file_downloaded('aaaa1111-0000-0000-0000-000000007892');
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+-- 63: while the project is private, a member of it reads nothing of it, earlier rows included.
+SELECT tests.login_as('cccccccc-cccc-cccc-cccc-cccccccccccc', '11111111-1111-1111-1111-111111111111');
+SELECT is(
+  (SELECT count(*)::int FROM public.file_events WHERE project_id = 'aaaa1111-0000-0000-0000-000000007890'),
+  0, 'while private, a member of the project reads none of its log');                -- 63
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+UPDATE public.projects SET is_private = false WHERE id = 'aaaa1111-0000-0000-0000-000000007890';
+
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, size_bytes) VALUES
+  ('aaaa1111-0000-0000-0000-000000007895', 'aaaa1111-0000-0000-0000-000000007890', 'after.png', 'supabase',
+   'projects/aaaa1111-0000-0000-0000-000000007890/project/aaaa1111-0000-0000-0000-000000007890/1-after.png', 10),
+  ('aaaa1111-0000-0000-0000-000000007896', 'aaaa1111-0000-0000-0000-000000007890', 'after-invoice.pdf', 'supabase',
+   'projects/aaaa1111-0000-0000-0000-000000007890/INVOICES/x/1-after-invoice.pdf', 10);
+
+-- The rows a project-scoped read may hold, as the last four digits of each file.
+CREATE FUNCTION pg_temp.seen78()
+RETURNS TEXT LANGUAGE sql STABLE AS $$
+  SELECT COALESCE(string_agg(DISTINCT right(file_id::text, 4), ',' ORDER BY right(file_id::text, 4)), 'none')
+    FROM public.file_events WHERE project_id = 'aaaa1111-0000-0000-0000-000000007890';
+$$;
+GRANT EXECUTE ON FUNCTION pg_temp.seen78() TO authenticated;
+
+-- ── The shape ──
+SELECT has_column('public'::name, 'file_events'::name, 'captured_private'::name,
+  'file_events.captured_private exists');                                             -- 64
+SELECT is(
+  (SELECT is_nullable || '/' || column_default FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'file_events' AND column_name = 'captured_private'),
+  'NO/true', 'captured_private is NOT NULL DEFAULT true: past the trigger it fails closed'); -- 65
+SELECT is(
+  (SELECT string_agg(tgname, ', ' ORDER BY tgname) FROM pg_trigger
+    WHERE tgrelid = 'public.file_events'::regclass AND NOT tgisinternal),
+  'trg_file_events_money, trg_file_events_private', 'the two triggers on file_events');  -- 66
+SELECT ok(
+  (SELECT qual LIKE '%captured_private%' AND qual LIKE '%created_by = auth.uid()%'
+     FROM pg_policies WHERE schemaname = 'public' AND tablename = 'file_events'),
+  'file_events_select carries the private-time arm (suite 95 pins the whole text)'); -- 67
+
+-- ── The stamp, for every writer ──
+SELECT is(
+  (SELECT string_agg(right(file_id::text, 4) || ':' || captured_private, ' ' ORDER BY right(file_id::text, 4))
+     FROM public.file_events
+    WHERE project_id = 'aaaa1111-0000-0000-0000-000000007890' AND event = 'uploaded'),
+  '7891:false 7892:true 7893:true 7895:false 7896:false',
+  'each upload is stamped with what the project was when it was written');            -- 68
+SELECT is(
+  (SELECT captured_private FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000007892' AND event = 'downloaded'),
+  true, 'a writer past the capture (log_file_downloaded) is stamped too');            -- 69
+
+INSERT INTO public.projects (id, workspace_id, title, created_by, is_private) VALUES
+  ('aaaa1111-0000-0000-0000-000000007897', '11111111-1111-1111-1111-111111111111',
+   'Stays private', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', true);
+INSERT INTO public.file_events (workspace_id, project_id, file_id, event, captured_private) VALUES
+  ('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000007890',
+   'aaaa1111-0000-0000-0000-0000000078a1', 'relinked', true),
+  ('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000007897',
+   'aaaa1111-0000-0000-0000-0000000078a2', 'relinked', false),
+  ('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-0000000078ff',
+   'aaaa1111-0000-0000-0000-0000000078a3', 'relinked', false);
+SELECT is(
+  (SELECT string_agg(right(file_id::text, 2) || ':' || captured_private, ' ' ORDER BY file_id)
+     FROM public.file_events
+    WHERE file_id IN ('aaaa1111-0000-0000-0000-0000000078a1', 'aaaa1111-0000-0000-0000-0000000078a2',
+                      'aaaa1111-0000-0000-0000-0000000078a3')),
+  'a1:false a2:true a3:true',
+  'not the writer''s to say: a public project false, a private one true, a project gone true'); -- 70
+DELETE FROM public.file_events
+ WHERE file_id IN ('aaaa1111-0000-0000-0000-0000000078a1', 'aaaa1111-0000-0000-0000-0000000078a2',
+                   'aaaa1111-0000-0000-0000-0000000078a3');
+
+SELECT is(
+  (SELECT string_agg(event || ':' || captured_private, ' ' ORDER BY event) FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000007894' AND event IN ('moved_out', 'moved_in')),
+  'moved_in:true moved_out:false',
+  'a move into a private project: each side''s row is stamped with that side''s project'); -- 71
+
+-- ── Caller by caller, the project opened ──
+SELECT tests.login_as('cccccccc-cccc-cccc-cccc-cccccccccccc', '11111111-1111-1111-1111-111111111111');
+SELECT is(pg_temp.seen78(), '7891,7895',
+  '🚨 a member of the project reads the public time and nothing of the private time'); -- 72
+SELECT is(
+  (SELECT string_agg(event, ',' ORDER BY event) FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000007894'),
+  'moved_out,uploaded',
+  'the same member reads the move out of the project they can see, not its arrival in the private time'); -- 73
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+SELECT tests.login_as('dddddddd-dddd-dddd-dddd-dddddddddddd', '11111111-1111-1111-1111-111111111111');
+SELECT is(pg_temp.seen78(), '7891,7895,7896',
+  '🚨 the project''s manager reads the money of the public time and no private-time row, the invoice included'); -- 74
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+SELECT tests.login_as('ffffffff-ffff-ffff-ffff-ffffffffffff', '11111111-1111-1111-1111-111111111111');
+SELECT is(pg_temp.seen78(), '7891,7895',
+  'a company member newly admitted by the opening reads from the public time only');   -- 75
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+SELECT set_config('request.jwt.claims', jsonb_build_object(
+  'sub','ffffffff-ffff-ffff-ffff-ffffffffffff','role','authenticated',
+  'app_metadata', jsonb_build_object(
+    'workspace_id','11111111-1111-1111-1111-111111111111','app_role','manager')
+)::text, true);
+SET LOCAL ROLE authenticated;
+SELECT ok((SELECT pg_temp.seen78() NOT LIKE '%7892%' AND pg_temp.seen78() NOT LIKE '%7893%'
+              AND pg_temp.seen78() LIKE '%7891%'),
+  'a workspace manager who is neither admin nor creator reads no private-time row');   -- 76
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+SELECT tests.login_as('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', '11111111-1111-1111-1111-111111111111');
+SELECT is(pg_temp.seen78(), '7891,7892,7894,7895',
+  'the project''s creator, with no admin claim and no seat, reads the private time, and no money'); -- 77
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+-- A real creator holds a seat (a client's project is staffed by its creator): both arms pass.
+INSERT INTO public.project_members (project_id, user_id, workspace_id, project_role) VALUES
+  ('aaaa1111-0000-0000-0000-000000007890', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
+   '11111111-1111-1111-1111-111111111111', 'manager')
+ON CONFLICT (project_id, user_id) DO UPDATE SET project_role = 'manager';
+SELECT tests.login_as('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', '11111111-1111-1111-1111-111111111111');
+SELECT is(pg_temp.seen78(), '7891,7892,7893,7894,7895,7896',
+  'the creator as the project''s manager reads the private-time invoice too');         -- 78
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+SELECT set_config('request.jwt.claims', jsonb_build_object(
+  'sub','aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa','role','authenticated',
+  'app_metadata', jsonb_build_object(
+    'workspace_id','11111111-1111-1111-1111-111111111111','app_role','admin')
+)::text, true);
+SET LOCAL ROLE authenticated;
+SELECT is(pg_temp.seen78(), '7891,7892,7893,7894,7895,7896',
+  'an admin who did not create the project reads all of it');                          -- 79
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+-- The same person without the claim: the arm is the role, not the name.
+SELECT tests.login_as('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '11111111-1111-1111-1111-111111111111');
+SELECT is(pg_temp.seen78(), '7891,7895',
+  'the same person with no admin claim reads the public time only');                   -- 80
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+SELECT set_config('request.jwt.claims', jsonb_build_object(
+  'sub','bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb','role','authenticated',
+  'app_metadata', jsonb_build_object(
+    'workspace_id','22222222-2222-2222-2222-222222222222','app_role','admin')
+)::text, true);
+SET LOCAL ROLE authenticated;
+SELECT is(pg_temp.seen78(), 'none', 'another company''s admin reads none of it');      -- 81
+
+-- ── The rows already written (file_events_restamp) ──
+SELECT throws_ok($$ SELECT public.file_events_restamp() $$, '42501', NULL,
+  'a client cannot call the restamp');                                                 -- 82
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+-- created_at is the transaction's start, so the suite sets the moments by hand: made
+-- private five days ago, opened again three days ago.
+INSERT INTO public.projects (id, workspace_id, title, created_by, created_at) VALUES
+  ('aaaa1111-0000-0000-0000-000000007898', '11111111-1111-1111-1111-111111111111',
+   'Walked back', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', now() - interval '200 days'),
+  ('aaaa1111-0000-0000-0000-000000007899', '11111111-1111-1111-1111-111111111111',
+   'Never flipped', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', now() - interval '200 days'),
+  ('aaaa1111-0000-0000-0000-000000007888', '11111111-1111-1111-1111-111111111111',
+   'A walk with no answer', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', now() - interval '200 days'),
+  ('aaaa1111-0000-0000-0000-000000007887', '11111111-1111-1111-1111-111111111111',
+   'Flipped, then gone', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', now() - interval '200 days'),
+  ('aaaa1111-0000-0000-0000-000000007886', '11111111-1111-1111-1111-111111111111',
+   'Holds an old id', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', now() - interval '1 day');
+UPDATE public.projects SET created_at = now() - interval '200 days' WHERE id = 'aaaa1111-0000-0000-0000-000000007897';
+UPDATE public.projects SET is_private = true WHERE id = 'aaaa1111-0000-0000-0000-000000007898';
+UPDATE public.edit_history SET created_at = now() - interval '5 days'
+ WHERE entity_type = 'projects' AND entity_id = 'aaaa1111-0000-0000-0000-000000007898'
+   AND action = 'update' AND diff ? 'is_private';
+UPDATE public.projects SET is_private = false WHERE id = 'aaaa1111-0000-0000-0000-000000007898';
+UPDATE public.edit_history SET created_at = now() - interval '3 days'
+ WHERE entity_type = 'projects' AND entity_id = 'aaaa1111-0000-0000-0000-000000007898'
+   AND action = 'update' AND diff -> 'is_private' ->> 'new' = 'false';
+
+-- The flip of 7888 whose old side reads nothing, and 7887's flip with the project then gone.
+UPDATE public.projects SET is_private = true WHERE id = 'aaaa1111-0000-0000-0000-000000007888';
+UPDATE public.edit_history SET created_at = now() - interval '3 days', diff = '{"is_private": {"old": null, "new": true}}'::jsonb
+ WHERE entity_type = 'projects' AND entity_id = 'aaaa1111-0000-0000-0000-000000007888'
+   AND action = 'update' AND diff ? 'is_private';
+UPDATE public.projects SET is_private = false WHERE id = 'aaaa1111-0000-0000-0000-000000007888';
+DELETE FROM public.edit_history
+ WHERE entity_type = 'projects' AND entity_id = 'aaaa1111-0000-0000-0000-000000007888'
+   AND action = 'update' AND diff -> 'is_private' ->> 'new' = 'false';
+UPDATE public.projects SET is_private = true WHERE id = 'aaaa1111-0000-0000-0000-000000007887';
+UPDATE public.projects SET is_private = false WHERE id = 'aaaa1111-0000-0000-0000-000000007887';
+DELETE FROM public.projects WHERE id = 'aaaa1111-0000-0000-0000-000000007887';
+
+INSERT INTO public.file_events (workspace_id, project_id, file_id, event, created_at) VALUES
+  ('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000007898',
+   'aaaa1111-0000-0000-0000-0000000078c1', 'relinked', now() - interval '120 days'),
+  ('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000007899',
+   'aaaa1111-0000-0000-0000-0000000078c2', 'relinked', now() - interval '120 days'),
+  ('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000007886',
+   'aaaa1111-0000-0000-0000-0000000078c3', 'relinked', now() - interval '2 days'),
+  ('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000007888',
+   'aaaa1111-0000-0000-0000-0000000078c4', 'relinked', now() - interval '4 days'),
+  ('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000007887',
+   'aaaa1111-0000-0000-0000-0000000078c5', 'relinked', now() - interval '2 days'),
+  ('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000007898',
+   'aaaa1111-0000-0000-0000-0000000078b1', 'relinked', now() - interval '6 days'),
+  ('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000007898',
+   'aaaa1111-0000-0000-0000-0000000078b2', 'relinked', now() - interval '4 days'),
+  ('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000007898',
+   'aaaa1111-0000-0000-0000-0000000078b3', 'relinked', now() - interval '2 days'),
+  ('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000007899',
+   'aaaa1111-0000-0000-0000-0000000078b4', 'relinked', now() - interval '2 days'),
+  ('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000007897',
+   'aaaa1111-0000-0000-0000-0000000078b5', 'relinked', now() - interval '2 days'),
+  ('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-0000000078ff',
+   'aaaa1111-0000-0000-0000-0000000078b6', 'relinked', now() - interval '2 days');
+-- Every one wrong, the opposite of what the walk must answer.
+UPDATE public.file_events SET captured_private = true
+ WHERE file_id IN ('aaaa1111-0000-0000-0000-0000000078b1', 'aaaa1111-0000-0000-0000-0000000078b3',
+                   'aaaa1111-0000-0000-0000-0000000078b4');
+UPDATE public.file_events SET captured_private = false
+ WHERE file_id IN ('aaaa1111-0000-0000-0000-0000000078b2', 'aaaa1111-0000-0000-0000-0000000078b5',
+                   'aaaa1111-0000-0000-0000-0000000078b6', 'aaaa1111-0000-0000-0000-0000000078c1',
+                   'aaaa1111-0000-0000-0000-0000000078c2', 'aaaa1111-0000-0000-0000-0000000078c3',
+                   'aaaa1111-0000-0000-0000-0000000078c4', 'aaaa1111-0000-0000-0000-0000000078c5');
+SELECT ok(public.file_events_restamp() >= 11, 'the restamp changes the eleven rows that read wrong'); -- 83
+SELECT is(
+  (SELECT string_agg(right(file_id::text, 2) || ':' || captured_private, ' ' ORDER BY file_id)
+     FROM public.file_events
+    WHERE file_id IN ('aaaa1111-0000-0000-0000-0000000078b1', 'aaaa1111-0000-0000-0000-0000000078b2',
+                      'aaaa1111-0000-0000-0000-0000000078b3')),
+  'b1:false b2:true b3:false', '🚨 the walk: what the project was at each row''s moment'); -- 84
+SELECT is(
+  (SELECT string_agg(right(file_id::text, 2) || ':' || captured_private, ' ' ORDER BY file_id)
+     FROM public.file_events
+    WHERE file_id IN ('aaaa1111-0000-0000-0000-0000000078b4', 'aaaa1111-0000-0000-0000-0000000078b5',
+                      'aaaa1111-0000-0000-0000-0000000078b6')),
+  'b4:false b5:true b6:true',
+  'no flip: the live value, public false and private true; a project gone: closed');    -- 85
+SELECT is(
+  (SELECT string_agg(right(file_id::text, 2) || ':' || captured_private, ' ' ORDER BY file_id)
+     FROM public.file_events
+    WHERE file_id IN ('aaaa1111-0000-0000-0000-0000000078c1', 'aaaa1111-0000-0000-0000-0000000078c2')),
+  'c1:true c2:true',
+  '🚨 older than the history keeps: closed, with a flip kept or none: its flip may be gone'); -- 86
+SELECT is(
+  (SELECT captured_private FROM public.file_events WHERE file_id = 'aaaa1111-0000-0000-0000-0000000078c3'),
+  true, 'a row older than its project is another holder''s: closed');                  -- 87
+SELECT is(
+  (SELECT captured_private FROM public.file_events WHERE file_id = 'aaaa1111-0000-0000-0000-0000000078c4'),
+  true, 'a walk with no answer: closed');                                               -- 88
+SELECT is(
+  (SELECT captured_private FROM public.file_events WHERE file_id = 'aaaa1111-0000-0000-0000-0000000078c5'),
+  true, 'a project flipped and then gone: closed, as one never flipped is');            -- 89
+SELECT is(public.file_events_restamp(), 0::bigint, 'run again at once, the restamp changes nothing'); -- 90
 
 SELECT * FROM finish();
 ROLLBACK;

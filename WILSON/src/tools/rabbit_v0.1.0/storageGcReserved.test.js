@@ -56,6 +56,8 @@
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
+import fs from 'node:fs'
+import path from 'node:path'
 import { readFileSync } from 'node:fs'
 
 import { MANIFEST_FILENAME } from './projectManifest'
@@ -277,5 +279,15 @@ describe('the guard is actually WIRED — all three call sites', () => {
     const loop  = COLLECT.lastIndexOf('for (const projectId of projectIds)', build)
     expect(loop, 'reserved paths are no longer built from the owned project ids')
       .toBeGreaterThan(-1)
+  })
+})
+
+describe('a failed disposal (whole-session review round 1)', () => {
+  it('🚨 goes again after what has never been tried: the admin is told to fix the secret and run cleanup again', () => {
+    const text = fs.readFileSync(path.join(process.cwd(), 'supabase/functions/storage-gc/index.ts'), 'utf8')
+    const drain = text.slice(text.indexOf(".from('storage_gc_queue')"), text.indexOf('.limit(500)'))
+    expect(drain).toContain(".in('status', ['pending', 'failed'])")
+    expect(drain).toMatch(/\.order\('status', \{ ascending: false \}\)[\s\S]*\.order\('id'/)
+    expect(drain).not.toContain(".eq('status', 'pending')")
   })
 })

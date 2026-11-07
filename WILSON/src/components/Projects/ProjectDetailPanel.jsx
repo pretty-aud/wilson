@@ -108,6 +108,8 @@ export default function ProjectDetailPanel({
   // C3. Drive is read-only (adapterSupportsWrites is false for it), so the
   // drop zone would only ever produce a thrown sentence — it says so instead.
   canUpload = true,
+  // MO1: whether the caller may choose the producer (project.roster.manage).
+  canManageTeam = true,
   // C3, §6 #31 trap (g). TRUE in cloud mode, where deleteFile is 0014's soft
   // delete: the row keeps deleted_at, the blob stays, and the space is held
   // for 30 days. FALSE on Local Server, where the same button unlinks the
@@ -209,12 +211,18 @@ export default function ProjectDetailPanel({
               />
             </Field>
 
-            <Field label={<><Sparkles aria-hidden="true" /> Producer</>}>
+            {/* MO1 (R11, SEC-6): choosing the producer seats a manager, so only
+                someone who manages this project's team may (0107 refuses the rest). */}
+            <Field
+              label={<><Sparkles aria-hidden="true" /> Producer</>}
+              hint={canManageTeam ? undefined : "Only someone who manages this project's team can choose its producer."}
+            >
               <Select
                 value={project.producer_id || ''}
                 onChange={(v) => onUpdate({ producer_id: v })}
                 placeholder="Select producer"
                 options={memberOptions}
+                disabled={!canManageTeam}
               />
             </Field>
           </div>
@@ -312,7 +320,7 @@ export default function ProjectDetailPanel({
               + (deletesAreSoft === true
                 ? ' Deleting moves a file to the trash and keeps it for 30 days; it holds storage until then.'
                 : deletesAreSoft === false
-                  ? ' Deleting removes the file from this computer immediately — there is no trash in Local Server mode.'
+                  ? ' Deleting moves the file to this project\'s trash on this computer. It stays there, and holds its space, for 30 days after the project next opens.'
                   : '')
             }
             actions={fileCount > 0 ? (

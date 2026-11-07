@@ -273,6 +273,11 @@ function removeWithMirror(bundle, table, id) {
  *                                               or deleted one (R1, S5-02: 0101's
  *                                               thin budget_versions event), so
  *                                               this window re-reads them
+ *   { type: 'audience' }                      — who may see the project changed
+ *                                               (0109's AUDIENCE, or the project
+ *                                               made private): the provider reads
+ *                                               the project list again and closes
+ *                                               the open project if it is gone
  */
 export function applyRealtimeEvent(bundle, evt, opts = {}) {
   if (evt && SET_ASIDE_TABLES.has(evt.table)) {
@@ -314,6 +319,9 @@ function applyEventCore(bundle, evt, opts = {}) {
 
   // ── projects: the topic's own row → bundle.project + index effects ──────
   if (table === 'projects') {
+    // MO1 (0109): AUDIENCE carries no row — who may see the project changed,
+    // and only a read through RLS can say whether this window still may.
+    if (op === 'AUDIENCE') return { bundle, effects: [{ type: 'audience' }] }
     const id = record?.id ?? oldRecord?.id
     if (!id) return noop
     if (op === 'DELETE' || (op === 'UPDATE' && isTrashed(record))) {
@@ -328,6 +336,11 @@ function applyEventCore(bundle, evt, opts = {}) {
       return { bundle, effects: [{ type: 'project-patch', record }] }
     }
     const effects = [{ type: 'project-patch', record }]
+    // Made private (a server without 0109 still sends this UPDATE to every
+    // listener): the list is read again, through RLS, to learn who stays.
+    if (op === 'UPDATE' && record?.is_private === true && oldRecord?.is_private !== true) {
+      effects.push({ type: 'audience' })
+    }
     if (bundle.project?.id === id) {
       // S5b: another window opened (or closed) a bid version. Its rows
       // arrive here one by one, but the versions themselves are not

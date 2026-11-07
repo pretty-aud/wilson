@@ -20,7 +20,9 @@
 // for a Legal file, and a member or reviewer sees neither. The policy
 // decides; this drawer shows what comes back and its foot says so, so an
 // empty stream for a manager's deleted invoice reads as the rule, not a
-// fault); in local_server mode it is the bundle.fileEvents log the Express
+// fault; since 0116, her ruling of 2026-11-05, a row written while the project
+// was private stays with its creator and the admins after it is opened, and the
+// foot says that too); in local_server mode it is the bundle.fileEvents log the Express
 // routes append to. This is TPN-CONT-002's chain-of-custody surface in
 // product clothing.
 //
@@ -57,7 +59,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   X, RefreshCw, FileClock, Upload, Download, MoveRight, Link2, Trash2, RotateCcw, Flame,
-  CloudOff, Globe,
+  CloudOff, Globe, FolderInput, Server,
 } from 'lucide-react'
 import { Drawer, IconButton, Badge, Banner, Loading, EmptyState } from '../../../ui'
 import '../views/rabbitFiles.css'
@@ -91,6 +93,14 @@ export const FILE_EVENT_META = {
   // and readable by live workspace admins only. A read, so the read tone the
   // `downloaded` row uses. Its `subject` is 'bin_file': the id names a clip.
   viewed_remote: { label: 'Viewed from outside', tone: 'read', Icon: Globe },
+  // MO1 / 0116 (MOTH_DESIGN.md §2.3 MV-8, §2.4 NS-D11): a project change writes one
+  // row each side, under that side's project, with no paths: neither side learns the
+  // other's locator, so these cards name no place. A folder change within a project is
+  // `refiled`. What an office-server check found is not something anyone uploaded.
+  moved_out:  { label: 'Moved out', tone: 'change', Icon: MoveRight },
+  moved_in:   { label: 'Moved in from another place', tone: 'change', Icon: MoveRight },
+  refiled:    { label: 'Moved to another folder', tone: 'change', Icon: FolderInput },
+  catalogued: { label: 'Found on the office server', tone: 'create', Icon: Server },
 }
 
 /**
@@ -167,7 +177,7 @@ export default function FileAuditDrawer({ fileId, projectId, fileName, onClose }
       footer={(
         <p className="rb-audit-foot">
           {adapterMode === 'supabase'
-            ? 'Recorded server-side for every upload, move, relink, trash, restore and purge. Records of a deleted invoice or Legal file are shown only to the people who could see the file.'
+            ? 'Recorded server-side for every upload, move, relink, trash, restore and purge. Records of a deleted invoice or Legal file are shown only to the people who could see the file. Records from while a project was private are shown only to its creator and admins.'
             : 'Recorded locally for uploads, relinks and deletes in this project.'}
         </p>
       )}

@@ -88,7 +88,8 @@ describe('supabaseAdapter — the private branch, beside the money pin', () => {
     expect(adapter).toContain('async function privateProjectsAvailable(client)')
     expect(adapter).toContain("error.code === '42703'")
     expect(adapter).toContain("const privateCol = (await privateProjectsAvailable(client)) ? ', is_private' : '';")
-    expect(adapter).toContain("cover_image_url' + privateCol)")
+    // MO1 (0109): topic_epoch rides its own probe after it, the same way.
+    expect(adapter).toContain("cover_image_url' + privateCol + epochCol)")
     expect(adapter).toContain('if (row.is_private !== undefined && !(await privateProjectsAvailable(client))) delete row.is_private;')
     expect(adapter).toContain('privateColumnKnown = null;\n  fileMetaKnown = null;\n}')
     expect(adapter).toContain('async supportsPrivateProjects()')
@@ -257,7 +258,9 @@ describe('migration 0072 and suite 80', () => {
     expect(migration).not.toMatch(/ALTER TABLE public\.(files|assets|tasks|scenes|shots)/)
   })
   it('suite 80 covers the owner, the member, the admin and the child hop', () => {
-    expect(suite).toContain('SELECT plan(15);')
+    // MO1 (2026-11-04, 0110): suite 80 also holds the personal space's probes.
+    expect(suite).toContain('SELECT plan(47);')
+    expect(suite).toContain('an app-role user gets a personal space')
     expect(suite).toContain('a plain member does not see the private project')
     expect(suite).toContain('the workspace admin sees the private project')
     expect(suite).toContain("'local_server'")

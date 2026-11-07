@@ -1554,3 +1554,83 @@ describe('custom table views and groupings (VW1c, 0098 on the fixtures)', () => 
     expect(() => raise('No such sentence')).toThrow(/raises no/)
   })
 })
+
+// MO1 (0111): the fake cloud's Moth reads, as moth_islands and its two neighbours answer.
+describe('Moth\'s reads (0111)', () => {
+  const PROJECT = fid('project', 1)
+  const fresh = () => buildDevFixtures()
+  it('an admin\'s islands hold their own space and never another person\'s', async () => {
+    const fx = fresh().rabbitAdapter()
+    const islands = await fx.listMothIslands()
+    expect(islands.filter(i => i.is_personal).map(i => i.is_mine)).toEqual([true])
+    expect(islands[0].is_mine).toBe(true)
+    expect(Object.keys(islands[0])).toEqual(['id', 'title', 'is_personal', 'is_mine', 'is_private', 'my_project_role', 'is_staffed', 'can_write', 'updated_at'])
+  })
+  it('another person\'s space answers no rows, for an admin too', async () => {
+    const fx = fresh().rabbitAdapter()
+    const other = (await fx.listPersonalSpaces()).find(s => s.personal_owner_id !== fid('member', 1))
+    expect(await fx.listMothFiles(other.id)).toEqual([])
+    expect(await fx.listMothFolders(other.id)).toEqual([])
+  })
+  it('no file of the list is money or Legal, though the Files page\'s list holds them', async () => {
+    const fx = fresh().rabbitAdapter()
+    const everything = await fx.listFiles(PROJECT)
+    const rows = await fx.listMothFiles(PROJECT)
+    expect(everything.some(f => f.is_financial || f.tags?.includes('legal'))).toBe(true)
+    expect(rows.length).toBeGreaterThan(0)
+    const hidden = everything.filter(f => f.is_financial || f.tags?.includes('legal')).map(f => f.id)
+    expect(rows.filter(f => hidden.includes(f.id))).toEqual([])
+    expect(rows[0]).not.toHaveProperty('is_financial')
+  })
+  it('no folder of the list is a money folder', async () => {
+    const fx = fresh().rabbitAdapter()
+    const paths = (await fx.listMothFolders(PROJECT)).map(f => f.path)
+    expect(paths.length).toBeGreaterThan(0)
+    expect(paths.filter(p => /^(INVOICES|FINANCE|LEGAL)(\/|$)/i.test(p))).toEqual([])
+  })
+  it('a page is keyed on id and clamped', async () => {
+    const fx = fresh().rabbitAdapter()
+    const all = (await fx.listMothFiles(PROJECT)).map(f => f.id)
+    expect(all).toEqual([...all].sort())
+    expect((await fx.listMothFiles(PROJECT, null, 1)).map(f => f.id)).toEqual(all.slice(0, 1))
+    expect((await fx.listMothFiles(PROJECT, all[0])).map(f => f.id)).toEqual(all.slice(1))
+    expect((await fx.listMothFiles(PROJECT, null, -3)).length).toBe(1)
+  })
+  it('a hidden or missing project is an empty answer, never an error', async () => {
+    const fx = fresh().rabbitAdapter()
+    expect(await fx.listMothFiles('no-such-project')).toEqual([])
+    expect(await fx.listMothFolders('no-such-project')).toEqual([])
+  })
+})
+
+// MO1 (0110): the fake cloud answers personal spaces as the real one's RLS and RPCs do.
+describe('personal spaces (0110)', () => {
+  const MARA = fid('member', 1)
+  const PRIYA = fid('member', 3)
+  const fresh = () => buildDevFixtures()
+  it('no list holds them; the admin sees both in listPersonalSpaces', async () => {
+    const fx = fresh().rabbitAdapter()
+    expect((await fx.listProjects()).some(p => p.personal_owner_id)).toBe(false)
+    expect((await fx.listPersonalSpaces()).map(s => s.personal_owner_id).sort()).toEqual([MARA, PRIYA].sort())
+  })
+  it('ensurePersonalSpace answers the same id every time', async () => {
+    const fx = fresh().rabbitAdapter()
+    const first = await fx.ensurePersonalSpace()
+    expect(await fx.ensurePersonalSpace()).toBe(first)
+    expect((await fx.listPersonalSpaces()).find(s => s.id === first).personal_owner_id).toBe(MARA)
+  })
+  it('an admin\'s open of someone else\'s is recorded; their own, and an ordinary project, are refused', async () => {
+    const dev = fresh()
+    const fx = dev.rabbitAdapter()
+    const spaces = await fx.listPersonalSpaces()
+    const hers = spaces.find(s => s.personal_owner_id === PRIYA).id
+    const mine = spaces.find(s => s.personal_owner_id === MARA).id
+    await fx.recordPersonalSpaceOpened(hers)
+    await expect(fx.recordPersonalSpaceOpened(mine)).rejects.toThrow()
+    await expect(fx.recordPersonalSpaceOpened(fid('project', 1))).rejects.toThrow()
+  })
+  it('the Team page\'s seats name them, so the page can leave them out', () => {
+    const { data } = fresh().workspace.listProjectMemberships()
+    expect(data.filter(r => r.projects?.personal_owner_id).length).toBe(2)
+  })
+})

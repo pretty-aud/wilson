@@ -39,6 +39,21 @@ const AUTH_TIMEOUT_MS = 8000
  *   client. Passed in rather than imported so the adapter keeps ownership of
  *   client lifecycle and the provider stays unit-testable with a fake.
  */
+// MO1 (0121): a file small enough for a standard upload reserves nothing, so a company's limit answers it with the
+// quota policy's row security, in the words of a permissions fault. The words are the server's own, in
+// reserve_upload_bytes. Only a company with little room left is told this: anywhere else it is some other refusal.
+const NOT_ENOUGH_ROOM = 'There is not enough Petal cloud storage left for this file. Add a smaller file, or contact an admin to raise the plan — deleting files does not free space straight away, because deleted files stay recoverable for 30 days.'
+async function refusedForRoom(error) {
+  if (!/row-level security/i.test(String(error?.message ?? ''))) return false
+  try {
+    const { fetchStorageUsage } = await import('../../../cloud/workspaceStorage')
+    const usage = await fetchStorageUsage()
+    return Boolean(usage) && usage.fullness !== 'ok'
+  } catch {
+    return false
+  }
+}
+
 export function createSupabaseStorageProvider(requireClient) {
   const bucket = async () => (await requireClient()).storage.from(BUCKET)
 
@@ -138,7 +153,10 @@ export function createSupabaseStorageProvider(requireClient) {
         upsert: false,
         contentType: opts.contentType || body?.type || 'application/octet-stream',
       })
-      if (error) throw new Error(`[supabase] storage upload failed: ${error.message}`)
+      if (error) {
+        if (await refusedForRoom(error)) throw new Error(NOT_ENOUGH_ROOM)
+        throw new Error(`[supabase] storage upload failed: ${error.message}`)
+      }
       return { key }
     },
 
@@ -155,18 +173,13 @@ export function createSupabaseStorageProvider(requireClient) {
       if (error) throw new Error(`[supabase] storage delete failed: ${error.message}`)
     },
 
-    // Supabase Storage has no HEAD, so this lists the key's own directory and
-    // looks for the leaf. Scoped with `search` so a busy project folder does
-    // not page — and the 100-object default limit cannot produce a false
-    // "missing" for an exact-name search.
+    // One HEAD. A list reads the whole bucket, every company's, because its filter runs after row
+    // security: 3,761 ms at 3,000 objects (0115's measurement), against one index probe here. It answers
+    // false on a 400 or a 404 and throws on anything else.
     async exists(key) {
       const b = await bucket()
-      const slash = key.lastIndexOf('/')
-      const dir = slash === -1 ? '' : key.slice(0, slash)
-      const leaf = slash === -1 ? key : key.slice(slash + 1)
-      const { data, error } = await b.list(dir, { search: leaf, limit: 100 })
-      if (error) throw new Error(`[supabase] storage list failed: ${error.message}`)
-      return (data || []).some(o => o.name === leaf)
+      const { data } = await b.exists(key)
+      return data === true
     },
 
     // ── Session 40: a URL a <video> can stream from ─────────────────────────

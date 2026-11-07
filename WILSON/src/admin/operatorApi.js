@@ -248,7 +248,7 @@ export function clearPlatformDefault(registryKey) {
 
 // ── Session 41: the Petal-cloud storage plane ────────────────────────────────
 // Same reason these are Edge calls rather than PostgREST, and one more besides.
-// Migration 0055 gives workspace_storage_plans a member READ policy and NO write
+// Migration 0055 gives workspace_storage_plans a READ policy (an admin's alone since 0121) and NO write
 // policy, so there is no direct write path even for an operator — that is what
 // makes "the operator approves access" structural.
 //

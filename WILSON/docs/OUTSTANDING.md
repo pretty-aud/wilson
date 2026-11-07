@@ -1224,17 +1224,9 @@ environments that come later.
 are THREE, and only the first two are counted and reported by 0076 at apply
 time. All three are empty on dev and staging today.
 
-1. **A pre-existing receipt is gated at the ROW and not at the BLOB.** The
-   four base `rabbit_files_*` storage policies key on the third PATH segment
-   and never consult `files.is_financial`, so flipping the flag does not move
-   an existing object to the money side of that test. The practical effect is
-   still large — `storage_path` itself becomes manager-only, so the path can no
-   longer be DISCOVERED through the app — but anyone already holding a path
-   keeps object-level read access. Moving the bytes is not a migration's job
-   (`storage.objects.name` IS the S3 key, so renaming the row without moving
-   the object breaks the download); it needs a one-time client-side mover in
-   the shape of C3's `runAttachmentMigration`. Pinned as a fact by suite 78
-   probe 55 rather than left as a comment.
+1. **Closed by 0115.** A pre-existing receipt was gated at the row and not at
+   the blob; since 0115 a claimed key's reads follow its row, whatever the path
+   says, so a path kept from before is no way in.
 2. **A receipt whose body is on a customer's own bucket cannot be flagged at
    all.** `files_money_provider_chk` (0050) refuses a financial row outside
    Supabase, so 0076 scopes its backfill to `storage_provider = 'supabase'`
@@ -1245,8 +1237,8 @@ time. All three are empty on dev and staging today.
 The standing diagnostic for the first two is in `SYSTEMS_HANDBOOK.md` §12.9
 (§12.4 is blob garbage collection — the pointer here was wrong). ⚠️ Read its
 two columns differently: `ungated_on_customer_bucket` must be 0, but
-`blob_outside_money_segment` IS the size of residual 1 and is expected to be
-non-zero wherever receipts predate 0076.
+`blob_outside_money_segment` counts receipts whose path predates 0076, and is
+expected to be non-zero there: since 0115 their reads follow the row.
 
 3. **Local Server receipts uploaded before C4 — counted by nothing.** 0076 is
    a Postgres migration; the desktop keeps its own `is_financial` in its JSON
@@ -1340,6 +1332,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| MO1 (M.O.T.H. Session 1, 2026-11-02 to 2026-11-07; `po/moth1-foundations-9l5hbg`) — migrations 0107 to 0119 and 0121, the Edge Functions, the desktop's trash, moves and office-server routes, and the lazy Moth page; two whole-session review rounds. | MO1-01 to MO1-15 (below, at the end of this file). | The workspace channel's private rows and the write hops on `tasks` and `assets` (A-R1-04, A-R2-03), `files_delete`'s hop (C-R2-01), S4d-01, S4d-02: 0107 to 0109. OSP-01, OSP-07, S4c-12 for claimed keys: 0114, 0115 and the Edge Functions. S4b-06's first half and the receipts' residual 1: 0121, 0115. |
 | Post-overhaul DG8 (2026-11-06; `po/dg8-limit-bar-words` into `feat/post-overhaul-edit-versioning`) — her words, verbatim *"sorry dont say that its an estimate"*: the limit bar's sentence, card 1's header and the hover no longer say it, by the brief's table; *About* and *about* stay; the meter's arithmetic unchanged; one new group of tests over every word and attribute of the bar and the header in each state; walkthrough 94 corrected in place. | DG7-01 restated: the number can still read low, and the bar does not say it is an estimate; recorded, not fixed. DG8-01. | nothing: DG7-01 stays open. Comment markers: 4 → 4. |
 | Post-overhaul DG7 (2026-11-05; `po/dg7-refs-uploads-side-by-side` into `feat/post-overhaul-edit-versioning`) — her ask, verbatim *"lets have references and the uploads be side by side in the card. this makes the card shorter and fills in the negative space a bit. when doing this, the uploads and references selected/uploaded files should show up on the list together showing what its reading."*, and on the limit bar *"Fix it in the D.O.G. session (Recommended)"*: card 1's References and Uploads two columns (416px to the 576px measure, 24 apart, no query), the first controls on one line, one list of every tile with the contract line and the meter under *The deck reads* (the brief's words, her Q1); `focusAfterRemove` by a tile's kind; card 1 40 to 227px shorter at 1280 to 2560 in every state measured but folded (34, unchanged), 20 to 36 taller only where the columns stack with little listed (DG7-07); the meter: the model's input limit in the registry from the provider's documentation (Sonnet 5, 1,000,000, less the 16,384 reserved), a PDF page at 3,000, *(an estimate)* in its words and the number past the limit, the page cap 600 or 100 by the model and on an upload's tile, the count by mode; a 110-page text PDF 248 percent → 34; Help's step 1 in the card's order; two review rounds on Opus; 76 plants each red; no migration, no SQL, no Edge Function | DG7-01 to DG7-08 | DG6-03, MTR-01, MTR-02, MTR-03. Comment markers: 4 → 4. |
 | Post-overhaul SB1 (2026-11-01, night 10; `po/sb1-resizable-sidebars` into `feat/post-overhaul-edit-versioning`) — her ask of 2026-11-01, verbatim *"this divider line from the courses sidebar and the overall otter window should be expanding by grabbing and putting the line to the desired width of the courses sidebar. lets do the same with the sidebar in the dog tool"*: one handle on the kit Panel (`resizable`, `storageKey`, `minWidth`, `maxWidth`, `minBeside`): an 8px strip over the 1px hairline (24 for a finger) that takes no layout width, the line as drawn at rest and a 2px band of the signal on hover, a drag and focus, `role="separator"` with its values, the arrows ±8 and ±40, Home and End, a double-click back to the token, Escape abandoning a drag, the width remembered per device only while it differs from the token and drawn narrower where the row cannot hold it; O.T.T.E.R.'s courses 180 to 480 with 720 kept beside (304 at 1024), D.O.G.'s pages 160 to 480 with 560 kept (464 at 1024); the collapse, its rail and Ctrl/Cmd+\ unchanged, a reopened column at its width; measured at 1280, 1440, 1920 and 2560 (and 1024) before and after, the line and the column beside pixel-identical at rest; C4's preview pin passes at the default; 55 new tests, 50 red on the source before, 112 plants each killed; one design round and two review rounds on Opus (round 1's corrections: the band not drawn in forced colours, a press that changes nothing writes nothing, a window narrowed mid-drag holds the drag, a finger's 8px slop; round 2's: a moved drag owns the width while it lives, the forced-colours ring and the memory's clearing pinned, the Panel measured against its own row in both tools) (Fable's allowance spent until 2026-11-04); no migration, no SQL | SB1-01 to SB1-04 (the design round's three WCAG items: no single-pointer way to set a width, an 8px strip for a mouse, the hairline's 1.48:1 at rest; and the pet over the lesson's *Next* when the courses column is wide at 1280) | nothing |
@@ -1626,66 +1619,8 @@ ruling are Audrey's questions in walkthrough 47 as well.
 
 ## Post-overhaul merge (Track A over the overhaul, `feat/post-overhaul-edit-versioning`) — review round 1 (2026-09-30)
 
-### 🚨 The workspace realtime channel broadcasts a PRIVATE project's rows to every member
-**MEASURED (2026-09-29, merge review round 1, A-R1-04; PRE-EXISTING on the
-overhaul parent `60a8981` — not introduced by the merge, and not fixed by its
-round-1 corrections).**
-`fn_workspace_realtime_broadcast` (`0018_workspace_channel.sql:159`, attached
-to `projects`, `workspace_members`, `tasks`, `assets`, `project_members`)
-passes whole NEW/OLD rows to `realtime.broadcast_changes` on
-`rabbit:workspace:<ws>` with only a workspace filter, on the premise its own
-comment states — "Membership ≡ visibility". 0072 made that premise false:
-`projects_select` gained the private-project arm, and the join gate
-`can_read_workspace_topic` still checks membership only. So a private
-project's **id, title and `is_private` flag** (and its assigned tasks, its
-label-changing asset events, its roster) reach every active member's channel
-— members who cannot SELECT the row. The per-project topic (0016) is
-unaffected: its join gate is `SECURITY INVOKER` over `projects_select`.
-
-**What 0082 closed, and what it did not:** the id the channel leaks now opens
-nothing — `milestones_trash_index` and `fn_trash_authz` (so `soft_delete_row`
-/ `restore_soft_deleted`) carry the privacy arm (0082, suite 82), which was
-the practical harm (A-R1-01). The broadcast itself is untouched, because it is
-a product decision about what the workspace channel carries. The candidate
-fix — skip a `projects` row whose `is_private` is set, and a `tasks` /
-`assets` / `project_members` row whose project is private — means a project
-flipped to private after the fact stays in the other members' project index
-by NAME until their next refetch (they cannot open it; `projects_select`
-refuses), and broadcasting the flip would carry the row that must not be
-carried. Audrey's call, then its own migration (the next free number after
-0082) with a suite-80 probe: no workspace-topic message for a private
-project's insert, with a public-project control. 0082's header records the
-shape.
-
-**Correction (round 2, A-R2-03):** "the id the channel leaks now opens
-nothing" was true of the trash paths only. It still opened a WRITE through
-`milestones_insert` / `milestones_update`, whose WITH CHECK gated on
-`can_write_project` alone — closed in 0082 §3b (both WITH CHECKs gain
-`EXISTS (SELECT 1 FROM public.projects p WHERE p.id = project_id)`, evaluated
-under the caller's `projects_select`; suite 82 probes 20-23). The same gap on
-`tasks` and `assets` is the entry below.
-
 ### Round 2 (2026-09-30) — left open, and a numbering correction
 
-- **`tasks_insert`, `tasks_update`, `assets_insert` and `assets_update` (0013)
-  have no hop to the parent project.** PRE-EXISTING on the overhaul parent
-  `60a8981`; MEASURED by merge review round 2 (A-R2-03), NOT fixed here.
-  Their WITH CHECK is workspace + membership + `can_write_project(project_id)`,
-  and `can_write_project` is TRUE for every admin and manager and for every
-  member of an UNSTAFFED project (0013:115-121), with no privacy arm; the
-  populate trigger (0004) fills only a NULL `workspace_id`, so a client that
-  sends its own passes the workspace arm. So the id the workspace channel
-  leaks (the entry above) admits a write: a second manager can insert a task
-  or an asset into another member's private project over PostgREST
-  (supabase-js's `.insert()` without `.select()` sends `Prefer:
-  return=minimal`, so no SELECT policy is consulted), or move an existing row
-  INTO it through UPDATE's WITH CHECK. The fix is the one-line hop 0082 §3b
-  gives `milestones`, in each of the four policies — but it retypes 0013's
-  policies on tables with their own suites (03, 04), so it belongs with the
-  broadcast ruling above: its own migration, the next free number, with
-  suite-03/04 probes of suite 82's shape (the second manager's INSERT throws
-  42501; the same INSERT on the public project lives; a refused move leaves
-  the row where it was).
 - **Enter on a focused page button outside any overlay opens the pet instead
   of pressing the button.** PRE-EXISTING on the overhaul parent; MEASURED by
   round 2 (A-R2-04), NOT fixed. App's window-level Enter handler (now
@@ -1768,22 +1703,6 @@ class:** `tasks_insert` / `tasks_update` / `assets_insert` / `assets_update`
   return and severs the opener by hand). Out of C-R1-02's scope; not changed.
   One-line fix when a session wants it: the same `opened.opener = null`
   idiom, then a `setError` on a null return.
-- **`files_delete` (0038) still has no hop through `projects`, and a
-  filter-less `DELETE FROM public.files` runs under it alone** — the one
-  DELETE shape `files_select` never sees (a WHERE reads a column, and
-  Postgres then applies `files_select`'s USING to the rows as well).
-  `authenticated` still holds DELETE on `files` (0033 revokes only TRUNCATE /
-  REFERENCES / TRIGGER), so a second manager, or an unstaffed member, could
-  hard-delete every row their `can_write_project` admits — a private
-  project's included, each with a purge certificate in that project's
-  `file_events`. PRE-EXISTS on the overhaul parent (0038 met 0072 there);
-  MEASURED by the merge review's round 2 (C-R2-01), NOT closed here — 0083's
-  "deliberately not changed" list says the same. Reachable only by a
-  statement that reads no column: never a filtered PostgREST request, and
-  one that `pg-safeupdate`, where Supabase preloads it for the API role,
-  refuses outright — unmeasured on this project's three envs, so the hop is
-  the gate to add. Take it with the `tasks_*` / `assets_*` hops above, in
-  one migration (0084 or later, with the DELETE twin of suite 83's probe 20).
 - **No Content-Security-Policy on either build, and a stored body's type is
   the uploader's browser's word.** `rabbit-files` has no
   `allowed_mime_types`, the receipt and invoice pickers take any file, and
@@ -2093,18 +2012,16 @@ walkthrough 54 §5 and the S4b hand-off, not here.
   sees Legal files WITHOUT the seat now (`can_access_project_legal`, Audrey
   2026-10-08). The money half stands as accepted: invoices, the budget and
   the rates still need the seat, and taking it is still unrecorded.
-- **S4b-06 · Storage totals tell a member when a hidden file arrives, and
-  one function answers any company's.** PRE-EXISTING (0055/0057/0073).
-  MEASURED (S1-SEC-03): `workspace_storage_usage()` gives every member the
-  exact workspace total, Legal and exempt objects included (4,300 bytes with
-  a 4,000-byte Legal file beside a 300-byte plain one), so polling it shows
-  when a hidden file appears and its size. And `rabbit_petal_storage_ok(
-  p_project, p_incoming, p_path)` is executable by any signed-in user with
-  no workspace check: a search over the byte argument gives another
-  company's exact usage, given a project id. Fix for the second:
-  `p.workspace_id = current_workspace_id()` and membership inside it.
-  Coarsening the first is a product decision (Add files' courtesy check
-  reads the exact figure). Owner: the next session on storage.
+- **S4b-06 · One function answers any company's storage usage.** PRE-EXISTING
+  (0055/0057/0073). MEASURED (S1-SEC-03; read again on wilson-dev, 2026-11-07:
+  no workspace or membership test in any of its three bodies, and `authenticated`
+  may call them): `rabbit_petal_storage_ok(p_project, p_incoming, p_path)` has no
+  workspace check, so a search over the byte argument gives another company's
+  exact usage, given a project id, and a member's own company's, which 0121 no
+  longer tells a member. Personal-space bodies count in that total. Fix:
+  `p.workspace_id = current_workspace_id()` and membership inside it, and decide
+  what a member's search should be able to learn. Its first half is closed: 0121
+  tells members only full or nearly full. Owner: the next session on storage.
 - **S4b-07 · Knowing a Legal file's id, a member can confirm it exists.**
   PRE-EXISTING, INFORMATIONAL. MEASURED (S1-SEC-06): `INSERT … ON CONFLICT
   (id) DO NOTHING` answers 0 rows for an existing id and 1 for an unknown
@@ -2669,19 +2586,6 @@ column lives only in a search now. Questions for Audrey are in walkthrough
   in two directories until someone moves them by hand. Moving the directory
   and the records on a rename (as the asset route does) is one change on
   each backend. Owner: a session that takes renames.
-- **S4c-12 · Two runs of the move at once are NOT safe against each other.**
-  One tab runs one move per project at a time (`refilingNow` in the
-  adapter), and a second tab or a second person meets the same checks per
-  object — but in one narrow window they can undo each other's step on one
-  file (review round 2: A's row update fails without committing; B counts
-  the object landed and sends its own update; A reads the row before B's
-  commit, sees the old key, and moves the object back; B's update then
-  commits the new key — a row naming a key the object is not at, which only
-  A's result mentions, as an update error). A lock row in the database, or a
-  `pg_advisory_xact_lock` in a function that does the row writes, is the
-  answer; until one exists, run the move from ONE place (walkthrough 56
-  says so). Owner: a session that takes the lock, before a team of two
-  runs it.
 - **S4c-13 · The create form holds while its files are added.** A level or
   experience made with files picked in the form is created, then its files
   are added one by one with the button naming each (*Adding <file> (i of
@@ -2710,45 +2614,6 @@ file's record follow the file's gate for invoices and Legal files alike.
 Money is unchanged and pinned (0092's post-condition 12). Questions for
 Audrey are in walkthrough 54 §6 and the S4d hand-off, not here. S4b-10 and
 S4b-11 are untouched and still hers.
-
-- **S4d-01 · The eight money storage policies carry no private-project hop
-  of their own, so a project manager who did not create a private project
-  can read its invoice OBJECTS while its rows are hidden.** PRE-EXISTING
-  (0042 / 0053 / 0072). INFERRED from the policy text while 0092 copied
-  0072's arm into the Legal predicate: `rabbit_files_money_select` and its
-  seven siblings are `bucket … AND rabbit_money_segment(seg) AND
-  can_access_project_money(project)`, with no `EXISTS (SELECT 1 FROM
-  projects p …)` hop — the eight BASE policies have one, which is how a
-  private project's ordinary objects follow projects_select. The money
-  predicate is SECURITY DEFINER and reads projects with RLS bypassed, so for
-  a project_members row with project_role = manager on a private project it
-  answers true whoever created the project. The ROW is hidden (files_select
-  hops), and such a seat can only be placed by someone who can already see
-  the project; the MANAGER leg 0092 added does carry the privacy arm
-  (inside can_access_project_legal, suite 95 §H), while the predicate's
-  money half is the money gate called as it is — so a non-creator holding a
-  manager seat on a private project reaches its Legal objects through the
-  money half exactly as it reaches its invoice objects (S4d review round 1,
-  finding 9). Would settle it: seat a second manager on a private project
-  and read `storage.objects` under `projects/<id>/INVOICES/` as them. Fix:
-  the hop in all eight money policies, or `passes_project_privacy` inside
-  can_access_project_money (0037's body is pinned WHOLE by 0092's
-  post-condition 12 and suite 95 probe 167; both move with it). Owner: a
-  session on private projects, with Audrey's nod (it narrows the money gate
-  for a non-creator manager).
-- **S4d-02 · `edit_history_select` has no private-project arm, so every
-  workspace admin and manager reads a private project's ordinary edit
-  history.** PRE-EXISTING (0012 / 0072). INFERRED from the policy text while
-  0092 restated it (S4d review round 1, finding 10): the policy is workspace
-  + app role admin/manager + membership + the money / Legal arms, with no
-  hop through `projects` and no `passes_project_privacy`; `edit_history`
-  rows carry `project_id` only for `files` entries (0088), so a hop would
-  need the column for every entity type first. A private project's money
-  rows are already the money audience's and its Legal rows the Legal
-  audience's (the arms); what is open is the rest — a task's or scene's
-  history, with names and notes in the diff. Would settle it: read
-  `edit_history` for a private project's task as a workspace manager who
-  did not create it. Owner: a session on private projects.
 
 ## Post-overhaul DG1 (`po/dg1-dog-references`) — left open (2026-10-16)
 
@@ -3766,16 +3631,6 @@ What P1 (night 4: browser previews on a workspace's own storage) measured
 outside its scope, or built to a limit, and did not fix. The design is
 `NETWORK_STORAGE_DESIGN.md` §9.
 
-- **OSP-01 · `storage-presign` authorises a PATH, not a row.** Its GET signs
-  any row-shaped key under a project the caller can read
-  (`can_presign_project_read` is project-level), so a key kept from before a
-  file was trashed, or of a row purged while its body waits for collection,
-  is still signed — 300 s, one key a call (design round, finding 1). The new
-  `storage-read-urls` checks the row as the caller, so it is closed to a
-  READER (a writer can still forge a row in their own project: OSP-07).
-  Fix shape: the same caller-scoped row read in `storage-presign`'s GET and
-  HEAD. Owner: the next storage session; it needs a redeploy on every
-  environment.
 - **OSP-02 · A download from a company's own bucket reads the whole body into
   memory.** `s3Provider.getUrl` answers null for `{ download }` (the read
   signer signs no attachment disposition, and a cross-origin `a.download` is
@@ -3805,16 +3660,6 @@ outside its scope, or built to a limit, and did not fix. The design is
   is proven by its tests (21 failing controls) and by its refusals on
   wilson-dev to a caller with no sign-in. Walkthrough 85, P1, is the live
   check once the controller has deployed `storage-read-urls` to staging.
-- **OSP-07 · A writer of a project can make a `files` row vouch for any key
-  under it.** `files_insert`/`_update` (0092) let anyone `can_write_project`
-  admits set `storage_path` (and `thumbnail_url`), and no CHECK ties a path to
-  its own project or stops it changing, so a writer can name a trashed file's
-  key, or a stray object's, and have `storage-read-urls` sign it (an hour if
-  it streams) — the reach `storage-presign`'s GET already gives a writer
-  (build review round 1, finding 1). Fix shape, a migration night: a CHECK
-  that `storage_path` sits under `projects/<project_id>/`, and a trigger that
-  refuses a change of it outside the re-filing. Owner: the next migration
-  session.
 - ~~**OSP-08 · `storage-read-urls` bounds its body by the declared length.**~~
   **CLOSED by build review round 2 (2026-10-28):** the body is read by
   `readJsonLimited`, streamed under the 128 KB cap; no declared length is
@@ -4369,3 +4214,81 @@ adds this section, each after reading the code. What is left, none fixed:
   hold a first name, in a public repository: `referenceModel.js` 2 lines, `ReferencesCard.jsx` 7,
   `ReferencesCard.test.jsx` 5, `enterKey.render.test.jsx` 11; DG8 added none. Owner: any
   D.O.G. session the controller names.
+
+## MO1 (2026-11-07, `docs/design/MOTH_DESIGN.md` §1.14) — left open
+
+- **MO1-01 · A listener who joined a project's channel before being demoted or
+  deactivated goes on hearing it until their token next refreshes or runs out.**
+  PRE-EXISTING. MEASURED on 2026-11-07 with a real socket and committed writes, on a
+  throwaway stack at the CLI's Realtime v2.140.3 (runs 42340511711 and 42340999728): a
+  deactivated member and a demoted admin each went on hearing every write, 30 seconds
+  on. A new join by a deactivated member is refused at once. A refreshed token closes
+  the channel, for the demoted admin once that token says so, and a token that runs out closes it,
+  so it is bounded by the token's life, 3,600 s. A control with nothing taken away kept
+  its channel through a refresh. A seat does not come into it: a private project is its creator's
+  and admins' only, and 0109's epoch closes a privacy flip. Not measured on wilson-dev: its
+  Realtime's version may differ, and signing in there needs a password this was not given. Fix
+  shape: end a person's channels when they are deactivated or demoted, or accept the hour.
+- **MO1-02 · An admin reading a personal space through raw REST leaves no
+  record.** INFERRED from what RLS can do: WIL-4114 records every open in WILSON's
+  Files page, and a SELECT cannot be logged. In the handbook's deviations table.
+- **MO1-03 · A stale admin desktop build lists other people's personal spaces in
+  R.A.B.B.I.T.** INFERRED: no minimum-version mechanism exists. Read-only and no
+  wider than Files: writes are owner-only at the database and local bodies are
+  refused. It ends when the build updates.
+- **MO1-04 · A purged moved copy can fall back to its origin's readers.** INFERRED:
+  only if both the queue's enqueue and the purge's certificate fail on one purge,
+  until the next orphan scan removes the object. Two independent arms, pinned apart.
+- **MO1-05 · Moth tells a project member that a file is a receipt, by hiding it.**
+  INFERRED: its own project's expense names it, and they can already open it. No
+  indicator or count. Beside 0076's TRAP 1.
+- **MO1-06 · Office-server leftovers.** INFERRED. (a) Bin items of a project purged
+  whole are never walked again and stay on the server; the certificate says
+  'company server bin'. (b) A rename made on the server and split across a walk's
+  calls gets a new id. (c) Pre-C4 receipts in a share's `<slug>_FILES` carry no flag
+  (handbook §12.9 residual 3). (d) A move whose laptop never comes back is called off
+  from Moth's trash after a day, or closed by the purge past the retention, which
+  leaves its row reading not found.
+- **MO1-07 · A desktop project nobody opens keeps its trash past 30 days.** MEASURED
+  by reading: purge-expired runs when a project opens in R.A.B.B.I.T. and when Moth's
+  trash opens, and at no other time.
+- **MO1-08 · `ingestion_chunks`' select policy hops through the run's project only.**
+  MEASURED while designing moves. A file with extracted text refuses a move, so moves
+  add no leak. The gap in the policy stands.
+- **MO1-09 · A deleted asset's own `.trash` bodies are in no trash view on the
+  desktop.** MEASURED by reading: managed files of a deleted asset are left out of the
+  local restore.
+- **MO1-10 · Script on the page can still steer the desktop's file channels.** The
+  copy itself is fenced (`electron/copyFileFence.cjs`: a picked file or a project body,
+  into the named project's own folder). What is left: (a) a copy may still choose any
+  path inside that folder and overwrite a file there; (b) `rabbit:get-file-stats`,
+  `rabbit:open-in-explorer` and the two thumbnail channels take any path from the page.
+  MEASURED by reading. (c) INFERRED: `rabbit:write-files-config` stores any
+  `defaultRootDir` and `rabbit:set-workspace-root` any absolute folder but a bare root,
+  and those roots are what the fence contains against. Settled by a run: script moves
+  the root, makes a project under it and copies a picked file in.
+- **MO1-11 · `op` then `purge` from script on the page can remove any file a member
+  could rename on the office server.** MEASURED by reading (round 2). Neither route asks
+  the database for an operation. Closing it needs main to ask.
+- **MO1-12 · A link the server resolves itself is invisible to the desktop's checks.**
+  INFERRED (round 2; DFS, round 1): a Samba link to a money folder reads as an ordinary
+  folder, and DFS's real paths may refuse a real child. Settled only on a real server
+  (`docs/RELEASE_TESTING.md` §T).
+- **MO1-13 · A move or a trash on a desktop project whose folder is on a share can
+  freeze the window for the OS timeout.** MEASURED by reading (round 2): synchronous
+  calls, as every desktop route in `main.cjs` makes. 42 s measured for such a call.
+- **MO1-14 · Rows under a folder that reads as a frame series cannot be called missing,
+  and new frames there are not listed,** until the folder stops reading as a series.
+  MEASURED by suite 122's shape; the walk does not go into a series. Nothing is lost.
+  An adopt's old picture also stays when the purge closes its operation, until the
+  bucket's own sweep.
+- **MO1-15 · A money or Legal file deleted on the desktop has only the toast's Undo,**
+  then goes at 30 days, with no screen listing it. MEASURED by reading (round 2). It used
+  to be unlinked at once.
+
+**Recorded with them (R15).** Index liveness of private projects in creators' and admins'
+other windows rests on the join refetch, AUDIENCE and the project topic: accepted. Re-run
+order: 0107 after any replay of 0013, 0020, 0040, 0041, 0044, 0061 or 0082; 0108 after
+0037, 0061 or 0092; 0109 after 0016, 0018, 0098 or 0101. 0092 refuses after 0108, and 0098
+refuses after 0109. The definer re-measure: every SECURITY DEFINER body calling a write
+gate also calls `passes_project_privacy` or reads under a hop.
