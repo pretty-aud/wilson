@@ -722,6 +722,8 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
           updated_at: p.updated_at,
         })))
     },
+    // The fixtures have no office server, so nothing here is listed from one.
+    async mothIslandFolder(projectId) { return { id: projectId, folder_root: null, personal_owner_id: null } },
     async listMothFolders(projectId) {
       if (!mothProjectVisible(projectOf(projectId))) return []
       const rows = store.folders.filter(f => f.project_id === projectId)
