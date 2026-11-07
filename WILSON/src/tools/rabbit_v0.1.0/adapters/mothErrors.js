@@ -29,6 +29,7 @@ const SENTENCES = {
   needs_copy: 'This needs a fresh copy of the file. Use Move to and try again.',
   moves_not_ready: 'Moves on this company\'s storage are not ready yet.',
   in_their_server_folder: 'This file is in that person\'s folder on the office server, which only they can open from WILSON. Copy it from the server by hand.',
+  on_their_computer: 'This file is only on that person\'s computer, so it cannot be moved from here.',
   // The office server's own.
   bad_name: 'WILSON cannot keep a file with this name on the office server. Rename it and try again.',
   bad_entry: 'WILSON could not read this file\'s details on the office server, so it was not added.',

@@ -8,6 +8,8 @@
 import { useState } from 'react'
 import { Banner, Button, Dialog } from '../../ui'
 
+export const CANNOT_MOVE_FROM_HERE = 'One of these files cannot be moved from here, so nothing moved.'
+
 export default function LeaverFilesDialog({ adapter, files, projects, onClose, onMoved }) {
   const [picked, setPicked] = useState(() => new Set())
   const [dest, setDest] = useState('')
@@ -29,6 +31,10 @@ export default function LeaverFilesDialog({ adapter, files, projects, onClose, o
     const removeCopies = async () => { for (const item of made) await adapter.removeMoveCopy?.(item) }
     try {
       const plan = await adapter.planLeaverMove(ids, dest)
+      // Only what this dialog can carry out. Anything else would be recorded as moved with the file left behind.
+      if ((plan?.items ?? []).some((i) => i.how !== 'rehome' && i.how !== 'metadata' && i.how !== 'none')) {
+        throw new Error(CANNOT_MOVE_FROM_HERE)
+      }
       const bodies = []
       try {
         for (const item of (plan?.items ?? []).filter((i) => i.how === 'rehome')) {
@@ -73,7 +79,7 @@ export default function LeaverFilesDialog({ adapter, files, projects, onClose, o
       )}
     >
       {error && <Banner tone="danger">{error}</Banner>}
-      <p>This person has left the company. A move is recorded in the admin activity list. Invoices and Legal files stay where they are.</p>
+      <p>This person has left the company. A move is recorded in the admin activity list. Invoices and Legal files stay where they are, and so does anything only on their computer or in their folder on the office server.</p>
       <label>
         To{' '}
         <select value={dest} onChange={(e) => setDest(e.target.value)}>

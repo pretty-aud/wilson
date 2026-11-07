@@ -560,13 +560,15 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
   const [leaverFiles, setLeaverFiles] = useState([])
   const [movingLeaver, setMovingLeaver] = useState(false)
   const [leaverAsked, setLeaverAsked] = useState(0)
+  // A read that failed is not nothing to move: those files would stay stranded, with no one told.
+  const [leaverFailed, setLeaverFailed] = useState(false)
   useEffect(() => {
     const a = getAdapter?.()
     if (!needsRecord || typeof a?.listLeaverFiles !== 'function') { setLeaverFiles([]); return undefined }
     let off = false
     Promise.resolve().then(() => a.listLeaverFiles(projectId))
-      .then((rows) => { if (!off) setLeaverFiles(Array.isArray(rows) ? rows : []) })
-      .catch(() => { if (!off) setLeaverFiles([]) })
+      .then((rows) => { if (!off) { setLeaverFiles(Array.isArray(rows) ? rows : []); setLeaverFailed(false) } })
+      .catch(() => { if (!off) { setLeaverFiles([]); setLeaverFailed(true) } })
     return () => { off = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [needsRecord, projectId, leaverAsked])
@@ -1215,6 +1217,12 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
           />
         )}
         {uploadError && <Banner tone="danger" data-upload-error>{uploadError}</Banner>}
+        {leaverFailed && (
+          <Banner tone="danger" data-leaver-failed>
+            Could not read this former member's files just now.{' '}
+            <Button variant="ghost" size="sm" onClick={() => setLeaverAsked(n => n + 1)}>Try again</Button>
+          </Banner>
+        )}
         {project && !noRoles && (
           <NetworkShareBanner
             key={project.id}

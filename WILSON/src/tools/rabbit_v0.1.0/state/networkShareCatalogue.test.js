@@ -418,3 +418,11 @@ describe('round 2', () => {
   })
 })
 
+describe('round 2: what the server sends a repeat', () => {
+  it('🚨 pending_mine\'s size reaches the rename, so a repeat can tell a colleague\'s file from the one that left', async () => {
+    const { catalogue, ops, adapter } = setup()
+    adapter.networkSharePending = vi.fn(async () => [{ op_id: 'o', op: 'move', from: 'Salt/a.mov', to: 'Pepper/a.mov', size: 3, created_at: '2026-11-06T11:00:00Z' }])
+    await catalogue.settlePending()
+    expect(ops.rename.mock.calls[0][0]).toEqual([{ from: 'Salt/a.mov', to: 'Pepper/a.mov', size: 3 }])
+  })
+})

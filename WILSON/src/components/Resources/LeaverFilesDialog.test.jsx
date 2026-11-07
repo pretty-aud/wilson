@@ -3,7 +3,7 @@
 // former member's personal files into a project. Plan, copy, commit; a refused commit takes its copy back out.
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react'
-import LeaverFilesDialog from './LeaverFilesDialog.jsx'
+import LeaverFilesDialog, { CANNOT_MOVE_FROM_HERE } from './LeaverFilesDialog.jsx'
 
 afterEach(cleanup)
 
@@ -84,5 +84,23 @@ describe('moving a former member\'s files', () => {
     fireEvent.click(go)
     await waitFor(() => expect(adapter.moveLeaverFiles).toHaveBeenCalledTimes(1))
     expect(adapter.planLeaverMove).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('round 2: what this dialog cannot carry out', () => {
+  it('🚨 a plan that needs anything but a copy here moves nothing, and is not recorded as moved', async () => {
+    const adapter = {
+      planLeaverMove: vi.fn(async () => ({ items: [{ id: 'a', how: 'copy_up', to_provider: 'network_share' }] })),
+      moveLeaverFiles: vi.fn(async () => ({ move_id: 'm', moved: 1, ops: [] })),
+      copyBodyForMove: vi.fn(),
+    }
+    const onMoved = vi.fn()
+    render(<LeaverFilesDialog adapter={adapter} files={[{ id: 'a', name: 'a.mov' }]} projects={[{ id: 'p2', title: 'Project' }]} onClose={() => {}} onMoved={onMoved} />)
+    fireEvent.click(screen.getByRole('checkbox', { name: /a\.mov/ }))
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'p2' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Move' }))
+    expect(await screen.findByText(CANNOT_MOVE_FROM_HERE)).toBeTruthy()
+    expect(adapter.moveLeaverFiles).not.toHaveBeenCalled()
+    expect(onMoved).not.toHaveBeenCalled()
   })
 })
