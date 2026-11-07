@@ -166,3 +166,15 @@ describe('the office server', () => {
     expect(typeof getStorageProvider('network_share').getUrl).toBe('function')
   })
 })
+
+describe('round 2: an answer that is a real one', () => {
+  it('🚨 a database answer keeps its code, so a rollback is not read as a lost answer', async () => {
+    answer = { data: null, error: { code: '57014', message: 'canceling statement due to statement timeout' } }
+    await expect(adapter.moveFiles(['a'], 'p2')).rejects.toMatchObject({ code: '57014' })
+  })
+  it('a fetch that failed has no code, and is still a lost answer', async () => {
+    answer = { data: null, error: { code: '', message: 'TypeError: Failed to fetch' } }
+    const err = await adapter.moveFiles(['a'], 'p2').catch((e) => e)
+    expect(err.code ?? '').toBe('')
+  })
+})

@@ -494,6 +494,7 @@ const fake = vi.hoisted(() => {
       // M3: the company's directory (0060: emails for an admin or manager —
       // the test sets the rows as the caller would see them), the quota's
       // reservation (0073: an id for an ordinary key, null for a money one).
+      if (fn === 'workspace_storage_usage' && state.usage) return { data: [state.usage], error: null }
       if (fn === 'workspace_directory') return state.directoryError ? { data: null, error: state.directoryError } : { data: state.directory.map(r => ({ ...r })), error: null }
       if (fn === 'reserve_upload_bytes') { state.reservations.push(args); return { data: /\/(INVOICES|FINANCE|LEGAL)\//.test(String(args?.p_path || '')) ? null : state.reservations.length, error: null } }
       if (fn === 'release_upload_reservation' || fn === 'abandon_upload_reservation') { state.released.push([fn, args]); return { data: true, error: null } }
@@ -3764,6 +3765,17 @@ describe('MO1 (0114, SFB-09): an upload refused by row security still asks the r
     } finally {
       resetSupabaseAdapter()
     }
+  })
+
+  it('🚨 a company out of storage is told that, not that this person may not add the file', async () => {
+    const b = desktopFixtures()
+    serve([b])
+    fake.state.usage = { used_bytes: null, quota_bytes: null, status: 'active', has_plan: true, fullness: 'full' }
+    refuseBody((table, row) => (table === 'files' && row.id === target() ? { code: '42501', message: "This file's stored copy is not one this project may use." } : null))
+    const report = await runMigration({ workspaceId: WS, locations: SALT_LOCATIONS })
+    const name = FILES.find(f => f.id === target()).name
+    expect(report.errors).toEqual([expect.objectContaining({ scope: 'file', id: target(), message: `${name}: this company's Petal cloud storage has no room for it. Raise the plan, then run this again.` })])
+    delete fake.state.usage
   })
 
   it('a refusal of the row by row security says this person may not add the file, not the guard\'s words', async () => {

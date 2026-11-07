@@ -42,3 +42,15 @@ describe('a page that will not open', () => {
     expect(surface).toContain('<Suspense')
   })
 })
+
+describe('round 2', () => {
+  it('🚨 a window open across a deploy cannot load the old chunk again, so a reload is offered', () => {
+    const silence = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const onReload = vi.fn()
+    const Broken = () => { throw new Error('the chunk answered 404') }
+    render(<LazyPageBoundary title="M.O.T.H." onRetry={() => {}} onReload={onReload}><Broken /></LazyPageBoundary>)
+    fireEvent.click(screen.getByRole('button', { name: 'Reload the page' }))
+    expect(onReload).toHaveBeenCalledTimes(1)
+    silence.mockRestore()
+  })
+})

@@ -12,6 +12,7 @@ import { useWorkspaceMembers } from '../TeamMembers/useWorkspaceMembers'
 
 export const FROM_THE_DESKTOP = 'Refresh from the desktop app'
 const PART_READ = 'Part of this folder could not be read this time, so nothing in that part is called missing.'
+const WHOSE_EYES = 'The list shows what the person checking can open.'
 
 // Who last looked: the members are read only for a banner that has someone to name.
 function CheckedBy({ userId }) {
@@ -80,6 +81,7 @@ export default function NetworkShareBanner({ adapter, project, canCheck, deniedR
       Listed from the company server.{' '}
       {when ? <>Last checked {when}{check?.last_checked_by ? <CheckedBy userId={check.last_checked_by} /> : null}.</> : 'Not checked yet.'}{' '}
       {check?.missing_count > 0 ? `${check.missing_count} ${check.missing_count === 1 ? 'file was' : 'files were'} not found on the server at the last check. ` : ''}
+      {WHOSE_EYES}{' '}
       {note}{' '}
       <GatedAction allowed={allowed} reason={onDesktop ? deniedReason : FROM_THE_DESKTOP}>
         <Button variant="ghost" size="sm" onClick={refresh} disabled={!allowed} loading={busy} loadingLabel="Checking…">

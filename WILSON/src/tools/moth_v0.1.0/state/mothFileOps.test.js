@@ -303,3 +303,37 @@ describe('a desktop-only project', () => {
     expect(adapter.moveFilesInProject).toHaveBeenCalledWith(['b'], 'p1', 'y')
   })
 })
+
+describe('round 2: which failures keep a step', () => {
+  const failing = (err) => ({ label: 'Moved', run: async () => { throw err } })
+  const coded = (code) => Object.assign(new Error(code), { code })
+  it.each(['unreachable', 'cannot_check', 'in_use', 'folder_away', 'pending', 'plan_changed', 'failed', '57014', '55P03'])('🚨 %s may pass, so Undo stays', async (code) => {
+    history.push(failing(coded(code)))
+    await expect(history.undo()).rejects.toThrow(code)
+    expect(history.canUndo()).toBe(true)
+  })
+  it.each(['changed_since', 'already_undone', 'needs_copy', 'not_found', 'not_finished'])('%s will say the same again, so it goes', async (code) => {
+    history.push(failing(coded(code)))
+    await expect(history.undo()).rejects.toThrow(code)
+    expect(history.canUndo()).toBe(false)
+  })
+  it('a part that happened, a later, and a lost answer go too', async () => {
+    for (const extra of [{ notMoved: [] }, { later: true }, { stale: true }]) {
+      history.push(failing(Object.assign(new Error('x'), extra)))
+      await expect(history.undo()).rejects.toThrow('x')
+      expect(history.canUndo()).toBe(false)
+    }
+  })
+  it('🚨 a part-failed undo tells the lists, which now show the old places', async () => {
+    make({
+      moveFiles: vi.fn(async () => ({ move_id: 'm1', ops: [] })),
+      undoFileMove: vi.fn(async () => ({ move_id: 'm2', ops: [{ id: 'a', op_id: 'o', from: 'x', to: 'y' }] })),
+      planUndoFileMove: vi.fn(async () => ({ items: [] })),
+    })
+    catalogue.runNasOp = vi.fn(async () => ({ done: [], notMoved: [{ id: 'a', code: 'name_taken' }], left: [] }))
+    await fileOps.moveFiles([file('a')], 'p1', 'p2')
+    changed.length = 0
+    await expect(history.undo()).rejects.toThrow(/already in that folder/)
+    expect(changed).toEqual([['p1', 'p2']])
+  })
+})

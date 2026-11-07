@@ -68,7 +68,7 @@ import {
 // provider, the resumable threshold its Supabase put switches at, the s3
 // single-PUT bound, and the thumbnail an upload makes.
 import { getStorageProvider, activeWorkspaceProvider, fileProviderFor, WORKSPACE_PROVIDERS, FILE_PROVIDERS } from '../../tools/rabbit_v0.1.0/storage/index.js'
-import { getWorkspaceStorageCached } from '../workspaceStorage'
+import { getWorkspaceStorageCached, fetchStorageUsage } from '../workspaceStorage'
 import { RESUMABLE_THRESHOLD_BYTES } from '../../tools/rabbit_v0.1.0/storage/resumableUpload.js'
 import { S3_MAX_SINGLE_PUT_BYTES } from '../../tools/rabbit_v0.1.0/storage/uploadNotices.js'
 import { canThumbnail, generateThumbnail, thumbnailKeyFor, putThumbnailTo, removeThumbnailFrom, THUMBNAIL_BUCKET } from '../../tools/rabbit_v0.1.0/storage/thumbnails.js'
@@ -3626,7 +3626,12 @@ export async function runMigration({ workspaceId, dryRun = false, onProgress, lo
           try {
             answer = await insertOrSkip('files', row)
           } catch (err) {
-            if (err.code === '42501') throw new Error(`${f.name || f.id}: you may not add this file to this project: the cloud refused both its body and its record`)
+            if (err.code === '42501') {
+              // The quota policy and a seat's refusal read alike, and only the meter can tell them apart.
+              const usage = await fetchStorageUsage().catch(() => null)
+              if (usage && usage.fullness !== 'ok') throw new Error(`${f.name || f.id}: this company's Petal cloud storage has no room for it. Raise the plan, then run this again.`)
+              throw new Error(`${f.name || f.id}: you may not add this file to this project: the cloud refused both its body and its record`)
+            }
             throw new Error(`${f.name || f.id}: the cloud refused its body (${bodyRefused}) and its record (${err.message})`)
           }
           if (answer.status !== 'skipped') throw new Error(`${f.name || f.id}: the cloud took its record but refused its body (${bodyRefused}): check the file there`)

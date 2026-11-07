@@ -6,10 +6,11 @@ import { render, screen, fireEvent, waitFor, cleanup, within } from '@testing-li
 import fs from 'node:fs'
 import path from 'node:path'
 
-const state = vi.hoisted(() => ({ rabbit: null, perms: null, storage: null }))
+const state = vi.hoisted(() => ({ rabbit: null, perms: null, storage: null, usage: null }))
 vi.mock('../rabbit_v0.1.0/state/RabbitProvider', () => ({ useRabbit: () => state.rabbit }))
 vi.mock('../../permissions/usePermissions', () => ({ usePermissions: () => state.perms }))
-vi.mock('../../cloud/workspaceStorage', () => ({ fetchWorkspaceStorage: async () => state.storage }))
+vi.mock('../../components/TeamMembers/useWorkspaceMembers', () => ({ useWorkspaceMembers: () => ({ members: [] }) }))
+vi.mock('../../cloud/workspaceStorage', () => ({ fetchWorkspaceStorage: async () => state.storage, fetchStorageUsage: async () => state.usage }))
 
 import MothPage from './MothPage.jsx'
 import { islandLabel } from './components/MothIslands.jsx'
@@ -42,6 +43,7 @@ beforeEach(() => {
   state.rabbit = { getAdapter: () => adapter, adapterMode: 'supabase', noteFilesChangedElsewhere: vi.fn(), showUndoToast: vi.fn() }
   state.perms = { role: 'member', ready: true, userId: 'u1', workspaceId: 'w1' }
   state.storage = null
+  state.usage = null
 })
 afterEach(cleanup)
 
@@ -460,7 +462,7 @@ describe('your personal space', () => {
     const rename = vi.spyOn(desktopFileOps, 'rename').mockResolvedValue({ results: [{ ok: true }] })
     const purge = vi.spyOn(desktopFileOps, 'purgeBin').mockResolvedValue({ results: [{ ok: true }] })
     adapter.getAccessToken = vi.fn(async () => 'tok')
-    adapter.networkShareRecordAdded = vi.fn(async () => { throw new Error('A project\'s folder is outside this company\'s office server.') })
+    adapter.networkShareRecordAdded = vi.fn(async () => { throw Object.assign(new Error('A project\'s folder is outside this company\'s office server.'), { code: 'folders_unplaced' }) })
     render(<MothPage />)
     await addTo()
     await screen.findByText(OFFICE_SERVER_SENTENCE)
@@ -571,3 +573,177 @@ describe('round 2: a move left over', () => {
   })
 })
 
+describe('round 2: the page', () => {
+  const onDesktopServer = () => {
+    state.storage = { mode: 'byos', provider: 'network', root_kind: 'unc', root_path: '//s/d' }
+    vi.spyOn(desktopFileOps, 'available').mockReturnValue(true)
+    vi.spyOn(desktopFileOps, 'reachable').mockResolvedValue({ ok: true })
+  }
+  afterEach(() => vi.restoreAllMocks())
+
+  it('🚨 a move that changes nothing says so, and offers no Undo of something else', async () => {
+    adapter.listMothIslands = vi.fn(async () => [island('p1'), island('p2')])
+    adapter.moveFiles = vi.fn(async () => ({ move_id: null, moved: 0, links_cleared: 0, ops: [] }))
+    render(<MothPage />)
+    await openProject()
+    fireEvent.click(screen.getByRole('checkbox', { name: /b\.mov/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Move to…' }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.change(within(dialog).getByRole('combobox'), { target: { value: 'p1' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Move' }))
+    expect(await screen.findByText('These files are already there, so nothing moved.')).toBeTruthy()
+    expect(state.rabbit.showUndoToast).not.toHaveBeenCalled()
+  })
+  it('🚨 what a part-failed delete says stays on the page after the list reads again', async () => {
+    onDesktopServer()
+    adapter.listMothFiles = vi.fn(async () => [file('a', { storage_provider: 'network_share' }), file('b', { storage_provider: 'network_share' })])
+    adapter.trashFiles = vi.fn(async () => ({ done: 2, ops: [{ id: 'a', op_id: 'o1', from: 'x/a', to: 'y/a' }, { id: 'b', op_id: 'o2', from: 'x/b', to: 'y/b' }] }))
+    adapter.settleNetworkShareOps = vi.fn(async () => {})
+    vi.spyOn(desktopFileOps, 'rename').mockResolvedValue({ results: [{ ok: true }, { ok: false, code: 'in_use' }] })
+    render(<MothPage />)
+    await openProject()
+    const reads = adapter.listMothFiles.mock.calls.length
+    fireEvent.click(screen.getByRole('checkbox', { name: /a\.mov/ }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /b\.mov/ }))
+    await deleteAndConfirm()
+    await waitFor(() => expect(adapter.listMothFiles.mock.calls.length).toBeGreaterThan(reads))
+    await new Promise((ok) => setTimeout(ok, 20))
+    expect(document.querySelector('[data-moth-error]').textContent).toMatch(/Deleted 1 of 2/)
+  })
+  it('🚨 so does what a refused delete says: the old clearing read again and lost it', async () => {
+    onDesktopServer()
+    adapter.listMothFiles = vi.fn(async () => [file('a', { storage_provider: 'network_share' })])
+    adapter.trashFiles = vi.fn(async () => ({ done: 1, ops: [{ id: 'a', op_id: 'o1', from: 'x/a', to: 'y/a' }] }))
+    adapter.settleNetworkShareOps = vi.fn(async () => {})
+    vi.spyOn(desktopFileOps, 'rename').mockResolvedValue({ results: [{ ok: false, code: 'in_use' }] })
+    render(<MothPage />)
+    await openProject()
+    const reads = adapter.listMothFiles.mock.calls.length
+    fireEvent.click(screen.getByRole('checkbox', { name: /a\.mov/ }))
+    await deleteAndConfirm()
+    await waitFor(() => expect(adapter.listMothFiles.mock.calls.length).toBeGreaterThan(reads))
+    await new Promise((ok) => setTimeout(ok, 20))
+    expect(document.querySelector('[data-moth-error]')?.textContent).toMatch(/would not move this file/)
+  })
+  it('opening another project clears it', async () => {
+    adapter.trashFiles = vi.fn(async () => { throw new Error('no') })
+    render(<MothPage />)
+    await openProject()
+    fireEvent.click(screen.getByRole('checkbox', { name: /a\.mov/ }))
+    await deleteAndConfirm()
+    await waitFor(() => expect(document.querySelector('[data-moth-error]')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: 'Project p2' }))
+    await waitFor(() => expect(document.querySelector('[data-moth-error]')).toBeNull())
+  })
+  it('🚨 a toast\'s Undo that fails tells the toast, which stays up with Undo to try again', async () => {
+    adapter.restoreFiles = vi.fn(async () => { throw new TypeError('Failed to fetch') })
+    render(<MothPage />)
+    await openProject()
+    fireEvent.click(screen.getByRole('checkbox', { name: /a\.mov/ }))
+    await deleteAndConfirm()
+    const undo = state.rabbit.showUndoToast.mock.calls[0][1]
+    await expect(undo()).rejects.toThrow('Failed to fetch')
+    expect(await screen.findByText('Failed to fetch')).toBeTruthy()
+  })
+  it('🚨 a project on the office server says how old its list is, and how to look again', async () => {
+    state.storage = { mode: 'byos', provider: 'network', root_kind: 'unc', root_path: '//s/d' }
+    adapter.mothIslandFolder = vi.fn(async (id) => ({ id, folder_root: '//s/d/Salt', personal_owner_id: null }))
+    adapter.getNetworkShareCheck = vi.fn(async () => ({ last_checked_at: '2026-11-01T10:00:00Z', missing_count: 2 }))
+    render(<MothPage />)
+    await openProject()
+    const banner = await waitFor(() => { const b = document.querySelector('[data-network-share-banner]'); expect(b).toBeTruthy(); return b })
+    await waitFor(() => expect(banner.textContent).toMatch(/Last checked/))
+    expect(banner.textContent).toMatch(/2 files were not found/)
+    expect(banner.textContent).toMatch(/what the person checking can open/)
+    expect(within(banner).getByRole('button', { name: 'Refresh from the desktop app' })).toBeTruthy()
+  })
+  it('a company not on an office server shows none', async () => {
+    adapter.mothIslandFolder = vi.fn(async (id) => ({ id }))
+    render(<MothPage />)
+    await openProject()
+    expect(document.querySelector('[data-network-share-banner]')).toBeNull()
+    expect(adapter.mothIslandFolder).not.toHaveBeenCalled()
+  })
+  it('🚨 a lost answer on an add keeps the file its row may name, and says nobody can tell', async () => {
+    onDesktopServer()
+    vi.spyOn(desktopFileOps, 'addToPersonalSpace').mockResolvedValue({ locator: '_WILSON_PERSONAL/u1/n.mov', name: 'n.mov', sizeBytes: 1, modifiedAt: 'then' })
+    const rename = vi.spyOn(desktopFileOps, 'rename').mockResolvedValue({ results: [{ ok: true }] })
+    adapter.getAccessToken = vi.fn(async () => 'tok')
+    adapter.networkShareRecordAdded = vi.fn(async () => { throw new TypeError('Failed to fetch') })
+    render(<MothPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'My personal space' }))
+    await screen.findByText(OFFICE_SERVER_SENTENCE)
+    fireEvent.change(document.querySelector('[data-moth-add-input]'), { target: { files: [new File(['x'], 'n.mov')] } })
+    expect(await screen.findByText(/could not tell whether "n\.mov" was added/)).toBeTruthy()
+    expect(rename).not.toHaveBeenCalled()
+  })
+  it('🚨 an add that stops part way says how many went, and the list shows them', async () => {
+    let n = 0
+    adapter.uploadFile = vi.fn(async () => { n += 1; if (n === 2) throw new Error('the network went') })
+    render(<MothPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'My personal space' }))
+    await screen.findByText('a.mov')
+    const reads = adapter.listMothFiles.mock.calls.length
+    fireEvent.change(document.querySelector('[data-moth-add-input]'), { target: { files: [new File(['x'], '1.mov'), new File(['x'], '2.mov'), new File(['x'], '3.mov')] } })
+    expect(await screen.findByText(/Added 1 of 3\. the network went/)).toBeTruthy()
+    await waitFor(() => expect(adapter.listMothFiles.mock.calls.length).toBeGreaterThan(reads))
+    expect(state.rabbit.noteFilesChangedElsewhere).toHaveBeenCalledWith(['me'])
+  })
+  it('🚨 an add is weighed as Files weighs one: a company that is full is told, before anything is sent', async () => {
+    state.usage = { usedBytes: null, quotaBytes: null, status: 'active', hasPlan: true, fullness: 'full' }
+    render(<MothPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'My personal space' }))
+    await screen.findByText('a.mov')
+    fireEvent.change(document.querySelector('[data-moth-add-input]'), { target: { files: [new File(['x'], '1.mov')] } })
+    expect(await screen.findByText(/Petal cloud storage is full/)).toBeTruthy()
+    expect(adapter.uploadFile).not.toHaveBeenCalled()
+  })
+  it('🚨 Undo tells whichever project is open in R.A.B.B.I.T. now, not the one open when the step was made', async () => {
+    const first = state.rabbit.noteFilesChangedElsewhere
+    const { rerender } = render(<MothPage />)
+    await openProject()
+    fireEvent.click(screen.getByRole('checkbox', { name: /a\.mov/ }))
+    await deleteAndConfirm()
+    const now = vi.fn()
+    state.rabbit = { ...state.rabbit, noteFilesChangedElsewhere: now }
+    rerender(<MothPage />)
+    first.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(now).toHaveBeenCalled())
+    expect(first).not.toHaveBeenCalled()
+  })
+  it('🚨 a list that could not be read offers Try again, which reads it again', async () => {
+    let fail = true
+    adapter.listMothFiles = vi.fn(async () => { if (fail) throw new Error('the network went'); return [file('a')] })
+    render(<MothPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Project p1' }))
+    const again = await screen.findByRole('button', { name: 'Try again' })
+    fail = false
+    fireEvent.click(again)
+    expect(await screen.findByText('a.mov')).toBeTruthy()
+    expect(document.querySelector('[data-moth-error]')).toBeNull()
+  })
+  it('🚨 so does a trash that could not be read', async () => {
+    let fail = true
+    adapter.listTrashedFiles = vi.fn(async () => { if (fail) throw new Error('x'); return [] })
+    render(<MothPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Trash' }))
+    const banner = await waitFor(() => { const b = document.querySelector('[data-moth-trash-failed]'); expect(b).toBeTruthy(); return b })
+    fail = false
+    fireEvent.click(within(banner).getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(document.querySelector('[data-moth-trash-failed]')).toBeNull())
+  })
+})
+
+describe('round 2: elsewhere in the app', () => {
+  const source = (p) => fs.readFileSync(path.join(process.cwd(), p), 'utf8')
+  it('🚨 the banner starts again for each project, so one project\'s facts do not sit under another', () => {
+    expect(source('src/components/Resources/ProjectFilesExplorer.jsx')).toMatch(/<NetworkShareBanner\s+key=\{project\.id\}/)
+  })
+  it('🚨 Projects does not offer a delete the server will refuse: an office-server file says where to delete it', () => {
+    expect(source('src/components/Projects/ProjectsPage.jsx')).toMatch(/storedRow\.storage_provider === 'network_share'[\s\S]{0,200}setSaveError\(/)
+  })
+  it('🚨 Storage says whose eyes the list has before any check, not only after', () => {
+    expect(source('src/components/AdminTerminal/StorageSection.jsx')).toMatch(/data-storage-checker/)
+  })
+})

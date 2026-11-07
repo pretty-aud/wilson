@@ -20,6 +20,8 @@ export default class LazyPageBoundary extends Component {
       <Banner tone="danger" data-lazy-page-failed>
         <p>{this.props.title} could not open.</p>
         <Button variant="ghost" size="sm" onClick={this.props.onRetry}>Try again</Button>
+        {/* After a deploy this window's page names a chunk that has gone, and only a reload learns the new name. */}
+        <Button variant="ghost" size="sm" onClick={this.props.onReload ?? (() => window.location.reload())}>Reload the page</Button>
       </Banner>
     )
   }

@@ -61,3 +61,25 @@ describe('reading it', () => {
     expect((await fetchStorageUsage()).fullness).toBe('ok')
   })
 })
+
+describe('round 2: a member whose file does not fit', () => {
+  const failing = (message) => async () => ({ storage: { from: () => ({ upload: async () => ({ error: { message } }) }) } })
+  it('🚨 reads why, not row security, when the company has little room left', async () => {
+    rpc.answer = { data: [{ fullness: 'nearly_full', status: 'active', has_plan: true }], error: null }
+    const { createSupabaseStorageProvider } = await import('./supabaseProvider.js')
+    const p = createSupabaseStorageProvider(failing('new row violates row-level security policy'))
+    await expect(p.put('k', new Blob(['x']), { name: 'x.pdf' })).rejects.toThrow(/There is not enough Petal cloud storage left/)
+  })
+  it('a company with room keeps the real answer: this is some other refusal', async () => {
+    rpc.answer = { data: [{ fullness: 'ok', status: 'active', has_plan: true }], error: null }
+    const { createSupabaseStorageProvider } = await import('./supabaseProvider.js')
+    const p = createSupabaseStorageProvider(failing('new row violates row-level security policy'))
+    await expect(p.put('k', new Blob(['x']), {})).rejects.toThrow(/row-level security/)
+  })
+  it('another error is not asked about', async () => {
+    rpc.answer = { data: [{ fullness: 'full' }], error: null }
+    const { createSupabaseStorageProvider } = await import('./supabaseProvider.js')
+    const p = createSupabaseStorageProvider(failing('the bucket is gone'))
+    await expect(p.put('k', new Blob(['x']), {})).rejects.toThrow(/the bucket is gone/)
+  })
+})

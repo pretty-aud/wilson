@@ -1217,6 +1217,7 @@ export default function ProjectFilesExplorer({ projectId: hostProjectId = null, 
         {uploadError && <Banner tone="danger" data-upload-error>{uploadError}</Banner>}
         {project && !noRoles && (
           <NetworkShareBanner
+            key={project.id}
             adapter={getAdapter?.()}
             project={project}
             canCheck={personalRow ? isPersonalOwner : canOnProject({ appRole, projectRole: isOpenProject ? ctx?.myProjectRole ?? null : null, isStaffed: isOpenProject ? ctx?.projectIsStaffed : false, ready: perms?.ready, noRoles }, 'project.roster.manage')}

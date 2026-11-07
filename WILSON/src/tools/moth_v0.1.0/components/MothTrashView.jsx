@@ -117,7 +117,14 @@ export default function MothTrashView({ adapter, fileOps, islands, access, refre
     }
   }
 
-  if (failed) return <Banner tone="danger" data-moth-trash-failed>Could not look in the trash just now. Try again in a moment.</Banner>
+  if (failed) {
+    return (
+      <Banner tone="danger" data-moth-trash-failed>
+        Could not look in the trash just now.{' '}
+        <Button variant="ghost" size="sm" onClick={load}>Try again</Button>
+      </Banner>
+    )
+  }
   if (rows === null) return <p className="moth-quiet">Looking…</p>
   if (rows.length === 0) {
     return (

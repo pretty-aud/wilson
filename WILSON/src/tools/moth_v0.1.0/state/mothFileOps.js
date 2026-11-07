@@ -132,14 +132,18 @@ export function createMothFileOps({ adapter, catalogue, ops, history, onChanged 
     return result
   }
 
-  async function undoCloud(moveId, files) {
+  async function undoCloud(moveId, files, projects) {
     const plan = await adapter.planUndoFileMove(moveId)
     const needsHands = (plan?.items ?? []).some((i) => i.how === 'share_move')
     if (needsHands && !onDesktop()) throw new Error(DESKTOP_ACTION_SENTENCE)
     if (needsHands) await ops.reachable()
     const result = await adapter.undoFileMove(moveId)
     const outcome = await carryOut(result, files)
-    if (outcome.notMoved.length || outcome.left.length) throw outcomeError(outcome, files.length, 'Moved back')
+    if (outcome.notMoved.length || outcome.left.length) {
+      // The server has put the rows back already, so the lists must read them.
+      told(...projects)
+      throw outcomeError(outcome, files.length, 'Moved back')
+    }
     sayNotBack(result)
     return result
   }
@@ -151,12 +155,12 @@ export function createMothFileOps({ adapter, catalogue, ops, history, onChanged 
     return {
       label: label('Moved', files),
       async run() {
-        const undone = await undoCloud(moveId, files)
+        const undone = await undoCloud(moveId, files, [fromProject, destProject])
         told(fromProject, destProject)
         return {
           label: label('Moved back', files),
           async run() {
-            const redone = await undoCloud(undone.move_id, files)
+            const redone = await undoCloud(undone.move_id, files, [fromProject, destProject])
             told(fromProject, destProject)
             return cloudSteps(redone.move_id, files, fromProject, destProject)
           },

@@ -979,6 +979,11 @@ export default function StorageSection({ isActive, workspaceId }) {
             </div>
           )}
 
+          {listedOnDrive === 0 && (
+            <p className="text-dense mb-2" style={{ color: INK_2 }} data-storage-checker>
+              Each project's list shows what the person checking can open, so check with someone who can open every folder.
+            </p>
+          )}
           {listedOnDrive > 0 && (
             <p className="text-dense mb-2" style={{ color: INK }} data-storage-listed>
               {listedOnDrive} {listedOnDrive === 1 ? 'file is' : 'files are'} listed from this drive. Changing the drive leaves

@@ -420,6 +420,11 @@ export default function ProjectsPage({ onNavigate }) {
         setSaveError('This backend is read-only — files cannot be deleted from it.')
         return
       }
+      // The server refuses this delete, because the row and the real file go together through Files and M.O.T.H.
+      if (storedRow.storage_provider === 'network_share') {
+        setSaveError('A file on the office server is deleted from Files or M.O.T.H., so the file itself goes with it.')
+        return
+      }
       const adapter = ctx?.getAdapter?.()
       if (!adapter?.deleteFile) return
       // 🚨 §6 #31 trap (g), AND IT IS TWO DIFFERENT THINGS. In CLOUD mode

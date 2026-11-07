@@ -1888,7 +1888,14 @@ function unwrapMoth(result, fnName) {
     lastError = refusal.message;
     throw refusal;
   }
-  return unwrapPersonalRpc(result, fnName, MOTH_ABSENT);
+  try {
+    return unwrapPersonalRpc(result, fnName, MOTH_ABSENT);
+  } catch (err) {
+    // A database's own code means it answered, and a statement that timed out rolled back: not the lost answer
+    // that a failed fetch is, whose code is empty.
+    if (result?.error?.code && !err.code) err.code = result.error.code;
+    throw err;
+  }
 }
 
 // S3a review round 2 (R2-3, parity2#2): the unique indexes behind the
@@ -6026,6 +6033,13 @@ export function supabaseAdapter() {
       const client = await requireClient();
       return readAllPagesWith(() => client.rpc('moth_islands'),
         (res) => unwrapPersonalRpc(res, 'moth_islands', MOTH_ABSENT) || []);
+    },
+    // What the office-server banner needs of the project open in Moth: its islands say nothing of where it is.
+    async mothIslandFolder(projectId) {
+      const client = await requireClient();
+      const { data, error } = await client.from('projects').select('id, folder_root, personal_owner_id').eq('id', projectId).maybeSingle();
+      if (error) throw new Error(error.message);
+      return data;
     },
     async listMothFolders(projectId) {
       const client = await requireClient();

@@ -4,10 +4,14 @@
 // or a second click while one is running asks nothing.
 export const HISTORY_CAP = 10
 
-// Asked of the error a step threw: a refusal has gone stale, and asking again would say the same. Anything
-// else (the network, a server that went off) may pass, so the step stays. A refusal carries the server's
-// code, or says how much of it happened.
-const stale = (err) => Boolean(err?.code || err?.notMoved || err?.later || err?.stale)
+// Asked of the error a step threw: does asking again have any point? What may pass keeps the step: the network,
+// a server that went off, a file a program has open, a move still settling. Undo is the only way back that
+// restores a file's links and place, so a passing failure must not cost it. A refusal that will say the same
+// again goes, as does a step part of which has happened, or nobody can say. A database's own code (a statement
+// timeout) rolled back, so nothing happened, and only Moth's refusals are written in lower case.
+const MAY_PASS = new Set(['unreachable', 'cannot_check', 'in_use', 'folder_away', 'pending', 'plan_changed', 'failed'])
+const refused = (code) => /^[a-z]/.test(String(code ?? '')) && !MAY_PASS.has(code)
+const stale = (err) => Boolean(refused(err?.code) || err?.notMoved || err?.later || err?.stale)
 
 export function createMothHistory({ cap = HISTORY_CAP } = {}) {
   let undoes = []

@@ -13,8 +13,10 @@ import { canOnProject, projectActionDeniedReason } from '../../permissions/proje
 import { useRabbit } from '../rabbit_v0.1.0/state/RabbitProvider'
 import { desktopFileOps } from '../rabbit_v0.1.0/storage/desktopFileOps.js'
 import { createNetworkShareCatalogue } from '../rabbit_v0.1.0/state/networkShareCatalogue.js'
+import { classifyUpload } from '../rabbit_v0.1.0/storage/uploadNotices.js'
+import NetworkShareBanner from '../../components/Resources/NetworkShareBanner'
 import { visibleDialogCount } from '../rabbit_v0.1.0/views/bins/binUi'
-import { fetchWorkspaceStorage } from '../../cloud/workspaceStorage'
+import { fetchWorkspaceStorage, fetchStorageUsage } from '../../cloud/workspaceStorage'
 import { mothFileHidden } from './state/mothEligibility.js'
 import { createMothHistory } from './state/mothHistory.js'
 import { createMothFileOps } from './state/mothFileOps.js'
@@ -52,6 +54,9 @@ export default function MothPage({ isActive = true }) {
   const [more, setMore] = useState(false)
   const [loading, setLoading] = useState(false)
   const [readFailed, setReadFailed] = useState(false)
+  const [readAsked, setReadAsked] = useState(0)
+  const [readError, setReadError] = useState('')
+  const [openFolder, setOpenFolder] = useState(null)
   const [loadingMore, setLoadingMore] = useState(false)
   const [search, setSearch] = useState('')
   const [picked, setPicked] = useState(() => new Set())
@@ -78,7 +83,10 @@ export default function MothPage({ isActive = true }) {
   const canRedo = useSyncExternalStore(history.subscribe, history.canRedo)
 
   const catalogue = useMemo(() => (adapter ? createNetworkShareCatalogue({ adapter }) : null), [adapter])
-  const notify = rabbit?.noteFilesChangedElsewhere
+  // Read when it is called: a history step outlives the project open in R.A.B.B.I.T. when it was made.
+  const notifyRef = useRef(null)
+  notifyRef.current = rabbit?.noteFilesChangedElsewhere
+  const notify = useCallback((projects) => notifyRef.current?.(projects), [])
   const fileOps = useMemo(() => (adapter && catalogue ? createMothFileOps({
     adapter,
     catalogue,
@@ -179,7 +187,7 @@ export default function MothPage({ isActive = true }) {
     setLoading(true)
     setLoadingMore(false)
     setReadFailed(false)
-    setError('')
+    setReadError('')
     readPage(openId, null)
       .then(({ rows, full, last }) => {
         if (!live) return
@@ -192,11 +200,25 @@ export default function MothPage({ isActive = true }) {
         setFiles([])
         setMore(false)
         setReadFailed(true)
-        setError(err?.message || String(err))
+        setReadError(err?.message || String(err))
       })
       .finally(() => { if (live) setLoading(false) })
     return () => { live = false }
-  }, [adapter, openId, readPage, changeKey, isActive])
+  }, [adapter, openId, readPage, changeKey, isActive, readAsked])
+
+  // A page that has been left says nothing of what happened before it was left.
+  useEffect(() => { if (isActive) setError('') }, [isActive])
+
+  // Where the open project is on the office server, for its banner.
+  useEffect(() => {
+    setOpenFolder(null)
+    if (!officeRoot || !openId || !adapter?.mothIslandFolder) return undefined
+    let live = true
+    Promise.resolve().then(() => adapter.mothIslandFolder(openId))
+      .then((row) => { if (live) setOpenFolder(row) })
+      .catch(() => {})
+    return () => { live = false }
+  }, [adapter, officeRoot, openId])
 
   const loadMore = async () => {
     if (loadingMore) return
@@ -225,6 +247,7 @@ export default function MothPage({ isActive = true }) {
     setView('files')
     setPicked(new Set())
     setSearch('')
+    setError('')
   }
 
   // Only the rows already loaded, which the server has already stripped.
@@ -250,10 +273,20 @@ export default function MothPage({ isActive = true }) {
     }
   }, [])
 
-  // A toast's Undo is for its own step, and asks nothing once something else has been done since.
+  // A toast's Undo is for its own step, and asks nothing once something else has been done since. One that fails
+  // says so to the toast as well, which stays up with Undo to try again: this page may not be the one on screen.
   const toastUndo = () => {
     const own = history.top()
-    return () => act(() => history.undoStep(own))
+    return async () => {
+      setError('')
+      setNote('')
+      try {
+        await history.undoStep(own)
+      } catch (err) {
+        setError(err?.message || String(err))
+        throw err
+      }
+    }
   }
 
   const remove = async () => {
@@ -271,8 +304,13 @@ export default function MothPage({ isActive = true }) {
 
   const move = async (list, from, dest, folder) => {
     setNote('')
-    await fileOps.moveFiles(list, from, dest, folder)
+    const moved = await fileOps.moveFiles(list, from, dest, folder)
     setPicked(new Set())
+    // Nothing moved, so no step was pushed, and a toast's Undo would undo something else.
+    if (moved?.moved === 0) {
+      setNote('These files are already there, so nothing moved.')
+      return
+    }
     rabbit?.showUndoToast?.(list.length === 1 ? `Moved "${list[0].name}"` : `Moved ${list.length} files`, toastUndo())
   }
 
@@ -287,6 +325,8 @@ export default function MothPage({ isActive = true }) {
         entries: [{ n: put.name, s: String(put.sizeBytes), m: put.modifiedAt, t: file.type || undefined }],
       })
     } catch (err) {
+      // No answer is no refusal: the record may be on the server, and this copy is what it names.
+      if (!err?.code) throw new Error(`WILSON could not tell whether "${put.name}" was added. Look in the list before adding it again.`)
       const bin = `${folder}/.wilson-bin/${crypto.randomUUID()}`
       await desktopFileOps.rename([{ from: put.locator, to: `${bin}/${put.name}` }])
         .then(() => desktopFileOps.purgeBin([bin]))
@@ -295,16 +335,43 @@ export default function MothPage({ isActive = true }) {
     }
   }
 
-  const addFiles = async (island, list) => {
-    if (officeRoot) {
-      const accessToken = await adapter.getAccessToken()
-      const folder = `_WILSON_PERSONAL/${perms.userId}`
-      for (const file of list) await addOneToServer(island, file, folder, accessToken)
-    } else {
-      for (const file of list) await adapter.uploadFile(island.id, {}, file, {})
+  // Weighed as Files weighs one, for what is plainly too big. What this cannot see the server still refuses.
+  const refusedHere = async (list) => {
+    if (localOnly || onNetworkStorage || storage?.mode === 'byos') return null
+    const storagePlan = await fetchStorageUsage().catch(() => null)
+    for (const file of list) {
+      const verdict = classifyUpload(file, { storagePlan })
+      if (verdict.blocked) return verdict.message
     }
-    setChangeKey((k) => k + 1)
-    notify?.([island.id])
+    return null
+  }
+
+  // One at a time. One that fails stops the rest, and what went before it is on the list and is said, or a
+  // person picks all of them again and has two of each.
+  const addFiles = async (island, list) => {
+    const refused = await refusedHere(list)
+    if (refused) throw new Error(refused)
+    let added = 0
+    try {
+      if (officeRoot) {
+        const accessToken = await adapter.getAccessToken()
+        const folder = `_WILSON_PERSONAL/${perms.userId}`
+        for (const file of list) {
+          await addOneToServer(island, file, folder, accessToken)
+          added += 1
+        }
+      } else {
+        for (const file of list) {
+          await adapter.uploadFile(island.id, {}, file, {})
+          added += 1
+        }
+      }
+    } catch (err) {
+      throw added > 0 ? new Error(`Added ${added} of ${list.length}. ${err?.message || String(err)}`) : err
+    } finally {
+      setChangeKey((k) => k + 1)
+      notify([island.id])
+    }
   }
 
   // Ctrl+Z and Ctrl+Y, only while on this page. Taken before any other listener: every page stays mounted, and a
@@ -344,14 +411,14 @@ export default function MothPage({ isActive = true }) {
           </Banner>
         )}
         {islands && <MothIslands islands={islands} openId={openId} localOnly={localOnly} onOpen={openIsland} />}
-        <button type="button" className={`moth-island${view === 'trash' ? ' is-open' : ''}`} onClick={() => { setOpenId(null); setView('trash') }} data-moth-trash-open>Trash</button>
+        <button type="button" className={`moth-island${view === 'trash' ? ' is-open' : ''}`} onClick={() => { setOpenId(null); setView('trash'); setError('') }} data-moth-trash-open>Trash</button>
       </aside>
       <section className="moth-main">
         <div className="moth-toolbar">
           <Button variant="ghost" onClick={() => act(() => history.undo())} disabled={!canUndo} data-moth-undo>Undo</Button>
           <Button variant="ghost" onClick={() => act(() => history.redo())} disabled={!canRedo} data-moth-redo>Redo</Button>
         </div>
-        {error && <Banner tone="danger" data-moth-error>{error}</Banner>}
+        {(error || readError) && <Banner tone="danger" data-moth-error>{error || readError}</Banner>}
         {note && <Banner tone="info" data-moth-note>{note}</Banner>}
         {unfinishedMoves > 0 && (
           <Banner tone="info" data-moth-unfinished>
@@ -363,6 +430,10 @@ export default function MothPage({ isActive = true }) {
         {view === 'files' && !open && <EmptyState Icon={Files} title="Choose a project" body="Pick a project to see its files." />}
         {view === 'files' && open && (
           <>
+            {officeRoot && openFolder?.id === openId && (
+              <NetworkShareBanner key={openId} adapter={adapter} project={openFolder} canCheck={gate.allowed} deniedReason={gate.reason} onChanged={() => setChangeKey((k) => k + 1)} />
+            )}
+            {readFailed && <Button variant="ghost" size="sm" onClick={() => setReadAsked((n) => n + 1)} data-moth-read-again>Try again</Button>}
             {open.is_mine && (
               <MothPersonalPanel island={open} gate={gate} onDesktop={onDesktop} onOfficeServer={Boolean(officeRoot)} cannotHoldFiles={onNetworkStorage && !officeRoot} onAdd={addFiles} />
             )}
