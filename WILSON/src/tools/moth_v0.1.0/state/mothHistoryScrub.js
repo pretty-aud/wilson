@@ -7,6 +7,9 @@
 // (0124, MO2-18) was not on the graph then, whatever the row's action: a file emptied from the trash while in it
 // does not come back for that time. A file shows at a time only if its folder
 // does. Everything before a kind's recording_since is not recorded. The scrub reads only; nothing is written.
+//
+// MO3 (0129): workspace notes, typed tags, their assignments and saved links are rewound the same way, by id. Their
+// record begins with 0129, so they do not set the floor (S3_KINDS): before their beginning they show as they are now.
 export const HISTORY_DAYS = 90
 export const RECENT_DAYS = 7
 const TABLE_KIND = Object.freeze({
@@ -26,6 +29,9 @@ function toBag(rows, pids) {
   return out
 }
 const ms = (t) => (typeof t === 'number' ? t : Date.parse(t))
+/** 0129's four kinds: recorded from that migration on, so not the scrub's floor. */
+export const S3_KINDS = Object.freeze(['notes', 'moth_tags', 'moth_tag_assignments', 'moth_relationships'])
+const listById = (list) => new Map((list || []).filter((r) => r && r.id != null).map((r) => [r.id, { ...r }]))
 
 /**
  * The catalogue as it was at `atMs`, from the live one and the record's rows (newest first, as moth_history_read
@@ -38,6 +44,10 @@ export function rewind(live, rows, atMs) {
   const items = byId(live.items)
   let islands = (live.islands || []).map((r) => ({ ...r }))
   let relations = [...(live.relations || [])]
+  const notes = listById(live.notes)
+  const mtags = listById(live.mtags)
+  const assignments = listById(live.assignments)
+  const looks = new Map((live.mtags || []).map((t) => [t.type_id, { shape: t.shape, colour: t.colour, type_name: t.type_name }]))
   const changed = new Set()
   const recentFrom = atMs - RECENT_DAYS * 86400000
   for (const r of rows || []) {
@@ -88,6 +98,35 @@ export function rewind(live, rows, atMs) {
       if (r.action === 'added' || r.action === 'restored') { islands = islands.filter((x) => x.id !== id); continue }
       if ((r.action === 'trashed' || r.action === 'removed') && !isle && before?.in_trash !== true) { islands.push({ id, title: before?.title ?? '' }); continue }
       if (isle && before?.title) isle.title = before.title
+    } else if (r.entity_type === 'notes') {
+      const now = notes.get(id) || null
+      notes.delete(id)
+      if (r.action === 'added' || r.action === 'restored' || before?.in_trash === true) continue
+      if (!before) { if (now) notes.set(id, now); continue }
+      notes.set(id, { ...(now || { id, is_mine: false }), id, title: before.title ?? now?.title ?? '', tier: before.tier ?? now?.tier ?? null })
+    } else if (r.entity_type === 'moth_tags') {
+      const now = mtags.get(id) || null
+      mtags.delete(id)
+      if (r.action === 'added') continue
+      if (!before) { if (now) mtags.set(id, now); continue }
+      const look = looks.get(before.type_id) || {}
+      mtags.set(id, { shape: 'circle', colour: 'mist', ...look, ...(now || {}), id, label: before.label ?? now?.label ?? '',
+        type_id: before.type_id ?? now?.type_id ?? null, tier: before.tier ?? now?.tier ?? null, canonical_id: before.canonical_id ?? null,
+        retired_at: before.retired === true ? (now?.retired_at || 'retired') : null })
+    } else if (r.entity_type === 'moth_tag_assignments') {
+      const now = assignments.get(id) || null
+      assignments.delete(id)
+      if (r.action === 'added') continue
+      if (!before) { if (now) assignments.set(id, now); continue }
+      assignments.set(id, { ...(now || {}), id, tag_id: before.tag_id ?? now?.tag_id, target_type: before.target_type ?? now?.target_type,
+        target_id: before.target_id ?? now?.target_id, tier: before.tier ?? now?.tier })
+    } else if (r.entity_type === 'moth_relationships') {
+      const was = relations.find((l) => l.relationship === id) || null
+      relations = relations.filter((l) => l.relationship !== id)
+      if (r.action === 'added') continue
+      if (!before) { if (was) relations.push(was); continue }
+      relations.push({ source: { kind: before.source_type, id: before.source_id }, target: { kind: before.dest_type, id: before.dest_id },
+        label: before.label ?? null, relationship: id, origin: before.origin ?? null })
     } else if (r.entity_type === 'task_items') {
       const s = r.state
       const pr = before
@@ -98,7 +137,8 @@ export function rewind(live, rows, atMs) {
       }
     }
   }
-  const c = { islands, folders: toBag(folders, pids), files: toBag(files, pids), items: toBag(items, pids), relations }
+  const c = { islands, folders: toBag(folders, pids), files: toBag(files, pids), items: toBag(items, pids), relations,
+    notes: [...notes.values()], mtags: [...mtags.values()], assignments: [...assignments.values()] }
   // A file shows at a time only if its folder does.
   for (const [pid, list] of Object.entries(c.files)) {
     const kept = new Set((c.folders[pid] || []).map((f) => f.id))
@@ -111,6 +151,7 @@ export function rewind(live, rows, atMs) {
 export function recordedSince(windowRows, nowMs = Date.now()) {
   let floor = nowMs - HISTORY_DAYS * 86400000
   for (const w of windowRows || []) {
+    if (S3_KINDS.includes(w.entity_type)) continue
     const t = ms(w.recording_since)
     if (Number.isFinite(t) && t > floor) floor = t
   }

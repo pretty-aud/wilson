@@ -410,7 +410,8 @@ export function localServerAdapter() {
     async fetchMothHistory() { return []; },
     async fetchMothHistoryWindow() {
       const now = new Date().toISOString();
-      return ['projects', 'folders', 'files', 'phases', 'assets', 'tasks', 'scenes', 'shots', 'levels', 'experiences', 'task_items']
+      return ['projects', 'folders', 'files', 'phases', 'assets', 'tasks', 'scenes', 'shots', 'levels', 'experiences', 'task_items',
+        'notes', 'moth_tags', 'moth_tag_assignments', 'moth_relationships']
         .map(entity_type => ({ entity_type, project_id: null, recording_since: now }));
     },
 

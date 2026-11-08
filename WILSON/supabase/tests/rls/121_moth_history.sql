@@ -124,9 +124,10 @@ SELECT is((SELECT array_agg(x ORDER BY x) FROM unnest(ARRAY['public.moth_history
    WHERE has_function_privilege('authenticated', x::regprocedure, 'EXECUTE')), ARRAY['public.moth_history_read(uuid,timestamp with time zone,uuid,integer)', 'public.moth_history_window(uuid)'], 'a client may call the two readers and nothing else');
 SELECT is(has_function_privilege('service_role', 'public.purge_moth_history(interval)', 'EXECUTE'), true, 'CONTROL: the purge is service_role''s');
 SELECT ok(pg_get_function_result('public.moth_history_read(uuid,timestamp with time zone,uuid,integer)'::regprocedure) !~* 'bigint', 'the reader hands out no bigint');
-SELECT is((SELECT count(*)::int FROM pg_trigger t WHERE NOT t.tgisinternal AND t.tgfoid = 'public.fn_moth_history_capture()'::regprocedure), 22, 'twenty-two triggers');
+SELECT is((SELECT count(*)::int FROM pg_trigger t WHERE NOT t.tgisinternal AND t.tgfoid = 'public.fn_moth_history_capture()'::regprocedure), 30, 'thirty triggers (0129: and the four Session 3 tables)');
 SELECT is((SELECT array_agg(DISTINCT c.relname::text ORDER BY c.relname::text) FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid WHERE NOT t.tgisinternal AND t.tgfoid = 'public.fn_moth_history_capture()'::regprocedure),
-  ARRAY['assets', 'experiences', 'files', 'folders', 'levels', 'phases', 'projects', 'scenes', 'shots', 'task_items', 'tasks'], 'on the eleven tables');
+  ARRAY['assets', 'experiences', 'files', 'folders', 'levels', 'moth_relationships', 'moth_tag_assignments', 'moth_tags', 'notes',
+        'phases', 'projects', 'scenes', 'shots', 'task_items', 'tasks'], 'on the fifteen tables (0129: notes, typed tags, their assignments and links)');
 SELECT ok((SELECT pg_get_triggerdef(t.oid) LIKE '%share_missing_since%' AND pg_get_triggerdef(t.oid) LIKE '%is_financial%' AND pg_get_triggerdef(t.oid) LIKE '%storage_path%' FROM pg_trigger t WHERE t.tgname = 'trg_files_moth_history_upd'), 'the files list holds what classification needs');
 SELECT is((SELECT count(*)::int FROM pg_proc WHERE prosrc LIKE '%moth_history%' AND proname IN ('fn_realtime_broadcast', 'fn_workspace_realtime_broadcast')), 0, 'it is on no realtime topic');
 -- A column gone from a list silently corrupts every rebuild before it, so each is named here too.
@@ -370,7 +371,7 @@ SELECT is((SELECT p ? 'scene_ids' FROM t121_wide WHERE n = 'last'), false, 'an a
 SELECT is((SELECT prolang = (SELECT oid FROM pg_language WHERE lanname = 'plpgsql') FROM pg_proc WHERE oid = 'public.moth_history_projection_ok(jsonb)'::regprocedure), true, 'the check is plpgsql, so a row does not plan it afresh');
 SELECT is((SELECT count(*)::int FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'moth_history' AND indexname = 'moth_history_marks_idx' AND indexdef LIKE '%mark_recording%'), 1, 'and the window has its index');
 SELECT is(public.moth_history_projection_ok(jsonb_build_object('name', 'x', 'title', repeat('t', 300), 'slug', repeat('t', 300), 'scene_ids', (SELECT jsonb_agg(repeat('z', 200)) FROM generate_series(1, 20)))), false, 'and the check does refuse past 4,096 octets');
-SELECT throws_ok($$ SELECT public.moth_history_project('notes', '{}'::jsonb) $$, 'P0001', 'moth_history_project: no map for notes', 'a table with no map is refused, not guessed at');
+SELECT throws_ok($$ SELECT public.moth_history_project('boards', '{}'::jsonb) $$, 'P0001', 'moth_history_project: no map for boards', 'a table with no map is refused, not guessed at');
 
 
 -- ── D. Money and Legal ──────────────────────────────────────────────────────
@@ -522,8 +523,8 @@ RESET ROLE;
 -- ── E. One fixture, one CHECK ───────────────────────────────────────────────
 SELECT throws_ok($$ INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action) VALUES ('11111111-1111-1111-1111-111111111111', 'files', gen_random_uuid(), 'observe') $$,
   '23514', 'new row for relation "moth_history" violates check constraint "moth_history_a_action_chk"', 'an action outside the vocabulary');
-SELECT throws_ok($$ INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, state) VALUES ('11111111-1111-1111-1111-111111111111', 'notes', gen_random_uuid(), 'create', '{"name":"x"}') $$,
-  '23514', 'new row for relation "moth_history" violates check constraint "moth_history_b_entity_chk"', 'a table outside the eleven');
+SELECT throws_ok($$ INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, state) VALUES ('11111111-1111-1111-1111-111111111111', 'boards', gen_random_uuid(), 'create', '{"name":"x"}') $$,
+  '23514', 'new row for relation "moth_history" violates check constraint "moth_history_b_entity_chk"', 'a table outside the fifteen');
 SELECT throws_ok($$ INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, state_class) VALUES ('11111111-1111-1111-1111-111111111111', 'files', gen_random_uuid(), 'update', 'personal') $$,
   '23514', 'new row for relation "moth_history" violates check constraint "moth_history_c_class_chk"', 'personal with no owner');
 SELECT throws_ok($$ INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, state_class, state_owner_id) VALUES ('11111111-1111-1111-1111-111111111111', 'files', gen_random_uuid(), 'update', 'shared', gen_random_uuid()) $$,
@@ -770,7 +771,7 @@ SET LOCAL ROLE authenticated;
 SELECT public.t121_c();
 SELECT is((SELECT w.recording_since FROM public.moth_history_window() w WHERE w.entity_type = 'files' AND w.project_id IS NULL), now() - interval '5 days', 'or when the company began, when that is later');
 SELECT is((SELECT w.recording_since FROM public.moth_history_window() w WHERE w.entity_type = 'levels' AND w.project_id IS NULL), now() - interval '5 days', 'and a type with no mark at the company''s start');
-SELECT is((SELECT count(*)::int FROM public.moth_history_window() w WHERE w.project_id IS NULL), 11, 'one row per type');
+SELECT is((SELECT count(*)::int FROM public.moth_history_window() w WHERE w.project_id IS NULL), 15, 'one row per type (0129: fifteen)');
 RESET ROLE;
 SET LOCAL ROLE service_role;
 UPDATE public.workspaces SET created_at = now() - interval '200 days' WHERE id = '11111111-1111-1111-1111-111111111111';
@@ -836,9 +837,11 @@ SELECT public.t121_c();
 SELECT is((SELECT count(*)::int FROM public.moth_history_window() w WHERE w.project_id = 'aaaa1210-0000-0000-0000-0000000000c0'), 1, 'its owner does');
 RESET ROLE;
 ALTER TABLE public.moth_history DROP CONSTRAINT moth_history_b_entity_chk;
+-- As 0129 leaves it (0128's fifteen tables, validated).
 ALTER TABLE public.moth_history ADD CONSTRAINT moth_history_b_entity_chk
   CHECK ((action = 'mark_recording' AND entity_type ~ '^[a-z_]{1,63}$')
-         OR entity_type IN ('projects', 'phases', 'assets', 'tasks', 'files', 'folders', 'scenes', 'shots', 'levels', 'experiences', 'task_items'));
+         OR entity_type IN ('projects', 'phases', 'assets', 'tasks', 'files', 'folders', 'scenes', 'shots', 'levels',
+                            'experiences', 'task_items', 'notes', 'moth_tags', 'moth_tag_assignments', 'moth_relationships'));
 
 
 -- ── I. The purge ────────────────────────────────────────────────────────────

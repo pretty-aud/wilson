@@ -90,8 +90,8 @@ describe('rls.yml\'s failure-replay list', () => {
     // 0122: suite 124, no table; 0123: suites 125 and 126, moth_views and
     // moth_layout_positions, both in RLS_TABLES too (suite 57 carries moth_prefs). MO3's 0125: suite 21 extended;
     // 0126: suites 127 to 130, the four tag tables; 0127: suites 131 and 132, moth_relationships and
-    // moth_mention_reservations; each table in RLS_TABLES.
-    expect(listed.slice(-8)).toEqual(['125_moth_views.sql', '126_moth_layout_positions.sql', '127_moth_tag_types.sql', '128_moth_tags.sql', '129_moth_tag_assignments.sql', '130_moth_tag_nominations.sql', '131_moth_relationships.sql', '132_moth_mention_reservations.sql'])
+    // moth_mention_reservations; each table in RLS_TABLES. 0128 and 0129: suite 133, the record of the four, no table.
+    expect(listed.slice(-9)).toEqual(['125_moth_views.sql', '126_moth_layout_positions.sql', '127_moth_tag_types.sql', '128_moth_tags.sql', '129_moth_tag_assignments.sql', '130_moth_tag_nominations.sql', '131_moth_relationships.sql', '132_moth_mention_reservations.sql', '133_moth_history_s3.sql'])
   })
 })
 
@@ -139,7 +139,7 @@ describe('scripts/tap-all.mjs picks suites by number', () => {
     const files = readdirSync(SUITE_DIR)
     const picked = pickSuites(files)
     expect(picked).toHaveLength(files.filter((f) => f.endsWith('.sql')).length)
-    expect(picked.slice(-9)).toEqual(['124_moth_graph_reads.sql', '125_moth_views.sql', '126_moth_layout_positions.sql', '127_moth_tag_types.sql', '128_moth_tags.sql', '129_moth_tag_assignments.sql', '130_moth_tag_nominations.sql', '131_moth_relationships.sql', '132_moth_mention_reservations.sql'])
+    expect(picked.slice(-10)).toEqual(['124_moth_graph_reads.sql', '125_moth_views.sql', '126_moth_layout_positions.sql', '127_moth_tag_types.sql', '128_moth_tags.sql', '129_moth_tag_assignments.sql', '130_moth_tag_nominations.sql', '131_moth_relationships.sql', '132_moth_mention_reservations.sql', '133_moth_history_s3.sql'])
     expect(picked.indexOf('10_task_dependencies.sql')).toBeLessThan(picked.indexOf('11_task_links.sql'))
   })
 })
