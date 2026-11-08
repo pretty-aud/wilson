@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Banner, Button, Input, Select } from '../../../ui'
 import ItemTags from '../../rabbit_v0.1.0/components/mentions/ItemTags'
+import { FALLBACK_NOTICE } from '../../rabbit_v0.1.0/components/mentions/useMentionPicker'
 import { tagAdvice } from '../state/mothTagWords.js'
 import { MTAG_SHAPES } from '../engine/model.js'
 
@@ -28,6 +29,8 @@ function words(err, fallback) {
   if (err?.code === 'moth_absent') return 'Typed tags are not on this database yet.'
   if (err?.code === '23503' && rawWords(err?.message)) return 'That type cannot be used for this tag.'
   if (err?.code === '42501' && rawWords(err?.message)) return 'You may not change that here.'
+  // Review: 0126 checks a tag's words (1 to 80 characters) and a type's name (1 to 60), with no hidden characters.
+  if (err?.code === '23514' && rawWords(err?.message)) return 'Those words cannot be kept: a tag takes 1 to 80 characters, a type 1 to 60, with no hidden characters.'
   return err?.message || fallback
 }
 // A change the database made nowhere (no row came back) says so, never 'done'.
@@ -37,12 +40,16 @@ const changed = (row) => {
   return row
 }
 
-export default function MothTagPanel({ adapter, store, workspace, absent, readFailed, readOnly, isAdmin, userId, selectedNode, onChanged }) {
+// canChange: whether the person may change the selected thing (MothPage's mayChange, the server's question). The
+// company's tags on it offer their take-off cross only then; one's own are always one's own to take off.
+export default function MothTagPanel({ adapter, store, workspace, absent, readFailed, readOnly, isAdmin, userId, selectedNode, canChange = false, onChanged }) {
   const [message, setMessage] = useState(null)
   const [busyState, setBusy] = useState(false)
   // Looking back, nothing here changes anything: every part is shut, with the page's own sentence.
   const busy = busyState || !!readOnly
   const [nominations, setNominations] = useState([])
+  // Review: a failed read of what is put forward keeps what was shown, and says so; never an empty list that looks true.
+  const [nominationsFailed, setNominationsFailed] = useState(false)
   const tags = useMemo(() => workspace?.mtags || [], [workspace])
   const getAdapter = useCallback(() => adapter, [adapter])
   const types = useMemo(() => workspace?.types || [], [workspace])
@@ -50,20 +57,29 @@ export default function MothTagPanel({ adapter, store, workspace, absent, readFa
   const tagsRef = useRef(null)
 
   const reload = useCallback(async () => {
-    await store?.readWorkspace?.()
+    // Review: looking back, nothing here changes, and a workspace read would only make the page read its whole
+    // record again for the same time; the drawer shows what the page already holds.
+    if (!readOnly) await store?.readWorkspace?.()
     // The selected thing's own list is read again too, so a tag just put on shows under it.
     tagsRef.current?.reload?.()
-    try { setNominations((await adapter?.listMothTagNominations?.()) || []) } catch { setNominations([]) }
+    try {
+      setNominations((await adapter?.listMothTagNominations?.()) || [])
+      setNominationsFailed(false)
+    } catch (err) {
+      if (err?.code === 'moth_absent') { setNominations([]); setNominationsFailed(false) } else setNominationsFailed(true)
+    }
     onChanged?.()
-  }, [adapter, onChanged, store])
+  }, [adapter, onChanged, store, readOnly])
   useEffect(() => { reload() }, [reload])
 
+  // `done` is the success words, or a function of what `fn` answered that gives them.
   const run = useCallback(async (fn, done) => {
     setBusy(true)
     setMessage(null)
     try {
-      await fn()
-      if (done) setMessage({ tone: 'success', text: done })
+      const out = await fn()
+      const text = typeof done === 'function' ? done(out) : done
+      if (text) setMessage({ tone: 'success', text })
       await reload()
     } catch (err) {
       setMessage({ tone: 'danger', text: words(err, 'That could not be done.') })
@@ -76,19 +92,27 @@ export default function MothTagPanel({ adapter, store, workspace, absent, readFa
   const target = selectedNode && TAGGABLE.has(selectedNode.kind) ? { kind: selectedNode.kind, id: selectedNode.rowId } : null
   const [pick, setPick] = useState('')
   const usable = tags.filter(live)
+  // A tag picked and since retired or merged is no longer offered: Tag it is shut, and never says done for it.
+  const pickOffered = usable.some((t) => t.id === pick)
   const tagIt = () => run(async () => {
     const tag = usable.find((t) => t.id === pick)
-    if (!tag || !target) return
+    if (!tag) throw new Error('That tag is no longer offered. Pick another.')
+    if (!target) return 'none'
     if (tag.tier === 'company') {
       try {
         await adapter.assignMothTag({ tagId: tag.id, tier: 'company', targetKind: target.kind, targetId: target.id })
-        return
+        return 'company'
       } catch (err) {
         if (err?.code !== '42501') throw err
       }
+      // Review: as the # picker does, a company tag kept as the person's own here says so; the 'yours' mark alone
+      // would let them believe everyone sees it.
+      await adapter.assignMothTag({ tagId: tag.id, tier: 'personal', targetKind: target.kind, targetId: target.id })
+      return 'kept as yours'
     }
     await adapter.assignMothTag({ tagId: tag.id, tier: 'personal', targetKind: target.kind, targetId: target.id })
-  }, 'Tagged.')
+    return 'yours'
+  }, (how) => (how === 'kept as yours' ? `Tagged. ${FALLBACK_NOTICE}` : how === 'none' ? null : 'Tagged.'))
 
   // ── A new tag ──
   const [label, setLabel] = useState('')
@@ -99,7 +123,8 @@ export default function MothTagPanel({ adapter, store, workspace, absent, readFa
   const mineTypes = types.filter((ty) => !ty.retired_at && (ty.tier === 'company' || (!tagForCompany && ty.owner_id === userId)))
   // A type that no longer fits counts as none picked (a type just made fits once the next read brings it).
   const chosenType = mineTypes.some((ty) => ty.id === typeId) ? typeId : ''
-  const advice = useMemo(() => tagAdvice(label, { tags, typeId: chosenType || null, userId }), [label, tags, chosenType, userId])
+  const advice = useMemo(() => tagAdvice(label, { tags, typeId: chosenType || null, userId, tier: tagForCompany ? 'company' : 'personal' }),
+    [label, tags, chosenType, userId, tagForCompany])
   const forTheCompany = async (fn) => {
     try {
       return await fn()
@@ -147,17 +172,18 @@ export default function MothTagPanel({ adapter, store, workspace, absent, readFa
       {message && <Banner tone={message.tone}>{message.text}</Banner>}
       {readOnly && <p className="moth-quiet" data-moth-tags-read-only>{readOnly}</p>}
       {readFailed && <p className="moth-quiet" data-moth-tags-read-failed>Could not read every tag just now: what was shown before is kept, and these lists may be missing some.</p>}
+      {nominationsFailed && <p className="moth-quiet" data-moth-nominations-read-failed>Could not read what is put forward just now: what was shown before is kept.</p>}
 
       <fieldset className="moth-fieldset" disabled={busy}>
         <legend className="moth-tag-legend">The selected thing</legend>
         {target ? (
           <>
             <p className="moth-quiet">{selectedNode.label || 'Untitled'}</p>
-            <ItemTags ref={tagsRef} getAdapter={getAdapter} kind={target.kind} id={target.id} onChanged={reload} />
+            <ItemTags ref={tagsRef} getAdapter={getAdapter} kind={target.kind} id={target.id} canChange={canChange} onChanged={reload} />
             <div className="moth-tag-row">
               <Select size="sm" value={pick} onChange={(v) => setPick(v ?? '')} placeholder="A tag…" aria-label="A tag for the selected thing"
                 options={usable.map((t) => ({ value: t.id, label: `${t.label} · ${typeName(t.type_id)}${t.tier === 'personal' ? ' (yours)' : ''}` }))} />
-              <Button size="sm" onClick={tagIt} disabled={!pick}>Tag it</Button>
+              <Button size="sm" onClick={tagIt} disabled={!pickOffered}>Tag it</Button>
             </div>
           </>
         ) : <p className="moth-quiet">Select a dot to tag it.</p>}
@@ -165,7 +191,7 @@ export default function MothTagPanel({ adapter, store, workspace, absent, readFa
 
       <fieldset className="moth-fieldset" disabled={busy}>
         <legend className="moth-tag-legend">A new tag</legend>
-        <Input size="sm" value={label} onChange={setLabel} placeholder="Its words" aria-label="The new tag's words" />
+        <Input size="sm" value={label} onChange={setLabel} placeholder="Its words" aria-label="The new tag's words" maxLength={80} />
         <Select size="sm" value={chosenType} onChange={(v) => setTypeId(v ?? '')} placeholder="Its type…" aria-label="The new tag's type"
           options={mineTypes.map((ty) => ({ value: ty.id, label: `${ty.name}${ty.tier === 'personal' ? ' (yours)' : ''}` }))} />
         {isAdmin && (
@@ -173,7 +199,11 @@ export default function MothTagPanel({ adapter, store, workspace, absent, readFa
             <input type="checkbox" checked={forCompany} onChange={(e) => setForCompany(e.target.checked)} /> For the company
           </label>
         )}
-        {advice.duplicate && <p className="moth-tag-advice" role="status">You have &ldquo;{advice.duplicate.label}&rdquo; already, of this type.</p>}
+        {advice.duplicate && (
+          <p className="moth-tag-advice" role="status">
+            {tagForCompany ? 'The company has' : 'You have'} &ldquo;{advice.duplicate.label}&rdquo; already, of this type.
+          </p>
+        )}
         {advice.company && !tagForCompany && (
           <p className="moth-tag-advice" role="status">
             The company has &ldquo;{advice.company.label}&rdquo; ({typeName(advice.company.type_id)}).{' '}
@@ -190,7 +220,7 @@ export default function MothTagPanel({ adapter, store, workspace, absent, readFa
 
       <fieldset className="moth-fieldset" disabled={busy}>
         <legend className="moth-tag-legend">A new type</legend>
-        <Input size="sm" value={typeNameDraft} onChange={setTypeNameDraft} placeholder="Its name (Character, Location…)" aria-label="The new type's name" />
+        <Input size="sm" value={typeNameDraft} onChange={setTypeNameDraft} placeholder="Its name (Character, Location…)" aria-label="The new type's name" maxLength={60} />
         <div className="moth-tag-row">
           <Select size="sm" value={shape} onChange={(v) => setShape(v ?? 'circle')} aria-label="The new type's shape"
             options={MTAG_SHAPES.map((s) => ({ value: s, label: SHAPE_WORDS[s] }))} />
@@ -235,7 +265,7 @@ export default function MothTagPanel({ adapter, store, workspace, absent, readFa
       {isAdmin && (
         <fieldset className="moth-fieldset" disabled={busy}>
           <legend className="moth-tag-legend">Put forward to the company</legend>
-          {queue.length === 0 ? <p className="moth-quiet">Nothing waits.</p> : (
+          {queue.length === 0 ? (nominationsFailed ? null : <p className="moth-quiet">Nothing waits.</p>) : (
             <ul className="moth-tag-list">
               {queue.map((n) => (
                 <li key={n.id} className="moth-tag-item">
@@ -257,8 +287,8 @@ export default function MothTagPanel({ adapter, store, workspace, absent, readFa
               <li key={t.id} className="moth-tag-item" data-retired={t.retired_at ? 'true' : 'false'}>
                 {isAdmin && renaming?.id === t.id ? (
                   <>
-                    <Input size="sm" value={renaming.label} onChange={(v) => setRenaming({ id: t.id, label: v })} aria-label={`A new name for ${t.label}`} />
-                    <Button size="sm" variant="primary" onClick={() => run(async () => { changed(await adapter.updateMothTag(t.id, { label: renaming.label.trim() })); setRenaming(null) }, 'Renamed everywhere it is used.')}>Save</Button>
+                    <Input size="sm" value={renaming.label} onChange={(v) => setRenaming({ id: t.id, label: v })} aria-label={`A new name for ${t.label}`} maxLength={80} />
+                    <Button size="sm" variant="primary" disabled={!renaming.label.trim()} onClick={() => run(async () => { changed(await adapter.updateMothTag(t.id, { label: renaming.label.trim() })); setRenaming(null) }, 'Renamed everywhere it is used.')}>Save</Button>
                     <Button size="sm" variant="ghost" onClick={() => setRenaming(null)}>Cancel</Button>
                   </>
                 ) : (

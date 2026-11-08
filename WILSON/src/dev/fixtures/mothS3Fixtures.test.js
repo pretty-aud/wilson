@@ -167,3 +167,86 @@ describe('🚨 notes and typed links as the cloud keeps them', () => {
     expect(found.some(c => c.kind === 'folder' && c.name === 'SHOTS')).toBe(true)
   })
 })
+
+// Round 2: 0126's unique keys on live tags and types hold on a rename, a type's change and a bring-back as on a
+// create, and fn_moth_tags_pin counts a revision only for new words or a new type.
+describe('🚨 a rename or a bring-back that meets a live tag or type of the same words is refused, as 0126 refuses it', () => {
+  it('Mara renames a company tag to another\'s words, or brings back a retired one a new one has replaced', async () => {
+    const { a } = tags()
+    const mora = await a.createMothTag({ typeId: CHARACTER_TYPE, tier: 'company', label: 'Mora' })
+    await expect(a.updateMothTag(mora.id, { label: 'lead' })).rejects.toMatchObject({ code: '23505' })
+    await a.updateMothTag(LEAD, { retired: true })
+    await a.createMothTag({ typeId: CHARACTER_TYPE, tier: 'company', label: 'Lead' })
+    await expect(a.updateMothTag(LEAD, { retired: false })).rejects.toMatchObject({ code: '23505' })
+    const live = (await a.listMothTags()).filter(t => !t.retired_at && !t.canonical_id && t.label.toLowerCase() === 'lead')
+    expect(live).toHaveLength(1)
+    expect(live[0].id).not.toBe(LEAD)
+  })
+
+  it('a personal tag moved to a type where its words are taken, and a type renamed or brought back onto a live one\'s name', async () => {
+    const { a } = tags()
+    const places = await a.createMothTagType({ tier: 'personal', name: 'Places', shape: 'square', colour: 'sky' })
+    const lamp = await a.createMothTag({ typeId: places.id, tier: 'personal', label: 'Lantern' })
+    await expect(a.updateMothTag(lamp.id, { typeId: fid('mtype', 2) })).rejects.toMatchObject({ code: '23505' })
+    await expect(a.updateMothTagType(places.id, { name: 'mine' })).rejects.toMatchObject({ code: '23505' })
+    await a.updateMothTagType(MINE, { retired: true })
+    await a.updateMothTagType(places.id, { name: 'Mine' })
+    await expect(a.updateMothTagType(MINE, { retired: false })).rejects.toMatchObject({ code: '23505' })
+  })
+
+  it('CONTROL: one\'s own words in new letters, words a retired tag had, a retire, and another type\'s words all pass', async () => {
+    const { a } = tags()
+    expect((await a.updateMothTag(LEAD, { label: 'LEAD' })).label).toBe('LEAD')
+    const extra = await a.createMothTag({ typeId: CHARACTER_TYPE, tier: 'company', label: 'Extra' })
+    await a.updateMothTag(extra.id, { retired: true })
+    const other = await a.createMothTag({ typeId: CHARACTER_TYPE, tier: 'company', label: 'Other' })
+    expect((await a.updateMothTag(other.id, { label: 'extra' })).label).toBe('extra')
+    // A retired tag retired again, its words now a live one's, is no clash: a retired tag is out of the key.
+    expect((await a.updateMothTag(extra.id, { retired: true })).retired_at).toBeTruthy()
+    // A personal tag of Mara's own type may share a company tag's words.
+    expect((await a.createMothTag({ typeId: MINE, tier: 'personal', label: 'Lead' })).label).toBe('Lead')
+    expect((await a.updateMothTagType(MINE, { name: 'Character' })).name).toBe('Character')
+  })
+
+  it('a revision is counted for new words or a new type, not for a retire or a bring-back', async () => {
+    const { a } = tags()
+    expect((await a.updateMothTag(LEAD, { retired: true })).revision).toBe(1)
+    expect((await a.updateMothTag(LEAD, { retired: false })).revision).toBe(1)
+    expect((await a.updateMothTag(LEAD, { label: 'Lead' })).revision).toBe(1)
+    expect((await a.updateMothTag(LEAD, { label: 'Hero' })).revision).toBe(2)
+  })
+})
+
+// Round 2: the fixtures' bounded lists say they were cut as the cloud's do, `truncated` on the array, out of sight.
+describe('🚨 a list cut at its bound says so, as the cloud adapter says it', () => {
+  it('5,000 notes Moth may draw is a full list, said to be cut; 4,999 is not', async () => {
+    const { fx, a } = tags()
+    const me = fx.permissions.userId
+    const seed = fx.store.notes.find(n => n.owner_id === me && !n.deleted_at)
+    const have = (await a.listMothNotes()).length
+    fx.store.notes.push(...Array.from({ length: 4999 - have }, (_, i) => ({ ...seed, id: `bulk-note-${i}` })))
+    const whole = await a.listMothNotes()
+    expect(whole).toHaveLength(4999)
+    expect(whole.truncated).not.toBe(true)
+    fx.store.notes.push({ ...seed, id: 'bulk-note-last' })
+    const full = await a.listMothNotes()
+    expect(full).toHaveLength(5000)
+    expect(full.truncated).toBe(true)
+    expect(Object.keys(full)).not.toContain('truncated')
+  })
+
+  it('past 20,000 uses the list stops at its bound and says it was cut; exactly 20,000 does not', async () => {
+    const { fx, a } = tags()
+    const seed = fx.store.mothTagAssignments.find(x => x.tag_id === LEAD && x.target_id === CHARACTER)
+    const have = (await a.listMothTagAssignments()).length
+    fx.store.mothTagAssignments.push(...Array.from({ length: 20000 - have }, (_, i) => ({ ...seed, id: `bulk-use-${i}` })))
+    const whole = await a.listMothTagAssignments()
+    expect(whole).toHaveLength(20000)
+    expect(whole.truncated).not.toBe(true)
+    fx.store.mothTagAssignments.push({ ...seed, id: 'bulk-use-last' })
+    const cut = await a.listMothTagAssignments()
+    expect(cut).toHaveLength(20000)
+    expect(cut.truncated).toBe(true)
+    expect(Object.keys(cut)).not.toContain('truncated')
+  })
+})

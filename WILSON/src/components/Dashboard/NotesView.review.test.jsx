@@ -7,7 +7,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { render, screen, cleanup, fireEvent, waitFor, act } from '@testing-library/react'
 import * as Y from 'yjs'
-import { u8ToB64 } from './noteSync'
+import { u8ToB64, b64ToU8 } from './noteSync'
 
 vi.mock('../../cloud/auth/supabaseClient', () => ({ supabase: {}, hydrateSupabase: async () => {} }))
 const rabbit = vi.hoisted(() => ({ current: null }))
@@ -260,6 +260,186 @@ describe('a link picked with [[', () => {
     await waitFor(() => expect(container.querySelector('.rb-mention-picker-row')).toBeTruthy())
     fireEvent.mouseDown(container.querySelector('.rb-mention-picker-row'))
     await waitFor(() => expect(ed.getText()).toBe(`See ${token}`))
+  })
+})
+
+// ── Review round 2 ──────────────────────────────────────────────────────────
+
+describe('a note closed while its save is on the way', () => {
+  it('still sends the merged body\'s links, read from the Y.Doc once the editor is gone', async () => {
+    picker.current = inertPicker()
+    let release = null
+    const a = harness({
+      lists: { mine: [row(), row({ id: 'n2', title: 'Second reel' })] },
+      bodies: { n1: stateOf(`Keep [[the lantern|m:${KEY}]] in frame.`) },
+      saveNoteDoc: vi.fn((id, { expectedVersion }) => new Promise(r => {
+        release = () => r({ id, version: expectedVersion + 1, updated_at: 'now' })
+      })),
+    })
+    const { container } = mount()
+    fireEvent.click(await screen.findByText('Look of the film'))
+    const ed = await editorOf(container)
+    act(() => { ed.commands.insertContentAt(1, 'Now: ') })
+    // Another note, inside the save delay: the pending edit is flushed as this one closes.
+    fireEvent.click(screen.getByText('Second reel'))
+    await waitFor(() => expect(a.saveNoteDoc).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(ed.isDestroyed).toBe(true))
+    await act(async () => { release() })
+    await waitFor(() => expect(a.syncNoteMentions).toHaveBeenCalledWith('n1', 3, [KEY]))
+  }, 10000)
+
+  it('sends a co-editor\'s link too when the closed note\'s save merged theirs first', async () => {
+    picker.current = inertPicker()
+    const KEY2 = 'f6e5d4c3b2a1'
+    const body = stateOf(`Keep [[the lantern|m:${KEY}]] in frame.`)
+    // Theo's save landed first: the same body plus a line with his link, at version 3.
+    const theirs = new Y.Doc()
+    Y.applyUpdate(theirs, b64ToU8(body))
+    const p = new Y.XmlElement('paragraph')
+    const t = new Y.XmlText()
+    theirs.getXmlFragment('default').push([p])
+    p.push([t])
+    t.insert(0, `See [[Mara|m:${KEY2}]]`)
+    const remote = u8ToB64(Y.encodeStateAsUpdate(theirs))
+    let release = null
+    let reads = 0
+    const a = harness({
+      lists: { mine: [row(), row({ id: 'n2', title: 'Second reel' })] },
+      getNote: vi.fn(async (id) => (id === 'n1' && reads++ > 0
+        ? row({ version: 3, ydoc_state: remote })
+        : row({ id, ydoc_state: id === 'n1' ? body : null }))),
+      saveNoteDoc: vi.fn()
+        .mockImplementationOnce(() => new Promise(r => { release = () => r(null) }))
+        .mockImplementation(async (id, { expectedVersion }) => ({ id, version: expectedVersion + 1, updated_at: 'now' })),
+    })
+    const { container } = mount()
+    fireEvent.click(await screen.findByText('Look of the film'))
+    const ed = await editorOf(container)
+    act(() => { ed.commands.insertContentAt(1, 'Now: ') })
+    fireEvent.click(screen.getByText('Second reel'))
+    await waitFor(() => expect(ed.isDestroyed).toBe(true))
+    await act(async () => { release() })
+    await waitFor(() => expect(a.syncNoteMentions).toHaveBeenCalledTimes(1))
+    const [id, version, keys] = a.syncNoteMentions.mock.calls[0]
+    expect([id, version]).toEqual(['n1', 4])
+    expect([...keys].sort()).toEqual([KEY, KEY2].sort())
+  }, 10000)
+})
+
+describe('a pick that waits on the server', () => {
+  const TOKEN = `[[Shot 12|m:${KEY}]]`
+  const pickerWaiting = () => {
+    let answer = null
+    const p = {
+      ...inertPicker(),
+      open: true, mode: 'link', active: 0,
+      items: [{ kind: 'task', id: 't1', name: 'Shot 12' }],
+      pick: vi.fn(() => new Promise(r => { answer = () => r({ start: 4, text: TOKEN }) })),
+    }
+    return { p, answer: () => answer() }
+  }
+
+  it('keeps the words typed after the caret while the server answers', async () => {
+    const w = pickerWaiting()
+    picker.current = w.p
+    harness({ lists: { mine: [row()] }, bodies: { n1: stateOf('See [[Shot') } })
+    const { container } = mount()
+    fireEvent.click(await screen.findByText('Look of the film'))
+    const ed = await editorOf(container)
+    act(() => { ed.commands.setTextSelection(11) })
+    await waitFor(() => expect(container.querySelector('.rb-mention-picker-row')).toBeTruthy())
+    fireEvent.mouseDown(container.querySelector('.rb-mention-picker-row'))
+    act(() => { ed.commands.insertContent(' and more') })
+    await act(async () => { w.answer() })
+    await waitFor(() => expect(ed.getText()).toBe(`See ${TOKEN} and more`))
+    // The caret stays after what was typed.
+    expect(ed.state.selection.from).toBe(ed.state.doc.content.size - 1)
+  })
+
+  it('splices nothing when the words before the caret changed meanwhile', async () => {
+    const w = pickerWaiting()
+    picker.current = w.p
+    harness({ lists: { mine: [row()] }, bodies: { n1: stateOf('See [[Shot') } })
+    const { container } = mount()
+    fireEvent.click(await screen.findByText('Look of the film'))
+    const ed = await editorOf(container)
+    act(() => { ed.commands.setTextSelection(11) })
+    await waitFor(() => expect(container.querySelector('.rb-mention-picker-row')).toBeTruthy())
+    fireEvent.mouseDown(container.querySelector('.rb-mention-picker-row'))
+    act(() => { ed.commands.insertContentAt(1, 'Now: ') })
+    await act(async () => { w.answer() })
+    await wait(30)
+    expect(ed.getText()).toBe('Now: See [[Shot')
+  })
+})
+
+describe('a save row security leaves out (the note is still there, at the version sent)', () => {
+  it('says why in words at once, locks the editor, and reads the list again', async () => {
+    picker.current = inertPicker()
+    const a = harness({ lists: { mine: [row()] }, saveNoteDoc: vi.fn(async () => null) })
+    const { container } = mount()
+    fireEvent.click(await screen.findByText('Look of the film'))
+    const ed = await editorOf(container)
+    const reads = a.listNotes.mock.calls.length
+    act(() => { ed.commands.insertContent('Harbour light') })
+    expect(await screen.findByText(/This note can no longer be changed by you/, {}, { timeout: 4000 })).toBeTruthy()
+    expect(container.querySelector('.dash-save-state').textContent).toBe('Not saved')
+    expect(a.saveNoteDoc).toHaveBeenCalledTimes(1)
+    expect(ed.isEditable).toBe(false)
+    await waitFor(() => expect(a.listNotes.mock.calls.length).toBeGreaterThan(reads))
+  }, 10000)
+})
+
+describe('a note locked as gone', () => {
+  it('has its who-reads-this Select shut, so the note stays open to copy from', async () => {
+    picker.current = inertPicker()
+    const lists = { mine: [row()] }
+    harness({ lists, saveNoteDoc: vi.fn(async () => null) })
+    const { container } = mount()
+    fireEvent.click(await screen.findByText('Look of the film'))
+    const ed = await editorOf(container)
+    expect(screen.getByLabelText('Who reads this note').disabled).toBe(false)
+    lists.mine = []
+    act(() => { ed.commands.insertContent('Harbour light') })
+    await screen.findByText(/This note was moved to the trash/, {}, { timeout: 4000 })
+    expect(screen.getByLabelText('Who reads this note').disabled).toBe(true)
+  }, 10000)
+})
+
+describe('a list that fails to load', () => {
+  it('shows no other scope\'s notes under its tab', async () => {
+    picker.current = inertPicker()
+    const a = harness({ lists: { mine: [row()] } })
+    a.listNotes.mockImplementation(async ({ scope }) => {
+      await wait(15)
+      if (scope === 'trash') throw new Error('The trash could not be read.')
+      return [row()]
+    })
+    mount()
+    await screen.findByText('Look of the film')
+    fireEvent.click(screen.getByRole('button', { name: 'Trash' }))
+    expect(await screen.findByText('The trash could not be read.')).toBeTruthy()
+    expect(screen.queryByText('Look of the film')).toBeNull()
+    expect(screen.getByText('The trash is empty')).toBeTruthy()
+  })
+})
+
+describe('a scope tab clicked while a note asked for from elsewhere is looked for', () => {
+  it('stays on the tab clicked', async () => {
+    picker.current = inertPicker()
+    const lists = { mine: [row()], shared: [row({ id: 'n-theo', title: 'Theo shot list', owner_id: THEO, tier: 'shared' })], trash: [] }
+    const a = harness({ lists })
+    a.listNotes.mockImplementation(async ({ scope }) => {
+      await wait(scope === 'shared' ? 150 : 15)
+      return (lists[scope] || []).map(n => ({ ...n }))
+    })
+    openDashboardNote('n-theo')
+    mount()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Shared' }).getAttribute('aria-pressed')).toBe('true'))
+    fireEvent.click(screen.getByRole('button', { name: 'Trash' }))
+    await wait(300)
+    expect(screen.getByRole('button', { name: 'Trash' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.queryByLabelText('Note title')).toBeNull()
   })
 })
 

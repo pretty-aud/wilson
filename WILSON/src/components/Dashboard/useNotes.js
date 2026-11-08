@@ -46,6 +46,8 @@ export function useNotes() {
     return () => { mountedRef.current = false }
   }, [])
   const reqSeqRef = useRef(0)
+  // Review: the scope of the rows held, set with them, so a failed load never leaves one scope's rows under another.
+  const rowsScopeRef = useRef(null)
 
   const cloudReady = adapterMode === 'supabase' && !!perms?.userId
 
@@ -58,6 +60,7 @@ export function useNotes() {
     const a = adapter()
     if (adapterMode !== 'supabase' || typeof a?.listNotes !== 'function') {
       setNotes([]); setSubjects([]); setLoading(false); setLoadedScope('mine')
+      rowsScopeRef.current = 'mine'
       return
     }
     setLoading(true)
@@ -73,11 +76,19 @@ export function useNotes() {
       if (!mountedRef.current || seq !== reqSeqRef.current) return
       setTiers(!!hasTiers)
       setNotes(Array.isArray(noteRows) ? noteRows : [])
+      rowsScopeRef.current = want
       setSubjects(Array.isArray(subjectRows) ? subjectRows : [])
       setLoadedScope(want)
     } catch (err) {
       if (mountedRef.current && seq === reqSeqRef.current) {
         setError(err.message || String(err))
+        // Review: rows of another scope than the one asked (and on screen) are not this scope's answer: the list is
+        // emptied, so the tab shows its empty state under the error, and loadedScope describes the rows it shows. A
+        // failed refresh of the same scope keeps its rows.
+        if (rowsScopeRef.current !== want || want !== scope) {
+          setNotes([])
+          rowsScopeRef.current = want
+        }
         setLoadedScope(want)
       }
     } finally {

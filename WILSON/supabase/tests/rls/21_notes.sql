@@ -14,7 +14,7 @@
 -- De-auth pair before every persona switch: tests schema is runner-only.
 
 BEGIN;
-SELECT plan(76);
+SELECT plan(77);
 
 SELECT * FROM tests.rls_setup();
 
@@ -371,6 +371,8 @@ SELECT is(public.note_restore('da000000-0000-0000-0000-0000000000c2'), true, 'an
 SELECT is(public.note_restore('da000000-0000-0000-0000-0000000000c2'), false, '… once');
 SELECT throws_ok($$SELECT public.note_restore('da000000-0000-0000-0000-0000000000c1')$$,
   '42501', 'That note is not one you can bring back.', 'and nobody else''s personal one, in the words of a missing one');
+SELECT throws_ok($$SELECT public.note_restore('da000000-0000-0000-0000-00000000dead')$$,
+  '42501', 'That note is not one you can bring back.', '… which are a missing note''s own words');
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 -- The company standard in the trash: an admin's to put there and bring back, not its owner's (a member).

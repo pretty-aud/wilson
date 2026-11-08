@@ -2,7 +2,7 @@
 //
 // The database keeps one live tag of a label per type, tier and owner, in moth_tag_norm's form (NFKC, spaces
 // collapsed, lower case, trimmed), and refuses a second with its unique key. Before that, the page says:
-//   * duplicate  — the person has this tag already, of this type: use it.
+//   * duplicate  — the person has this tag already, of this type: use it (for a company tag, the company has it).
 //   * company    — the company has a tag of these words (any type): use it instead of a private one. The nudge
 //                  never names another person's tag: only the company's and the person's own are read here.
 //   * similar    — tags whose words are near (one or two letters apart, or one starting the other), to catch a
@@ -33,12 +33,16 @@ export function lettersApart(a, b, max = 2) {
 
 const live = (t) => t && !t.canonical_id && !t.retired_at
 
-/** What to say about the words a person is giving a new tag of type `typeId`. */
-export function tagAdvice(label, { tags = [], typeId = null, userId = null } = {}) {
+/** What to say about the words a person is giving a new tag of type `typeId`, theirs or (`tier: 'company'`) the company's. */
+export function tagAdvice(label, { tags = [], typeId = null, userId = null, tier = 'personal' } = {}) {
   const n = tagNorm(label)
   if (!n) return { duplicate: null, company: null, similar: [] }
   const seen = tags.filter(live)
-  const mine = seen.filter((t) => t.tier === 'personal' && (userId == null || t.owner_id === userId))
+  // Review: the unique key is per tier and owner, so a company tag clashes only with a company one, and a person's
+  // own only with their own.
+  const mine = seen.filter((t) => (tier === 'company'
+    ? t.tier === 'company'
+    : t.tier === 'personal' && (userId == null || t.owner_id === userId)))
   const duplicate = mine.find((t) => tagNorm(t.label) === n && (typeId == null || t.type_id === typeId)) || null
   const company = seen.find((t) => t.tier === 'company' && tagNorm(t.label) === n) || null
   const similar = n.length < 3 ? [] : seen

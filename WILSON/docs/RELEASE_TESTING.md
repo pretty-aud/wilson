@@ -652,7 +652,7 @@ with no admin rights. Do it on staging first.
 - [ ] `[Cloud]` As A, make a note the company standard. As B, it opens to read: *This is the company standard. You can read it; the company's admins change it.*
 - [ ] `[Cloud]` Delete a note: *Moved to the trash. It stays there 30 days.* with **Undo**. Undo it; delete it again, then find it under **Trash** and **Bring back**.
 - [ ] `[Cloud]` Both of you type in one shared note at once, each saving: both texts are kept when each saves. Neither sees the other type, as the note says above its words.
-- [ ] `[Cloud]` As B, in M.O.T.H.'s **Typed tags**, make a type and a tag of your own: *Only you see the tags you make.* As A, open the same drawer and the same thing: B's tag and B's use of it are not there at all.
+- [ ] `[Cloud]` As B, in M.O.T.H.'s **Typed tags**, the drawer says *None yet. Only you see the tags you make.* Make a type and a tag of your own: it is listed under *Your own tags*. As A, open the same drawer and the same thing: B's tag and B's use of it are not there at all.
 - [ ] `[Cloud]` As B, type the name of a company tag as a new tag: the drawer says the company has it and offers it. As B, **Put forward** a tag of your own; as A, **Approve** it: it is the company's, and B's use of it stays B's.
 - [ ] `[Cloud]` As A, rename and merge company tags: every use follows. As B (a member), there is no rename, merge or approve.
 - [ ] `[Cloud]` In a task's description, type `[[` and part of a name: a list of things you can see; **Enter** puts the link in. Save: the task lists it under **Links**, and the thing linked lists the task under **Mentioned in**. `#` and a tag's name tags the task and leaves nothing in the words.

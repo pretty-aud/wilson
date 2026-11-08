@@ -39,6 +39,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as Y from 'yjs'
 import { useEditor, EditorContent } from '@tiptap/react'
+import { getText, getTextSerializersFromSchema } from '@tiptap/core'
+import { yXmlFragmentToProseMirrorRootNode } from '@tiptap/y-tiptap'
 import {
   Plus, Trash2, Bold, Underline as UnderlineIcon, Heading1, Heading2,
   List, Link2, Link2Off, CloudOff, StickyNote, Settings2, X, Check,
@@ -66,6 +68,8 @@ import { OPEN_DASHBOARD_NOTE, takePendingNote } from '../../tools/rabbit_v0.1.0/
 import './dashboard.css'
 
 const SAVE_DEBOUNCE_MS = 1200
+// What an inline node that is not text (a line break) reads as in the words before the caret, as the picker is told.
+const LEAF = String.fromCharCode(0xfffc)
 
 // MO3 (0125): who reads a note, in words.
 const TIER_WORDS = Object.freeze({
@@ -363,7 +367,9 @@ export default function NotesView() {
                 size="sm"
                 variant={nb.scope === id ? 'secondary' : 'ghost'}
                 aria-pressed={nb.scope === id ? 'true' : 'false'}
-                onClick={() => { setSelectedId(null); nb.setScope(id) }}
+                // Review: the person's click wins over a note asked for from elsewhere, which is dropped here, or its
+                // search would take the tab back to a list it has not looked in yet.
+                onClick={() => { setSelectedId(null); setWantedId(null); triedRef.current = new Set(); nb.setScope(id) }}
               >
                 {label}
               </Button>
@@ -683,6 +689,10 @@ function NoteEditor({ note, nb, onDelete }) {
     },
   }, [ydoc])
   useEffect(() => { editor?.setEditable(canChange) }, [editor, canChange])
+  // Review: the editor's schema, kept while it lives, so the body's text can still be read from the Y.Doc after the
+  // editor is destroyed (bodyText in runSave).
+  const schemaRef = useRef(null)
+  if (editor?.schema) schemaRef.current = editor.schema
   // MO3 (acceptance 5): a typed link is drawn as one only when this reader sees what it leads to; any other is its
   // words alone, with no hint. Read again after a save sends the body's keys.
   const itemLinks = useItemLinks(nb.getAdapter, 'note', note.id)
@@ -693,17 +703,24 @@ function NoteEditor({ note, nb, onDelete }) {
   const reloadLinksRef = useRef(itemLinks.reload)
   useEffect(() => { reloadLinksRef.current = itemLinks.reload }, [itemLinks.reload])
   // A pick replaces what was typed from where the asking began, in the block the caret is in.
+  // Review: the caret is read before the pick's wait, and only the asking up to it is replaced, so words typed (or a
+  // click elsewhere) while the server answers are left alone. When the block before the caret changed meanwhile, the
+  // asking is no longer where it was, and nothing is spliced.
   pickRef.current = async (index) => {
     if (!editor || !editor.isEditable) return
-    const res = await pickerRef.current.pick(index)
-    if (!res || !editor.isEditable) return
     const { $from } = editor.state.selection
-    const from = $from.pos - ($from.parentOffset - res.start)
-    const chain = editor.chain().focus().deleteRange({ from, to: $from.pos })
-    // Review: a text node, not a string, which TipTap reads as HTML: a name holding a tag the note knows (<b>, <br>)
-    // would lose it and turn &amp; into &. As a text node it keeps every character.
-    if (res.text) chain.insertContent({ type: 'text', text: res.text })
-    chain.run()
+    const at = $from.pos
+    const base = at - $from.parentOffset
+    const before = $from.parent.textBetween(0, $from.parentOffset, undefined, LEAF)
+    const res = await pickerRef.current.pick(index)
+    if (!res || editor.isDestroyed || !editor.isEditable) return
+    let $at
+    try { $at = editor.state.doc.resolve(at) } catch { return }
+    if ($at.pos - $at.parentOffset !== base || $at.parent.textBetween(0, $at.parentOffset, undefined, LEAF) !== before) return
+    const from = base + res.start
+    // Review: plain text, never a string TipTap reads as HTML: a name holding a tag the note knows (<b>, <br>) would
+    // lose it and turn &amp; into &. insertText keeps every character, and an empty text only deletes the asking.
+    editor.chain().focus().command(({ tr }) => { tr.insertText(res.text || '', from, at); return true }).run()
   }
 
   // Load the snapshot AFTER the editor exists, then start listening for
@@ -732,7 +749,9 @@ function NoteEditor({ note, nb, onDelete }) {
   // Review: why a save failed, when the reason is the note's and not the network's. The note is read again: gone
   // (trashed or deleted elsewhere, or no longer shared with this person) or no longer theirs to change (made the
   // company standard under its owner) is said in words; anything else is null, and the next edit tries again.
-  const refusalOf = useCallback(async () => {
+  // Review: a save row security left out (saveWithMerge's 'refused': the note is still there at the version sent)
+  // is no longer this person's to change, whatever the client's own role, which lags the server's, still says.
+  const refusalOf = useCallback(async (err) => {
     let row
     try { row = await nbRef.current.openNote(note.id) } catch { return null }
     if (!row) {
@@ -743,7 +762,7 @@ function NoteEditor({ note, nb, onDelete }) {
           : 'This note was deleted on another device, so what you wrote after that is not saved. You can still copy it from here.',
       }
     }
-    if (noteMayChange(row, nbRef.current)) return null
+    if (noteMayChange(row, nbRef.current) && err?.code !== 'refused') return null
     return {
       gone: false,
       why: row.tier === 'company_standard'
@@ -758,12 +777,25 @@ function NoteEditor({ note, nb, onDelete }) {
     if (savingRef.current) { queuedRef.current = true; return }
     savingRef.current = true
     if (mountedRef.current) setSaveState('saving')
+    // Review: the body's text as it is now. A save flushed as the note closes lands after TipTap has destroyed the
+    // editor (a moment after unmount), so then it is read from the Y.Doc, which outlives the editor and holds the
+    // merged body, with the editor's own schema and separators. Never from text read before the merge: those keys
+    // would drop a co-editor's links.
+    const bodyText = () => {
+      if (editor && !editor.isDestroyed) return editor.getText()
+      const schema = schemaRef.current
+      if (!schema) throw new Error('note text: the editor never had a schema')
+      return getText(yXmlFragmentToProseMirrorRootNode(ydoc.getXmlFragment('default'), schema), {
+        blockSeparator: '\n\n',
+        textSerializers: getTextSerializersFromSchema(schema),
+      })
+    }
     try {
       const res = await saveWithMerge({
         encode: () => u8ToB64(Y.encodeStateAsUpdate(ydoc)),
         save: (b64, version) => nbRef.current.saveNoteDoc(note.id, {
           ydocState: b64,
-          bodyPreview: toPreview(mentionPlainText(editor?.getText?.() || '')),
+          bodyPreview: toPreview(mentionPlainText(bodyText())),
           expectedVersion: version,
         }),
         fetchRemote: async () => {
@@ -774,14 +806,15 @@ function NoteEditor({ note, nb, onDelete }) {
         expectedVersion: versionRef.current,
       })
       versionRef.current = res.version
+      const text = bodyText()
       nbRef.current.reflectSaved(note.id, {
         version: res.version,
         updated_at: new Date().toISOString(),
-        body_preview: toPreview(mentionPlainText(editor?.getText?.() || '')),
+        body_preview: toPreview(mentionPlainText(text)),
       })
       // 0127: the typed links the body now holds, sent with the version just saved (the server cannot read a
       // Yjs document). Sent when they change, and once after the note is opened.
-      const keys = mentionKeys(editor?.getText?.() || '')
+      const keys = mentionKeys(text)
       const said = keys.join(',')
       if (said !== lastKeysRef.current) {
         const sent = await nbRef.current.syncNoteMentions(note.id, res.version, keys)
@@ -791,8 +824,8 @@ function NoteEditor({ note, nb, onDelete }) {
         else if (sent === false && !retriedRef.current) { retriedRef.current = true; queuedRef.current = true }
       }
       if (mountedRef.current) setSaveState('saved')
-    } catch {
-      const refusal = await refusalOf()
+    } catch (err) {
+      const refusal = await refusalOf(err)
       if (refusal) {
         // Stop here: every later try would be refused the same way. The editor locks where it stands. A note still
         // listed has the list read again, so its tier is the server's; a gone one is not, or the list would close
@@ -977,7 +1010,8 @@ function NoteEditor({ note, nb, onDelete }) {
             value={tier}
             onChange={v => { if (v && v !== tier) nb.setNoteTier(note.id, v).catch(() => {}) }}
             options={tierOptions(note, nb)}
-            disabled={tierOptions(note, nb).length < 2}
+            // Review: and once a save was refused, so a note locked to be copied from is not closed by a change here.
+            disabled={!!refused || tierOptions(note, nb).length < 2}
             aria-label="Who reads this note"
             title="Who reads this note"
           />

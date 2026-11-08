@@ -34,12 +34,15 @@ export function splitMentions(text) {
 }
 
 // The words as a typed link may hold them: brackets, bars and control characters out, spaces collapsed, 200 at most.
+// Review (round 2): the cut counts UTF-16 units, so it may split an emoji; its first half left at the end goes too, or
+// the save carries a lone surrogate the database refuses.
 export function mentionWords(words) {
   return String(words ?? '')
     .replace(/[\][|\u0000-\u001f\u007f]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 200)
+    .replace(/[\ud800-\udbff]$/, '')
     .trim()
 }
 

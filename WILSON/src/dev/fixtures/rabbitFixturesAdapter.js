@@ -422,6 +422,7 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
   const mothTagMayChange = (t) => mothTagSeen(t) && (t.tier === 'company' ? liveAdmin() : t.owner_id === userId)
   const mtagGate = (id) => { const t = store.mothTags.find(x => x.id === id); return mothTagSeen(t) && !t.canonical_id }
   const mothTagNorm = (s) => String(s ?? '').normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase()
+  const mothCut = (rows) => Object.defineProperty(rows, 'truncated', { value: true, enumerable: false })
   const MOTH_TAG_SHAPES = ['circle', 'square', 'diamond', 'triangle', 'hexagon', 'star']
   const MOTH_TAG_COLOURS = ['mist', 'amber', 'rose', 'violet', 'sky', 'teal', 'lime', 'sand']
   const MOTH_LINK_KINDS = ['project', 'folder', 'file', 'phase', 'asset', 'task', 'scene', 'shot', 'level', 'experience', 'note']
@@ -1144,11 +1145,14 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
       return clone(mothPrefsRead())
     },
     // MO3 (0125 to 0127): Moth's notes, typed tags, nominations and relationships, as the cloud answers them.
+    // Round 2: a list cut at its bound says so as the cloud's does, `truncated` out of sight on the array, set on the
+    // copy handed out (structuredClone leaves a hidden property behind). A full 5,000 notes is the cloud's sign of one.
     async listMothNotes() {
-      return clone(store.notes.filter(n => noteSeen(n) && !n.deleted_at && noteGate(n.id))
+      const rows = clone(store.notes.filter(n => noteSeen(n) && !n.deleted_at && noteGate(n.id))
         .sort((a, b) => b.updated_at.localeCompare(a.updated_at) || a.id.localeCompare(b.id))
         .slice(0, 5000)
         .map(n => ({ id: n.id, title: String(n.title ?? '').slice(0, 300), tier: noteTier(n), is_mine: n.owner_id === userId, updated_at: n.updated_at })))
+      return rows.length >= 5000 ? mothCut(rows) : rows
     },
     async syncNoteMentions(noteId, version, keys) {
       if (!mothMayChange('note', noteId)) throw tvError('42501', 'That note is not one you can change.')
@@ -1181,6 +1185,13 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
       if (name !== undefined && !mothWords(name, 60)) throw tvError('23514', 'new row for relation "moth_tag_types" violates check constraint "moth_tag_types_name_chk"')
       if (shape !== undefined && !MOTH_TAG_SHAPES.includes(shape)) throw tvError('23514', 'new row for relation "moth_tag_types" violates check constraint "moth_tag_types_shape_chk"')
       if (colour !== undefined && !MOTH_TAG_COLOURS.includes(colour)) throw tvError('23514', 'new row for relation "moth_tag_types" violates check constraint "moth_tag_types_colour_chk"')
+      // Round 2: 0126's moth_tag_types_norm_key holds on a rename and a bring-back too, among the live types alone.
+      const nextName = name ?? row.name
+      const nextLive = retired === undefined ? !row.retired_at : !retired
+      if (nextLive && store.mothTagTypes.some(t => t.id !== id && t.workspace_id === row.workspace_id && t.tier === row.tier
+        && t.owner_id === row.owner_id && !t.retired_at && mothTagNorm(t.name) === mothTagNorm(nextName))) {
+        throw tvError('23505', 'duplicate key value violates unique constraint "moth_tag_types_name_uq"')
+      }
       Object.assign(row, name !== undefined ? { name } : {}, shape !== undefined ? { shape } : {}, colour !== undefined ? { colour } : {},
         retired !== undefined ? { retired_at: retired ? now() : null } : {}, { updated_at: now() })
       return clone(mothTagTypeRow(row))
@@ -1223,10 +1234,22 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
           throw tvError('23503', 'insert or update on table "moth_tags" violates foreign key constraint "moth_tags_type_fk"')
         }
       }
+      // Round 2: 0126's moth_tags_norm_key holds on a rename, a type's change and a bring-back too, among the live,
+      // unfolded tags alone.
+      const nextLabel = label ?? row.label
+      const nextType = typeId ?? row.type_id
+      const nextLive = !row.canonical_id && (retired === undefined ? !row.retired_at : !retired)
+      if (nextLive && store.mothTags.some(t => t.id !== id && t.workspace_id === row.workspace_id && t.type_id === nextType
+        && t.tier === row.tier && t.owner_id === row.owner_id && !t.retired_at && !t.canonical_id
+        && mothTagNorm(t.label) === mothTagNorm(nextLabel))) {
+        throw tvError('23505', 'duplicate key value violates unique constraint "moth_tags_label_uq"')
+      }
       // fn_moth_tags_gone: a tag retired takes its open nomination with it, as a withdrawal.
       if (retired && !row.retired_at) mothTagNominationsGone(row.id)
+      // fn_moth_tags_pin counts a revision when the words or the type change, not a retire or a bring-back.
+      const revised = nextLabel !== row.label || nextType !== row.type_id
       Object.assign(row, label !== undefined ? { label } : {}, typeId !== undefined ? { type_id: typeId } : {},
-        retired !== undefined ? { retired_at: retired ? now() : null } : {}, { revision: row.revision + 1, updated_at: now() })
+        retired !== undefined ? { retired_at: retired ? now() : null } : {}, { revision: revised ? row.revision + 1 : row.revision, updated_at: now() })
       return clone(mothTagRow(row))
     },
     async deleteMothTag(id) {
@@ -1239,13 +1262,15 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
       return { removed: true }
     },
     async listMothTagAssignments({ targetKind = null, targetId = null } = {}) {
-      return clone(store.mothTagAssignments
+      const seen = store.mothTagAssignments
         .filter(a => (a.tier === 'company' || a.owner_id === userId) && mothSees(a.target_type, a.target_id)
           && store.mothTags.some(t => t.id === a.tag_id)
           && (!targetKind || !targetId || (a.target_type === targetKind && a.target_id === targetId)))
+      const rows = clone(seen
         .sort((a, b) => a.created_at.localeCompare(b.created_at))
         .slice(0, 20000)
         .map(({ workspace_id: _w, ...a }) => a))
+      return seen.length > 20000 ? mothCut(rows) : rows
     },
     async assignMothTag({ tagId, tier, targetKind, targetId }) {
       const owner = tier === 'personal' ? userId : null

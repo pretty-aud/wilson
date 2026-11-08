@@ -33,9 +33,10 @@ const ItemTags = forwardRef(function ItemTags({ getAdapter, kind, id, canChange 
     const a = typeof getAdapter === 'function' ? getAdapter() : null
     try {
       const res = await a.unassignMothTag(row.id)
-      if (!res?.removed) setError('That tag is not yours to take off.')
+      // Review (round 2): read again first, then say a refusal, so the re-read does not wipe the words.
       await load()
-      if (res?.removed) onChanged?.()
+      if (!res?.removed) setError('That tag is not yours to take off.')
+      else onChanged?.()
     } catch (err) {
       setError(err?.message || 'That tag could not be taken off.')
     }

@@ -456,6 +456,21 @@ export default function MothPage({ isActive = true, worldFactory }) {
     }
   }
 
+  // MO3 (0127): whether the person may change a thing, as the server's moth_can_write_target asks it: their own
+  // note, or any shared note for a live admin; else its project's, where they may write. Where a link starts and the
+  // typed-tag drawer's take-off cross on a company tag both ask this one question.
+  const mayChange = useCallback((node) => {
+    if (!node) return { allowed: false, reason: null }
+    if (node.kind === 'note') {
+      const row = index.rows.get(node.id)
+      const may = (row?.mine && row?.tier !== 'company_standard') || (isAdminHere && row?.tier !== 'personal')
+      return may ? { allowed: true } : { allowed: false, reason: 'Only its owner and the company’s admins link from this note.' }
+    }
+    const src = access(islandOf(node.projectId))
+    if (!src.allowed || !islandOf(node.projectId)?.can_write) return { allowed: false, reason: src.reason || 'You may not change where this link starts.' }
+    return { allowed: true }
+  }, [index, isAdminHere, access, islandOf])
+
   // ── The world's gestures ─────────────────────────────────────────────────────────────────────────────────────
   // A file moves into a folder or a project the person may write to, from a project they may write to. A link is
   // shown as one would be, and is saved from the next update (Session 3 stores relationships).
@@ -477,16 +492,9 @@ export default function MothPage({ isActive = true, worldFactory }) {
     // live admin) to a thing on show, of the kinds a link joins. The server asks the same, and says no in words.
     canLink: (from, to) => {
       if (from.id === to.id || !LINK_KINDS.has(from.kind) || !LINK_KINDS.has(to.kind)) return { allowed: false }
-      if (from.kind === 'note') {
-        const row = index.rows.get(from.id)
-        const may = (row?.mine && row?.tier !== 'company_standard') || (isAdminHere && row?.tier !== 'personal')
-        return may ? { allowed: true } : { allowed: false, reason: 'Only its owner and the company’s admins link from this note.' }
-      }
-      const src = access(islandOf(from.projectId))
-      if (!src.allowed || !islandOf(from.projectId)?.can_write) return { allowed: false, reason: src.reason || 'You may not change where this link starts.' }
-      return { allowed: true }
+      return mayChange(from)
     },
-  }), [access, islandOf, fileRow, scrubAt, current.row, views, index, isAdminHere])
+  }), [access, islandOf, fileRow, scrubAt, current.row, views, mayChange])
 
   const onDrop = useCallback(({ dragId, targetId, mode }) => {
     if (mode === 'link') {
@@ -867,6 +875,7 @@ export default function MothPage({ isActive = true, worldFactory }) {
             isAdmin={isAdminHere}
             userId={perms?.userId ?? null}
             selectedNode={selectedNode}
+            canChange={mayChange(selectedNode).allowed}
           />
         )}
       </Drawer>

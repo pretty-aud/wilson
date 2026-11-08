@@ -214,4 +214,31 @@ describe('createMothCatalogue', () => {
     await store.readWorkspace()
     expect(store.getSnapshot().workspace.cut).toBe(false)
   })
+
+  it('MO3: the sign is kept per kind: the uses read whole again clear it while the notes fail', async () => {
+    const cut = (rows) => Object.defineProperty(rows, 'truncated', { value: true, enumerable: false })
+    Object.assign(adapter, {
+      listMothNotes: vi.fn(async () => [{ id: 'n1', title: 'Look of the film' }]),
+      listMothTagTypes: vi.fn(async () => []),
+      listMothTags: vi.fn(async () => []),
+      listMothTagAssignments: vi.fn(async () => cut([{ id: 'a1', tag_id: 'c1', target_type: 'file', target_id: 'p1-a' }])),
+      listMothRelationships: vi.fn(async () => ({ links: [], truncated: false })),
+    })
+    const store = createMothCatalogue({ adapter })
+    await store.loadAll()
+    await store.readWorkspace()
+    expect(store.getSnapshot().workspace.cut).toBe(true)
+    adapter.listMothTagAssignments = vi.fn(async () => [])
+    adapter.listMothNotes = vi.fn(async () => { throw new Error('timeout') })
+    await store.readWorkspace()
+    expect(store.getSnapshot().workspaceError).toBe('timeout')
+    expect(store.getSnapshot().workspace.notes.map((n) => n.id)).toEqual(['n1'])
+    expect(store.getSnapshot().workspace.cut).toBe(false)
+    // A cut kind that fails keeps its own sign.
+    adapter.listMothNotes = vi.fn(async () => cut([{ id: 'n1', title: 'Look of the film' }]))
+    await store.readWorkspace()
+    adapter.listMothNotes = vi.fn(async () => { throw new Error('timeout') })
+    await store.readWorkspace()
+    expect(store.getSnapshot().workspace.cut).toBe(true)
+  })
 })

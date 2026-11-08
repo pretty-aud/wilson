@@ -9,6 +9,7 @@ import MentionTextArea from './MentionTextArea'
 import { FALLBACK_NOTICE } from './useMentionPicker'
 import MentionText from './MentionText'
 import MentionedIn from './MentionedIn'
+import ItemTags from './ItemTags'
 import { linksByKey } from './useItemLinks'
 import { mentionTrigger } from '../../state/mentionTokens'
 import { linkedThingOpener, takePendingNote, OPEN_RABBIT_ITEM, OPEN_DASHBOARD_NOTE, OPEN_PROJECT_FILE } from '../../state/linkedThings'
@@ -163,6 +164,20 @@ describe('a textarea that takes [[ and #', () => {
     expect(el.value).toBe('[[mi')
   })
 
+  it('an arrow typed before a new # search lands lights nothing, so an Enter picks no row of the last one', async () => {
+    const adapter = fakeAdapter()
+    const { getByLabelText, findByRole } = render(<Field adapter={adapter} />)
+    const el = getByLabelText('Description')
+    el.focus()
+    typeInto(el, 'Notes #mi')
+    await within(await findByRole('listbox')).findByText('Mira')
+    typeInto(el, 'Notes #mir')
+    fireEvent.keyDown(el, { key: 'ArrowDown' })
+    await act(async () => { fireEvent.keyDown(el, { key: 'Enter' }) })
+    expect(adapter.assignMothTag).not.toHaveBeenCalled()
+    expect(el.value).toBe('Notes #mir')
+  })
+
   it('Enter typed before a new search lands does not pick a row left over from the last one', async () => {
     const listMothMentionCandidates = vi.fn(async (q) => (q === 'al'
       ? [{ kind: 'asset', id: 'alan', name: 'Alan', project_id: 'pppp' }]
@@ -174,11 +189,111 @@ describe('a textarea that takes [[ and #', () => {
     typeInto(el, '[[al')
     await findByText('Alan')
     typeInto(el, '[[ali')
-    await act(async () => { fireEvent.keyDown(el, { key: 'Enter' }) })
+    // Held, as a browser sees it: no new line goes in to end the asking.
+    let enter
+    await act(async () => { enter = fireEvent.keyDown(el, { key: 'Enter' }) })
+    expect(enter).toBe(false)
     expect(adapter.reserveMothMention).not.toHaveBeenCalled()
     await findByText('Alice')
     await act(async () => { fireEvent.keyDown(el, { key: 'Enter' }) })
     await waitFor(() => expect(adapter.reserveMothMention).toHaveBeenCalledWith('asset', 'alice'))
+  })
+
+  it('letters typed while a link\'s key is reserved keep the asking: nothing goes in, and the list picks again', async () => {
+    let answer
+    const reserveMothMention = vi.fn()
+      .mockImplementationOnce(() => new Promise(r => { answer = r }))
+      .mockImplementation(async () => KEY)
+    const adapter = fakeAdapter({ reserveMothMention })
+    const { getByLabelText, findByRole } = render(<Field adapter={adapter} />)
+    const el = getByLabelText('Description')
+    el.focus()
+    typeInto(el, '[[mi')
+    await findByRole('listbox')
+    await act(async () => { fireEvent.keyDown(el, { key: 'Enter' }) })
+    typeInto(el, '[[mira')
+    await act(async () => { answer('ffffffffffff') })
+    expect(el.value).toBe('[[mira')
+    await waitFor(() => expect(adapter.listMothMentionCandidates).toHaveBeenCalledWith('mira', 8))
+    await act(async () => { await new Promise(r => setTimeout(r, 20)) })
+    await act(async () => { fireEvent.keyDown(el, { key: 'Enter' }) })
+    await waitFor(() => expect(el.value).toBe(`[[Mira|m:${KEY}]] `))
+    expect(reserveMothMention).toHaveBeenCalledTimes(2)
+  })
+
+  it('words typed while a tag is being put on stay as typed, and the tag still goes on', async () => {
+    let answer
+    const assignMothTag = vi.fn(() => new Promise(r => { answer = r }))
+    const adapter = fakeAdapter({ assignMothTag })
+    const onTagged = vi.fn()
+    const { getByLabelText, findByRole, queryByRole } = render(<Field adapter={adapter} onTagged={onTagged} />)
+    const el = getByLabelText('Description')
+    el.focus()
+    typeInto(el, 'Look #mi')
+    await findByRole('listbox')
+    await act(async () => { fireEvent.keyDown(el, { key: 'ArrowDown' }) })
+    await act(async () => { fireEvent.keyDown(el, { key: 'Enter' }) })
+    // The space ends the asking and closes the list while the tag is out.
+    typeInto(el, 'Look #mi please call')
+    expect(queryByRole('listbox')).toBeNull()
+    await act(async () => { answer({ id: 'as1', tag_id: 't-company', tier: 'company' }) })
+    expect(onTagged).toHaveBeenCalledTimes(1)
+    expect(el.value).toBe('Look #mi please call')
+  })
+
+  it('letters typed on a tag\'s word while it is put on leave the word as typed', async () => {
+    let answer
+    const assignMothTag = vi.fn(() => new Promise(r => { answer = r }))
+    const adapter = fakeAdapter({ assignMothTag })
+    const onTagged = vi.fn()
+    const { getByLabelText, findByRole } = render(<Field adapter={adapter} onTagged={onTagged} />)
+    const el = getByLabelText('Description')
+    el.focus()
+    typeInto(el, '#mi')
+    await findByRole('listbox')
+    await act(async () => { fireEvent.keyDown(el, { key: 'ArrowDown' }) })
+    await act(async () => { fireEvent.keyDown(el, { key: 'Enter' }) })
+    typeInto(el, '#mira')
+    await act(async () => { answer({ id: 'as1', tag_id: 't-company', tier: 'company' }) })
+    expect(onTagged).toHaveBeenCalledTimes(1)
+    expect(el.value).toBe('#mira')
+  })
+
+  it('a tag refused after Escape closed its list is still said in words, and the word stays', async () => {
+    let refuse
+    const assignMothTag = vi.fn(() => new Promise((_, no) => { refuse = no }))
+    const adapter = fakeAdapter({ assignMothTag })
+    const { getByLabelText, findByRole, findByText, queryByRole } = render(<Field adapter={adapter} />)
+    const el = getByLabelText('Description')
+    el.focus()
+    typeInto(el, '#mi')
+    await findByRole('listbox')
+    await act(async () => { fireEvent.keyDown(el, { key: 'ArrowDown' }) })
+    await act(async () => { fireEvent.keyDown(el, { key: 'Enter' }) })
+    fireEvent.keyDown(el, { key: 'Escape' })
+    await act(async () => { refuse(Object.assign(new Error('raw'), { code: '23503' })) })
+    expect(queryByRole('listbox')).toBeNull()
+    expect((await findByText('That tag is no longer in use.')).getAttribute('role')).toBe('status')
+    expect(el.value).toBe('#mi')
+  })
+
+  it('a tag gone since the list was read is refused in plain words, and the next # reads the tags again', async () => {
+    const gone = Object.assign(new Error('insert or update on table "moth_tag_assignments" violates foreign key constraint "moth_tag_assignments_tag_fk"'), { code: '23503' })
+    const adapter = fakeAdapter({ assignMothTag: vi.fn(async () => { throw gone }) })
+    const { getByLabelText, findByRole, findByText, queryByText } = render(<Field adapter={adapter} />)
+    const el = getByLabelText('Description')
+    el.focus()
+    typeInto(el, '#mi')
+    await findByRole('listbox')
+    expect(adapter.listMothTags).toHaveBeenCalledTimes(1)
+    await act(async () => { fireEvent.keyDown(el, { key: 'ArrowDown' }) })
+    await act(async () => { fireEvent.keyDown(el, { key: 'Enter' }) })
+    await findByText('That tag is no longer in use.')
+    expect(queryByText(/foreign key/)).toBeNull()
+    expect(el.value).toBe('#mi')
+    typeInto(el, '#mi ')
+    typeInto(el, '#mi #m')
+    await waitFor(() => expect(adapter.listMothTags).toHaveBeenCalledTimes(2))
   })
 
   it('keys an input method is composing with are its own, not the list\'s', async () => {
@@ -203,6 +318,23 @@ describe('a textarea that takes [[ and #', () => {
     el.focus()
     typeInto(el, '[[x')
     expect((await findByRole('status')).textContent).toBe('Links are not on this database yet.')
+  })
+})
+
+describe('a thing\'s tag chips', () => {
+  it('a refused take-off is said in words that outlast the re-read, and the chip stays', async () => {
+    const adapter = fakeAdapter({
+      listMothTagAssignments: vi.fn(async () => [{ id: 'as1', tag_id: 't-company', tier: 'company', target_type: 'task', target_id: TASK }]),
+      unassignMothTag: vi.fn(async () => ({ removed: false })),
+    })
+    const onChanged = vi.fn()
+    const { findByRole, getByRole } = render(<ItemTags getAdapter={() => adapter} kind="task" id={TASK} onChanged={onChanged} />)
+    fireEvent.click(await findByRole('button', { name: 'Take off Mira' }))
+    await waitFor(() => expect(adapter.listMothTagAssignments).toHaveBeenCalledTimes(2))
+    await act(async () => { await new Promise(r => setTimeout(r, 20)) })
+    expect(getByRole('status').textContent).toBe('That tag is not yours to take off.')
+    expect(getByRole('button', { name: 'Take off Mira' })).toBeTruthy()
+    expect(onChanged).not.toHaveBeenCalled()
   })
 })
 

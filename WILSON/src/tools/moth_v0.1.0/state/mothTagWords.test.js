@@ -28,6 +28,15 @@ describe('what is said before a tag is made', () => {
     expect(tagAdvice('blender 5.0', { tags, typeId: 'software', userId: ME }).duplicate?.id).toBe('m1')
     expect(tagAdvice('blender 5.0', { tags, typeId: 'other', userId: ME }).duplicate).toBeNull()
   })
+  it('for a company tag, the company\'s of these words and type clashes, and one\'s own does not', () => {
+    // m2's words, typed by an admin for the company: their own tag of the same words and type is no clash.
+    expect(tagAdvice('mira lund', { tags, typeId: 'character', userId: ME, tier: 'company' }).duplicate).toBeNull()
+    expect(tagAdvice('mira lund', { tags, typeId: 'character', userId: ME }).duplicate?.id).toBe('m2')
+    expect(tagAdvice('MIRA', { tags, typeId: 'character', userId: ME, tier: 'company' }).duplicate?.id).toBe('c1')
+    expect(tagAdvice('MIRA', { tags, typeId: 'location', userId: ME, tier: 'company' }).duplicate).toBeNull()
+    // A retired company tag frees its words.
+    expect(tagAdvice('harbour', { tags, typeId: 'location', userId: ME, tier: 'company' }).duplicate).toBeNull()
+  })
   it('the company\'s tag of these words, whatever its type: use it instead', () => {
     expect(tagAdvice('MIRA', { tags, typeId: 'mine', userId: ME }).company?.id).toBe('c1')
   })

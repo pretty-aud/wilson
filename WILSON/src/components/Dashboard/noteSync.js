@@ -46,7 +46,9 @@ export function b64ToU8(b64) {
  *
  * Returns { version, conflicts } on success. Throws after maxAttempts —
  * with merge-on-retry that means something is genuinely wrong (e.g. the
- * row vanished), not merely a fast typer on the other device.
+ * row vanished), not merely a fast typer on the other device. Throws at
+ * once, with code 'refused', when the guard missed a row still at the
+ * version sent (row security left the change out).
  */
 export async function saveWithMerge({
   encode,
@@ -62,6 +64,11 @@ export async function saveWithMerge({
     if (res) return { version: res.version, conflicts: attempt }
     const remote = await fetchRemote()
     if (!remote) throw new Error('note save: row no longer exists')
+    // Review: still there at the very version the save matched on, so no other save beat it (versions only go up):
+    // row security left the change out. Said at once, as a refusal, never retried as a conflict.
+    if (remote.version != null && remote.version === version) {
+      throw Object.assign(new Error('note save: refused'), { code: 'refused' })
+    }
     if (remote.ydocState) applyRemote(remote.ydocState)
     version = remote.version ?? version
   }

@@ -1952,15 +1952,40 @@ function mothCut(rows) {
   Object.defineProperty(rows, 'truncated', { value: true, enumerable: false });
   return rows;
 }
-async function readMothPages(makeQuery, unwrapPage, bound = MOTH_LIST_BOUND) {
+// Round 2: the pages are cut on the id, which no save moves (keyset: ordered by id, past the last id read, a page at a
+// time, until a short page). Offsets ordered by a column a save changes dropped or repeated a row that moved between
+// two pages, and made every page sort the whole table under its read policy before skipping its offset. The list is
+// then put back in the order its callers have always had (`order`: [column, 'text' | 'time', descending?], the id
+// last), so a list cut at its bound keeps the lowest ids, not the first in that order, and still says it was cut.
+// Words sort as the fixtures sort them (localeCompare), which may place case and accents apart from the collation.
+const mothText = (a, b) => String(a).localeCompare(String(b));
+const mothTime = (a, b) => (Date.parse(a) - Date.parse(b)) || (a < b ? -1 : a > b ? 1 : 0);
+function mothOrder(order) {
+  return (a, b) => {
+    for (const [col, kind, desc] of order) {
+      const x = a?.[col] ?? null;
+      const y = b?.[col] ?? null;
+      // As Postgres sorts them: a missing value last going up, first going down.
+      const c = x === y ? 0 : x === null ? 1 : y === null ? -1 : (kind === 'time' ? mothTime : mothText)(x, y);
+      if (c) return desc ? -c : c;
+    }
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  };
+}
+async function readMothPages(makeQuery, unwrapPage, order, bound = MOTH_LIST_BOUND) {
   const out = [];
-  for (let from = 0; from <= bound; from += READ_PAGE) {
-    const to = Math.min(from + READ_PAGE - 1, bound);
-    const page = unwrapPage(await makeQuery().range(from, to)) || [];
+  let after = null;
+  while (out.length <= bound) {
+    const want = Math.min(READ_PAGE, bound + 1 - out.length);
+    let q = makeQuery().order('id');
+    if (after !== null) q = q.gt('id', after);
+    const page = unwrapPage(await q.limit(want)) || [];
     out.push(...page);
-    if (page.length < to - from + 1) break;
+    if (page.length < want) break;
+    after = page[page.length - 1].id;
   }
-  return out.length > bound ? mothCut(out.slice(0, bound)) : out;
+  const rows = (out.length > bound ? out.slice(0, bound) : out).sort(mothOrder(order));
+  return out.length > bound ? mothCut(rows) : rows;
 }
 // A change the database made to no row was refused by a policy (a seat lowered while the page stayed open, a label on
 // a typed link) or found nothing there: said in words, never a quiet null a panel would show as done. The words say
@@ -6290,12 +6315,13 @@ export function supabaseAdapter() {
     // ── MO3 (0125 to 0127): workspace notes in Moth, typed tags, relationships ─────────────────────────────────
     // A workspace note is a note of 0017 that is not personal: Moth reads titles and tiers only (moth_notes), never a
     // body. A database before 0125 has none, and the page says so.
-    // Paged on the function's answer, in its own order. The server stops at 5,000 before its gate, so a full 5,000
-    // is the only sign some were left out, and is said to be cut.
+    // Paged on the function's answer by id, then put back newest first. moth_notes returns a set: PostgREST filters
+    // and orders its rows after it ran, so each page runs the function again, its 5,000 rows and their gate. The
+    // server stops at 5,000 before its gate, so a full 5,000 is the only sign some were left out, and is said to be cut.
     async listMothNotes() {
       const client = await requireClient();
-      const rows = await readMothPages(() => client.rpc('moth_notes').order('updated_at', { ascending: false }).order('id'),
-        (res) => unwrapMothRpc(res, 'moth_notes', MOTH_NOTES_ABSENT), MOTH_NOTES_BOUND);
+      const rows = await readMothPages(() => client.rpc('moth_notes'),
+        (res) => unwrapMothRpc(res, 'moth_notes', MOTH_NOTES_ABSENT), [['updated_at', 'time', true]], MOTH_NOTES_BOUND);
       return rows.length >= MOTH_NOTES_BOUND && !rows.truncated ? mothCut(rows) : rows;
     },
     // The keys of the typed links a note's body holds, sent after each save with the version they were read from
@@ -6308,7 +6334,7 @@ export function supabaseAdapter() {
     // Types and tags: the company's and the caller's own, through each table's own read policy.
     async listMothTagTypes() {
       const client = await requireClient();
-      return readMothPages(() => client.from('moth_tag_types').select(MOTH_TAG_TYPE_COLUMNS).order('name').order('id'), unwrapMothTagTable);
+      return readMothPages(() => client.from('moth_tag_types').select(MOTH_TAG_TYPE_COLUMNS), unwrapMothTagTable, [['name', 'text']]);
     },
     async createMothTagType({ tier, name, shape = 'circle', colour = 'mist' }) {
       const client = await requireClient();
@@ -6334,7 +6360,7 @@ export function supabaseAdapter() {
     },
     async listMothTags() {
       const client = await requireClient();
-      return readMothPages(() => client.from('moth_tags').select(MOTH_TAG_COLUMNS).order('label').order('id'), unwrapMothTagTable);
+      return readMothPages(() => client.from('moth_tags').select(MOTH_TAG_COLUMNS), unwrapMothTagTable, [['label', 'text']]);
     },
     async createMothTag({ typeId, tier, label }) {
       const client = await requireClient();
@@ -6364,8 +6390,8 @@ export function supabaseAdapter() {
       return readMothPages(() => {
         let q = client.from('moth_tag_assignments').select(MOTH_TAG_ASSIGNMENT_COLUMNS);
         if (targetKind && targetId) q = q.eq('target_type', targetKind).eq('target_id', targetId);
-        return q.order('created_at').order('id');
-      }, unwrapMothTagTable);
+        return q;
+      }, unwrapMothTagTable, [['created_at', 'time']]);
     },
     async assignMothTag({ tagId, tier, targetKind, targetId }) {
       const client = await requireClient();
@@ -6382,8 +6408,8 @@ export function supabaseAdapter() {
     // its type's name only; approving folds every exact match into the company tag, each owner's use kept private.
     async listMothTagNominations() {
       const client = await requireClient();
-      return readMothPages(() => client.from('moth_tag_nominations').select(MOTH_TAG_NOMINATION_COLUMNS)
-        .order('created_at', { ascending: false }).order('id'), unwrapMothTagTable);
+      return readMothPages(() => client.from('moth_tag_nominations').select(MOTH_TAG_NOMINATION_COLUMNS),
+        unwrapMothTagTable, [['created_at', 'time', true]]);
     },
     async nominateMothTag(tagId, note = null) {
       const client = await requireClient();

@@ -150,6 +150,51 @@ describe('the typed tags drawer', () => {
     expect(await screen.findByText('Looking back changes nothing. Come back to now to change things.')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Make the type' }).closest('fieldset').disabled).toBe(true)
   })
+
+  it('looking back, opening the drawer does not read the record again for the same time', async () => {
+    Object.assign(adapter, {
+      listMothTagTypes: vi.fn(async () => []),
+      listMothTags: vi.fn(async () => []),
+      listMothTagAssignments: vi.fn(async () => []),
+      listMothTagNominations: vi.fn(async () => []),
+      fetchMothHistoryWindow: vi.fn(async () => [{ recording_since: new Date(Date.now() - 30 * 86400000).toISOString() }]),
+      fetchMothHistory: vi.fn(async () => []),
+    })
+    render(<MothPage worldFactory={fakeWorld} />)
+    await world()
+    fireEvent.change(await screen.findByLabelText('Look back'), { target: { value: String(Date.now() - 5 * 86400000) } })
+    await waitFor(() => expect(screen.getByText(/^As it was /)).toBeTruthy())
+    await waitFor(() => expect(adapter.fetchMothHistory).toHaveBeenCalled())
+    const reads = adapter.fetchMothHistory.mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: 'Typed tags' }))
+    await waitFor(() => expect(adapter.listMothTagNominations).toHaveBeenCalled())
+    await act(async () => { await new Promise((r) => setTimeout(r, 50)) })
+    expect(adapter.fetchMothHistory.mock.calls.length).toBe(reads)
+  })
+
+  it('a company tag on a thing the person may not change offers no take-off cross; on one they may, it does', async () => {
+    const uses = [{ id: 'as1', tag_id: 'c1', tier: 'company', target_type: 'file', target_id: 'a' }]
+    Object.assign(adapter, {
+      listMothIslands: vi.fn(async () => [MINE, island('p1', { can_write: false })]),
+      listMothTagTypes: vi.fn(async () => [{ id: 'ty1', tier: 'company', owner_id: null, name: 'Character', shape: 'star', colour: 'rose' }]),
+      listMothTags: vi.fn(async () => [{ id: 'c1', tier: 'company', owner_id: null, label: 'Mira', type_id: 'ty1', canonical_id: null, retired_at: null }]),
+      listMothTagAssignments: vi.fn(async () => uses),
+      listMothTagNominations: vi.fn(async () => []),
+    })
+    render(<MothPage worldFactory={fakeWorld} />)
+    const w = await world()
+    act(() => w.handlers.pick('file:a', { additive: false }))
+    fireEvent.click(screen.getByRole('button', { name: 'Typed tags' }))
+    expect(await screen.findByText('Mira', { selector: '.rb-item-tag-label' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Take off Mira' })).toBeNull()
+    cleanup()
+    adapter.listMothIslands = vi.fn(async () => [MINE, island('p1')])
+    render(<MothPage worldFactory={fakeWorld} />)
+    const w2 = await world()
+    act(() => w2.handlers.pick('file:a', { additive: false }))
+    fireEvent.click(screen.getByRole('button', { name: 'Typed tags' }))
+    expect(await screen.findByRole('button', { name: 'Take off Mira' })).toBeTruthy()
+  })
 })
 
 describe('a failed read of the workspace\'s rows', () => {

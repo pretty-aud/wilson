@@ -48,6 +48,16 @@ describe('a typed link in the words', () => {
     expect(mentionKeys(mentionToken('a]|b[', KEY))).toEqual([KEY])
   })
 
+  it('never cuts an emoji in two at 200: a long name keeps whole characters and stays one token', () => {
+    // 141 letters, then emoji, each two UTF-16 units: unit 200 falls inside the thirtieth.
+    const name = `${'a'.repeat(141)}${'\u{1F98B}'.repeat(60)}`
+    const w = mentionWords(name)
+    expect(w.length).toBeLessThanOrEqual(200)
+    expect(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(w)).toBe(false)
+    expect(w).toBe(`${'a'.repeat(141)}${'\u{1F98B}'.repeat(29)}`)
+    expect(mentionKeys(mentionToken(name, KEY))).toEqual([KEY])
+  })
+
   it('knows a caret inside a whole token from one beside it', () => {
     const text = `See [[Alice|m:${KEY}]] today`
     const end = text.indexOf(' today')

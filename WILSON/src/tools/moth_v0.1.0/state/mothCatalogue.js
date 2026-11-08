@@ -168,11 +168,15 @@ export function createMothCatalogue({ adapter }) {
       assignments: assignments === FAILED ? was.assignments : (assignments || []),
       relationships: links === FAILED ? was.relationships : (links?.links || []),
       truncated: links === FAILED ? was.truncated === true : links?.truncated === true,
-      // A list of notes, tag types, tags or uses read to its bound (the adapter marks it so): some are not drawn. A
-      // kind that failed keeps the sign with what it keeps.
-      cut: [notes, types, tags, assignments].some((r) => r !== FAILED && r?.truncated === true)
-        || ([notes, types, tags, assignments].includes(FAILED) && was.cut === true),
     }
+    // A list of notes, tag types, tags or uses read to its bound (the adapter marks it so): some are not drawn. A
+    // kind that failed keeps its own sign with what it keeps (review: per kind, so a kind read whole again clears its
+    // sign while another fails).
+    const read = { notes, types, tags, uses: assignments }
+    const cutKinds = {}
+    for (const [kind, r] of Object.entries(read)) cutKinds[kind] = r === FAILED ? was.cutKinds?.[kind] === true : r?.truncated === true
+    workspace.cutKinds = cutKinds
+    workspace.cut = Object.values(cutKinds).some(Boolean)
     workspaceError = failures.length ? failures[0] : null
     emit()
   }

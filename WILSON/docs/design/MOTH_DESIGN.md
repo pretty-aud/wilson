@@ -2189,9 +2189,10 @@ the same people.
   reader sees what it leads to; a note lists its links and where it is mentioned.
 - **R.A.B.B.I.T.** `[[` (a link) and `#` (a tag on the thing) in the task, asset, scene and shot windows' words, and
   `[[` in the new-asset and new-task forms; a seen link's words drawn as a link, any other token its words alone; the
-  thing's typed tags above its words, its links out and "Mentioned in" below. A link's code is never shown, searched or
-  sent elsewhere: the tables, cards, searches, filters, the tasks export, the edit history and D.O.G.'s references read
-  the words alone.
+  thing's typed tags above its words, its links out and "Mentioned in" below. A link's code is never shown outside an
+  open editor, searched or sent elsewhere: the tables, cards, searches, filters, the tasks export, the edit history and
+  D.O.G.'s references read the words alone. In an open editor (the windows' boxes, the Scenes and Shots tables' cells,
+  the Timeline's asset editor) the words being changed show the token as it is kept, `[[words|m:key]]`.
 - **M.O.T.H.** Notes and typed tags as dots, saved links as lines, a note's jump to the Dashboard; the typed-tags drawer
   (make a tag or a type, a duplicate refused, the company's tag offered when it has one; put forward, withdraw; approve
   or turn down; rename, retire, merge); looking back rewinds notes, typed tags, their uses and links, each kind from
@@ -2214,12 +2215,22 @@ suite 74's, on dev's own old sign-in rows, red without the files); each file alo
 waits, nothing open past a minute). New suites: 127 to 133 (typed tags, nominations, links, reservations, the record of
 the four): 351 probes, 88 of them the record's.
 
+Then the two whole-session rounds (Opus 5.5), each 12 reviewers by lens and 18 checkers told to refute: round 1, 30
+agents, 3,902,183 tokens, 45 points, 14 real of the 18 checked, all in the client (fixed by four agents on disjoint
+files, 747,244 tokens, and by the session where a fix crossed their files); round 2, on the fixed code, 30 agents,
+3,921,419 tokens, 36 points, 16 real of the 18 checked, all in the client (fixed the same way, 698,928 tokens). Each
+fix has a test seen failing with the fix taken out. Nothing in the database changed after the applies: the two
+rounds' database findings are minors, in OUTSTANDING (MO3-01 to MO3-05), and suites 21, 129, 131 and 133 gained six
+probes (a Legal file beside the money one; a fresh key that makes its link; a missing note's refusal).
+
 ### 4.4 Not built, and owed
 
 - Moth keeps no place for a note's or a typed tag's dot yet; bound mention keys are kept for ever; looking back to
   before a note or thing went to the trash brings back its dot but not its links or typed-tag lines; a file under a
   folder that turns Legal keeps the record of its taggings and links stored (unread by everyone) until it is written or
-  purged; 0127 still makes a link from a money or Legal file's description (never shown, never recorded since 0129).
+  purged; 0127 still makes a link from a money or Legal file's description (never shown, never recorded since 0129);
+  the Scenes and Shots tables' cells and the Timeline's asset editor edit a description's link as its code, where a
+  slip of the keys can cut it (the windows' boxes too, while open).
   OUTSTANDING holds each.
 - **Before staging and production:** the runbook's 0124 to 0129 rows. 0125 goes only after the client that probes for
   it (an older build's Delete is refused once DELETE is revoked, and it would list others' shared notes as its own).

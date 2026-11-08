@@ -60,16 +60,18 @@ branch until it is merged into the integration branch.
 
 ## What was checked
 
-- **Tests:** every new part has its own tests. The whole suite was run again on the final code: 486 test files, 12,397
-  tests passed; the one that failed under load (a test of the office-server walk, which reaches a small local server)
-  passed when run alone.
+- **Tests:** every new part has its own tests. After the docs, two review rounds over the whole session (30 agents
+  each) found faults in the app, all fixed, each with a test that fails without its fix; their few small database points
+  are listed in OUTSTANDING as left open (MO3-01 to MO3-05). The whole suite was run again
+  on the final code: 491 test files, 12,496 tests passed (9 skipped).
 - **The database changes** (six of them: one for Session 2's leftovers, three for notes, tags and links, two for their
   record) were each reviewed by 16 to 30 agents and then by one more, rehearsed on your test database and undone, run
   under every database test, and checked with planted mistakes on a throwaway test server: 198 planted in all; 136 were
   caught by a test, 49 refused by a rule, and each of the 13 not caught is held by another rule, named in the design
   document. Then they were put on your test database on 2026-11-08 (UTC): the first at 01:24, the notes, tags and links at
   03:38 to 03:39, and their record at 05:39 to 05:40. Every database test passed again there, but two older ones about
-  sign-in records that were already red on your test database before this session (6,942 of 6,944).
+  sign-in records that were already red on your test database before this session (6,942 of 6,944; at the end, with
+  the six checks the review rounds added, 6,948 of 6,950).
 - **The two-person check**, with the pretend company's Mara (an admin) and Theo (a manager) in two browser windows: Mara's
   own tag is not in Theo's window at all, and her link to her sketch is plain words for him. That check found one fault
   first: a note drew every link alike, so Theo saw the sketch's words drawn as a link. It was fixed and checked again.
