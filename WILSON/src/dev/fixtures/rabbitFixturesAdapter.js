@@ -899,7 +899,7 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
         owner_id: scopeKind === 'aggregate' ? userId : null,
         name,
         position,
-        revision: ++store.mothViewRevision,
+        revision: 1,
         config: clone(config),
         created_at: now(),
         updated_at: now(),
@@ -918,7 +918,7 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
       const next = { ...row, ...(name !== undefined ? { name } : {}), ...(config !== undefined ? { config: clone(config) } : {}),
         ...(position !== undefined ? { position } : {}) }
       mothViewShapeProblem(next)
-      if (config !== undefined && JSON.stringify(config) !== JSON.stringify(row.config)) next.revision = ++store.mothViewRevision
+      if (config !== undefined && JSON.stringify(config) !== JSON.stringify(row.config)) next.revision = row.revision + 1
       next.updated_at = now()
       next.updated_by = userId
       Object.assign(row, next)

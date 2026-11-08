@@ -258,7 +258,6 @@ export function createStore() {
     // Nothing is seeded: the first visit asks what to map.
     mothViews: [],
     mothPositions: [],
-    mothViewRevision: 0,
     mothPrefs: {},
 
     folders: clone(FOLDERS),

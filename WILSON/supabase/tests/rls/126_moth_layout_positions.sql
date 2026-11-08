@@ -7,7 +7,8 @@
 --    shared view's places by its project's writers, not its reviewer; one's own view's places by its owner; a
 --    view or a target the caller cannot see refused exactly as one that does not exist; a project's view holds
 --    that project's things only; whose a place is the database says; the shapes; a target named twice, in any
---    letters; one focus, which a focus left on a file now hidden does not block (review round 1).
+--    letters; one focus, which a focus left on a file now hidden does not block (review round 1); a target named
+--    twice folded before its focus is counted (0124, MO2-10).
 -- C. Reading: the view, the target and the owner each decide, live: a file that becomes money, one in the
 --    trash, and another person's own places vanish; nothing for someone who has left or another company.
 -- D. Clearing, and what goes with a target or a view.
@@ -21,7 +22,7 @@
 
 BEGIN;
 
-SELECT plan(73);
+SELECT plan(79);
 
 SELECT * FROM tests.rls_setup();
 
@@ -148,6 +149,14 @@ SELECT ok(position('20000' IN (SELECT prosrc FROM pg_proc WHERE oid = 'public.mo
   'the put counts a view''s places under a lock, at most 20,000 an owner');
 SELECT is((SELECT count(*)::int FROM pg_index WHERE indrelid = 'public.moth_layout_positions'::regclass), 14,
   'a key, one place a target and owner, one focus, and an index for each of the ten references and for the owner');
+-- 0124 (MO2-12): the two keys and the access the put stands on, by what they are, not by their names.
+SELECT is(pg_get_indexdef('public.moth_layout_positions_target_key'::regclass) || ' | ' || pg_get_indexdef('public.moth_layout_positions_focus_key'::regclass),
+  'CREATE UNIQUE INDEX moth_layout_positions_target_key ON public.moth_layout_positions USING btree (view_id, target_type, target_id, target_tag, owner_id) NULLS NOT DISTINCT'
+  || ' | CREATE UNIQUE INDEX moth_layout_positions_focus_key ON public.moth_layout_positions USING btree (view_id, owner_id) NULLS NOT DISTINCT WHERE is_focus',
+  'one place a target and owner, one focus a view and owner: the two keys by their definitions (0124)');
+SELECT is((SELECT md5(replace(prosrc, chr(13), '')) || ' ' || prosecdef::text || ' ' || proconfig::text FROM pg_proc
+            WHERE oid = 'rabbit_private.moth_view_access(uuid)'::regprocedure),
+  '72f49b136935ac7ddc2741880bdfc639 true {search_path=public}', 'the places'' access is 0123''s body, as its definer, on the path pinned (0124)');
 
 -- ── B. Writing ──────────────────────────────────────────────────────────────
 SET LOCAL ROLE authenticated;
@@ -247,6 +256,15 @@ SELECT public.t126_c();
 SELECT is(public.t126_put('12600000-0000-0000-0000-0000000000a1', '[{"t":"folder","id":"12600000-0000-0000-0000-000000000071","x":-5.5,"y":0,"open":true,"focus":true}]'), 1, 'another focus');
 SELECT is((SELECT string_agg(target_type, ',') FROM public.moth_layout_positions WHERE view_id = '12600000-0000-0000-0000-0000000000a1' AND is_focus),
   'folder', '… replaces the first: a view has one');
+-- 0124 (MO2-10): a target named twice is folded first, the last naming it winning, and only then is a focus counted.
+SELECT is(public.t126_put('12600000-0000-0000-0000-0000000000a1', '[{"t":"file","id":"12600000-0000-0000-0000-000000000081","x":1,"y":1,"focus":true},{"t":"file","id":"12600000-0000-0000-0000-000000000081","x":2,"y":2}]'), 1,
+  'a target sent with a focus and then without is one place (0124)');
+SELECT is((SELECT string_agg(target_type, ',') FROM public.moth_layout_positions WHERE view_id = '12600000-0000-0000-0000-0000000000a1' AND is_focus),
+  'folder', '… and the focus stays where it was, since the place that names no focus is the one kept (0124)');
+SELECT is(public.t126_err($$ SELECT public.t126_put('12600000-0000-0000-0000-0000000000a1', '[{"t":"file","id":"12600000-0000-0000-0000-000000000081","x":3,"y":3,"focus":true},{"t":"file","id":"12600000-0000-0000-0000-000000000081","x":4,"y":4,"focus":true}]') $$),
+  'no refusal', 'a target sent twice, each time with a focus, is one focus, not two (0124)');
+SELECT is((SELECT string_agg(target_type || ':' || right(target_id::text, 3), ',') FROM public.moth_layout_positions WHERE view_id = '12600000-0000-0000-0000-0000000000a1' AND is_focus),
+  'file:081', '… and it is the focus now, alone (0124)');
 RESET ROLE;
 
 -- ── C. Reading ──────────────────────────────────────────────────────────────

@@ -3,7 +3,9 @@
 // not historical copies"). MOTH_DESIGN §2.5 H3 and its rebuild rule: start from the live, authorised graph and undo
 // the record's rows newest first, back to the chosen time. 'added' means absent before; 'removed' and 'trashed'
 // mean present before, as the prior side says; 'moved' and 'changed' mean as the prior side says. A row about an
-// id the live graph does not know, with nothing to put back, is ignored. A file shows at a time only if its folder
+// id the live graph does not know, with nothing to put back, is ignored. A prior side that says it was in the trash
+// (0124, MO2-18) was not on the graph then, whatever the row's action: a file emptied from the trash while in it
+// does not come back for that time. A file shows at a time only if its folder
 // does. Everything before a kind's recording_since is not recorded. The scrub reads only; nothing is written.
 export const HISTORY_DAYS = 90
 export const RECENT_DAYS = 7
@@ -53,7 +55,7 @@ export function rewind(live, rows, atMs) {
       const now = files.get(id)?.row || null
       const nowPid = files.get(id)?.pid
       files.delete(id)
-      if (r.action === 'added' || r.action === 'restored') continue
+      if (r.action === 'added' || r.action === 'restored' || before?.in_trash === true) continue
       if (!before || !pidBefore) { if (now) files.set(id, { pid: nowPid, row: now }); continue }
       files.set(id, { pid: pidBefore, row: {
         ...(now || { id, tags: [] }), id, project_id: pidBefore, folder_id: before.folder_id ?? null,
@@ -64,7 +66,7 @@ export function rewind(live, rows, atMs) {
       const now = folders.get(id)?.row || null
       const nowPid = folders.get(id)?.pid
       folders.delete(id)
-      if (r.action === 'added' || r.action === 'restored') continue
+      if (r.action === 'added' || r.action === 'restored' || before?.in_trash === true) continue
       if (!before || !pidBefore) { if (now) folders.set(id, { pid: nowPid, row: now }); continue }
       folders.set(id, { pid: pidBefore, row: {
         ...(now || { id }), id, parent_id: before.parent_id ?? null, kind: before.kind ?? now?.kind ?? 'custom',
@@ -75,7 +77,7 @@ export function rewind(live, rows, atMs) {
       const now = items.get(id)?.row || null
       const nowPid = items.get(id)?.pid
       items.delete(id)
-      if (r.action === 'added' || r.action === 'restored') continue
+      if (r.action === 'added' || r.action === 'restored' || before?.in_trash === true) continue
       if (!before || !pidBefore) { if (now) items.set(id, { pid: nowPid, row: now }); continue }
       // Under the parent it had then: a phase's parent phase, a shot's scene.
       const parent = kind === 'phase' ? { parent_kind: before.parent_phase_id ? 'phase' : null, parent_id: before.parent_phase_id ?? null }
@@ -84,7 +86,7 @@ export function rewind(live, rows, atMs) {
     } else if (r.entity_type === 'projects') {
       const isle = islands.find((x) => x.id === id)
       if (r.action === 'added' || r.action === 'restored') { islands = islands.filter((x) => x.id !== id); continue }
-      if ((r.action === 'trashed' || r.action === 'removed') && !isle) { islands.push({ id, title: before?.title ?? '' }); continue }
+      if ((r.action === 'trashed' || r.action === 'removed') && !isle && before?.in_trash !== true) { islands.push({ id, title: before?.title ?? '' }); continue }
       if (isle && before?.title) isle.title = before.title
     } else if (r.entity_type === 'task_items') {
       const s = r.state

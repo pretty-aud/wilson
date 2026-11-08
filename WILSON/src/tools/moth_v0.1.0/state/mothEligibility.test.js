@@ -141,26 +141,31 @@ describe('0111\'s classifier, read from the migration', () => {
   })
 
   // MO2 (0122): the seven kinds of item, each its project's, each in this company, the trash keeping three out.
-  it("the latest gate is 0122's, and each item kind is its project's, in this company, out of the trash", () => {
-    expect(latestFile('_moth_target_eligible')).toBe('0122_moth_graph_reads.sql')
+  // MO3 (0124, MO2-09): and a phase or a task set aside by its bid version is no target either.
+  it("the latest gate is 0124's, and each item kind is its project's, in this company, out of the trash", () => {
+    expect(latestFile('_moth_target_eligible')).toBe('0124_moth_corrections.sql')
     const text = latestBody('_moth_target_eligible')
     for (const kind of ['phase', 'asset', 'task', 'scene', 'shot', 'level', 'experience']) expect(text).toContain(`p_kind = '${kind}'`)
     for (const arm of ['a.workspace_id = v_ws', 't.workspace_id = v_ws', 's.workspace_id = v_ws', 'sh.workspace_id = v_ws',
       'l.workspace_id = v_ws', 'e.workspace_id = v_ws']) expect(text).toContain(arm)
     expect(text.match(/v_deleted IS NOT NULL AND NOT COALESCE\(p_allow_trashed, false\)/g)).toHaveLength(4)
     expect(text).toContain('p.workspace_id = v_ws')
+    expect(text).toContain('ph.set_aside_at INTO v_project, v_deleted, v_aside')
+    expect(text).toContain('t.set_aside_at INTO v_project, v_deleted, v_aside')
+    expect(text.match(/v_aside IS NOT NULL/g)).toHaveLength(2)
   })
 })
 
-// The newest migration that defines a function, and that body (comments stripped): what the database runs.
+// The newest migration that defines a function, and that body (comments stripped): what the database runs. Both
+// look for the definition itself, so a later REVOKE or GRANT line naming the function is not taken for it.
 function latestFile(name) {
   const dir = join(process.cwd(), 'supabase/migrations')
   const files = readdirSync(dir).filter((f) => /^\d{4}_.*\.sql$/.test(f)).sort()
-  return files.filter((f) => readFileSync(join(dir, f), 'utf8').includes(`FUNCTION public.${name}(`)).pop()
+  return files.filter((f) => readFileSync(join(dir, f), 'utf8').includes(`CREATE OR REPLACE FUNCTION public.${name}(`)).pop()
 }
 function latestBody(name) {
   const text = readFileSync(join(process.cwd(), 'supabase/migrations', latestFile(name)), 'utf8').replace(/--[^\n]*/g, '')
-  const start = text.lastIndexOf(`FUNCTION public.${name}(`)
+  const start = text.lastIndexOf(`CREATE OR REPLACE FUNCTION public.${name}(`)
   const open = text.indexOf('$$', start)
   return text.slice(open, text.indexOf('$$', open + 2))
 }

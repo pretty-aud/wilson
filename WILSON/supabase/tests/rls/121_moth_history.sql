@@ -3,7 +3,8 @@
 --
 -- moth_history, its capture on eleven tables, redaction on lock, the two readers and the
 -- purge. A person's write never fails for it; what they read is what they could see then
--- and can see now.
+-- and can see now. 0124 (MO3, MO2-18): a projection says when its row is in the trash, so a file emptied
+-- from the trash while in it is not brought back by looking back.
 --
 -- Fixture ids: projects aaaa1210-…, files 12100000-…-…
 -- user_a (rls_setup) is the admin; user_c a plain member; user_d a workspace manager; user_e
@@ -12,7 +13,7 @@
 
 BEGIN;
 
-SELECT plan(290);
+SELECT plan(297);
 
 SELECT * FROM tests.rls_setup();
 
@@ -203,8 +204,16 @@ SELECT is(public.soft_delete_row('files', '12100000-0000-0000-0000-000000000102'
 SELECT is((public.t121_read('12100000-0000-0000-0000-000000000102')), 3, 'an admin still reads a trashed file''s rows');
 SELECT is(public.restore_soft_deleted('files', '12100000-0000-0000-0000-000000000102'), true, 'restored');
 RESET ROLE;
-SELECT is(public.t121_n('files', '12100000-0000-0000-0000-000000000102', 'trash'), 1, 'a trash is recorded, though its projection does not change');
+SELECT is(public.t121_n('files', '12100000-0000-0000-0000-000000000102', 'trash'), 1, 'a trash is recorded');
 SELECT is(public.t121_n('files', '12100000-0000-0000-0000-000000000102', 'restore'), 1, 'and a restore');
+-- 0124 (MO2-18): the record says when a row is in the trash, and only then.
+SELECT ok((SELECT state -> 'in_trash' = 'true'::jsonb AND NOT (prior ? 'in_trash') FROM public.moth_history
+            WHERE entity_type = 'files' AND entity_id = '12100000-0000-0000-0000-000000000102' AND action = 'trash'),
+  'a trash row''s after side says it is in the trash, and its before side does not (0124)');
+SELECT ok((SELECT prior -> 'in_trash' = 'true'::jsonb AND NOT (state ? 'in_trash') FROM public.moth_history
+            WHERE entity_type = 'files' AND entity_id = '12100000-0000-0000-0000-000000000102' AND action = 'restore'),
+  'a restore row''s before side does, and its after side does not (0124)');
+SELECT ok(NOT ((public.t121_last('files', '12100000-0000-0000-0000-000000000102')).state ? 'in_trash'), 'a live row''s projection has no such key (0124)');
 
 -- A catalogue row, whoever the writer says it is.
 SELECT set_config('wilson.network_share_writer', 'check:aaaa1210-0000-0000-0000-00000000000a', true);
@@ -469,6 +478,23 @@ SELECT is((SELECT public.purge_soft_deleted() IS NOT NULL), true, 'a purge runs'
 SET LOCAL ROLE authenticated;
 SELECT public.t121_a();
 SELECT is(public.t121_read('12100000-0000-0000-0000-000000000204'), 0, 'and after a trash and a purge, still none');
+RESET ROLE;
+
+-- 0124 (MO2-18): a file emptied from the trash while in it. Its last row's before side says it was in the trash, so
+-- looking back does not bring it back for the time it spent there.
+SELECT public.t121_file('12100000-0000-0000-0000-0000000002a1', 'aaaa1210-0000-0000-0000-00000000000a', 'emptied.png');
+SET LOCAL ROLE authenticated;
+SELECT public.t121_a();
+SELECT is(public.soft_delete_row('files', '12100000-0000-0000-0000-0000000002a1'), true, 'a plain file trashed (0124)');
+RESET ROLE;
+UPDATE public.files SET deleted_at = now() - interval '40 days' WHERE id = '12100000-0000-0000-0000-0000000002a1';
+SELECT is((SELECT public.purge_soft_deleted() IS NOT NULL), true, '… and emptied from the trash');
+SELECT is((SELECT prior -> 'in_trash' FROM public.moth_history WHERE entity_type = 'files' AND entity_id = '12100000-0000-0000-0000-0000000002a1' AND action = 'delete'),
+  'true'::jsonb, 'its last row''s before side says it was in the trash (0124)');
+SET LOCAL ROLE authenticated;
+SELECT public.t121_a();
+SELECT is((SELECT r.prior -> 'in_trash' FROM public.moth_history_read() r WHERE r.entity_id = '12100000-0000-0000-0000-0000000002a1' AND r.action = 'removed'),
+  'true'::jsonb, '… and so does the row a person reads (0124)');
 RESET ROLE;
 
 -- A folder that goes under money, by the guard's only door: the runner, as a repair would.
