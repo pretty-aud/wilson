@@ -247,7 +247,12 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
   const linkOutside = !!linkHere && !(linkHere === linkedShot ? shots : scenes).some(r => r.id === linkHere.id)
 
   function handleUpdate(patch) {
-    guard.update({ ids: task.id, patch, write: () => ctx?.updateTask?.(task.id, patch) })
+    return guard.update({ ids: task.id, patch, write: () => ctx?.updateTask?.(task.id, patch) })
+  }
+  // MO3: a text's links are read again once its save has landed, since the server makes them with the write; the
+  // timer above is only the fallback, and on a slow connection it reads before the write is in.
+  function saveText(patch) {
+    Promise.resolve(handleUpdate(patch)).catch(() => { /* ctx.error has it */ }).finally(() => reloadLinks())
   }
 
   // Check which databases are enabled
@@ -640,7 +645,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                   onChange={setDescDraft}
                   onBlur={() => {
                     setEditingDesc(false)
-                    if (descDraft !== (task.description || '')) handleUpdate({ description: descDraft })
+                    if (descDraft !== (task.description || '')) saveText({ description: descDraft })
                   }}
                   // W2: Escape reverts the edit first and closes on the second
                   // press, so it must not reach the Dialog on the first one.
@@ -673,7 +678,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                   onChange={setNotesDraft}
                   onBlur={() => {
                     setEditingNotes(false)
-                    if (notesDraft !== (task.notes || '')) handleUpdate({ notes: notesDraft })
+                    if (notesDraft !== (task.notes || '')) saveText({ notes: notesDraft })
                   }}
                   onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); setNotesDraft(task.notes || ''); setEditingNotes(false) } }}
                   rows={3}

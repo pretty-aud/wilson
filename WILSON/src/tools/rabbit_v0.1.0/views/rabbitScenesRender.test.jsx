@@ -3758,4 +3758,23 @@ describe("MO3: a scene's words take [[ and #, and draw their links", () => {
     fireEvent.click(within(box.closest('.rb-scene-detail-text')).getByRole('button', { name: 'Save' }))
     expect(ctx.updateScene).toHaveBeenLastCalledWith('sc1', { description: linked })
   })
+
+  it('the links are read again once the save has landed, not only on a timer', async () => {
+    const adapter = fakeAdapter()
+    let land
+    const { ctx } = page({ getAdapter: () => adapter })
+    ctx.updateScene.mockImplementation(() => new Promise(r => { land = r }))
+    const main = openScenePopup().querySelector('.rb-scene-detail-main')
+    // The first read, and the timer's read a moment after the window opens.
+    await waitFor(() => expect(adapter.listMothItemRelationships.mock.calls.length).toBeGreaterThanOrEqual(2), { timeout: 3000 })
+    fireEvent.click(within(main).getByRole('button', { name: 'Mara lets herself in.' }))
+    const box = within(main).getByRole('textbox', { name: 'Description' })
+    fireEvent.change(box, { target: { value: 'Mara lets herself in. Again.' } })
+    fireEvent.click(within(box.closest('.rb-scene-detail-text')).getByRole('button', { name: 'Save' }))
+    const before = adapter.listMothItemRelationships.mock.calls.length
+    await act(async () => { await new Promise(r => setTimeout(r, 30)) })
+    expect(adapter.listMothItemRelationships.mock.calls.length).toBe(before)
+    await act(async () => { land({}) })
+    await waitFor(() => expect(adapter.listMothItemRelationships.mock.calls.length).toBe(before + 1))
+  })
 })

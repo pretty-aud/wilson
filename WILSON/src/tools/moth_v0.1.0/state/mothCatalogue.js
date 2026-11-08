@@ -25,6 +25,7 @@ const CONCURRENCY = 3
 
 const absent = (err) => err?.code === 'moth_absent'
 const FACT_KINDS = ['phase', 'asset', 'task', 'scene', 'shot', 'level', 'experience']
+const FAILED = Symbol('failed')
 
 export function createMothCatalogue({ adapter }) {
   const listeners = new Set()
@@ -38,7 +39,7 @@ export function createMothCatalogue({ adapter }) {
   let cachedCatalogue = null
   let cachedVersion = -1
   let destroyed = false
-  let workspace = { notes: [], mtags: [], assignments: [], relationships: [], truncated: false }
+  let workspace = { notes: [], mtags: [], assignments: [], relationships: [], truncated: false, cut: false }
   let workspaceAbsent = { notes: false, tags: false, links: false }
   let workspaceError = null
   let workspaceRead = 0
@@ -129,8 +130,9 @@ export function createMothCatalogue({ adapter }) {
     emit()
   }
 
-  // MO3: one kind of the workspace's rows; absent where the database keeps none of it.
-  async function readKind(fn, fallback, kind) {
+  // MO3: one kind of the workspace's rows; absent where the database keeps none of it. A read that failed says
+  // FAILED, never an empty list, so what was drawn before stays drawn (a failed read is not an empty one).
+  async function readKind(fn, fallback, kind, failures) {
     if (typeof fn !== 'function') { workspaceAbsent = { ...workspaceAbsent, [kind]: true }; return fallback }
     try {
       const out = await fn()
@@ -138,31 +140,40 @@ export function createMothCatalogue({ adapter }) {
       return out || fallback
     } catch (err) {
       if (absent(err)) { workspaceAbsent = { ...workspaceAbsent, [kind]: true }; return fallback }
-      workspaceError = err?.message || String(err)
-      return fallback
+      failures.push(err?.message || String(err))
+      return FAILED
     }
   }
   async function readWorkspace() {
     const asked = ++workspaceRead
-    workspaceError = null
+    const failures = []
     const [notes, types, tags, assignments, links] = await Promise.all([
-      readKind(adapter.listMothNotes && (() => adapter.listMothNotes()), [], 'notes'),
-      readKind(adapter.listMothTagTypes && (() => adapter.listMothTagTypes()), [], 'tags'),
-      readKind(adapter.listMothTags && (() => adapter.listMothTags()), [], 'tags'),
-      readKind(adapter.listMothTagAssignments && (() => adapter.listMothTagAssignments()), [], 'tags'),
-      readKind(adapter.listMothRelationships && (() => adapter.listMothRelationships()), { links: [], truncated: false }, 'links'),
+      readKind(adapter.listMothNotes && (() => adapter.listMothNotes()), [], 'notes', failures),
+      readKind(adapter.listMothTagTypes && (() => adapter.listMothTagTypes()), [], 'tags', failures),
+      readKind(adapter.listMothTags && (() => adapter.listMothTags()), [], 'tags', failures),
+      readKind(adapter.listMothTagAssignments && (() => adapter.listMothTagAssignments()), [], 'tags', failures),
+      readKind(adapter.listMothRelationships && (() => adapter.listMothRelationships()), { links: [], truncated: false }, 'links', failures),
     ])
     if (destroyed || asked !== workspaceRead) return
-    const typeOf = new Map((types || []).map((ty) => [ty.id, ty]))
+    // Each kind that failed keeps what the last good read gave; only the kinds read are replaced.
+    const was = workspace
+    const keptTypes = types === FAILED ? (was.types || []) : (types || [])
+    const typeOf = new Map(keptTypes.map((ty) => [ty.id, ty]))
+    const tagRows = tags === FAILED ? (was.mtags || []) : (tags || [])
     workspace = {
-      notes: notes || [],
-      mtags: (tags || []).map((tg) => ({ ...tg, shape: typeOf.get(tg.type_id)?.shape ?? 'circle', colour: typeOf.get(tg.type_id)?.colour ?? 'mist',
+      notes: notes === FAILED ? was.notes : (notes || []),
+      mtags: tagRows.map((tg) => ({ ...tg, shape: typeOf.get(tg.type_id)?.shape ?? 'circle', colour: typeOf.get(tg.type_id)?.colour ?? 'mist',
         type_name: typeOf.get(tg.type_id)?.name ?? '' })),
-      types: types || [],
-      assignments: assignments || [],
-      relationships: links?.links || [],
-      truncated: links?.truncated === true,
+      types: keptTypes,
+      assignments: assignments === FAILED ? was.assignments : (assignments || []),
+      relationships: links === FAILED ? was.relationships : (links?.links || []),
+      truncated: links === FAILED ? was.truncated === true : links?.truncated === true,
+      // A list of notes, tag types, tags or uses read to its bound (the adapter marks it so): some are not drawn. A
+      // kind that failed keeps the sign with what it keeps.
+      cut: [notes, types, tags, assignments].some((r) => r !== FAILED && r?.truncated === true)
+        || ([notes, types, tags, assignments].includes(FAILED) && was.cut === true),
     }
+    workspaceError = failures.length ? failures[0] : null
     emit()
   }
 

@@ -42,4 +42,16 @@ describe("a note's typed links, as its reader sees them", () => {
     expect(el.innerHTML).not.toContain(`data-key="${HIDDEN}"`)
     expect(editor.getText()).toBe(TEXT)
   })
+
+  it('a token whose words carry a mark (one word bold) is still one token: drawn as its words, its key out of sight', () => {
+    const el = open()
+    // Bold "lantern" inside the second token, so its words span two text nodes.
+    const at = TEXT.indexOf('lantern') + 1
+    editor.chain().setTextSelection({ from: at, to: at + 'lantern'.length }).toggleBold().run()
+    setSeenMentions(editor, [SEEN, HIDDEN])
+    const drawn = [...el.querySelectorAll('.note-mention')].filter((n) => n.getAttribute('data-key') === HIDDEN)
+    expect(drawn.map((n) => n.textContent).join('')).toBe('the lantern sketch')
+    expect([...el.querySelectorAll('.note-mention-syntax')].map((n) => n.textContent).join('')).toContain(`|m:${HIDDEN}]]`)
+    expect(editor.getText()).toBe(TEXT)
+  })
 })

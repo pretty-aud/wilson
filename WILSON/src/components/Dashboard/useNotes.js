@@ -34,6 +34,10 @@ export function useNotes() {
   const [subjects, setSubjects] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  // MO3 (review): the scope the last finished load was for, null until one has finished. `loading` starts false
+  // and is set by the load's own effect, so a note asked for from elsewhere waits on this, not on `loading` alone.
+  // A load that failed counts as finished (its banner says so), so a request is never held for ever.
+  const [loadedScope, setLoadedScope] = useState(null)
 
   // StrictMode-safe mounted flag (body resets to true).
   const mountedRef = useRef(true)
@@ -53,14 +57,15 @@ export function useNotes() {
     const seq = ++reqSeqRef.current
     const a = adapter()
     if (adapterMode !== 'supabase' || typeof a?.listNotes !== 'function') {
-      setNotes([]); setSubjects([]); setLoading(false)
+      setNotes([]); setSubjects([]); setLoading(false); setLoadedScope('mine')
       return
     }
     setLoading(true)
     setError(null)
+    let want = 'mine'
     try {
       const hasTiers = typeof a.notesHaveTiers === 'function' ? await a.notesHaveTiers() : false
-      const want = hasTiers ? scope : 'mine'
+      want = hasTiers ? scope : 'mine'
       const [noteRows, subjectRows] = await Promise.all([
         a.listNotes({ scope: want }),
         typeof a.listNoteSubjects === 'function' ? a.listNoteSubjects() : [],
@@ -69,9 +74,11 @@ export function useNotes() {
       setTiers(!!hasTiers)
       setNotes(Array.isArray(noteRows) ? noteRows : [])
       setSubjects(Array.isArray(subjectRows) ? subjectRows : [])
+      setLoadedScope(want)
     } catch (err) {
       if (mountedRef.current && seq === reqSeqRef.current) {
         setError(err.message || String(err))
+        setLoadedScope(want)
       }
     } finally {
       if (mountedRef.current && seq === reqSeqRef.current) setLoading(false)
@@ -88,11 +95,13 @@ export function useNotes() {
     const a = adapter()
     if (typeof a?.createNote !== 'function') return null
     const row = await a.createNote(fields)
-    if (mountedRef.current && row) {
+    // MO3 (review): a new note is one's own and personal, so it joins the list only where that list is Mine; the
+    // trash or the shared list would show it as what it is not.
+    if (mountedRef.current && row && (!tiers || scope === 'mine')) {
       setNotes(prev => [row, ...prev.filter(n => n.id !== row.id)])
     }
     return row
-  }, [adapter])
+  }, [adapter, tiers, scope])
 
   const patchNoteMeta = useCallback(async (id, patch) => {
     const a = adapter()
@@ -153,14 +162,17 @@ export function useNotes() {
   }, [adapter, load])
 
   // 0127: the keys of the typed links in the body just saved, with that save's version. Quiet on a database
-  // without links: the words are saved either way.
+  // without links: the words are saved either way. True when the links were made; false when the server did not
+  // take them (the note moved on, or the call failed), which the editor tries once more; null when this database
+  // keeps no links, which nothing retries.
   const syncNoteMentions = useCallback(async (id, version, keys) => {
     const a = adapter()
-    if (typeof a?.syncNoteMentions !== 'function') return false
+    if (typeof a?.syncNoteMentions !== 'function') return null
     try {
-      return await a.syncNoteMentions(id, version, keys)
+      return !!(await a.syncNoteMentions(id, version, keys))
     } catch (err) {
-      if (err?.code !== 'moth_absent') setError(err.message || String(err))
+      if (err?.code === 'moth_absent') return null
+      setError(err.message || String(err))
       return false
     }
   }, [adapter])
@@ -257,6 +269,7 @@ export function useNotes() {
     notes,
     scope,
     setScope,
+    loadedScope,
     tiers,
     userId: perms?.userId ?? null,
     isAdmin: perms?.role === 'admin',

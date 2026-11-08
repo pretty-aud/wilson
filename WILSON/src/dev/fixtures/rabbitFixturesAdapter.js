@@ -451,13 +451,21 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     level: ['description', 'notes'], experience: ['description', 'notes'],
   }
   const mothTextRows = (kind) => (kind === 'project' ? store.projects : kind === 'file' ? store.files : store[MOTH_ITEM_TABLES[kind]] || [])
+  // The session review: as moth_mentions_apply does, a reservation the writer made in the last day and no field has
+  // used becomes this field's and is kept, so its key links here again whenever its words come back (an undo, a cut
+  // and paste within the field). A key that is another field's, or no one's, links nothing here.
+  const mothReservedToday = (m) => Date.now() - Date.parse(m.created_at) < 86400000
   const mothMentionsApply = (kind, id, field, keys) => {
     store.mothRelationships = store.mothRelationships.filter(r => !(r.origin === 'inline' && r.source_type === kind
       && r.source_id === id && r.field === field && !keys.includes(r.mention_key)))
+    for (const m of store.mothMentionReservations) {
+      if (keys.includes(m.mention_key) && m.used_kind == null && m.created_by === userId && mothReservedToday(m)) {
+        Object.assign(m, { used_kind: kind, used_id: id, used_field: field, used_at: now() })
+      }
+    }
     for (const key of keys) {
-      const res = store.mothMentionReservations.find(m => m.mention_key === key && m.created_by === userId)
+      const res = store.mothMentionReservations.find(m => m.mention_key === key && m.used_kind === kind && m.used_id === id && m.used_field === field)
       if (!res) continue
-      store.mothMentionReservations = store.mothMentionReservations.filter(m => m !== res)
       if ((res.dest_type === kind && res.dest_id === id) || !mothSees(res.dest_type, res.dest_id)) continue
       if (store.mothRelationships.some(r => r.origin === 'inline' && r.source_type === kind && r.source_id === id
         && r.field === field && r.mention_key === key)) continue
@@ -483,6 +491,17 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     target_id: r.dest_id, label: r.label, origin: r.origin, field: r.field })
   const mothTagTypeRow = ({ workspace_id: _w, ...t }) => t
   const mothTagRow = ({ workspace_id: _w, norm: _n, ...t }) => t
+  // The session review: a change the cloud makes to no row (a policy hid it, or it is gone) is refused in these words,
+  // with 42501, as the cloud adapter says it (supabaseAdapter.js, mothNothingChanged): never a quiet null.
+  const MOTH_TAG_UNCHANGED = 'That tag is not one you can change now, or it is no longer there.'
+  const MOTH_TAG_NOT_DELETED = 'That tag is not one you can delete, or it is gone already.'
+  const MOTH_TYPE_UNCHANGED = 'That type is not one you can change now, or it is no longer there.'
+  const MOTH_TYPE_NOT_DELETED = 'That type is not one you can delete, or it is gone already.'
+  const MOTH_LINK_UNCHANGED = 'That link is not one you can change: only a link drawn by hand takes a label, from someone who may change where it starts.'
+  // fn_moth_tags_gone: a tag removed or retired takes its open nomination with it, as a withdrawal.
+  const mothTagNominationsGone = (tagId) => {
+    for (const x of store.mothTagNominations) if (x.tag_id === tagId && x.status === 'open') x.status = 'withdrawn'
+  }
 
   // rabbit_private.moth_tag_fold: the assignments move (one the other tag already has, for the same owner, goes),
   // each keeping its tier and owner; a place of the folded dot becomes the other's where that view and owner have
@@ -1158,7 +1177,7 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     },
     async updateMothTagType(id, { name, shape, colour, retired } = {}) {
       const row = store.mothTagTypes.find(t => t.id === id)
-      if (!mothTagMayChange(row)) return null
+      if (!mothTagMayChange(row)) throw tvError('42501', MOTH_TYPE_UNCHANGED)
       if (name !== undefined && !mothWords(name, 60)) throw tvError('23514', 'new row for relation "moth_tag_types" violates check constraint "moth_tag_types_name_chk"')
       if (shape !== undefined && !MOTH_TAG_SHAPES.includes(shape)) throw tvError('23514', 'new row for relation "moth_tag_types" violates check constraint "moth_tag_types_shape_chk"')
       if (colour !== undefined && !MOTH_TAG_COLOURS.includes(colour)) throw tvError('23514', 'new row for relation "moth_tag_types" violates check constraint "moth_tag_types_colour_chk"')
@@ -1168,7 +1187,7 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     },
     async deleteMothTagType(id) {
       const row = store.mothTagTypes.find(t => t.id === id)
-      if (!row || row.tier !== 'personal' || row.owner_id !== userId) return { removed: false }
+      if (!row || row.tier !== 'personal' || row.owner_id !== userId) throw tvError('42501', MOTH_TYPE_NOT_DELETED)
       if (store.mothTags.some(t => t.type_id === id)) throw tvError('23503', 'update or delete on table "moth_tag_types" violates foreign key constraint "moth_tags_type_fk" on table "moth_tags"')
       store.mothTagTypes = store.mothTagTypes.filter(t => t.id !== id)
       return { removed: true }
@@ -1182,8 +1201,8 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
         label, canonical_id: null, retired_at: null, revision: 1, updated_at: now() }
       if (!['company', 'personal'].includes(tier) || !mothTagMayChange(row)) throw tvError('42501', 'new row violates row-level security policy for table "moth_tags"')
       if (!mothWords(label, 80)) throw tvError('23514', 'new row for relation "moth_tags" violates check constraint "moth_tags_label_chk"')
-      // A company tag takes a company type; a personal one, a company type or its owner's own.
-      if (!mothTagSeen(type) || (tier === 'company' && type.tier !== 'company')) {
+      // A company tag takes a company type; a personal one, a company type or its owner's own; live either way.
+      if (!mothTagSeen(type) || type.retired_at || (tier === 'company' && type.tier !== 'company')) {
         throw tvError('23503', 'insert or update on table "moth_tags" violates foreign key constraint "moth_tags_type_fk"')
       }
       if (store.mothTags.some(t => t.type_id === typeId && t.tier === tier && t.owner_id === row.owner_id && !t.retired_at && !t.canonical_id
@@ -1195,21 +1214,25 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     },
     async updateMothTag(id, { label, typeId, retired } = {}) {
       const row = store.mothTags.find(t => t.id === id)
-      if (!mothTagMayChange(row)) return null
+      if (!mothTagMayChange(row)) throw tvError('42501', MOTH_TAG_UNCHANGED)
       if (label !== undefined && !mothWords(label, 80)) throw tvError('23514', 'new row for relation "moth_tags" violates check constraint "moth_tags_label_chk"')
-      if (typeId !== undefined) {
+      // fn_moth_tags_pin asks only when the type changes: a tag of a type since retired keeps its name and may be renamed.
+      if (typeId !== undefined && typeId !== row.type_id) {
         const type = store.mothTagTypes.find(t => t.id === typeId)
-        if (!mothTagSeen(type) || (row.tier === 'company' && type.tier !== 'company')) {
+        if (!mothTagSeen(type) || type.retired_at || (row.tier === 'company' && type.tier !== 'company')) {
           throw tvError('23503', 'insert or update on table "moth_tags" violates foreign key constraint "moth_tags_type_fk"')
         }
       }
+      // fn_moth_tags_gone: a tag retired takes its open nomination with it, as a withdrawal.
+      if (retired && !row.retired_at) mothTagNominationsGone(row.id)
       Object.assign(row, label !== undefined ? { label } : {}, typeId !== undefined ? { type_id: typeId } : {},
         retired !== undefined ? { retired_at: retired ? now() : null } : {}, { revision: row.revision + 1, updated_at: now() })
       return clone(mothTagRow(row))
     },
     async deleteMothTag(id) {
       const row = store.mothTags.find(t => t.id === id)
-      if (!row || row.tier !== 'personal' || row.owner_id !== userId) return { removed: false }
+      if (!row || row.tier !== 'personal' || row.owner_id !== userId) throw tvError('42501', MOTH_TAG_NOT_DELETED)
+      mothTagNominationsGone(row.id)
       store.mothTags = store.mothTags.filter(t => t.id !== id)
       store.mothTagAssignments = store.mothTagAssignments.filter(a => a.tag_id !== id)
       store.mothPositions = store.mothPositions.filter(p => !(p.target_type === 'mtag' && p.target_id === id))
@@ -1256,37 +1279,42 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     async nominateMothTag(tagId, note = null) {
       const tag = store.mothTags.find(t => t.id === tagId && t.tier === 'personal' && t.owner_id === userId && !t.canonical_id && !t.retired_at)
       const type = tag && store.mothTagTypes.find(t => t.id === tag.type_id)
-      if (!tag || !type) throw tvError('42501', 'That is not one of your own tags.')
-      if (note != null && String(note).length > 1000) throw tvError('22023', 'A note to the admins is at most 1,000 characters.')
-      const open = store.mothTagNominations.find(n => n.tag_id === tagId && n.status === 'open')
-      if (open) return open.id
+      // 0126's words for each refusal (the session review), not a quiet answer where the server says no.
+      if (!tag || !type) throw tvError('42501', 'That tag is not one you can put forward.')
+      if (note != null && String(note).length > 1000) throw tvError('22023', 'A note to the admins is 1,000 characters at most.')
+      if (store.mothTagNominations.some(n => n.tag_id === tagId && n.status === 'open')) throw tvError('23505', 'That tag is put forward already.')
       const row = { id: crypto.randomUUID(), workspace_id: workspaceId, proposer_id: userId, tag_id: tagId, label: tag.label,
-        type_name: type.name, note: note ?? null, status: 'open', review_note: null, decided_by: null, decided_at: null,
-        result_tag_id: null, created_at: now() }
+        type_name: type.name, note: note == null ? null : String(note).trim() || null, status: 'open', review_note: null,
+        decided_by: null, decided_at: null, result_tag_id: null, created_at: now() }
       store.mothTagNominations.push(row)
       return row.id
     },
     async withdrawMothTagNomination(nominationId) {
-      const n = store.mothTagNominations.find(x => x.id === nominationId && x.proposer_id === userId)
-      if (!n) throw tvError('42501', 'That is not one of your own nominations.')
-      if (n.status !== 'open') return false
+      const n = store.mothTagNominations.find(x => x.id === nominationId && x.proposer_id === userId && x.status === 'open')
+      if (!n) throw tvError('42501', 'That is not an open nomination of yours.')
       n.status = 'withdrawn'
       return true
     },
     async decideMothTagNomination(nominationId, approve, note = null) {
-      if (!liveAdmin()) throw tvError('42501', 'Only a workspace admin decides a nomination.')
-      const n = store.mothTagNominations.find(x => x.id === nominationId)
-      if (!n) throw tvError('42501', 'Only a workspace admin decides a nomination.')
-      if (n.status !== 'open') return n.result_tag_id ?? null
-      Object.assign(n, { status: approve ? 'approved' : 'rejected', review_note: note ?? null, decided_by: userId, decided_at: now() })
-      if (!approve) return null
+      if (!liveAdmin()) throw tvError('42501', 'Only a workspace admin decides what becomes a company tag.')
+      if (typeof approve !== 'boolean' || (note != null && String(note).length > 1000)) {
+        throw tvError('22023', 'A decision is a yes or a no, with a note of 1,000 characters at most.')
+      }
+      const n = store.mothTagNominations.find(x => x.id === nominationId && x.status === 'open')
+      if (!n) throw tvError('42501', 'That nomination is not open.')
+      const reviewNote = note == null ? null : String(note).trim() || null
+      if (!approve) {
+        Object.assign(n, { status: 'rejected', review_note: reviewNote, decided_by: userId, decided_at: now() })
+        return null
+      }
       const typeNorm = mothTagNorm(n.type_name)
       const labelNorm = mothTagNorm(n.label)
       let type = store.mothTagTypes.find(t => t.tier === 'company' && !t.retired_at && mothTagNorm(t.name) === typeNorm)
+      // A new company type takes the plain shape and colour: the proposer put forward a word and its type's name,
+      // not their own look for it.
       if (!type) {
-        const theirs = store.mothTagTypes.find(t => t.id === store.mothTags.find(x => x.id === n.tag_id)?.type_id)
         type = { id: crypto.randomUUID(), workspace_id: workspaceId, tier: 'company', owner_id: null, name: n.type_name,
-          shape: theirs?.shape ?? 'circle', colour: theirs?.colour ?? 'mist', retired_at: null, updated_at: now() }
+          shape: 'circle', colour: 'mist', retired_at: null, updated_at: now() }
         store.mothTagTypes.push(type)
       }
       let into = store.mothTags.find(t => t.tier === 'company' && t.type_id === type.id && !t.retired_at && !t.canonical_id && mothTagNorm(t.label) === labelNorm)
@@ -1295,20 +1323,28 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
           canonical_id: null, retired_at: null, revision: 1, updated_at: now() }
         store.mothTags.push(into)
       }
-      // Every exact match folds in: its owner's use of it moves to the company's tag, and stays theirs alone.
+      // Every exact match folds in: its owner's use of it moves to the company's tag, and stays theirs alone. A tag its
+      // owner has retired is left as it is.
       for (const t of store.mothTags) {
         const tType = store.mothTagTypes.find(x => x.id === t.type_id)
-        if (t.tier === 'personal' && !t.canonical_id && mothTagNorm(t.label) === labelNorm && mothTagNorm(tType?.name) === typeNorm) foldMothTag(into.id, t.id)
+        if (t.tier === 'personal' && !t.canonical_id && !t.retired_at && mothTagNorm(t.label) === labelNorm && mothTagNorm(tType?.name) === typeNorm) foldMothTag(into.id, t.id)
       }
-      n.result_tag_id = into.id
+      // This nomination is approved into it, and so is any other open one whose tag has just been folded.
+      const folded = new Set(store.mothTags.filter(t => t.canonical_id === into.id).map(t => t.id))
+      for (const x of store.mothTagNominations) {
+        if (x.status === 'open' && (x.id === n.id || folded.has(x.tag_id))) {
+          Object.assign(x, { status: 'approved', result_tag_id: into.id, decided_by: userId, decided_at: now(), review_note: x.id === n.id ? reviewNote : x.review_note })
+        }
+      }
       return into.id
     },
     async mergeMothTags(fromId, intoId) {
-      if (!liveAdmin()) throw tvError('42501', 'Only a workspace admin merges the company\'s tags.')
+      if (!liveAdmin()) throw tvError('42501', 'Only a workspace admin merges company tags.')
       const from = store.mothTags.find(t => t.id === fromId && t.tier === 'company' && !t.canonical_id)
-      const into = store.mothTags.find(t => t.id === intoId && t.tier === 'company' && !t.canonical_id)
-      if (!from || !into || from.id === into.id) throw tvError('42501', 'Only a workspace admin merges the company\'s tags.')
+      const into = store.mothTags.find(t => t.id === intoId && t.tier === 'company' && !t.canonical_id && !t.retired_at)
+      if (!from || !into || from.id === into.id) throw tvError('22023', 'Two different company tags of this company merge, into one still in use.')
       foldMothTag(into.id, from.id)
+      for (const x of store.mothTagNominations) if (x.result_tag_id === from.id) x.result_tag_id = into.id
       return into.id
     },
     async listMothRelationships() {
@@ -1339,7 +1375,9 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     },
     async updateMothRelationshipLabel(id, label) {
       const r = store.mothRelationships.find(x => x.id === id)
-      if (!r || !mothSees(r.source_type, r.source_id) || !mothSees(r.dest_type, r.dest_id) || !mothMayChange(r.source_type, r.source_id)) return null
+      // moth_relationships_update takes a drawn link only: a typed one is named by its words.
+      if (!r || r.origin !== 'manual' || !mothSees(r.source_type, r.source_id) || !mothSees(r.dest_type, r.dest_id)
+        || !mothMayChange(r.source_type, r.source_id)) throw tvError('42501', MOTH_LINK_UNCHANGED)
       if (label != null && !mothWords(label, 80)) throw tvError('23514', 'new row for relation "moth_relationships" violates check constraint "moth_relationships_label_chk"')
       r.label = label ?? null
       const { workspace_id: _w, mention_key: _k, created_by: _c, ...out } = r
@@ -1368,11 +1406,14 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     },
     async reserveMothMention(kind, id) {
       if (!MOTH_LINK_KINDS.includes(kind) || !mothSees(kind, id)) throw tvError('42501', 'That is not something you can link to.')
-      if (store.mothMentionReservations.filter(m => m.created_by === userId).length >= 500) {
+      // Keys never used go after their day; every key made in the last day counts toward the 500, used or not.
+      store.mothMentionReservations = store.mothMentionReservations.filter(m => m.used_kind != null || mothReservedToday(m))
+      if (store.mothMentionReservations.filter(m => m.created_by === userId && mothReservedToday(m)).length >= 500) {
         throw tvError('54000', 'Many links are waiting to be saved; save what you are writing first.')
       }
       const key = crypto.randomUUID().replace(/-/g, '').slice(0, 12)
-      store.mothMentionReservations.push({ mention_key: key, workspace_id: workspaceId, created_by: userId, dest_type: kind, dest_id: id, created_at: now() })
+      store.mothMentionReservations.push({ mention_key: key, workspace_id: workspaceId, created_by: userId, dest_type: kind, dest_id: id, created_at: now(),
+        used_kind: null, used_id: null, used_field: null, used_at: null })
       return key
     },
     async listMothMentionCandidates(query, limit = 20) {
@@ -1383,6 +1424,7 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
         ...store.notes.filter(n => !n.deleted_at).map(n => ['note', n]),
         ...store.projects.filter(p => !p.deleted_at).map(p => ['project', p]),
         ...store.files.filter(f => !f.deleted_at).map(f => ['file', f]),
+        ...store.folders.map(f => ['folder', f]),
         ...Object.entries(MOTH_ITEM_TABLES).flatMap(([k, table]) => (store[table] || []).filter(r => mothRowLive(k, r)).map(r => [k, r])),
       ]
       const rank = (name) => (name === q ? 0 : name.startsWith(q) ? 1 : 2)
@@ -2048,7 +2090,12 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     async patchNoteSubject(id, fields) { return clone(patch(store.noteSubjects, id, fields)) },
     async retagNoteSubject(oldLabel, newLabel) {
       const ids = []
-      for (const n of store.notes) if (n.owner_id === userId && n.subject === oldLabel) { n.subject = newLabel; n.updated_at = now(); ids.push(n.id) }
+      // As the cloud: the owner's own, the company standard and the trash left as they are (fn_notes_guard, the read policy).
+      for (const n of store.notes) {
+        if (n.owner_id === userId && n.subject === oldLabel && noteTier(n) !== 'company_standard' && !n.deleted_at) {
+          n.subject = newLabel; n.updated_at = now(); ids.push(n.id)
+        }
+      }
       return ids
     },
     async deleteNoteSubject(id) { remove(store.noteSubjects, id) },

@@ -1306,8 +1306,7 @@ only matter if someone **replays a migration by hand**:
 
 | If you re-run… | You must then re-run… | Because |
 |---|---|---|
-| `0119` **or** `0124` | `0129` | **(MO3)** 0129 restates `fn_moth_history_capture`, `moth_history_project`, `moth_history_projection_ok`, `_moth_history_entity_visible`, `moth_history_read` and `moth_history_window` from 0119's and 0124's bodies with the four Session 3 tables, their peers and their locks. A replay of either brings back bodies that know nothing of notes, typed tags, their assignments or links (their captures fail and leave only restarts, and the reader shows no peer); 0129's pre-flight accepts the older bodies or its own, so re-run it. **0128 refuses once 0129 has validated its checks**: replay 0128 only on a database where 0129 has not run. |
-| `0125` | `0126` | **(MO3)** 0126 restates `_moth_target_eligible` from 0125's body with the typed tag's arm and `moth_put_positions` with notes and typed tags; a replay of 0125 alone leaves the gate without them. |
+| `0124`, `0125` **or** `0128` | (nothing: each refuses) | **(MO3)** Each refuses once a later file has moved on, so none can be replayed after it: 0124's pre-flight once 0125 or 0126 has restated the gate or 0129 the record's projector; 0125's once 0126 has restated the gate (in the words "0124 must be applied first", which then mean the gate is neither 0124's nor its own); 0128's once 0129 has validated its checks. Replay one only on a database where the later file has not run. 0126, 0127 and 0129 are re-runnable over themselves. |
 | `0122` **or** `0123` | `0124` | **(MO3)** 0124 restates `_moth_target_eligible` (a set-aside phase or task is no target), `fn_moth_views_pin`, `moth_put_positions`, `moth_history_project` and `moth_history_projection_ok`. **0123 refuses after 0124** (its pre-flight finds the views' pin is not its own); replay it only before 0124. |
 | `0111` **or** `0121` | `0121`, then `0122` | **(MO2)** 0122 restates `_moth_target_eligible` and `moth_can_write_target` from 0121's bodies with the seven item kinds, and its pre-flight accepts 0121's body or its own: after a replay of 0111 re-run 0121 first, then 0122. A replay of either drops the item arms (every item answers false, so Moth shows no item, keeps no item's place and writes none). 0123 needs 0122 (it refuses without `moth_project_items`), and its places ask the same gates. |
 | `0042`, `0053`, `0073` **or** `0114` | `0115` | **(MO1)** 0115 restates the eight base storage policies (0042, 0053), `workspace_petal_committed_bytes` (0073) and three of 0114's helpers (`storage_object_claimed`, `storage_object_current_project`, `file_key_admissible`). Re-running any of those without 0115 puts the key's prefix back in charge of every stored copy, or loses the moved-copies arm or the picture's arm, and 0115's pre-flight pins each by md5. |
@@ -5214,8 +5213,8 @@ saved, and no one sees another type. Moth's gate and write gate know notes.
 **Typed tags (MO3, 0126).** Types (a company's or a person's own: a name, a shape, a colour), tags (label, type, tier,
 owner; `canonical_id` once folded; retired), assignments (a tag on one of eleven kinds of thing, with its own tier: a
 person's own use of a company tag is theirs alone) and nominations (a person puts their own tag forward; a live admin
-approves or turns it down; managers put forward, never decide). Approve, rename, merge and retire take one catalogue lock
-a company, and a fold moves every use to the tag it now stands for. The gate knows a typed tag (`mtag`), and places
+approves or turns it down; managers put forward, never decide). Approve and merge take one catalogue lock a
+company, and a fold moves every use to the tag it now stands for; rename and retire do not take it. The gate knows a typed tag (`mtag`), and places
 know notes and typed tags.
 
 **Links (MO3, 0127).** `moth_relationships` holds saved links between any two things, both ends through Moth's gate,
@@ -5346,7 +5345,7 @@ else.
 
 ## 15. Testing and verification
 
-**As of MO3 (2026-11-08):** 127 pgTAP suites, 6,944 checks with 0128 and 0129 (by count, after both review rounds and the second look; the whole set read on wilson-dev, rolled back with the two prepended, and again on the applied schema). **As of MO2 (2026-11-07):** 120 pgTAP suites, 6,511 checks with 0122 and 0123 (by count, after both review rounds) (the whole set read 6,493 on wilson-dev, rolled back, before the 15 probes the planted breakages asked for; the four suites they went into were read again). **As of MO1 (2026-11-07):** 117 pgTAP suites, 6,252 checks with 0120 and 0121, read by running them on wilson-dev, rolled back. The counts just below are dated history.
+**As of MO3 (2026-11-08):** 127 pgTAP suites, 6,949 checks with 0128 and 0129 (by count, after the whole-session review's first round added five; the whole set read on wilson-dev before those five, rolled back with the two prepended and again on the applied schema, and the three suites they went into read again). **As of MO2 (2026-11-07):** 120 pgTAP suites, 6,511 checks with 0122 and 0123 (by count, after both review rounds) (the whole set read 6,493 on wilson-dev, rolled back, before the 15 probes the planted breakages asked for; the four suites they went into were read again). **As of MO1 (2026-11-07):** 117 pgTAP suites, 6,252 checks with 0120 and 0121, read by running them on wilson-dev, rolled back. The counts just below are dated history.
 
 **pgTAP** — 55 suites under `supabase/tests/rls/` (Session 20 added 39–42, one
 per model control-plane table; **Session 24 added 43–47, one per money table;

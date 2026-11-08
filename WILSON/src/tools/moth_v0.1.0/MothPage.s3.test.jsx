@@ -132,4 +132,46 @@ describe('the typed tags drawer', () => {
     await waitFor(() => expect(adapter.createMothTag).toHaveBeenCalledWith({ typeId: 'ty1', tier: 'personal', label: 'MIRA' }))
     expect(await screen.findByText('You have a new tag, yours alone.')).toBeTruthy()
   })
+
+  it('looking back, the drawer changes nothing, and says why', async () => {
+    Object.assign(adapter, {
+      listMothTagTypes: vi.fn(async () => [{ id: 'ty1', tier: 'company', owner_id: null, name: 'Character', shape: 'star', colour: 'rose' }]),
+      listMothTags: vi.fn(async () => []),
+      listMothTagAssignments: vi.fn(async () => []),
+      listMothTagNominations: vi.fn(async () => []),
+      fetchMothHistoryWindow: vi.fn(async () => [{ recording_since: new Date(Date.now() - 30 * 86400000).toISOString() }]),
+      fetchMothHistory: vi.fn(async () => []),
+    })
+    render(<MothPage worldFactory={fakeWorld} />)
+    await world()
+    fireEvent.change(await screen.findByLabelText('Look back'), { target: { value: String(Date.now() - 5 * 86400000) } })
+    await waitFor(() => expect(screen.getByText(/^As it was /)).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: 'Typed tags' }))
+    expect(await screen.findByText('Looking back changes nothing. Come back to now to change things.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Make the type' }).closest('fieldset').disabled).toBe(true)
+  })
+})
+
+describe('a failed read of the workspace\'s rows', () => {
+  it('says so in a quiet line, and Try again reads them again', async () => {
+    adapter.listMothRelationships = vi.fn(async () => { throw new Error('offline') })
+    render(<MothPage worldFactory={fakeWorld} />)
+    await world()
+    const line = await waitFor(() => { const p = document.querySelector('[data-moth-workspace-failed]'); expect(p).toBeTruthy(); return p })
+    expect(line.textContent).toMatch(/what was drawn before is kept/)
+    adapter.listMothRelationships = vi.fn(async () => ({ links: [], truncated: true }))
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(document.querySelector('[data-moth-workspace-failed]')).toBeNull())
+    expect(document.querySelector('[data-moth-links-truncated]')).toBeTruthy()
+  })
+})
+
+describe('a list of notes or typed tags cut at its bound', () => {
+  it('says so in a quiet line of its own', async () => {
+    adapter.listMothTagAssignments = vi.fn(async () => Object.defineProperty([], 'truncated', { value: true, enumerable: false }))
+    render(<MothPage worldFactory={fakeWorld} />)
+    await world()
+    await waitFor(() => expect(document.querySelector('[data-moth-lists-cut]')?.textContent).toMatch(/some are not shown/))
+    expect(document.querySelector('[data-moth-links-truncated]')).toBeNull()
+  })
 })

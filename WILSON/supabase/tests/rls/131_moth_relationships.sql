@@ -20,7 +20,7 @@
 -- =============================================================================
 
 BEGIN;
-SELECT plan(64);
+SELECT plan(67);
 
 SELECT * FROM tests.rls_setup();
 
@@ -124,6 +124,11 @@ INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, 
 UPDATE public.workspace_members SET is_active = false
  WHERE workspace_id = '11111111-1111-1111-1111-111111111111' AND user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
 
+-- Whole-session round 1: a Legal file (its tag and its path), beside the money one.
+SELECT public.t131_a();
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, tags, is_financial) VALUES
+  ('13100000-0000-0000-0000-000000000083', 'aaaa1310-0000-0000-0000-00000000000a', 'nda.pdf', 'supabase', 'projects/aaaa1310-0000-0000-0000-00000000000a/legal/a/nda.pdf', '{legal}', false);
+
 SELECT set_config('request.jwt.claims', '{}', true);
 INSERT INTO public.notes (id, workspace_id, owner_id, title, tier) VALUES
   ('13100000-0000-0000-0000-0000000000b1', '11111111-1111-1111-1111-111111111111', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'Lighting the harbour', 'shared'),
@@ -172,6 +177,9 @@ SELECT is(public.t131_err($$INSERT INTO public.moth_relationships (source_type, 
 SELECT is(public.t131_words($$INSERT INTO public.moth_relationships (source_type, source_id, dest_type, dest_id)
                   VALUES ('asset', '13100000-0000-0000-0000-000000000051', 'file', '13100000-0000-0000-0000-000000000082')$$),
   'new row violates row-level security policy for table "moth_relationships"', 'never to a money file');
+SELECT is(public.t131_words($$INSERT INTO public.moth_relationships (source_type, source_id, dest_type, dest_id)
+                  VALUES ('asset', '13100000-0000-0000-0000-000000000051', 'file', '13100000-0000-0000-0000-000000000083')$$),
+  'new row violates row-level security policy for table "moth_relationships"', 'nor to a Legal file');
 SELECT is(public.t131_words($$INSERT INTO public.moth_relationships (source_type, source_id, dest_type, dest_id)
                   VALUES ('asset', '13100000-0000-0000-0000-000000000051', 'file', '13100000-0000-0000-0000-00000000dead')$$),
   'new row violates row-level security policy for table "moth_relationships"', 'refused as a thing that is not there is');
@@ -258,6 +266,10 @@ RESET ROLE;
 UPDATE public.moth_mention_reservations SET created_at = now() - interval '2 days' WHERE mention_key = current_setting('t131.k4');
 SET LOCAL ROLE authenticated;
 SELECT public.t131_c();
+-- The control for the two probes that a file's words link nothing: a fresh key in the same file's words does.
+SELECT set_config('t131.k6', public.moth_mention_reserve('task', '13100000-0000-0000-0000-000000000061'), true);
+UPDATE public.files SET description = 'Fresh [[Grade|m:' || current_setting('t131.k6') || ']].' WHERE id = '13100000-0000-0000-0000-000000000081';
+SELECT ok(public.t131_all() LIKE '%081>061:inline:description%', 'a fresh key saved in a file''s words makes its link');
 UPDATE public.files SET description = 'Late [[Grade|m:' || current_setting('t131.k4') || ']].' WHERE id = '13100000-0000-0000-0000-000000000081';
 SELECT is(public.t131_all(), '051>061:manual,051>0c1:inline:description', 'and a key past its day links nothing');
 
@@ -298,6 +310,7 @@ SELECT is((SELECT count(*)::int FROM jsonb_array_elements(public.moth_mention_ca
 SELECT is((SELECT count(*)::int FROM jsonb_array_elements(public.moth_mention_candidates('my own notes', 20))), 0, 'nor someone''s personal note');
 SELECT public.t131_c();
 SELECT is((SELECT count(*)::int FROM jsonb_array_elements(public.moth_mention_candidates('fee', 20))), 0, 'nor a money file');
+SELECT is((SELECT count(*)::int FROM jsonb_array_elements(public.moth_mention_candidates('nda', 20))), 0, 'nor a Legal file');
 SELECT is((SELECT string_agg(c ->> 'kind', ',') FROM jsonb_array_elements(public.moth_mention_candidates('my own notes', 20)) c), 'note',
   'and gives its owner their own note');
 SELECT is((SELECT string_agg(x ->> 'key', ',') FROM jsonb_array_elements(public.moth_item_links('asset', '13100000-0000-0000-0000-000000000051') -> 'out') AS x

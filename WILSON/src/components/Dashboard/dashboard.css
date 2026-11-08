@@ -591,7 +591,8 @@
     color: var(--color-ink-3);
     white-space: nowrap;
   }
-  .dash-save-state[data-state="error"] { color: var(--color-danger); }
+  .dash-save-state[data-state="error"],
+  .dash-save-state[data-state="refused"] { color: var(--color-danger); }
   .dash-save-state[data-state="saved"] { color: var(--color-success); }
   /* MO3 (0125): which notes the list holds, a note in the trash, and the plain words a shared note says about two
      people's changes. */

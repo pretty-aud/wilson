@@ -1,10 +1,13 @@
 // MO3: the list `[[` and `#` open under a field (useMentionPicker). A listbox: the lit row is aria-selected, a click
-// picks, the field keeps the keyboard. Placed under the field, never over the words being typed.
+// picks, the field keeps the keyboard. Placed under the field, never over the words being typed. Once the list has
+// closed, what the last pick did that the person would not guess (picker.notice) stays said in its place.
 import { KIND_WORDS } from '../../state/linkedThings'
 import './mentions.css'
 
 export default function MentionPicker({ picker, onPick, id = 'mention-picker' }) {
-  if (!picker?.open) return null
+  if (!picker?.open) {
+    return picker?.notice ? <div className="rb-mention-notice" role="status">{picker.notice}</div> : null
+  }
   const { mode, items, active, message, busy } = picker
   return (
     <div className="rb-mention-picker" data-mode={mode} aria-busy={busy ? 'true' : 'false'}>

@@ -11,7 +11,7 @@
 // =============================================================================
 
 import { describe, it, expect, afterEach, beforeAll, afterAll, vi } from 'vitest'
-import { render, screen, cleanup, fireEvent, within, waitFor } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, within, waitFor, act } from '@testing-library/react'
 import { _resetOverlaysForTests } from '../../../ui/overlay'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -645,6 +645,29 @@ describe('ProjectAssetsView — the popups on the kit', () => {
     expect(screen.getByRole('dialog', { name: 'Mara' })).toBeTruthy()
     escape()
     expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('MO3: the description\'s links are read again once its save has landed', async () => {
+    const adapter = {
+      listMothItemRelationships: vi.fn(async () => ({ out: [], in: [] })),
+      listMothTags: vi.fn(async () => []),
+      listMothTagAssignments: vi.fn(async () => []),
+    }
+    let land
+    const { ctx } = page({ getAdapter: () => adapter })
+    ctx.updateAsset.mockImplementation(() => new Promise(r => { land = r }))
+    const dialog = openDetail('Mara')
+    await waitFor(() => expect(adapter.listMothItemRelationships.mock.calls.length).toBeGreaterThanOrEqual(2), { timeout: 3000 })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Lead. Wardrobe, hair, the coat.' }))
+    const desc = within(dialog).getByRole('textbox', { name: 'Description' })
+    fireEvent.change(desc, { target: { value: 'Lead. The coat.' } })
+    fireEvent.blur(desc)
+    expect(ctx.updateAsset).toHaveBeenCalledWith('a1', { description: 'Lead. The coat.' })
+    const before = adapter.listMothItemRelationships.mock.calls.length
+    await act(async () => { await new Promise(r => setTimeout(r, 30)) })
+    expect(adapter.listMothItemRelationships.mock.calls.length).toBe(before)
+    await act(async () => { land({}) })
+    await waitFor(() => expect(adapter.listMothItemRelationships.mock.calls.length).toBe(before + 1))
   })
 })
 

@@ -20,7 +20,7 @@
 -- =============================================================================
 
 BEGIN;
-SELECT plan(87);
+SELECT plan(88);
 
 SELECT * FROM tests.rls_setup();
 
@@ -315,6 +315,9 @@ INSERT INTO public.folders (id, project_id, parent_id, kind, slug, path) VALUES
 SELECT ok((SELECT e.o_locked FROM public._moth_history_end('folder', '13300000-0000-0000-0000-0000000001f3') e)
           AND NOT (SELECT e.o_locked FROM public._moth_history_end('folder', '13300000-0000-0000-0000-0000000001f1') e),
   'a money folder is locked too, and another folder is not');
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, tags, is_financial) VALUES
+  ('13300000-0000-0000-0000-000000000084', 'aaaa1330-0000-0000-0000-00000000000a', 'nda.pdf', 'supabase', 'projects/aaaa1330-0000-0000-0000-00000000000a/legal/a/nda.pdf', '{legal}', false);
+SELECT ok((SELECT e.o_locked FROM public._moth_history_end('file', '13300000-0000-0000-0000-000000000084') e), 'and so is a Legal file');
 
 -- G3. A purge takes a note's tagging and its link with it: their going reads to those who read them.
 SET LOCAL ROLE authenticated;

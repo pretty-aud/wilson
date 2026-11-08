@@ -315,15 +315,17 @@ let fileTagsKnown = null;
 // (or PGRST204 from the schema cache) and every note is still its owner's alone, with no trash, as before 0125.
 // Any other failure says nothing about the column, and is the caller's to meet: it is not taken for an old
 // database, whose list would show other people's shared notes among one's own.
+// The session review: only "there" is remembered. A client open across the apply would otherwise go on reading the
+// database as before 0125 all session, so "not there" is asked again each time; and only the missing column or
+// table is taken for an old database, never a failure whose message merely holds the word.
 let notesTiersKnown = null;
 async function notesTiersAvailable(client) {
-  if (notesTiersKnown !== null) return notesTiersKnown;
+  if (notesTiersKnown === true) return true;
   const { error } = await client.from('notes').select('tier').limit(1);
   if (!error) { notesTiersKnown = true; return true; }
-  if (['42703', '42P01', 'PGRST204', 'PGRST205'].includes(error.code) || /tier/.test(error.message || '')) {
-    notesTiersKnown = false;
-    return false;
-  }
+  const noTable = ['42P01', 'PGRST205'].includes(error.code);
+  const noColumn = ['42703', 'PGRST204'].includes(error.code) && /\btier\b/.test(error.message || '');
+  if (noTable || noColumn) return false;
   lastError = error.message || String(error);
   const err = new Error(`[supabase] ${lastError}`);
   if (error.code) err.code = error.code;
@@ -1941,6 +1943,38 @@ const MOTH_TAG_NOMINATION_COLUMNS = 'id, proposer_id, tag_id, label, type_name, 
 const MOTH_LINK_COLUMNS = 'id, source_type, source_id, dest_type, dest_id, label, origin, field, created_at';
 const unwrapMothTagTable = (result) => unwrapMothTable(result, MOTH_TAGS_ABSENT);
 const unwrapMothLinkTable = (result) => unwrapMothTable(result, MOTH_LINKS_ABSENT);
+// MO3 (the session review): Moth's lists of tags, types, uses, nominations and notes are read whole, a page at a time
+// (PostgREST stops at 1,000 rows an answer and says nothing of the rest), up to a bound. The last page asks one row
+// past the bound, so a list cut there says so: `truncated` on the array, out of sight of a plain comparison.
+const MOTH_LIST_BOUND = 20000;
+const MOTH_NOTES_BOUND = 5000; // moth_notes' own LIMIT (0125)
+function mothCut(rows) {
+  Object.defineProperty(rows, 'truncated', { value: true, enumerable: false });
+  return rows;
+}
+async function readMothPages(makeQuery, unwrapPage, bound = MOTH_LIST_BOUND) {
+  const out = [];
+  for (let from = 0; from <= bound; from += READ_PAGE) {
+    const to = Math.min(from + READ_PAGE - 1, bound);
+    const page = unwrapPage(await makeQuery().range(from, to)) || [];
+    out.push(...page);
+    if (page.length < to - from + 1) break;
+  }
+  return out.length > bound ? mothCut(out.slice(0, bound)) : out;
+}
+// A change the database made to no row was refused by a policy (a seat lowered while the page stayed open, a label on
+// a typed link) or found nothing there: said in words, never a quiet null a panel would show as done. The words say
+// nothing of whether the row exists.
+const MOTH_TAG_UNCHANGED = 'That tag is not one you can change now, or it is no longer there.';
+const MOTH_TAG_NOT_DELETED = 'That tag is not one you can delete, or it is gone already.';
+const MOTH_TYPE_UNCHANGED = 'That type is not one you can change now, or it is no longer there.';
+const MOTH_TYPE_NOT_DELETED = 'That type is not one you can delete, or it is gone already.';
+const MOTH_LINK_UNCHANGED = 'That link is not one you can change: only a link drawn by hand takes a label, from someone who may change where it starts.';
+function mothNothingChanged(message) {
+  const err = new Error(message);
+  err.code = '42501';
+  return err;
+}
 
 // MO1 (0118): the same, with its refusals in words.
 function unwrapMoth(result, fnName) {
@@ -4380,10 +4414,13 @@ export function supabaseAdapter() {
           return Array.isArray(out) ? out : [];
         }
         if (scope === 'shared') q = q.is('deleted_at', null).neq('tier', 'personal');
-        else {
-          const { data: sess } = await client.auth.getSession();
-          q = q.is('deleted_at', null).eq('owner_id', sess?.session?.user?.id ?? '00000000-0000-0000-0000-000000000000');
-        }
+        else q = q.is('deleted_at', null);
+      }
+      // One's own are asked for whatever the probe said: before 0125 every note is its owner's anyway, and a probe
+      // wrong for a moment must not list a colleague's shared note as one's own.
+      if (scope === 'mine') {
+        const { data: sess } = await client.auth.getSession();
+        q = q.eq('owner_id', sess?.session?.user?.id ?? '00000000-0000-0000-0000-000000000000');
       }
       const { data, error } = await q.order('updated_at', { ascending: false });
       if (error) {
@@ -4522,14 +4559,14 @@ export function supabaseAdapter() {
     async retagNoteSubject(oldLabel, newLabel) {
       const client = await requireClient();
       const tiers = await notesTiersAvailable(client);
+      const { data: sess } = await client.auth.getSession();
+      // The owner's filter whatever the probe said (the session review): it is harmless before 0125.
       let q = client
         .from('notes')
         .update({ subject: newLabel })
-        .eq('subject', oldLabel);
-      if (tiers) {
-        const { data: sess } = await client.auth.getSession();
-        q = q.eq('owner_id', sess?.session?.user?.id ?? '00000000-0000-0000-0000-000000000000').neq('tier', 'company_standard');
-      }
+        .eq('subject', oldLabel)
+        .eq('owner_id', sess?.session?.user?.id ?? '00000000-0000-0000-0000-000000000000');
+      if (tiers) q = q.neq('tier', 'company_standard');
       const { data, error } = await q.select('id');
       if (error) {
         if (error.code === '42P01' || error.code === 'PGRST205') return [];
@@ -6253,9 +6290,13 @@ export function supabaseAdapter() {
     // ── MO3 (0125 to 0127): workspace notes in Moth, typed tags, relationships ─────────────────────────────────
     // A workspace note is a note of 0017 that is not personal: Moth reads titles and tiers only (moth_notes), never a
     // body. A database before 0125 has none, and the page says so.
+    // Paged on the function's answer, in its own order. The server stops at 5,000 before its gate, so a full 5,000
+    // is the only sign some were left out, and is said to be cut.
     async listMothNotes() {
       const client = await requireClient();
-      return unwrapMothRpc(await client.rpc('moth_notes'), 'moth_notes', MOTH_NOTES_ABSENT) || [];
+      const rows = await readMothPages(() => client.rpc('moth_notes').order('updated_at', { ascending: false }).order('id'),
+        (res) => unwrapMothRpc(res, 'moth_notes', MOTH_NOTES_ABSENT), MOTH_NOTES_BOUND);
+      return rows.length >= MOTH_NOTES_BOUND && !rows.truncated ? mothCut(rows) : rows;
     },
     // The keys of the typed links a note's body holds, sent after each save with the version they were read from
     // (the server cannot read a Yjs document; a list for a version the note no longer is answers false, unused).
@@ -6267,7 +6308,7 @@ export function supabaseAdapter() {
     // Types and tags: the company's and the caller's own, through each table's own read policy.
     async listMothTagTypes() {
       const client = await requireClient();
-      return unwrapMothTagTable(await client.from('moth_tag_types').select(MOTH_TAG_TYPE_COLUMNS).order('name')) || [];
+      return readMothPages(() => client.from('moth_tag_types').select(MOTH_TAG_TYPE_COLUMNS).order('name').order('id'), unwrapMothTagTable);
     },
     async createMothTagType({ tier, name, shape = 'circle', colour = 'mist' }) {
       const client = await requireClient();
@@ -6282,16 +6323,18 @@ export function supabaseAdapter() {
       if (colour !== undefined) patch.colour = colour;
       if (retired !== undefined) patch.retired_at = retired ? new Date().toISOString() : null;
       const rows = unwrapMothTagTable(await client.from('moth_tag_types').update(patch).eq('id', id).select(MOTH_TAG_TYPE_COLUMNS)) || [];
-      return rows[0] ?? null;
+      if (!rows.length) throw mothNothingChanged(MOTH_TYPE_UNCHANGED);
+      return rows[0];
     },
     async deleteMothTagType(id) {
       const client = await requireClient();
       const rows = unwrapMothTagTable(await client.from('moth_tag_types').delete().eq('id', id).select('id')) || [];
-      return { removed: rows.length > 0 };
+      if (!rows.length) throw mothNothingChanged(MOTH_TYPE_NOT_DELETED);
+      return { removed: true };
     },
     async listMothTags() {
       const client = await requireClient();
-      return unwrapMothTagTable(await client.from('moth_tags').select(MOTH_TAG_COLUMNS).order('label')) || [];
+      return readMothPages(() => client.from('moth_tags').select(MOTH_TAG_COLUMNS).order('label').order('id'), unwrapMothTagTable);
     },
     async createMothTag({ typeId, tier, label }) {
       const client = await requireClient();
@@ -6305,19 +6348,24 @@ export function supabaseAdapter() {
       if (typeId !== undefined) patch.type_id = typeId;
       if (retired !== undefined) patch.retired_at = retired ? new Date().toISOString() : null;
       const rows = unwrapMothTagTable(await client.from('moth_tags').update(patch).eq('id', id).select(MOTH_TAG_COLUMNS)) || [];
-      return rows[0] ?? null;
+      if (!rows.length) throw mothNothingChanged(MOTH_TAG_UNCHANGED);
+      return rows[0];
     },
     async deleteMothTag(id) {
       const client = await requireClient();
       const rows = unwrapMothTagTable(await client.from('moth_tags').delete().eq('id', id).select('id')) || [];
-      return { removed: rows.length > 0 };
+      if (!rows.length) throw mothNothingChanged(MOTH_TAG_NOT_DELETED);
+      return { removed: true };
     },
-    // Assignments the caller sees: the company's on what they see, and their own. One thing's, or all (bounded).
+    // Assignments the caller sees: the company's on what they see, and their own. One thing's, or all (bounded at
+    // 20,000, and said to be cut past it).
     async listMothTagAssignments({ targetKind = null, targetId = null } = {}) {
       const client = await requireClient();
-      let q = client.from('moth_tag_assignments').select(MOTH_TAG_ASSIGNMENT_COLUMNS);
-      if (targetKind && targetId) q = q.eq('target_type', targetKind).eq('target_id', targetId);
-      return unwrapMothTagTable(await q.order('created_at').limit(20000)) || [];
+      return readMothPages(() => {
+        let q = client.from('moth_tag_assignments').select(MOTH_TAG_ASSIGNMENT_COLUMNS);
+        if (targetKind && targetId) q = q.eq('target_type', targetKind).eq('target_id', targetId);
+        return q.order('created_at').order('id');
+      }, unwrapMothTagTable);
     },
     async assignMothTag({ tagId, tier, targetKind, targetId }) {
       const client = await requireClient();
@@ -6334,8 +6382,8 @@ export function supabaseAdapter() {
     // its type's name only; approving folds every exact match into the company tag, each owner's use kept private.
     async listMothTagNominations() {
       const client = await requireClient();
-      return unwrapMothTagTable(await client.from('moth_tag_nominations').select(MOTH_TAG_NOMINATION_COLUMNS)
-        .order('created_at', { ascending: false })) || [];
+      return readMothPages(() => client.from('moth_tag_nominations').select(MOTH_TAG_NOMINATION_COLUMNS)
+        .order('created_at', { ascending: false }).order('id'), unwrapMothTagTable);
     },
     async nominateMothTag(tagId, note = null) {
       const client = await requireClient();
@@ -6371,7 +6419,8 @@ export function supabaseAdapter() {
     async updateMothRelationshipLabel(id, label) {
       const client = await requireClient();
       const rows = unwrapMothLinkTable(await client.from('moth_relationships').update({ label }).eq('id', id).select(MOTH_LINK_COLUMNS)) || [];
-      return rows[0] ?? null;
+      if (!rows.length) throw mothNothingChanged(MOTH_LINK_UNCHANGED);
+      return rows[0];
     },
     async deleteMothRelationship(id) {
       const client = await requireClient();

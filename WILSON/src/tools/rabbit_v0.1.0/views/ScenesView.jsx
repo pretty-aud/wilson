@@ -3427,7 +3427,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
   const status = scene.status || 'not_started'
   const hasThumbnail = !!scene.thumbnail_image
 
-  function handleUpdate(patch) { if (canWrite) ctx?.updateScene?.(scene.id, patch) }
+  function handleUpdate(patch) { return canWrite ? ctx?.updateScene?.(scene.id, patch) : undefined }
   // D21: a draft that differs from what is saved, in an open editor — and
   // (S3b-05) a task form with anything typed or chosen in it.
   const dirty = {
@@ -3934,7 +3934,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
   const status = shot.status || 'not_started'
   const hasThumbnail = !!shot.thumbnail_image
 
-  function handleUpdate(patch) { if (canWrite) ctx?.updateShot?.(shot.id, patch) }
+  function handleUpdate(patch) { return canWrite ? ctx?.updateShot?.(shot.id, patch) : undefined }
   const dirty = {
     description: editingDesc && descDraft !== (shot.description || ''),
     notes: editingNotes && notesDraft !== (shot.notes || ''),
@@ -4610,7 +4610,8 @@ function PopupInlineText({ value, placeholder, label, onCommit, readOnly = false
 
 // ─── useThingLinks (MO3, 0127) ───
 // A scene's or a shot's links and tags, for its window's two texts. The server makes a typed link when the words are
-// saved, so the links are read again a moment after each save of either text; a `#` pick tags the thing at once and
+// saved, so the links are read again once each save of either text has landed (and, should a save say nothing, a
+// moment after the words change); a `#` pick tags the thing at once and
 // the tags above the description are read again. Without a database that keeps links (a project kept on this
 // computer, a database before 0127) there are none, and the words read as plain words.
 function useThingLinks(ctx, kind, id, description, notes) {
@@ -4625,8 +4626,8 @@ function useThingLinks(ctx, kind, id, description, notes) {
     return () => clearTimeout(timer)
   }, [id, description, notes, reload])
   const mention = useMemo(() => (id
-    ? { getAdapter, target: { kind, id }, links, onTagged: () => tagsRef.current?.reload() }
-    : null), [getAdapter, kind, id, links])
+    ? { getAdapter, target: { kind, id }, links, onTagged: () => tagsRef.current?.reload(), reload }
+    : null), [getAdapter, kind, id, links, reload])
   return { itemLinks, tagsRef, mention, getAdapter }
 }
 
@@ -4678,7 +4679,12 @@ function PopupDraftText({ label, field, value, emptyWords, editing, setEditing, 
               autoFocus />}
         <div className="rb-scene-edit-acts">
           <Button size="sm" variant="primary" Icon={Save}
-            onClick={() => { onSave(draft); setEditing(false) }}>
+            onClick={() => {
+              const saving = onSave(draft)
+              setEditing(false)
+              // MO3: the server makes a typed link with the write, so the links are read once it has landed.
+              if (mention?.reload) Promise.resolve(saving).catch(() => {}).finally(() => mention.reload())
+            }}>
             Save
           </Button>
           <Button size="sm" variant="ghost"

@@ -10,9 +10,12 @@ export default function MentionTextArea({ value, onChange, onKeyDown, getAdapter
   const ref = useRef(null)
   const picker = useMentionPicker({ getAdapter, target, onTagged })
 
+  // The text after the caret goes too, so a caret inside a saved link's words asks nothing.
   const ask = useCallback((el) => {
     if (!el) return
-    picker.update(String(el.value).slice(0, el.selectionStart ?? 0))
+    const text = String(el.value)
+    const caret = el.selectionStart ?? 0
+    picker.update(text.slice(0, caret), text.slice(caret))
   }, [picker])
 
   const doPick = useCallback(async (index) => {

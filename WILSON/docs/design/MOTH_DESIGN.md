@@ -2149,9 +2149,9 @@ look, rolled back on wilson-dev first, planted on a throwaway Actions stack, the
 - **`0126_moth_tags`.** Typed tags: types (company or a person's own; a name, a shape, a colour), tags (a label, its
   type, its tier, its owner; `canonical_id` once folded into another; retired), assignments (a tag on any of eleven
   kinds of thing, with its own tier: a person's own use of a company tag is theirs alone), and nominations (a person
-  puts their own tag forward; a live admin approves or turns it down; managers put forward, never decide). Approve,
-  rename, merge and retire act under one catalogue lock, and a fold moves every use to the tag it now stands for
-  (FOR NO KEY UPDATE, so a person's foreign key check is not blocked). The gate learns a typed tag (`mtag`); places
+  puts their own tag forward; a live admin approves or turns it down; managers put forward, never decide). Approve
+  and merge act under one catalogue lock a company, and a fold moves every use to the tag it now stands for (FOR NO
+  KEY UPDATE, so a person's foreign key check is not blocked); rename and retire take no catalogue lock. The gate learns a typed tag (`mtag`); places
   learn notes and typed tags.
 - **`0127_moth_relationships`.** Saved links between any two things, both ends through Moth's gate, labelled (at most
   80 characters), drawn by hand or made inline. An inline link is a token in the words, `[[words|m:key]]`: the key is
@@ -2212,7 +2212,7 @@ set with the files prepended (for 0128 and 0129, 127 suites, 6,944 planned = col
 suite 74's, on dev's own old sign-in rows, red without the files); each file alone and twice in one transaction
 (0128 86 ms, then 24 and 15; 0129 93 ms, then 33 and 32); health before and after (24 and 26 connections, no lock
 waits, nothing open past a minute). New suites: 127 to 133 (typed tags, nominations, links, reservations, the record of
-the four: 87 probes).
+the four): 351 probes, 88 of them the record's.
 
 ### 4.4 Not built, and owed
 

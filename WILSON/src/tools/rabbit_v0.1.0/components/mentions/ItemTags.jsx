@@ -1,11 +1,12 @@
 // MO3 (0126): a thing's typed tags, as its reader may see them: the company's on it, and the reader's own, marked
 // as theirs alone. A tag is taken off by whoever put it there may: the company's by those who may change the thing,
-// one's own by oneself. `#` in the thing's text puts one on (useMentionPicker); this shows and removes them.
+// one's own by oneself. `#` in the thing's text puts one on (useMentionPicker); this shows and removes them, and
+// tells `onChanged` when one has been taken off, so a page that draws them elsewhere (M.O.T.H.'s map) redraws.
 // Nothing is drawn on a database before 0126, or while the thing has none.
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, forwardRef } from 'react'
 import './mentions.css'
 
-const ItemTags = forwardRef(function ItemTags({ getAdapter, kind, id, canChange = true }, ref) {
+const ItemTags = forwardRef(function ItemTags({ getAdapter, kind, id, canChange = true, onChanged = null }, ref) {
   const [rows, setRows] = useState([])
   const [error, setError] = useState(null)
   const seqRef = useRef(0)
@@ -34,10 +35,11 @@ const ItemTags = forwardRef(function ItemTags({ getAdapter, kind, id, canChange 
       const res = await a.unassignMothTag(row.id)
       if (!res?.removed) setError('That tag is not yours to take off.')
       await load()
+      if (res?.removed) onChanged?.()
     } catch (err) {
       setError(err?.message || 'That tag could not be taken off.')
     }
-  }, [getAdapter, load])
+  }, [getAdapter, load, onChanged])
 
   if (!rows.length && !error) return null
   return (

@@ -54,6 +54,17 @@ export function mentionPlainText(text) {
   return splitMentions(text).map(p => (p.key ? p.words : p.text)).join('')
 }
 
+// Whether the caret sits inside a whole token (past its first character, before its last): there the person is
+// editing a saved link's words, and the picker must not ask, or a pick would cut the token in two.
+export function insideMention(text, caret) {
+  if (typeof text !== 'string' || !text.includes('[[') || !Number.isFinite(caret)) return false
+  for (const m of text.matchAll(TOKEN)) {
+    if (m.index >= caret) return false
+    if (caret < m.index + m[0].length) return true
+  }
+  return false
+}
+
 // What the person is typing just before the caret: `[[` and words asks for a thing to link (mode 'link'); `#` and a
 // word, at the start or after a space, asks for a tag (mode 'tag'). `start` is where the asking began, so a pick
 // replaces it. Nothing for an open token's own words, a `#` inside a word (shot#12), or more than a line.

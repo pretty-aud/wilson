@@ -1904,7 +1904,7 @@ export function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onTh
   }
 
   function handleUpdateAsset(patch) {
-    ctx?.updateAsset?.(asset.id, patch)
+    return ctx?.updateAsset?.(asset.id, patch)
   }
 
   async function handleSetThumbnail() {
@@ -2082,7 +2082,8 @@ export function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onTh
                     onBlur={() => {
                       setEditingDesc(false)
                       if (descDraft !== (asset.description || '')) {
-                        handleUpdateAsset({ description: descDraft })
+                        // MO3: the server makes a typed link with the write, so the links are read once it has landed.
+                        Promise.resolve(handleUpdateAsset({ description: descDraft })).catch(() => {}).finally(() => reloadLinks())
                       }
                     }}
                     onKeyDown={(e) => {

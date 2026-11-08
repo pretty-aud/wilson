@@ -158,4 +158,60 @@ describe('createMothCatalogue', () => {
     expect(store.catalogue().files.p1).toEqual([])
     expect(store.catalogue().files.p2.map((f) => f.id)).toEqual(['p2-a'])
   })
+
+  it('MO3: a failed workspace read keeps what was drawn of that kind, says so, and replaces only the kinds it read', async () => {
+    Object.assign(adapter, {
+      listMothNotes: vi.fn(async () => [{ id: 'n1', title: 'Look of the film' }]),
+      listMothTagTypes: vi.fn(async () => [{ id: 'ty1', name: 'Character', shape: 'star', colour: 'rose' }]),
+      listMothTags: vi.fn(async () => [{ id: 'c1', label: 'Mira', type_id: 'ty1' }]),
+      listMothTagAssignments: vi.fn(async () => [{ id: 'a1', tag_id: 'c1', target_type: 'file', target_id: 'p1-a' }]),
+      listMothRelationships: vi.fn(async () => ({ links: [{ id: 'r1', source_kind: 'file', source_id: 'p1-a', target_kind: 'note', target_id: 'n1' }], truncated: true })),
+    })
+    const store = createMothCatalogue({ adapter })
+    await store.loadAll()
+    await store.readWorkspace()
+    expect(store.getSnapshot().workspaceError).toBeNull()
+    const offline = () => { throw new Error('offline') }
+    adapter.listMothTagTypes = vi.fn(offline)
+    adapter.listMothRelationships = vi.fn(offline)
+    adapter.listMothNotes = vi.fn(async () => [{ id: 'n1', title: 'Look of the film' }, { id: 'n2', title: 'Second' }])
+    await store.readWorkspace()
+    const snap = store.getSnapshot()
+    expect(snap.workspaceError).toBe('offline')
+    expect(snap.workspace.mtags).toEqual([{ id: 'c1', label: 'Mira', type_id: 'ty1', shape: 'star', colour: 'rose', type_name: 'Character' }])
+    expect(snap.workspace.types.map((t) => t.id)).toEqual(['ty1'])
+    expect(snap.workspace.relationships.map((r) => r.id)).toEqual(['r1'])
+    expect(snap.workspace.truncated).toBe(true)
+    expect(snap.workspace.notes.map((n) => n.id)).toEqual(['n1', 'n2'])
+    expect(store.catalogue().relations.some((r) => r.relationship === 'r1')).toBe(true)
+    // A good read again clears the words.
+    adapter.listMothTagTypes = vi.fn(async () => [])
+    adapter.listMothRelationships = vi.fn(async () => ({ links: [], truncated: false }))
+    await store.readWorkspace()
+    expect(store.getSnapshot().workspaceError).toBeNull()
+    expect(store.getSnapshot().workspace.relationships).toEqual([])
+    expect(store.getSnapshot().workspace.mtags[0].type_name).toBe('')
+  })
+
+  it('MO3: a list of notes or typed tags read to its bound says so; a failed read keeps the sign, a whole one clears it', async () => {
+    const cut = (rows) => Object.defineProperty(rows, 'truncated', { value: true, enumerable: false })
+    Object.assign(adapter, {
+      listMothNotes: vi.fn(async () => []),
+      listMothTagTypes: vi.fn(async () => []),
+      listMothTags: vi.fn(async () => cut([{ id: 'c1', label: 'Mira', type_id: null }])),
+      listMothTagAssignments: vi.fn(async () => []),
+      listMothRelationships: vi.fn(async () => ({ links: [], truncated: false })),
+    })
+    const store = createMothCatalogue({ adapter })
+    await store.loadAll()
+    await store.readWorkspace()
+    expect(store.getSnapshot().workspace.cut).toBe(true)
+    expect(store.getSnapshot().workspace.truncated).toBe(false)
+    adapter.listMothTags = vi.fn(async () => { throw new Error('offline') })
+    await store.readWorkspace()
+    expect(store.getSnapshot().workspace.cut).toBe(true)
+    adapter.listMothTags = vi.fn(async () => [{ id: 'c1', label: 'Mira', type_id: null }])
+    await store.readWorkspace()
+    expect(store.getSnapshot().workspace.cut).toBe(false)
+  })
 })

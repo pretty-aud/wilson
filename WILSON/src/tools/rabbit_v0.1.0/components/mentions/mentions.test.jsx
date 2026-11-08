@@ -3,9 +3,10 @@
 // the token where the asking began; `#` tags the thing and leaves nothing; a seen link's words open its thing, and
 // any other token reads as its words alone; "Mentioned in" names what links here.
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, cleanup, fireEvent, waitFor, act } from '@testing-library/react'
+import { render, cleanup, fireEvent, waitFor, act, within } from '@testing-library/react'
 import { useState } from 'react'
 import MentionTextArea from './MentionTextArea'
+import { FALLBACK_NOTICE } from './useMentionPicker'
 import MentionText from './MentionText'
 import MentionedIn from './MentionedIn'
 import { linksByKey } from './useItemLinks'
@@ -31,8 +32,8 @@ function fakeAdapter(over = {}) {
   }
 }
 
-function Field({ adapter, onTagged }) {
-  const [value, setValue] = useState('')
+function Field({ adapter, onTagged, initial = '' }) {
+  const [value, setValue] = useState(initial)
   return (
     <MentionTextArea aria-label="Description" value={value} onChange={setValue}
       getAdapter={() => adapter} target={{ kind: 'task', id: TASK }} onTagged={onTagged} />
@@ -95,7 +96,7 @@ describe('a textarea that takes [[ and #', () => {
     const assignMothTag = vi.fn(async (a) => { if (a.tier === 'company') throw refused; return { id: 'as2', ...a } })
     const adapter = fakeAdapter({ assignMothTag })
     const onTagged = vi.fn()
-    const { getByLabelText, findByRole } = render(<Field adapter={adapter} onTagged={onTagged} />)
+    const { getByLabelText, findByRole, queryByRole, getByText } = render(<Field adapter={adapter} onTagged={onTagged} />)
     const el = getByLabelText('Description')
     el.focus()
     typeInto(el, '#mira')
@@ -105,6 +106,93 @@ describe('a textarea that takes [[ and #', () => {
     await waitFor(() => expect(assignMothTag).toHaveBeenCalledTimes(2))
     expect(assignMothTag.mock.calls[1][0].tier).toBe('personal')
     expect(onTagged.mock.calls[0][2]).toEqual({ mine: true, fallback: true })
+    // Said in words once the list has gone, not left to the chip's "yours".
+    await waitFor(() => expect(queryByRole('listbox')).toBeNull())
+    expect(getByText(FALLBACK_NOTICE).getAttribute('role')).toBe('status')
+  })
+
+  it('a caret inside a saved link\'s words opens no list, and Enter stays the field\'s', async () => {
+    const adapter = fakeAdapter({ listMothMentionCandidates: vi.fn(async () => [{ kind: 'asset', id: 'aaaa', name: 'Alice', project_id: 'pppp' }]) })
+    const text = `See [[Alice|m:${KEY}]] today`
+    const { getByLabelText, queryByRole } = render(<Field adapter={adapter} initial={text} />)
+    const el = getByLabelText('Description')
+    el.focus()
+    const at = text.indexOf('ce|')
+    el.setSelectionRange(at, at)
+    fireEvent.click(el)
+    fireEvent.keyUp(el, { key: 'ArrowLeft' })
+    await act(async () => { await new Promise(r => setTimeout(r, 250)) })
+    expect(queryByRole('listbox')).toBeNull()
+    expect(adapter.listMothMentionCandidates).not.toHaveBeenCalled()
+    const enter = fireEvent.keyDown(el, { key: 'Enter' })
+    expect(enter).toBe(true)
+    expect(adapter.reserveMothMention).not.toHaveBeenCalled()
+    expect(el.value).toBe(text)
+  })
+
+  it('a double-click on a row picks once: one key, one whole token', async () => {
+    let answer
+    const reserveMothMention = vi.fn(() => new Promise(r => { answer = r }))
+    const adapter = fakeAdapter({ reserveMothMention })
+    const { getByLabelText, findByRole } = render(<Field adapter={adapter} />)
+    const el = getByLabelText('Description')
+    el.focus()
+    typeInto(el, '[[mi')
+    const row = within(await findByRole('listbox')).getByText('Mira')
+    fireEvent.mouseDown(row)
+    fireEvent.mouseDown(row)
+    const again = fireEvent.keyDown(el, { key: 'Enter' })
+    expect(again).toBe(false)
+    await act(async () => { answer(KEY) })
+    await waitFor(() => expect(el.value).toBe(`[[Mira|m:${KEY}]] `))
+    expect(reserveMothMention).toHaveBeenCalledTimes(1)
+  })
+
+  it('Escape while a link waits for its key closes the list, and nothing goes in when the key comes', async () => {
+    let answer
+    const reserveMothMention = vi.fn(() => new Promise(r => { answer = r }))
+    const adapter = fakeAdapter({ reserveMothMention })
+    const { getByLabelText, findByRole, queryByRole } = render(<Field adapter={adapter} />)
+    const el = getByLabelText('Description')
+    el.focus()
+    typeInto(el, '[[mi')
+    fireEvent.mouseDown(within(await findByRole('listbox')).getByText('Mira'))
+    fireEvent.keyDown(el, { key: 'Escape' })
+    await act(async () => { answer(KEY) })
+    expect(queryByRole('listbox')).toBeNull()
+    expect(el.value).toBe('[[mi')
+  })
+
+  it('Enter typed before a new search lands does not pick a row left over from the last one', async () => {
+    const listMothMentionCandidates = vi.fn(async (q) => (q === 'al'
+      ? [{ kind: 'asset', id: 'alan', name: 'Alan', project_id: 'pppp' }]
+      : [{ kind: 'asset', id: 'alice', name: 'Alice', project_id: 'pppp' }]))
+    const adapter = fakeAdapter({ listMothMentionCandidates })
+    const { getByLabelText, findByText } = render(<Field adapter={adapter} />)
+    const el = getByLabelText('Description')
+    el.focus()
+    typeInto(el, '[[al')
+    await findByText('Alan')
+    typeInto(el, '[[ali')
+    await act(async () => { fireEvent.keyDown(el, { key: 'Enter' }) })
+    expect(adapter.reserveMothMention).not.toHaveBeenCalled()
+    await findByText('Alice')
+    await act(async () => { fireEvent.keyDown(el, { key: 'Enter' }) })
+    await waitFor(() => expect(adapter.reserveMothMention).toHaveBeenCalledWith('asset', 'alice'))
+  })
+
+  it('keys an input method is composing with are its own, not the list\'s', async () => {
+    const adapter = fakeAdapter()
+    const { getByLabelText, findByRole } = render(<Field adapter={adapter} />)
+    const el = getByLabelText('Description')
+    el.focus()
+    typeInto(el, '[[mi')
+    await findByRole('listbox')
+    expect(fireEvent.keyDown(el, { key: 'Enter', isComposing: true })).toBe(true)
+    expect(fireEvent.keyDown(el, { key: 'Enter', keyCode: 229 })).toBe(true)
+    expect(fireEvent.keyDown(el, { key: 'ArrowDown', isComposing: true })).toBe(true)
+    await act(async () => { await new Promise(r => setTimeout(r, 20)) })
+    expect(adapter.reserveMothMention).not.toHaveBeenCalled()
   })
 
   it('on a database without links, the list says so in words', async () => {

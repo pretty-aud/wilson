@@ -24,6 +24,7 @@
 }
 .rb-mention-picker-row[data-active='true'] { background: var(--color-signal-tint); border-left-color: var(--color-signal); }
 .rb-mention-picker-note { padding: 6px 8px; color: var(--color-ink-2); }
+.rb-mention-notice { font-size: var(--text-caption); color: var(--color-ink-2); }
 
 .rb-mention-kind {
   flex: none; min-width: 64px; color: var(--color-ink-3); font-size: var(--text-caption);

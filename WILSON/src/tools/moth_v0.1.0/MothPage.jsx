@@ -765,6 +765,15 @@ export default function MothPage({ isActive = true, worldFactory }) {
                 {' '}WILSON tries again each time it starts. If a project's folder is on a drive, connect it.
               </Banner>
             )}
+            {/* MO3: a failed read of the notes, typed tags or links keeps what was drawn, and says so; never an empty graph that looks true. */}
+            {snap.workspaceError && (
+              <p className="moth-quiet" data-moth-workspace-failed>
+                Could not read every note, typed tag and link just now: what was drawn before is kept.{' '}
+                <Button variant="ghost" size="sm" onClick={() => { store.readWorkspace() }}>Try again</Button>
+              </p>
+            )}
+            {snap.workspace?.truncated && <p className="moth-quiet" data-moth-links-truncated>There are more links than M.O.T.H. draws at once: some are not shown.</p>}
+            {snap.workspace?.cut && <p className="moth-quiet" data-moth-lists-cut>There are more notes or typed tags than M.O.T.H. reads at once: some are not shown.</p>}
             {frameLine && <p className="moth-quiet moth-frames" data-moth-frames>{frameLine}</p>}
           </div>
           <MothViewWidget
@@ -853,6 +862,8 @@ export default function MothPage({ isActive = true, worldFactory }) {
             store={store}
             workspace={snap.workspace}
             absent={snap.workspaceAbsent?.tags === true}
+            readFailed={!!snap.workspaceError}
+            readOnly={scrubAt != null ? 'Looking back changes nothing. Come back to now to change things.' : null}
             isAdmin={isAdminHere}
             userId={perms?.userId ?? null}
             selectedNode={selectedNode}

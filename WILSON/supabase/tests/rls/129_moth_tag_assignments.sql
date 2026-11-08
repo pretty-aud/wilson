@@ -13,7 +13,7 @@
 -- =============================================================================
 
 BEGIN;
-SELECT plan(38);
+SELECT plan(39);
 
 SELECT * FROM tests.rls_setup();
 
@@ -117,6 +117,11 @@ INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, 
 UPDATE public.workspace_members SET is_active = false
  WHERE workspace_id = '11111111-1111-1111-1111-111111111111' AND user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
 
+-- Whole-session round 1: a Legal file (its tag and its path), beside the money one.
+SELECT public.t129_a();
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, tags, is_financial) VALUES
+  ('12900000-0000-0000-0000-000000000083', 'aaaa1290-0000-0000-0000-00000000000a', 'nda.pdf', 'supabase', 'projects/aaaa1290-0000-0000-0000-00000000000a/legal/a/nda.pdf', '{legal}', false);
+
 -- No one's claims while the fixture tags are made, so the pins keep each owner given here (a signed-in caller's
 -- own tag is always the caller's).
 SELECT set_config('request.jwt.claims', '{}', true);
@@ -198,6 +203,9 @@ SELECT public.t129_c();
 SELECT is(public.t129_words($$INSERT INTO public.moth_tag_assignments (tag_id, tier, target_type, target_id)
                   VALUES ('12900000-0000-0000-0000-000000000101', 'company', 'file', '12900000-0000-0000-0000-000000000082')$$),
   'new row violates row-level security policy for table "moth_tag_assignments"', 'a money file is no thing to tag');
+SELECT is(public.t129_words($$INSERT INTO public.moth_tag_assignments (tag_id, tier, target_type, target_id)
+                  VALUES ('12900000-0000-0000-0000-000000000101', 'company', 'file', '12900000-0000-0000-0000-000000000083')$$),
+  'new row violates row-level security policy for table "moth_tag_assignments"', 'nor a Legal file');
 SELECT is(public.t129_words($$INSERT INTO public.moth_tag_assignments (tag_id, tier, target_type, target_id)
                   VALUES ('12900000-0000-0000-0000-000000000101', 'company', 'file', '12900000-0000-0000-0000-00000000dead')$$),
   'new row violates row-level security policy for table "moth_tag_assignments"', 'refused as a thing that is not there is');

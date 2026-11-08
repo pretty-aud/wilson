@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
-import { mentionKeys, splitMentions, mentionToken, mentionWords, mentionPlainText, isMentionKey } from './mentionTokens'
+import { mentionKeys, splitMentions, mentionToken, mentionWords, mentionPlainText, isMentionKey, insideMention } from './mentionTokens'
 
 const KEY = 'a1b2c3d4e5f6'
 
@@ -46,6 +46,18 @@ describe('a typed link in the words', () => {
     expect(mentionToken('', KEY)).toBeNull()
     expect(mentionToken('Mira', 'nope')).toBeNull()
     expect(mentionKeys(mentionToken('a]|b[', KEY))).toEqual([KEY])
+  })
+
+  it('knows a caret inside a whole token from one beside it', () => {
+    const text = `See [[Alice|m:${KEY}]] today`
+    const end = text.indexOf(' today')
+    expect(insideMention(text, text.indexOf('ce|'))).toBe(true)
+    expect(insideMention(text, 5)).toBe(true)
+    expect(insideMention(text, 4)).toBe(false)
+    expect(insideMention(text, end)).toBe(false)
+    expect(insideMention(text, end - 1)).toBe(true)
+    expect(insideMention('See [[Ali', 9)).toBe(false)
+    expect(insideMention(null, 3)).toBe(false)
   })
 
   it('is the database\'s rule: 0127 reads the same words and key', () => {

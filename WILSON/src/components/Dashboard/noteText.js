@@ -50,15 +50,23 @@ import { mentionPlainText } from '../../tools/rabbit_v0.1.0/state/mentionTokens'
 const TOKEN = /\[\[([^\][|\u0000-\u001f\u007f]{1,200})\|m:([0-9a-f]{12})\]\]/g
 const mentionsKey = new PluginKey('noteMentions')
 
-// Every whole token in a text node: [from, to, wordsFrom, wordsTo, key], in document positions.
+// Every whole token in a text block: [from, to, wordsFrom, wordsTo, key], in document positions.
+// Review: read per block, not per text node, so a token whose words carry a mark (a bold word inside it) is still
+// one token; an inline decoration may span text nodes. Any other inline node stands as one '\n' of its size, which
+// no token holds, so offsets stay document positions and a token never runs across a line break (as getText reads
+// it, where mentionKeys finds the keys).
 function tokensIn(doc) {
   const out = []
   doc.descendants((node, pos) => {
-    if (!node.isText || !node.text.includes('[[')) return
-    for (const m of node.text.matchAll(TOKEN)) {
-      const from = pos + m.index
+    if (!node.isTextblock) return true
+    let text = ''
+    node.forEach((child) => { text += child.isText ? child.text : '\n'.repeat(child.nodeSize) })
+    if (!text.includes('[[')) return false
+    for (const m of text.matchAll(TOKEN)) {
+      const from = pos + 1 + m.index
       out.push([from, from + m[0].length, from + 2, from + 2 + m[1].length, m[2]])
     }
+    return false
   })
   return out
 }
@@ -88,6 +96,8 @@ export const NoteMentions = Extension.create({
         // A token goes whole: Backspace at its end, or Delete at its start, takes it all.
         handleKeyDown: (view, event) => {
           if (event.key !== 'Backspace' && event.key !== 'Delete') return false
+          // A note read, not changed, keeps its words.
+          if (!view.editable) return false
           const { empty, from } = view.state.selection
           if (!empty) return false
           const hit = tokensIn(view.state.doc).find(([a, b]) => (event.key === 'Backspace' ? b === from : a === from))
