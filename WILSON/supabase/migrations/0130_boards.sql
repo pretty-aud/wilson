@@ -449,6 +449,23 @@ CREATE POLICY board_elements_select ON public.board_elements
 
 -- §5 Functions ------------------------------------------------------------------
 
+-- One message a save, said once by the writer at its end (0132 makes it send; here it says nothing). Made only
+-- where it is absent, so a replay of this file never takes 0132's sender away.
+DO $do$
+BEGIN
+  IF to_regprocedure('rabbit_private.board_announce(uuid,text,uuid[])') IS NULL THEN
+    EXECUTE $f$
+      CREATE FUNCTION rabbit_private.board_announce(p_board uuid, p_op text, p_ids uuid[])
+      RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $b$
+      BEGIN
+        RETURN;
+      END;
+      $b$
+    $f$;
+  END IF;
+END $do$;
+REVOKE EXECUTE ON FUNCTION rabbit_private.board_announce(uuid, text, uuid[]) FROM PUBLIC, anon, authenticated;
+
 -- The board a caller may read, its folder and its project, or nothing.
 CREATE OR REPLACE FUNCTION rabbit_private.board_for(p_board uuid, p_write boolean)
 RETURNS public.boards
@@ -632,6 +649,7 @@ BEGIN
   END IF;
   -- One board's saves in order, so the count below and the versions are each one statement's truth.
   PERFORM 1 FROM public.boards b WHERE b.id = v_b.id FOR NO KEY UPDATE;
+  PERFORM set_config('wilson.board_batch', 'on', true);
 
   FOR v_el IN SELECT e FROM jsonb_array_elements(p_elements) e LOOP
     IF jsonb_typeof(v_el) <> 'object' THEN
@@ -700,6 +718,11 @@ BEGIN
     UPDATE public.boards b SET revision = b.revision + 1, updated_at = now(), updated_by = auth.uid()
      WHERE b.id = v_b.id;
   END IF;
+  PERFORM set_config('wilson.board_batch', '', true);
+  IF jsonb_array_length(v_saved) > 0 THEN
+    PERFORM rabbit_private.board_announce(v_b.id, 'put',
+      ARRAY(SELECT (s ->> 'id')::uuid FROM jsonb_array_elements(v_saved) s));
+  END IF;
   RETURN jsonb_build_object('saved', v_saved, 'conflicts', v_conf);
 END;
 $$;
@@ -729,6 +752,7 @@ BEGIN
     RAISE EXCEPTION 'At most 500 elements a removal, each with its version when versions are sent.' USING ERRCODE = '22023';
   END IF;
   PERFORM 1 FROM public.boards b WHERE b.id = v_b.id FOR NO KEY UPDATE;
+  PERFORM set_config('wilson.board_batch', 'on', true);
   FOR i IN 1 .. cardinality(p_ids) LOOP
     SELECT x.version INTO v_ver FROM public.board_elements x
      WHERE x.id = p_ids[i] AND x.board_id = v_b.id FOR UPDATE;
@@ -745,6 +769,11 @@ BEGIN
   IF jsonb_array_length(v_gone) > 0 THEN
     UPDATE public.boards b SET revision = b.revision + 1, updated_at = now(), updated_by = auth.uid()
      WHERE b.id = v_b.id;
+  END IF;
+  PERFORM set_config('wilson.board_batch', '', true);
+  IF jsonb_array_length(v_gone) > 0 THEN
+    PERFORM rabbit_private.board_announce(v_b.id, 'remove',
+      ARRAY(SELECT (g #>> '{}')::uuid FROM jsonb_array_elements(v_gone) g));
   END IF;
   RETURN jsonb_build_object('removed', v_gone, 'conflicts', v_conf);
 END;
