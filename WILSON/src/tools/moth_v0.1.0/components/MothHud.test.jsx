@@ -168,6 +168,8 @@ describe('MothTimeSlider', () => {
     expect(document.querySelector('[data-moth-time-says]').textContent).not.toMatch(/Notes, typed tags and links/)
     rerender(<MothTimeSlider history={{ available: true, now: NOW, floor, s3Floor, at: NOW - 5 * 86400000, setAt: () => {} }} />)
     expect(document.querySelector('[data-moth-time-says]').textContent).toMatch(/Notes, typed tags and links are recorded from .+: they show as they were then\./)
+    rerender(<MothTimeSlider history={{ available: true, now: NOW, floor, s3Floor: Infinity, at: NOW - 5 * 86400000, setAt: () => {} }} />)
+    expect(document.querySelector('[data-moth-time-says]').textContent).toMatch(/Notes, typed tags and links are not recorded here yet: they show as they are now\./)
   })
   it('says it is reading when the record begins until it knows', () => {
     render(<MothTimeSlider history={{ available: true, now: NOW, floor: null, at: null, setAt: () => {} }} />)

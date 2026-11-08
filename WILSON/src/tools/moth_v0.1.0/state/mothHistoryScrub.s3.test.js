@@ -1,7 +1,7 @@
 // MO3 (0129): looking back over workspace notes, typed tags, their assignments and saved links. Each is taken out
 // and put back by id as the record says; their kinds do not set the floor, which stays the structural kinds'.
 import { describe, it, expect } from 'vitest'
-import { rewind, recordedSince, s3RecordedSince, S3_KINDS } from './mothHistoryScrub.js'
+import { rewind, recordedSince, s3Floors, s3RecordedSince, S3_KINDS } from './mothHistoryScrub.js'
 
 const T0 = Date.parse('2026-11-01T00:00:00Z')
 const at = (h) => new Date(T0 + h * 3600000).toISOString()
@@ -57,15 +57,15 @@ describe('looking back over Session 3\'s rows', () => {
     expect(recordedSince(windowRows, T0 + 3600000)).toBe(T0 - 48 * 3600000)
   })
 
-  it('they keep their own floor: their latest start, a restart with a project too, and none before 0129', () => {
+  it('they keep their own start for the words, the latest kind\'s; a project\'s restart is not it; before 0129, Infinity', () => {
     const windowRows = [
       { entity_type: 'files', project_id: null, recording_since: at(-48) },
       ...S3_KINDS.map((entity_type) => ({ entity_type, project_id: null, recording_since: at(0) })),
       { entity_type: 'moth_tag_assignments', project_id: 'p1', recording_since: at(3) },
     ]
-    expect(s3RecordedSince(windowRows, T0 + 10 * 3600000)).toBe(T0 + 3 * 3600000)
+    expect(s3RecordedSince(windowRows, T0 + 10 * 3600000)).toBe(T0)
     expect(recordedSince(windowRows, T0 + 10 * 3600000)).toBe(T0 - 48 * 3600000)
-    expect(s3RecordedSince([{ entity_type: 'files', project_id: null, recording_since: at(-48) }])).toBe(null)
+    expect(s3RecordedSince([{ entity_type: 'files', project_id: null, recording_since: at(-48) }])).toBe(Infinity)
   })
 
   it('no row of theirs older than that floor is undone: before it they show as they were at it', () => {
@@ -76,7 +76,25 @@ describe('looking back over Session 3\'s rows', () => {
       { entity_type: 'moth_tags', entity_id: 'g1', action: 'changed', observed_at: at(2), prior: { label: 'Mira', type_id: 'ty1', tier: 'company' } },
     ]
     expect(rewind(now, rows, T0).catalogue.mtags[0].label).toBe('Mira')
-    expect(rewind(now, rows, T0, { s3Since: T0 + 4 * 3600000 }).catalogue.mtags[0].label).toBe('Mira L')
+    const floors = s3Floors(S3_KINDS.map((entity_type) => ({ entity_type, project_id: null, recording_since: at(4) })))
+    expect(rewind(now, rows, T0, { s3Floors: floors }).catalogue.mtags[0].label).toBe('Mira L')
+  })
+
+  it('a restart in one project holds back only that kind\'s rows that name it', () => {
+    const now = live()
+    now.assignments = [
+      { id: 'x1', tag_id: 'g1', target_type: 'asset', target_id: 'a1', tier: 'company' },
+      { id: 'x2', tag_id: 'g1', target_type: 'asset', target_id: 'b1', tier: 'company' },
+    ]
+    const rows = [
+      { entity_type: 'moth_tag_assignments', entity_id: 'x1', action: 'added', observed_at: at(2), prior: null, state_project_id: 'p1' },
+      { entity_type: 'moth_tag_assignments', entity_id: 'x2', action: 'added', observed_at: at(2), prior: null, state_project_id: 'p2' },
+    ]
+    const floors = s3Floors([
+      ...S3_KINDS.map((entity_type) => ({ entity_type, project_id: null, recording_since: at(-48) })),
+      { entity_type: 'moth_tag_assignments', project_id: 'p1', recording_since: at(3) },
+    ])
+    expect(rewind(now, rows, T0, { s3Floors: floors }).catalogue.assignments.map((a) => a.id)).toEqual(['x1'])
   })
 
   it('a change or a move about one not on the graph is ignored, as for every other kind', () => {

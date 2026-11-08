@@ -9,9 +9,10 @@
 // does. Everything before a kind's recording_since is not recorded. The scrub reads only; nothing is written.
 //
 // MO3 (0129): workspace notes, typed tags, their assignments and saved links are rewound the same way, by id. Their
-// record begins with 0129, so they do not set the floor (S3_KINDS); they keep their own (s3RecordedSince: their
-// baseline, or a restart the reader is told of), and no row of theirs older than it is undone: before it they show as
-// they were then, and the slider says so. A change or a move about one not on the graph is ignored.
+// record begins with 0129, so they do not set the floor (S3_KINDS); they keep their own, per kind and per kind and
+// project (s3Floors: a kind's start, a restart in a project), and no row of theirs below its floor is undone: before
+// it they show as they were then, and the slider says so (s3RecordedSince). A change or a move about one not on the
+// graph is ignored.
 export const HISTORY_DAYS = 90
 export const RECENT_DAYS = 7
 const TABLE_KIND = Object.freeze({
@@ -39,7 +40,7 @@ const listById = (list) => new Map((list || []).filter((r) => r && r.id != null)
  * The catalogue as it was at `atMs`, from the live one and the record's rows (newest first, as moth_history_read
  * answers). Returns { catalogue, changed: Set of entity ids changed in the RECENT_DAYS before atMs }.
  */
-export function rewind(live, rows, atMs, { s3Since = null } = {}) {
+export function rewind(live, rows, atMs, { s3Floors: floors = null } = {}) {
   const pids = new Set([...Object.keys(live.files || {}), ...Object.keys(live.folders || {}), ...Object.keys(live.items || {})])
   const files = byId(live.files)
   const folders = byId(live.folders)
@@ -51,7 +52,6 @@ export function rewind(live, rows, atMs, { s3Since = null } = {}) {
   const assignments = listById(live.assignments)
   const looks = new Map((live.mtags || []).map((t) => [t.type_id, { shape: t.shape, colour: t.colour, type_name: t.type_name }]))
   for (const ty of live.mtagTypes || []) if (ty?.id) looks.set(ty.id, { shape: ty.shape ?? 'circle', colour: ty.colour ?? 'mist', type_name: ty.name ?? '' })
-  const s3Floor = Number.isFinite(s3Since) ? s3Since : null
   const changed = new Set()
   const recentFrom = atMs - RECENT_DAYS * 86400000
   for (const r of rows || []) {
@@ -62,7 +62,7 @@ export function rewind(live, rows, atMs, { s3Since = null } = {}) {
       continue
     }
     // Session 3's record is whole only from its own floor: an older row of theirs is not undone.
-    if (s3Floor != null && t < s3Floor && S3_KINDS.includes(r.entity_type)) continue
+    if (floors && S3_KINDS.includes(r.entity_type) && t < s3FloorOf(floors, r)) continue
     const before = r.prior || null
     const pidBefore = r.prior_project_id || null
     const id = r.entity_id
@@ -171,18 +171,43 @@ export function recordedSince(windowRows, nowMs = Date.now()) {
 }
 
 /**
- * MO3 (0129): from when the record holds notes, typed tags, their assignments and links: the latest recording_since
- * among their rows (their baseline, or a restart the reader is told of, with a project or without). null when the
- * record names none of them (a database before 0129).
+ * MO3 (0129): when the record holds each of notes, typed tags, their assignments and links: per kind (its start, or a
+ * restart with no project) and per kind and project (a restart there). `none`: the window names none of the four (a
+ * database before 0129), and none of their rows exists to undo.
  */
-export function s3RecordedSince(windowRows, nowMs = Date.now()) {
-  let floor = null
+export function s3Floors(windowRows) {
+  const base = {}
+  const byProject = {}
+  let named = false
   for (const w of windowRows || []) {
     if (!S3_KINDS.includes(w.entity_type)) continue
+    named = true
     const t = ms(w.recording_since)
-    if (Number.isFinite(t) && (floor == null || t > floor)) floor = t
+    if (!Number.isFinite(t)) continue
+    if (w.project_id == null) base[w.entity_type] = Math.max(base[w.entity_type] ?? -Infinity, t)
+    else {
+      const m = (byProject[w.entity_type] ||= {})
+      m[w.project_id] = Math.max(m[w.project_id] ?? -Infinity, t)
+    }
   }
-  return floor == null ? null : Math.min(floor, nowMs)
+  return { base, byProject, none: !named }
+}
+
+// The floor a Session 3 row is undone above: its kind's start, or a restart in a project the row names, the later.
+function s3FloorOf(floors, r) {
+  if (floors.none) return Infinity
+  let f = floors.base[r.entity_type] ?? -Infinity
+  const m = floors.byProject[r.entity_type]
+  if (m) for (const p of [r.prior_project_id, r.state_project_id]) if (p && m[p] > f) f = m[p]
+  return f
+}
+
+/** For the slider's words: from when all four are recorded (the latest kind's start); Infinity before 0129. */
+export function s3RecordedSince(windowRows, nowMs = Date.now()) {
+  const f = s3Floors(windowRows)
+  if (f.none) return Infinity
+  const starts = Object.values(f.base)
+  return starts.length ? Math.min(Math.max(...starts), nowMs) : null
 }
 
 /** Every row of the record from `sinceMs` to now, following the opaque row_key, at most `maxPages` pages. */

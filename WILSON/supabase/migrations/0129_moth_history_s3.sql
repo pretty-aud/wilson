@@ -11,7 +11,8 @@
 --       (the thing tagged, with the assignment's own tier as its peer: a person's own is theirs alone) and a link
 --       (where it starts, with where it ends as its peer). An end in money or Legal is locked as its own record is;
 --       _moth_history_end_visible(ws, kind, id): an end as the caller may read it now (here: Moth's gate; gone: what
---       its own record last said, never a locked one, a note made personal again only to its owner).
+--       its own record last said, never a locked one, a note made personal again only to its owner);
+--       _moth_history_end_last(ws, kind, id): an end as it is now, or one gone as its own record last said of it.
 --   §3  moth_history_project and moth_history_projection_ok restated from 0124's bodies: a note's title, tier and
 --       trash (never its body or its preview); a tag's label, type, tier, what it stands for, whether retired; an
 --       assignment's tag, thing and tier; a link's two ends, its words and how it came.
@@ -46,9 +47,15 @@ BEGIN
      OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.moth_history'::regclass AND conname = 'moth_history_g_peer_chk') THEN
     RAISE EXCEPTION '0129 refused: 0128 must be applied first';
   END IF;
+  -- 0128 as it is now: a failure's mark may carry its peers (an earlier draft refused them, and every failed
+  -- capture of the four would then lose its restart).
+  IF position('capture_failed' IN (SELECT pg_get_constraintdef(oid) FROM pg_constraint
+                                   WHERE conrelid = 'public.moth_history'::regclass AND conname = 'moth_history_g_peer_chk')) = 0 THEN
+    RAISE EXCEPTION '0129 refused: moth_history_g_peer_chk is not 0128''s as it now stands (a failure''s mark may carry its peers)';
+  END IF;
   FOR v_fn IN
     SELECT * FROM (VALUES
-      ('public.fn_moth_history_capture()', '837ea748d9f13341311cd9ef826b8aa3', '7a7f426b7082f6c2f635b2b72574e0ca'),
+      ('public.fn_moth_history_capture()', '837ea748d9f13341311cd9ef826b8aa3', '5abc7e9e6b006e16e3608a3390cf1ddc'),
       ('public.moth_history_project(text,jsonb)', '74316c0e37e3e54363454b5f179494e0', '7009ba0e9014e99e4545dc713dedc333'),
       ('public.moth_history_projection_ok(jsonb)', 'd9ae6159d8cd5dc4c81bc50e2f4cf11e', '63de72c284cc1745453e4a11e3738db9'),
       ('public._moth_history_entity_visible(uuid,text,uuid)', '43fe2d001ef171e5a9f37304b2a03944', '694d68a2fd633c98740fec25e11f436c'),
@@ -66,8 +73,9 @@ BEGIN
   FOR v_fn IN
     SELECT * FROM (VALUES
       ('public._moth_history_end(text,uuid)', 'db95991f1d0c7623d81fbed627914c73'),
-      ('public._moth_history_s3_side(text,jsonb)', 'ffd634f8b849674f1e02cbdd72dd437f'),
-      ('public._moth_history_end_visible(uuid,text,uuid)', '2436cc940d1a20e246cbffdc6a0d215f')
+      ('public._moth_history_s3_side(text,jsonb)', 'ed035421252afc444c81664415f38d3f'),
+      ('public._moth_history_end_visible(uuid,text,uuid)', '523d7a0aa70a288e03856f3aa622caef'),
+      ('public._moth_history_end_last(uuid,text,uuid)', 'f692741040e0578dae2c807706a98fee')
     ) AS t(sig, now_is)
   LOOP
     IF to_regprocedure(v_fn.sig) IS NOT NULL
@@ -165,6 +173,79 @@ END;
 $$;
 REVOKE ALL ON FUNCTION public._moth_history_end(text, uuid) FROM PUBLIC, anon, authenticated;
 
+CREATE OR REPLACE FUNCTION public._moth_history_end_last(
+  p_ws uuid, p_kind text, p_id uuid,
+  OUT o_project uuid, OUT o_class text, OUT o_owner uuid, OUT o_locked boolean, OUT o_gone boolean)
+RETURNS record
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+SET row_security = off
+AS $$
+DECLARE
+  e       record;
+  v_h     record;
+  v_table text;
+BEGIN
+  -- An end as it is now (_moth_history_end). One that has gone (a purge takes the row with it) is read by its own
+  -- record's newest row: a locked record is a lock; a project's side has its class asked again now (a thing moved
+  -- into a private project, or a project made private since, says so); a note's, as its record last said it.
+  -- Nothing recorded of it: no audience, and the capture falls back on the row's own last side.
+  SELECT x.o_project, x.o_class, x.o_owner, x.o_locked, x.o_gone INTO e FROM public._moth_history_end(p_kind, p_id) x;
+  o_project := e.o_project;
+  o_class := e.o_class;
+  o_owner := e.o_owner;
+  o_locked := COALESCE(e.o_locked, false);
+  o_gone := COALESCE(e.o_gone, false);
+  IF NOT o_gone OR o_locked OR p_ws IS NULL THEN
+    RETURN;
+  END IF;
+  BEGIN
+    v_table := CASE p_kind
+      WHEN 'project' THEN 'projects' WHEN 'folder' THEN 'folders' WHEN 'file' THEN 'files' WHEN 'phase' THEN 'phases'
+      WHEN 'asset' THEN 'assets' WHEN 'task' THEN 'tasks' WHEN 'scene' THEN 'scenes' WHEN 'shot' THEN 'shots'
+      WHEN 'level' THEN 'levels' WHEN 'experience' THEN 'experiences' WHEN 'note' THEN 'notes' END;
+    IF v_table IS NULL THEN
+      RETURN;
+    END IF;
+    SELECT h.locked AS lck,
+           CASE WHEN h.state_class IS NOT NULL THEN h.state_project_id ELSE h.prior_project_id END AS prj,
+           CASE WHEN h.state_class IS NOT NULL THEN h.state_class ELSE h.prior_class END AS cls,
+           CASE WHEN h.state_class IS NOT NULL THEN h.state_owner_id ELSE h.prior_owner_id END AS own
+      INTO v_h
+      FROM public.moth_history h
+     WHERE h.workspace_id = p_ws AND h.entity_type = v_table AND h.entity_id = p_id AND h.action <> 'mark_recording'
+     ORDER BY h.observed_at DESC, h.id DESC
+     LIMIT 1;
+    IF NOT FOUND THEN
+      RETURN;
+    END IF;
+    IF v_h.lck THEN
+      o_locked := true;
+      RETURN;
+    END IF;
+    IF v_h.prj IS NULL THEN
+      o_class := v_h.cls;
+      o_owner := v_h.own;
+    ELSIF EXISTS (SELECT 1 FROM public.projects p WHERE p.id = v_h.prj) THEN
+      o_project := v_h.prj;
+      SELECT a.o_class, a.o_owner INTO o_class, o_owner
+        FROM public._moth_history_audience('phases', '{}'::jsonb, v_h.prj) a;
+      IF o_class IS NULL THEN
+        o_project := NULL;
+      END IF;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    o_project := NULL;
+    o_class := NULL;
+    o_owner := NULL;
+    o_locked := p_kind IN ('file', 'folder');
+  END;
+END;
+$$;
+REVOKE ALL ON FUNCTION public._moth_history_end_last(uuid, text, uuid) FROM PUBLIC, anon, authenticated;
+
 CREATE OR REPLACE FUNCTION public._moth_history_s3_side(
   p_table text, p_image jsonb,
   OUT o_project uuid, OUT o_class text, OUT o_owner uuid,
@@ -183,7 +264,7 @@ DECLARE
 BEGIN
   -- One side of a Session 3 row, as it was: its audience, and its peer's where the row joins two things. o_locked:
   -- an end is in money or Legal (the row is not written, and its record goes blank). o_gone: an end cannot be found
-  -- (a purge took it, and this row with it).
+  -- (a purge took it, and this row with it); its side is then what its own record last said (_moth_history_end_last).
   o_locked := false;
   o_gone := false;
   IF p_image IS NULL THEN
@@ -201,7 +282,7 @@ BEGIN
     ELSIF p_table = 'moth_tag_assignments' THEN
       -- The thing tagged is the side; the assignment's own tier its peer: a person's own is theirs alone.
       SELECT x.o_project, x.o_class, x.o_owner, x.o_locked, x.o_gone INTO e
-        FROM public._moth_history_end(p_image ->> 'target_type', (p_image ->> 'target_id')::uuid) x;
+        FROM public._moth_history_end_last((p_image ->> 'workspace_id')::uuid, p_image ->> 'target_type', (p_image ->> 'target_id')::uuid) x;
       o_project := e.o_project;
       o_class := e.o_class;
       o_owner := e.o_owner;
@@ -216,9 +297,9 @@ BEGIN
     ELSIF p_table = 'moth_relationships' THEN
       -- Where a link starts is the side; where it ends, its peer.
       SELECT x.o_project, x.o_class, x.o_owner, x.o_locked, x.o_gone INTO e
-        FROM public._moth_history_end(p_image ->> 'source_type', (p_image ->> 'source_id')::uuid) x;
+        FROM public._moth_history_end_last((p_image ->> 'workspace_id')::uuid, p_image ->> 'source_type', (p_image ->> 'source_id')::uuid) x;
       SELECT x.o_project, x.o_class, x.o_owner, x.o_locked, x.o_gone INTO f
-        FROM public._moth_history_end(p_image ->> 'dest_type', (p_image ->> 'dest_id')::uuid) x;
+        FROM public._moth_history_end_last((p_image ->> 'workspace_id')::uuid, p_image ->> 'dest_type', (p_image ->> 'dest_id')::uuid) x;
       o_project := e.o_project;
       o_class := e.o_class;
       o_owner := e.o_owner;
@@ -287,7 +368,19 @@ BEGIN
               WHERE h.workspace_id = p_ws AND h.entity_type = v_table AND h.entity_id = p_id AND h.locked) THEN
     RETURN false;
   END IF;
-  EXECUTE format('SELECT true FROM public.%I x WHERE x.id = $1', v_table) INTO v_found USING p_id;
+  v_found := CASE p_kind
+    WHEN 'project' THEN EXISTS (SELECT 1 FROM public.projects x WHERE x.id = p_id)
+    WHEN 'folder' THEN EXISTS (SELECT 1 FROM public.folders x WHERE x.id = p_id)
+    WHEN 'file' THEN EXISTS (SELECT 1 FROM public.files x WHERE x.id = p_id)
+    WHEN 'phase' THEN EXISTS (SELECT 1 FROM public.phases x WHERE x.id = p_id)
+    WHEN 'asset' THEN EXISTS (SELECT 1 FROM public.assets x WHERE x.id = p_id)
+    WHEN 'task' THEN EXISTS (SELECT 1 FROM public.tasks x WHERE x.id = p_id)
+    WHEN 'scene' THEN EXISTS (SELECT 1 FROM public.scenes x WHERE x.id = p_id)
+    WHEN 'shot' THEN EXISTS (SELECT 1 FROM public.shots x WHERE x.id = p_id)
+    WHEN 'level' THEN EXISTS (SELECT 1 FROM public.levels x WHERE x.id = p_id)
+    WHEN 'experience' THEN EXISTS (SELECT 1 FROM public.experiences x WHERE x.id = p_id)
+    WHEN 'note' THEN EXISTS (SELECT 1 FROM public.notes x WHERE x.id = p_id)
+  END;
   IF COALESCE(v_found, false) THEN
     RETURN COALESCE(public._moth_target_eligible(p_kind, p_id, true), false);
   END IF;
@@ -520,8 +613,20 @@ BEGIN
   IF v_s3 THEN
     SELECT s.o_project, s.o_class, s.o_owner, s.o_peer_project, s.o_peer_class, s.o_peer_owner, s.o_locked, s.o_gone
       INTO v_pp, v_pc, v_po, v_ppp, v_ppc, v_ppo, v_plk, v_pgone FROM public._moth_history_s3_side(v_t, v_old) s;
-    SELECT s.o_project, s.o_class, s.o_owner, s.o_peer_project, s.o_peer_class, s.o_peer_owner, s.o_locked
-      INTO v_sp, v_sc, v_so, v_spp, v_spc, v_spo, v_slk FROM public._moth_history_s3_side(v_t, v_new) s;
+    -- A tagging's update is a fold or a merge (another tag), a link's its words: the pins (0126, 0127) keep both ends
+    -- and the tier, so the state side is the prior side, asked once.
+    IF TG_OP = 'UPDATE' AND v_t IN ('moth_tag_assignments', 'moth_relationships') THEN
+      v_sp := v_pp;
+      v_sc := v_pc;
+      v_so := v_po;
+      v_spp := v_ppp;
+      v_spc := v_ppc;
+      v_spo := v_ppo;
+      v_slk := v_plk;
+    ELSE
+      SELECT s.o_project, s.o_class, s.o_owner, s.o_peer_project, s.o_peer_class, s.o_peer_owner, s.o_locked
+        INTO v_sp, v_sc, v_so, v_spp, v_spc, v_spo, v_slk FROM public._moth_history_s3_side(v_t, v_new) s;
+    END IF;
   ELSE
     SELECT a.o_class, a.o_owner INTO v_pc, v_po FROM public._moth_history_audience(v_t, v_old, v_pp) a;
     SELECT a.o_class, a.o_owner INTO v_sc, v_so FROM public._moth_history_audience(v_t, v_new, v_sp) a;
@@ -531,11 +636,12 @@ BEGIN
     -- Money and Legal stay out of Moth for every role, even after a trash or a purge. A locked side
     -- writes nothing, and every earlier row of the entity goes blank. Money-ness only grows.
     -- 0129 (MO3): a tag's assignment or a link with an end in money or Legal is locked as that end is. One a purge
-    -- takes with what it tags or links has an end that cannot be found: its going is told to those its own last row
-    -- was told to; nothing is said of one never recorded, and a record already locked stays so.
+    -- takes with what it tags or links has an end that cannot be found: its side is what that end's own record last
+    -- said (§2); where that record says nothing, its going is told to those its own last row was told to, each project's
+    -- class asked again; nothing is said of one never recorded, and a record already locked stays so.
     IF v_s3 THEN
       v_locked := COALESCE(v_plk, false) OR COALESCE(v_slk, false);
-      IF TG_OP = 'DELETE' AND NOT v_locked AND COALESCE(v_pgone, false) THEN
+      IF TG_OP = 'DELETE' AND NOT v_locked AND COALESCE(v_pgone, false) AND v_pc IS NULL THEN
         SELECT h.locked, h.state_project_id, h.state_class, h.state_owner_id,
                h.state_peer_project_id, h.state_peer_class, h.state_peer_owner_id
           INTO v_last
@@ -560,6 +666,19 @@ BEGIN
           v_ppp := v_last.state_peer_project_id;
           v_ppc := v_last.state_peer_class;
           v_ppo := v_last.state_peer_owner_id;
+          IF v_pp IS NOT NULL THEN
+            SELECT a.o_class, a.o_owner INTO v_pc, v_po FROM public._moth_history_audience('phases', '{}'::jsonb, v_pp) a;
+          END IF;
+          IF v_ppp IS NOT NULL THEN
+            SELECT a.o_class, a.o_owner INTO v_ppc, v_ppo FROM public._moth_history_audience('phases', '{}'::jsonb, v_ppp) a;
+          END IF;
+          IF v_pc IS NULL THEN
+            RETURN NULL;
+          END IF;
+          IF v_ppc IS NULL THEN
+            v_ppp := NULL;
+            v_ppo := NULL;
+          END IF;
         END IF;
       END IF;
     END IF;
@@ -1035,11 +1154,12 @@ BEGIN
   FOR v_fn IN
     SELECT * FROM (VALUES
       ('public._moth_history_end(text,uuid)', 'db95991f1d0c7623d81fbed627914c73'),
-      ('public._moth_history_s3_side(text,jsonb)', 'ffd634f8b849674f1e02cbdd72dd437f'),
-      ('public._moth_history_end_visible(uuid,text,uuid)', '2436cc940d1a20e246cbffdc6a0d215f'),
+      ('public._moth_history_s3_side(text,jsonb)', 'ed035421252afc444c81664415f38d3f'),
+      ('public._moth_history_end_visible(uuid,text,uuid)', '523d7a0aa70a288e03856f3aa622caef'),
+      ('public._moth_history_end_last(uuid,text,uuid)', 'f692741040e0578dae2c807706a98fee'),
       ('public.moth_history_projection_ok(jsonb)', '63de72c284cc1745453e4a11e3738db9'),
       ('public.moth_history_project(text,jsonb)', '7009ba0e9014e99e4545dc713dedc333'),
-      ('public.fn_moth_history_capture()', '7a7f426b7082f6c2f635b2b72574e0ca'),
+      ('public.fn_moth_history_capture()', '5abc7e9e6b006e16e3608a3390cf1ddc'),
       ('public._moth_history_entity_visible(uuid,text,uuid)', '694d68a2fd633c98740fec25e11f436c'),
       ('public.moth_history_read(uuid,timestamptz,uuid,integer)', 'e1ef26552d81dd2eb102aaf87c1f9425'),
       ('public.moth_history_window(uuid)', '08195cbfe472968c2510866d573c6873')
@@ -1053,6 +1173,7 @@ BEGIN
   IF EXISTS (SELECT 1 FROM pg_proc
               WHERE oid IN ('public._moth_history_end(text,uuid)'::regprocedure, 'public._moth_history_s3_side(text,jsonb)'::regprocedure,
                             'public._moth_history_end_visible(uuid,text,uuid)'::regprocedure,
+                            'public._moth_history_end_last(uuid,text,uuid)'::regprocedure,
                             'public.fn_moth_history_capture()'::regprocedure, 'public._moth_history_entity_visible(uuid,text,uuid)'::regprocedure,
                             'public.moth_history_read(uuid,timestamptz,uuid,integer)'::regprocedure,
                             'public.moth_history_window(uuid)'::regprocedure)
@@ -1062,6 +1183,7 @@ BEGIN
   IF has_function_privilege('authenticated', 'public._moth_history_s3_side(text,jsonb)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public._moth_history_end(text,uuid)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public._moth_history_end_visible(uuid,text,uuid)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public._moth_history_end_last(uuid,text,uuid)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.moth_history_read(uuid,timestamptz,uuid,integer)', 'EXECUTE')
      OR NOT has_function_privilege('authenticated', 'public.moth_history_read(uuid,timestamptz,uuid,integer)', 'EXECUTE') THEN
     RAISE EXCEPTION '0129 post-condition: the record''s functions have the wrong grants';
