@@ -7,7 +7,8 @@
 --    shared view's places by its project's writers, not its reviewer; one's own view's places by its owner; a
 --    view or a target the caller cannot see refused exactly as one that does not exist; a project's view holds
 --    that project's things only; whose a place is the database says; the shapes; a target named twice, in any
---    letters; one focus, which a focus left on a file now hidden does not block (review round 1).
+--    letters; one focus, which a focus left on a file now hidden does not block (review round 1); a target named
+--    twice folded before its focus is counted (0124, MO2-10).
 -- C. Reading: the view, the target and the owner each decide, live: a file that becomes money, one in the
 --    trash, and another person's own places vanish; nothing for someone who has left or another company.
 -- D. Clearing, and what goes with a target or a view.
@@ -21,7 +22,7 @@
 
 BEGIN;
 
-SELECT plan(73);
+SELECT plan(86);
 
 SELECT * FROM tests.rls_setup();
 
@@ -104,7 +105,9 @@ INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, 
   ('12600000-0000-0000-0000-000000000081', 'aaaa1260-0000-0000-0000-00000000000a', 'mira.png', 'supabase', 'projects/aaaa1260-0000-0000-0000-00000000000a/files/12600000-0000-0000-0000-000000000081/mira.png', false),
   ('12600000-0000-0000-0000-000000000082', 'aaaa1260-0000-0000-0000-00000000000a', 'fee.pdf', 'supabase', 'projects/aaaa1260-0000-0000-0000-00000000000a/files/12600000-0000-0000-0000-000000000082/fee.pdf', true),
   ('12600000-0000-0000-0000-000000000083', 'aaaa1260-0000-0000-0000-00000000000a', 'later.png', 'supabase', 'projects/aaaa1260-0000-0000-0000-00000000000a/files/12600000-0000-0000-0000-000000000083/later.png', false),
-  ('12600000-0000-0000-0000-000000000084', 'aaaa1260-0000-0000-0000-00000000000a', 'binned.png', 'supabase', 'projects/aaaa1260-0000-0000-0000-00000000000a/files/12600000-0000-0000-0000-000000000084/binned.png', false);
+  ('12600000-0000-0000-0000-000000000084', 'aaaa1260-0000-0000-0000-00000000000a', 'binned.png', 'supabase', 'projects/aaaa1260-0000-0000-0000-00000000000a/files/12600000-0000-0000-0000-000000000084/binned.png', false),
+  -- An id with letters in it, so naming it in capitals is naming it differently (0124's plants).
+  ('12600000-0000-0000-0000-0000000000ab', 'aaaa1260-0000-0000-0000-00000000000a', 'lettered.png', 'supabase', 'projects/aaaa1260-0000-0000-0000-00000000000a/files/12600000-0000-0000-0000-0000000000ab/lettered.png', false);
 
 -- The views: P's shared one (VP), the reviewer's own (VR), the admin's own (VA), the owner's view of their space
 -- (VS). Each made with its maker's claims, because the database says whose a view is.
@@ -146,8 +149,16 @@ SELECT ok(NOT has_function_privilege('authenticated', 'rabbit_private.moth_view_
 SELECT ok(position('20000' IN (SELECT prosrc FROM pg_proc WHERE oid = 'public.moth_put_positions(uuid,jsonb)'::regprocedure)) > 0
           AND position('pg_advisory_xact_lock' IN (SELECT prosrc FROM pg_proc WHERE oid = 'public.moth_put_positions(uuid,jsonb)'::regprocedure)) > 0,
   'the put counts a view''s places under a lock, at most 20,000 an owner');
-SELECT is((SELECT count(*)::int FROM pg_index WHERE indrelid = 'public.moth_layout_positions'::regclass), 14,
-  'a key, one place a target and owner, one focus, and an index for each of the ten references and for the owner');
+SELECT is((SELECT count(*)::int FROM pg_index WHERE indrelid = 'public.moth_layout_positions'::regclass), 16,
+  'a key, one place a target and owner, one focus, and an index for each of the twelve references (0126: a note''s and a typed tag''s) and for the owner');
+-- 0124 (MO2-12): the two keys and the access the put stands on, by what they are, not by their names.
+SELECT is(pg_get_indexdef('public.moth_layout_positions_target_key'::regclass) || ' | ' || pg_get_indexdef('public.moth_layout_positions_focus_key'::regclass),
+  'CREATE UNIQUE INDEX moth_layout_positions_target_key ON public.moth_layout_positions USING btree (view_id, target_type, target_id, target_tag, owner_id) NULLS NOT DISTINCT'
+  || ' | CREATE UNIQUE INDEX moth_layout_positions_focus_key ON public.moth_layout_positions USING btree (view_id, owner_id) NULLS NOT DISTINCT WHERE is_focus',
+  'one place a target and owner, one focus a view and owner: the two keys by their definitions (0124)');
+SELECT is((SELECT md5(replace(prosrc, chr(13), '')) || ' ' || prosecdef::text || ' ' || proconfig::text FROM pg_proc
+            WHERE oid = 'rabbit_private.moth_view_access(uuid)'::regprocedure),
+  '72f49b136935ac7ddc2741880bdfc639 true {search_path=public}', 'the places'' access is 0123''s body, as its definer, on the path pinned (0124)');
 
 -- ── B. Writing ──────────────────────────────────────────────────────────────
 SET LOCAL ROLE authenticated;
@@ -225,12 +236,14 @@ SELECT ok(public.t126_err($$ SELECT public.t126_put('12600000-0000-0000-0000-000
 SELECT is(public.t126_put('12600000-0000-0000-0000-0000000000a1', '[{"t":"file","id":"12600000-0000-0000-0000-000000000081","x":30,"y":30},{"t":"file","id":"12600000-0000-0000-0000-000000000081","x":40,"y":41}]'), 1,
   'a target named twice is one place');
 SELECT is(public.t126_put('12600000-0000-0000-0000-0000000000a1', jsonb_build_array(
-            jsonb_build_object('t', 'file', 'id', '12600000-0000-0000-0000-000000000081', 'x', 50, 'y', 51),
-            jsonb_build_object('t', 'file', 'id', upper('12600000-0000-0000-0000-000000000081'), 'x', 40, 'y', 41))), 1,
+            jsonb_build_object('t', 'file', 'id', '12600000-0000-0000-0000-0000000000ab', 'x', 50, 'y', 51),
+            jsonb_build_object('t', 'file', 'id', upper('12600000-0000-0000-0000-0000000000ab'), 'x', 40, 'y', 41))), 1,
   'and named in capitals, still the same place: one place, never two writes of it in one call');
-SELECT is((SELECT x::text || ',' || y::text FROM public.moth_layout_positions WHERE view_id = '12600000-0000-0000-0000-0000000000a1' AND target_id = '12600000-0000-0000-0000-000000000081'),
+SELECT is((SELECT x::text || ',' || y::text FROM public.moth_layout_positions WHERE view_id = '12600000-0000-0000-0000-0000000000a1' AND target_id = '12600000-0000-0000-0000-0000000000ab'),
   '40,41', '… at its last place');
 RESET ROLE;
+-- The lettered file's place goes again, so the places counted below are as they were.
+DELETE FROM public.moth_layout_positions WHERE target_id = '12600000-0000-0000-0000-0000000000ab';
 
 -- The focus on a file that leaves the picture: a new focus must still land, and say nothing of it (review round 1).
 UPDATE public.files SET deleted_at = now() WHERE id = '12600000-0000-0000-0000-000000000084';
@@ -247,6 +260,15 @@ SELECT public.t126_c();
 SELECT is(public.t126_put('12600000-0000-0000-0000-0000000000a1', '[{"t":"folder","id":"12600000-0000-0000-0000-000000000071","x":-5.5,"y":0,"open":true,"focus":true}]'), 1, 'another focus');
 SELECT is((SELECT string_agg(target_type, ',') FROM public.moth_layout_positions WHERE view_id = '12600000-0000-0000-0000-0000000000a1' AND is_focus),
   'folder', '… replaces the first: a view has one');
+-- 0124 (MO2-10): a target named twice is folded first, the last naming it winning, and only then is a focus counted.
+SELECT is(public.t126_put('12600000-0000-0000-0000-0000000000a1', '[{"t":"file","id":"12600000-0000-0000-0000-000000000081","x":1,"y":1,"focus":true},{"t":"file","id":"12600000-0000-0000-0000-000000000081","x":2,"y":2}]'), 1,
+  'a target sent with a focus and then without is one place (0124)');
+SELECT is((SELECT string_agg(target_type, ',') FROM public.moth_layout_positions WHERE view_id = '12600000-0000-0000-0000-0000000000a1' AND is_focus),
+  'folder', '… and the focus stays where it was, since the place that names no focus is the one kept (0124)');
+SELECT is(public.t126_err($$ SELECT public.t126_put('12600000-0000-0000-0000-0000000000a1', '[{"t":"file","id":"12600000-0000-0000-0000-000000000081","x":3,"y":3,"focus":true},{"t":"file","id":"12600000-0000-0000-0000-000000000081","x":4,"y":4,"focus":true}]') $$),
+  'no refusal', 'a target sent twice, each time with a focus, is one focus, not two (0124)');
+SELECT is((SELECT string_agg(target_type || ':' || right(target_id::text, 3), ',') FROM public.moth_layout_positions WHERE view_id = '12600000-0000-0000-0000-0000000000a1' AND is_focus),
+  'file:081', '… and it is the focus now, alone (0124)');
 RESET ROLE;
 
 -- ── C. Reading ──────────────────────────────────────────────────────────────
@@ -323,6 +345,37 @@ SELECT ok(public.moth_can_read_target('file', '12600000-0000-0000-0000-000000000
   'another person''s own place in a shared view is not shown, through the table or the read');
 RESET ROLE;
 DELETE FROM public.moth_layout_positions WHERE view_id = '12600000-0000-0000-0000-0000000000a1' AND owner_id = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
+
+-- ── D2. 0126 (MO3): a note's and a typed tag's places ───────────────────────
+RESET ROLE;
+SELECT set_config('request.jwt.claims', '{}', true);
+INSERT INTO public.moth_tag_types (id, workspace_id, tier, name) VALUES ('12600000-0000-0000-0000-0000000000b1', '11111111-1111-1111-1111-111111111111', 'company', 'Character');
+INSERT INTO public.moth_tags (id, workspace_id, type_id, tier, label) VALUES ('12600000-0000-0000-0000-0000000000b2', '11111111-1111-1111-1111-111111111111', '12600000-0000-0000-0000-0000000000b1', 'company', 'Mira');
+INSERT INTO public.notes (id, workspace_id, owner_id, title, tier) VALUES
+  ('12600000-0000-0000-0000-0000000000b3', '11111111-1111-1111-1111-111111111111', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'Harbour light', 'shared'),
+  ('12600000-0000-0000-0000-0000000000b4', '11111111-1111-1111-1111-111111111111', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'Mine alone', 'personal'),
+  ('12600000-0000-0000-0000-0000000000b5', '11111111-1111-1111-1111-111111111111', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'C, to herself', 'personal');
+INSERT INTO public.moth_tag_types (id, workspace_id, tier, owner_id, name) VALUES ('12600000-0000-0000-0000-0000000000b6', '11111111-1111-1111-1111-111111111111', 'personal', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'Mine');
+INSERT INTO public.moth_tags (id, workspace_id, type_id, tier, owner_id, label) VALUES ('12600000-0000-0000-0000-0000000000b7', '11111111-1111-1111-1111-111111111111', '12600000-0000-0000-0000-0000000000b6', 'personal', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'Mira');
+SET LOCAL ROLE authenticated;
+SELECT public.t126_c();
+SELECT is(public.t126_put('12600000-0000-0000-0000-0000000000a1', '[{"t":"mtag","id":"12600000-0000-0000-0000-0000000000b2","x":1,"y":1},{"t":"note","id":"12600000-0000-0000-0000-0000000000b3","x":2,"y":2}]'), 2,
+  'a project''s view keeps the places of a typed tag and a note, which belong to no project (0126)');
+SELECT ok(public.t126_err($$ SELECT public.t126_put('12600000-0000-0000-0000-0000000000a1', '[{"t":"note","id":"12600000-0000-0000-0000-0000000000b4","x":3,"y":3}]') $$) LIKE '23503 %',
+  'someone else''s personal note has no place, refused as one that is not there (0126)');
+SELECT ok(public.t126_err($$ SELECT public.t126_put('12600000-0000-0000-0000-0000000000a1', '[{"t":"note","id":"12600000-0000-0000-0000-0000000000b5","x":3,"y":3}]') $$) LIKE '23503 %',
+  'nor has one''s own personal note a place in a shared view, refused alike (round A)');
+SELECT ok(public.t126_err($$ SELECT public.t126_put('12600000-0000-0000-0000-0000000000a1', '[{"t":"mtag","id":"12600000-0000-0000-0000-0000000000b7","x":3,"y":3}]') $$) LIKE '23503 %',
+  'nor one''s own personal typed tag (round A)');
+SELECT public.t126_r();
+SELECT ok(public.t126_seen('12600000-0000-0000-0000-0000000000a1') LIKE '%mtag:0b2:-%' AND public.t126_seen('12600000-0000-0000-0000-0000000000a1') LIKE '%note:0b3:-%',
+  'P''s reviewer sees the shared places of the company''s tag and the shared note (0126)');
+SELECT public.t126_e();
+SELECT is(public.t126_put('12600000-0000-0000-0000-0000000000a4', '[{"t":"note","id":"12600000-0000-0000-0000-0000000000b4","x":4,"y":4}]'), 1, 'a person places their own note in their personal space''s view (0126)');
+SELECT public.t126_a();
+SELECT is(public.t126_seen('12600000-0000-0000-0000-0000000000a4'), '', 'and an admin sees nothing of it (0126)');
+RESET ROLE;
+DELETE FROM public.moth_layout_positions WHERE target_type IN ('note', 'mtag');
 
 -- ── E. Planted: the read policy without Moth's gate on the target ───────────
 SET LOCAL ROLE authenticated;

@@ -3,7 +3,8 @@
 --
 -- moth_history, its capture on eleven tables, redaction on lock, the two readers and the
 -- purge. A person's write never fails for it; what they read is what they could see then
--- and can see now.
+-- and can see now. 0124 (MO3, MO2-18): a projection says when its row is in the trash, so a file emptied
+-- from the trash while in it is not brought back by looking back.
 --
 -- Fixture ids: projects aaaa1210-…, files 12100000-…-…
 -- user_a (rls_setup) is the admin; user_c a plain member; user_d a workspace manager; user_e
@@ -12,7 +13,7 @@
 
 BEGIN;
 
-SELECT plan(290);
+SELECT plan(299);
 
 SELECT * FROM tests.rls_setup();
 
@@ -123,9 +124,10 @@ SELECT is((SELECT array_agg(x ORDER BY x) FROM unnest(ARRAY['public.moth_history
    WHERE has_function_privilege('authenticated', x::regprocedure, 'EXECUTE')), ARRAY['public.moth_history_read(uuid,timestamp with time zone,uuid,integer)', 'public.moth_history_window(uuid)'], 'a client may call the two readers and nothing else');
 SELECT is(has_function_privilege('service_role', 'public.purge_moth_history(interval)', 'EXECUTE'), true, 'CONTROL: the purge is service_role''s');
 SELECT ok(pg_get_function_result('public.moth_history_read(uuid,timestamp with time zone,uuid,integer)'::regprocedure) !~* 'bigint', 'the reader hands out no bigint');
-SELECT is((SELECT count(*)::int FROM pg_trigger t WHERE NOT t.tgisinternal AND t.tgfoid = 'public.fn_moth_history_capture()'::regprocedure), 22, 'twenty-two triggers');
+SELECT is((SELECT count(*)::int FROM pg_trigger t WHERE NOT t.tgisinternal AND t.tgfoid = 'public.fn_moth_history_capture()'::regprocedure), 30, 'thirty triggers (0129: and the four Session 3 tables)');
 SELECT is((SELECT array_agg(DISTINCT c.relname::text ORDER BY c.relname::text) FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid WHERE NOT t.tgisinternal AND t.tgfoid = 'public.fn_moth_history_capture()'::regprocedure),
-  ARRAY['assets', 'experiences', 'files', 'folders', 'levels', 'phases', 'projects', 'scenes', 'shots', 'task_items', 'tasks'], 'on the eleven tables');
+  ARRAY['assets', 'experiences', 'files', 'folders', 'levels', 'moth_relationships', 'moth_tag_assignments', 'moth_tags', 'notes',
+        'phases', 'projects', 'scenes', 'shots', 'task_items', 'tasks'], 'on the fifteen tables (0129: notes, typed tags, their assignments and links)');
 SELECT ok((SELECT pg_get_triggerdef(t.oid) LIKE '%share_missing_since%' AND pg_get_triggerdef(t.oid) LIKE '%is_financial%' AND pg_get_triggerdef(t.oid) LIKE '%storage_path%' FROM pg_trigger t WHERE t.tgname = 'trg_files_moth_history_upd'), 'the files list holds what classification needs');
 SELECT is((SELECT count(*)::int FROM pg_proc WHERE prosrc LIKE '%moth_history%' AND proname IN ('fn_realtime_broadcast', 'fn_workspace_realtime_broadcast')), 0, 'it is on no realtime topic');
 -- A column gone from a list silently corrupts every rebuild before it, so each is named here too.
@@ -203,8 +205,16 @@ SELECT is(public.soft_delete_row('files', '12100000-0000-0000-0000-000000000102'
 SELECT is((public.t121_read('12100000-0000-0000-0000-000000000102')), 3, 'an admin still reads a trashed file''s rows');
 SELECT is(public.restore_soft_deleted('files', '12100000-0000-0000-0000-000000000102'), true, 'restored');
 RESET ROLE;
-SELECT is(public.t121_n('files', '12100000-0000-0000-0000-000000000102', 'trash'), 1, 'a trash is recorded, though its projection does not change');
+SELECT is(public.t121_n('files', '12100000-0000-0000-0000-000000000102', 'trash'), 1, 'a trash is recorded');
 SELECT is(public.t121_n('files', '12100000-0000-0000-0000-000000000102', 'restore'), 1, 'and a restore');
+-- 0124 (MO2-18): the record says when a row is in the trash, and only then.
+SELECT ok((SELECT state -> 'in_trash' = 'true'::jsonb AND NOT (prior ? 'in_trash') FROM public.moth_history
+            WHERE entity_type = 'files' AND entity_id = '12100000-0000-0000-0000-000000000102' AND action = 'trash'),
+  'a trash row''s after side says it is in the trash, and its before side does not (0124)');
+SELECT ok((SELECT prior -> 'in_trash' = 'true'::jsonb AND NOT (state ? 'in_trash') FROM public.moth_history
+            WHERE entity_type = 'files' AND entity_id = '12100000-0000-0000-0000-000000000102' AND action = 'restore'),
+  'a restore row''s before side does, and its after side does not (0124)');
+SELECT ok(NOT ((public.t121_last('files', '12100000-0000-0000-0000-000000000102')).state ? 'in_trash'), 'a live row''s projection has no such key (0124)');
 
 -- A catalogue row, whoever the writer says it is.
 SELECT set_config('wilson.network_share_writer', 'check:aaaa1210-0000-0000-0000-00000000000a', true);
@@ -288,6 +298,12 @@ UPDATE public.projects SET status = 'on_hold' WHERE id = 'aaaa1210-0000-0000-000
 SELECT is((public.t121_last('projects', 'aaaa1210-0000-0000-0000-000000000011')).state ->> 'status', 'on_hold', 'a project''s status alone');
 UPDATE public.projects SET deleted_at = now() WHERE id = 'aaaa1210-0000-0000-0000-000000000011';
 SELECT is((public.t121_last('projects', 'aaaa1210-0000-0000-0000-000000000011')).action, 'trash', 'a project trashed');
+-- 0124 (MO2-18): each of the five tables with a trash says so in its after side, not only files.
+SELECT is((SELECT string_agg(h.entity_type || ':' || COALESCE(h.state ->> 'in_trash', '-'), ',' ORDER BY h.entity_type)
+             FROM public.moth_history h
+            WHERE h.action = 'trash' AND h.entity_id IN ('12100000-0000-0000-0000-0000000000b6', '12100000-0000-0000-0000-0000000000b7',
+                                                         '12100000-0000-0000-0000-0000000000b8', 'aaaa1210-0000-0000-0000-000000000011')),
+  'assets:true,phases:true,projects:true,tasks:true', 'a phase, an asset, a task and a project in the trash each say so (0124)');
 DELETE FROM public.levels WHERE id = '12100000-0000-0000-0000-0000000000b3';
 SELECT is((public.t121_last('levels', '12100000-0000-0000-0000-0000000000b3')).action, 'delete', 'a level deleted');
 -- A task taken to another project speaks, though nothing it stores has changed.
@@ -355,7 +371,7 @@ SELECT is((SELECT p ? 'scene_ids' FROM t121_wide WHERE n = 'last'), false, 'an a
 SELECT is((SELECT prolang = (SELECT oid FROM pg_language WHERE lanname = 'plpgsql') FROM pg_proc WHERE oid = 'public.moth_history_projection_ok(jsonb)'::regprocedure), true, 'the check is plpgsql, so a row does not plan it afresh');
 SELECT is((SELECT count(*)::int FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'moth_history' AND indexname = 'moth_history_marks_idx' AND indexdef LIKE '%mark_recording%'), 1, 'and the window has its index');
 SELECT is(public.moth_history_projection_ok(jsonb_build_object('name', 'x', 'title', repeat('t', 300), 'slug', repeat('t', 300), 'scene_ids', (SELECT jsonb_agg(repeat('z', 200)) FROM generate_series(1, 20)))), false, 'and the check does refuse past 4,096 octets');
-SELECT throws_ok($$ SELECT public.moth_history_project('notes', '{}'::jsonb) $$, 'P0001', 'moth_history_project: no map for notes', 'a table with no map is refused, not guessed at');
+SELECT throws_ok($$ SELECT public.moth_history_project('boards', '{}'::jsonb) $$, 'P0001', 'moth_history_project: no map for boards', 'a table with no map is refused, not guessed at');
 
 
 -- ── D. Money and Legal ──────────────────────────────────────────────────────
@@ -471,6 +487,23 @@ SELECT public.t121_a();
 SELECT is(public.t121_read('12100000-0000-0000-0000-000000000204'), 0, 'and after a trash and a purge, still none');
 RESET ROLE;
 
+-- 0124 (MO2-18): a file emptied from the trash while in it. Its last row's before side says it was in the trash, so
+-- looking back does not bring it back for the time it spent there.
+SELECT public.t121_file('12100000-0000-0000-0000-0000000002a1', 'aaaa1210-0000-0000-0000-00000000000a', 'emptied.png');
+SET LOCAL ROLE authenticated;
+SELECT public.t121_a();
+SELECT is(public.soft_delete_row('files', '12100000-0000-0000-0000-0000000002a1'), true, 'a plain file trashed (0124)');
+RESET ROLE;
+UPDATE public.files SET deleted_at = now() - interval '40 days' WHERE id = '12100000-0000-0000-0000-0000000002a1';
+SELECT is((SELECT public.purge_soft_deleted() IS NOT NULL), true, '… and emptied from the trash');
+SELECT is((SELECT prior -> 'in_trash' FROM public.moth_history WHERE entity_type = 'files' AND entity_id = '12100000-0000-0000-0000-0000000002a1' AND action = 'delete'),
+  'true'::jsonb, 'its last row''s before side says it was in the trash (0124)');
+SET LOCAL ROLE authenticated;
+SELECT public.t121_a();
+SELECT is((SELECT r.prior -> 'in_trash' FROM public.moth_history_read() r WHERE r.entity_id = '12100000-0000-0000-0000-0000000002a1' AND r.action = 'removed'),
+  'true'::jsonb, '… and so does the row a person reads (0124)');
+RESET ROLE;
+
 -- A folder that goes under money, by the guard's only door: the runner, as a repair would.
 SELECT public.t121_file('12100000-0000-0000-0000-000000000205', 'aaaa1210-0000-0000-0000-00000000000a', 'linked.pdf');
 SELECT public.t121_file('12100000-0000-0000-0000-000000000208', 'aaaa1210-0000-0000-0000-00000000000a', 'linked-later.pdf');
@@ -490,8 +523,8 @@ RESET ROLE;
 -- ── E. One fixture, one CHECK ───────────────────────────────────────────────
 SELECT throws_ok($$ INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action) VALUES ('11111111-1111-1111-1111-111111111111', 'files', gen_random_uuid(), 'observe') $$,
   '23514', 'new row for relation "moth_history" violates check constraint "moth_history_a_action_chk"', 'an action outside the vocabulary');
-SELECT throws_ok($$ INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, state) VALUES ('11111111-1111-1111-1111-111111111111', 'notes', gen_random_uuid(), 'create', '{"name":"x"}') $$,
-  '23514', 'new row for relation "moth_history" violates check constraint "moth_history_b_entity_chk"', 'a table outside the eleven');
+SELECT throws_ok($$ INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, state) VALUES ('11111111-1111-1111-1111-111111111111', 'boards', gen_random_uuid(), 'create', '{"name":"x"}') $$,
+  '23514', 'new row for relation "moth_history" violates check constraint "moth_history_b_entity_chk"', 'a table outside the fifteen');
 SELECT throws_ok($$ INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, state_class) VALUES ('11111111-1111-1111-1111-111111111111', 'files', gen_random_uuid(), 'update', 'personal') $$,
   '23514', 'new row for relation "moth_history" violates check constraint "moth_history_c_class_chk"', 'personal with no owner');
 SELECT throws_ok($$ INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, state_class, state_owner_id) VALUES ('11111111-1111-1111-1111-111111111111', 'files', gen_random_uuid(), 'update', 'shared', gen_random_uuid()) $$,
@@ -529,6 +562,8 @@ SELECT is(public.moth_history_projection_ok(jsonb_build_object('scene_ids', (SEL
 SELECT is(public.moth_history_projection_ok('{"name":{"a":1}}'::jsonb), false, 'nor an object inside');
 SELECT is(public.moth_history_projection_ok('{"scene_ids":[{"a":1}]}'::jsonb), false, 'nor an object in an array');
 SELECT is(public.moth_history_projection_ok('{"name":"x","folder_id":"y"}'::jsonb), true, 'CONTROL: this is');
+SELECT is(public.moth_history_projection_ok('{"name":"x","deleted_at":"2026-01-01"}'::jsonb), false,
+  'nor a key the projector never writes, the trash''s own time among them: in_trash says it (0124)');
 
 
 -- ── F. Who may read ─────────────────────────────────────────────────────────
@@ -736,7 +771,7 @@ SET LOCAL ROLE authenticated;
 SELECT public.t121_c();
 SELECT is((SELECT w.recording_since FROM public.moth_history_window() w WHERE w.entity_type = 'files' AND w.project_id IS NULL), now() - interval '5 days', 'or when the company began, when that is later');
 SELECT is((SELECT w.recording_since FROM public.moth_history_window() w WHERE w.entity_type = 'levels' AND w.project_id IS NULL), now() - interval '5 days', 'and a type with no mark at the company''s start');
-SELECT is((SELECT count(*)::int FROM public.moth_history_window() w WHERE w.project_id IS NULL), 11, 'one row per type');
+SELECT is((SELECT count(*)::int FROM public.moth_history_window() w WHERE w.project_id IS NULL), 15, 'one row per type (0129: fifteen)');
 RESET ROLE;
 SET LOCAL ROLE service_role;
 UPDATE public.workspaces SET created_at = now() - interval '200 days' WHERE id = '11111111-1111-1111-1111-111111111111';
@@ -802,9 +837,11 @@ SELECT public.t121_c();
 SELECT is((SELECT count(*)::int FROM public.moth_history_window() w WHERE w.project_id = 'aaaa1210-0000-0000-0000-0000000000c0'), 1, 'its owner does');
 RESET ROLE;
 ALTER TABLE public.moth_history DROP CONSTRAINT moth_history_b_entity_chk;
+-- As 0129 leaves it (0128's fifteen tables, validated).
 ALTER TABLE public.moth_history ADD CONSTRAINT moth_history_b_entity_chk
   CHECK ((action = 'mark_recording' AND entity_type ~ '^[a-z_]{1,63}$')
-         OR entity_type IN ('projects', 'phases', 'assets', 'tasks', 'files', 'folders', 'scenes', 'shots', 'levels', 'experiences', 'task_items'));
+         OR entity_type IN ('projects', 'phases', 'assets', 'tasks', 'files', 'folders', 'scenes', 'shots', 'levels',
+                            'experiences', 'task_items', 'notes', 'moth_tags', 'moth_tag_assignments', 'moth_relationships'));
 
 
 -- ── I. The purge ────────────────────────────────────────────────────────────

@@ -642,3 +642,22 @@ Plan §0, the four conditions, as boxes:
 - [ ] `[Cloud]` On a tablet or with a pen, touch the graph: the controls grow. Move a real mouse: they shrink again.
 - [ ] `[Cloud]` Look for invoices, Legal files, a private project you are not on, and someone else's personal space: none is a dot, a line, a search result or a card, for any role.
 - [ ] `[Desktop]` Signed out, on a project kept on this computer: the graph shows it; **Save as…** is greyed and the panel says *This view lasts for this visit only*. Quit and reopen WILSON: the first question is asked again.
+
+## §V. Typed tags, links and notes (25 min · walkthrough 96) `[Cloud]`
+
+Two accounts of one company, in two browsers (or a browser and a private window): **A**, an admin, and **B**, a member
+with no admin rights. Do it on staging first.
+
+- [ ] `[Cloud]` As A, in the Dashboard's **Notes**, write a note: it is under **Mine**. Set it to **Shared with the company**: as B, it is under **Shared**, and opens to read if B may not change it, saying why.
+- [ ] `[Cloud]` As A, make a note the company standard. As B, it opens to read: *This is the company standard. You can read it; the company's admins change it.*
+- [ ] `[Cloud]` Delete a note: *Moved to the trash. It stays there 30 days.* with **Undo**. Undo it; delete it again, then find it under **Trash** and **Bring back**.
+- [ ] `[Cloud]` Both of you type in one shared note at once, each saving: both texts are kept when each saves. Neither sees the other type, as the note says above its words.
+- [ ] `[Cloud]` As B, in M.O.T.H.'s **Typed tags**, the drawer says *None yet. Only you see the tags you make.* Make a type and a tag of your own: it is listed under *Your own tags*. As A, open the same drawer and the same thing: B's tag and B's use of it are not there at all.
+- [ ] `[Cloud]` As B, type the name of a company tag as a new tag: the drawer says the company has it and offers it. As B, **Put forward** a tag of your own; as A, **Approve** it: it is the company's, and B's use of it stays B's.
+- [ ] `[Cloud]` As A, rename and merge company tags: every use follows. As B (a member), there is no rename, merge or approve.
+- [ ] `[Cloud]` In a task's description, type `[[` and part of a name: a list of things you can see; **Enter** puts the link in. Save: the task lists it under **Links**, and the thing linked lists the task under **Mentioned in**. `#` and a tag's name tags the task and leaves nothing in the words.
+- [ ] `[Cloud]` As A, link from a shared note to a file in A's personal space. As B, open the note: the link's words are plain words, with nothing to say a link was there. The note's **Links** list has only what B can see.
+- [ ] `[Cloud]` A shared note that links things in two projects, one private to A: as B, only the other project's thing is a link.
+- [ ] `[Cloud]` Try to tag or link an invoice or a Legal file: none is offered, and none appears as a dot, a line or a link, for any role.
+- [ ] `[Cloud]` In M.O.T.H., notes and typed tags show as dots and saved links as lines; a note's dot opens it in the Dashboard. **Look back** before the record began for them: it says from when they are recorded.
+- [ ] `[Cloud]` In D.O.G., reference a note with links: the words come through as written, with no link codes.

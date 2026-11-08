@@ -11,7 +11,7 @@
 // search, a selection and the trash cannot show them. Every control is gated by the same question as the server's,
 // and the server asks again.
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { HelpCircle, Settings as SettingsIcon } from 'lucide-react'
+import { HelpCircle, Settings as SettingsIcon, Tags as TagsIcon } from 'lucide-react'
 import { Banner, Button, Dialog, Drawer, IconButton } from '../../ui'
 import { usePermissions } from '../../permissions/usePermissions'
 import { canOnProject, projectActionDeniedReason } from '../../permissions/projectRoleMatrix'
@@ -32,7 +32,7 @@ import { createInputMode, prefersReducedMotion } from './state/mothInputMode.js'
 import { QUICK_VIEWS, normalizeConfig, engineView, filterByTags, containersOf } from './state/mothViewState.js'
 import { createMothViews } from './state/mothViews.js'
 import { colourFor, radiusFor, normalizeAppearance } from './state/mothAppearance.js'
-import { rewind, recordedSince, readHistory, RECENT_DAYS } from './state/mothHistoryScrub.js'
+import { rewind, recordedSince, s3Floors, s3RecordedSince, readHistory, RECENT_DAYS } from './state/mothHistoryScrub.js'
 import { mothJump, JUMP_WORDS } from './state/mothJumps.js'
 import MothWorldView from './components/MothWorldView.jsx'
 import MothViewWidget from './components/MothViewWidget.jsx'
@@ -44,11 +44,21 @@ import MothFirstVisit from './components/MothFirstVisit.jsx'
 import MothBloom from './components/MothBloom.jsx'
 import MothMoveTo from './components/MothMoveTo.jsx'
 import MothTrashView from './components/MothTrashView.jsx'
+import MothTagPanel from './components/MothTagPanel.jsx'
 import './moth.css'
 
 // An asset's own file on this computer: its asset deletes it, and Moth's batches do not take it.
 export const MANAGED_ROW_SENTENCE = 'This file belongs to an asset. Change it from the asset.'
-const LINKS_LATER = 'Links between things come with the next update of M.O.T.H. Nothing was linked, and the dot is back where it was.'
+// MO3 (0127): a link joins these kinds, from a thing the person may change to one they see.
+const LINK_KINDS = new Set(['project', 'folder', 'file', 'phase', 'asset', 'task', 'scene', 'shot', 'level', 'experience', 'note'])
+const LINKS_ABSENT = 'Links are not on this database yet. Nothing was linked, and the dot is back where it was.'
+function linkWords(err) {
+  if (err?.code === '23505') return 'They are linked already.'
+  if (err?.code === 'moth_absent') return LINKS_ABSENT
+  if (err?.code === '42501') return 'You may not change where this link starts, so nothing was linked.'
+  if (err?.code === '23503') return 'That is not something you can link to.'
+  return err?.message || 'The link could not be saved.'
+}
 const SAVE_PLACES_MS = 1500
 
 // A key pressed in a box that has its own undo. A ticked row's checkbox has none.
@@ -83,6 +93,10 @@ export default function MothPage({ isActive = true, worldFactory }) {
   const [unfinishedMoves, setUnfinishedMoves] = useState(0)
   const [showHelpModal, setShowHelpModal] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [tagsOpen, setTagsOpen] = useState(false)
+  // MO3: a live admin decides what is put forward and links from any shared note; the server asks the
+  // membership row, this only offers the controls.
+  const isAdminHere = perms?.role === 'admin'
   const [bloom, setBloom] = useState(null)
   const [drag, setDrag] = useState(null)
   const [flyTo, setFlyTo] = useState(null)
@@ -223,7 +237,7 @@ export default function MothPage({ isActive = true, worldFactory }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [replay, store, snap.version])
   // Looking back: the record from the slider's time to now, read once per time, the live catalogue rewound.
-  const scrubbed = useMemo(() => (scrubAt != null && scrub.rows ? rewind(catalogue, scrub.rows, scrubAt) : null), [scrubAt, scrub.rows, catalogue])
+  const scrubbed = useMemo(() => (scrubAt != null && scrub.rows ? rewind(catalogue, scrub.rows, scrubAt, { s3Floors: scrub.s3Floors }) : null), [scrubAt, scrub.rows, scrub.s3Floors, catalogue])
   const base = scrubbed ? scrubbed.catalogue : catalogue
   // The person's own space is "My personal space" on the graph and in a search, as it is in the list.
   const shown = useMemo(() => {
@@ -442,6 +456,21 @@ export default function MothPage({ isActive = true, worldFactory }) {
     }
   }
 
+  // MO3 (0127): whether the person may change a thing, as the server's moth_can_write_target asks it: their own
+  // note, or any shared note for a live admin; else its project's, where they may write. Where a link starts and the
+  // typed-tag drawer's take-off cross on a company tag both ask this one question.
+  const mayChange = useCallback((node) => {
+    if (!node) return { allowed: false, reason: null }
+    if (node.kind === 'note') {
+      const row = index.rows.get(node.id)
+      const may = (row?.mine && row?.tier !== 'company_standard') || (isAdminHere && row?.tier !== 'personal')
+      return may ? { allowed: true } : { allowed: false, reason: 'Only its owner and the company’s admins link from this note.' }
+    }
+    const src = access(islandOf(node.projectId))
+    if (!src.allowed || !islandOf(node.projectId)?.can_write) return { allowed: false, reason: src.reason || 'You may not change where this link starts.' }
+    return { allowed: true }
+  }, [index, isAdminHere, access, islandOf])
+
   // ── The world's gestures ─────────────────────────────────────────────────────────────────────────────────────
   // A file moves into a folder or a project the person may write to, from a project they may write to. A link is
   // shown as one would be, and is saved from the next update (Session 3 stores relationships).
@@ -459,18 +488,38 @@ export default function MothPage({ isActive = true, worldFactory }) {
       if (row && row.project_id === to.projectId && (row.folder_id ?? null) === into) return { allowed: false, reason: 'It is already there.' }
       return { allowed: true }
     },
-    canLink: (from, to) => (from.id === to.id ? { allowed: false } : { allowed: true, reason: LINKS_LATER }),
-  }), [access, islandOf, fileRow, scrubAt, current.row, views])
+    // MO3 (0127): from a thing the person may change (its project's, or their own note, or any shared note for a
+    // live admin) to a thing on show, of the kinds a link joins. The server asks the same, and says no in words.
+    canLink: (from, to) => {
+      if (from.id === to.id || !LINK_KINDS.has(from.kind) || !LINK_KINDS.has(to.kind)) return { allowed: false }
+      return mayChange(from)
+    },
+  }), [access, islandOf, fileRow, scrubAt, current.row, views, mayChange])
 
   const onDrop = useCallback(({ dragId, targetId, mode }) => {
-    if (mode === 'link') { setNote(LINKS_LATER); return }
+    if (mode === 'link') {
+      const from = index.rows.get(dragId)
+      const to = index.rows.get(targetId)
+      if (!from || !to) return
+      ;(async () => {
+        try {
+          if (typeof adapter?.createMothRelationship !== 'function') throw Object.assign(new Error(LINKS_ABSENT), { code: 'moth_absent' })
+          await adapter.createMothRelationship({ sourceKind: from.kind, sourceId: from.rowId, targetKind: to.kind, targetId: to.rowId })
+          setNote(`Linked “${from.label || 'it'}” to “${to.label || 'it'}”.`)
+          await store?.readWorkspace?.()
+        } catch (err) {
+          setNote(linkWords(err))
+        }
+      })()
+      return
+    }
     const row = fileRow(rowOf(dragId))
     const to = index.rows.get(targetId)
     if (!row || !to) return
     act(() => move([row], row.project_id, to.projectId, to.kind === 'folder' ? to.rowId : null))
     // The move function is Session 1's; its dependencies change with every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileRow, index, act])
+  }, [fileRow, index, act, adapter, store])
 
   const dropFile = useCallback((fid, targetId) => {
     const row = fileRow(fid)
@@ -606,7 +655,7 @@ export default function MothPage({ isActive = true, worldFactory }) {
     if (!isActive || !adapter || localOnly || scrub.floor != null || scrub.available === false) return undefined
     let live = true
     Promise.resolve().then(() => adapter.fetchMothHistoryWindow(null))
-      .then((rows) => { if (live) setScrub((s) => ({ ...s, available: true, floor: recordedSince(rows) })) })
+      .then((rows) => { if (live) setScrub((s) => ({ ...s, available: true, floor: recordedSince(rows), s3Floor: s3RecordedSince(rows), s3Floors: s3Floors(rows) })) })
       .catch((err) => { if (live && err?.code === 'moth_absent') setScrub((s) => ({ ...s, available: false })) })
     return () => { live = false }
   }, [isActive, adapter, localOnly, scrub.floor, scrub.available])
@@ -616,14 +665,18 @@ export default function MothPage({ isActive = true, worldFactory }) {
     setScrub((s) => ({ ...s, loading: true, error: '' }))
     ;(async () => {
       let floor = scrub.floor
+      let s3Floor = scrub.s3Floor
+      let s3Each = scrub.s3Floors
       if (floor == null) {
         const windowRows = await adapter.fetchMothHistoryWindow(null)
         floor = recordedSince(windowRows)
+        s3Floor = s3RecordedSince(windowRows)
+        s3Each = s3Floors(windowRows)
       }
       const since = Math.max(scrubAt - RECENT_DAYS * 86400000, floor)
       const kept = scrub.rows && scrub.since != null && scrub.since <= since && scrub.version === snap.version
       const read = kept ? { rows: scrub.rows, complete: !scrub.incomplete } : await readHistory(adapter, since)
-      if (live) setScrub({ available: true, floor, rows: read.rows, since: kept ? scrub.since : since, version: snap.version, loading: false, error: '', incomplete: !read.complete })
+      if (live) setScrub({ available: true, floor, s3Floor, s3Floors: s3Each, rows: read.rows, since: kept ? scrub.since : since, version: snap.version, loading: false, error: '', incomplete: !read.complete })
     })().catch((err) => {
       if (!live) return
       if (err?.code === 'moth_absent') setScrub((s) => ({ ...s, available: false, loading: false }))
@@ -637,6 +690,7 @@ export default function MothPage({ isActive = true, worldFactory }) {
     available: localOnly ? false : scrub.available,
     localOnly,
     floor: scrub.floor,
+    s3Floor: scrub.s3Floor,
     at: scrubDraft !== undefined ? scrubDraft : scrubAt,
     setAt: (t) => {
       const v = t == null ? null : Math.max(t, scrub.floor ?? t)
@@ -660,7 +714,8 @@ export default function MothPage({ isActive = true, worldFactory }) {
   const selectedNode = selected.length === 1 ? graph.nodes.find((n) => n.id === selected[0]) ?? index.rows.get(selected[0]) ?? null : null
   // A person's own space never becomes another tool's open project (her PS-8, PSA-08): nothing in it jumps.
   const jumpIsland = selectedNode ? islandOf(selectedNode.projectId) : null
-  const jumpFor = jumpIsland && !jumpIsland.is_personal ? mothJump(selectedNode) : null
+  const jumpFor = selectedNode?.kind === 'note' ? mothJump(selectedNode)
+    : jumpIsland && !jumpIsland.is_personal ? mothJump(selectedNode) : null
 
   return (
     <div className="moth-page" data-moth-page data-input={inputMode} data-calm={calm ? 'true' : undefined}>
@@ -668,6 +723,7 @@ export default function MothPage({ isActive = true, worldFactory }) {
         <span className="moth-strip-title">{current.row?.name ?? QUICK_VIEWS[current.key]?.name ?? 'M.O.T.H.'}</span>
         <div className="moth-strip-right">
           <IconButton size="sm" Icon={HelpCircle} title="Help & documentation" onClick={() => setShowHelpModal(true)} />
+          <IconButton size="sm" Icon={TagsIcon} title="Typed tags" onClick={() => setTagsOpen(true)} />
           <IconButton size="sm" Icon={SettingsIcon} title="M.O.T.H. settings" onClick={() => setSettingsOpen(true)} />
         </div>
       </div>
@@ -717,6 +773,15 @@ export default function MothPage({ isActive = true, worldFactory }) {
                 {' '}WILSON tries again each time it starts. If a project's folder is on a drive, connect it.
               </Banner>
             )}
+            {/* MO3: a failed read of the notes, typed tags or links keeps what was drawn, and says so; never an empty graph that looks true. */}
+            {snap.workspaceError && (
+              <p className="moth-quiet" data-moth-workspace-failed>
+                Could not read every note, typed tag and link just now: what was drawn before is kept.{' '}
+                <Button variant="ghost" size="sm" onClick={() => { store.readWorkspace() }}>Try again</Button>
+              </p>
+            )}
+            {snap.workspace?.truncated && <p className="moth-quiet" data-moth-links-truncated>There are more links than M.O.T.H. draws at once: some are not shown.</p>}
+            {snap.workspace?.cut && <p className="moth-quiet" data-moth-lists-cut>There are more notes or typed tags than M.O.T.H. reads at once: some are not shown.</p>}
             {frameLine && <p className="moth-quiet moth-frames" data-moth-frames>{frameLine}</p>}
           </div>
           <MothViewWidget
@@ -798,6 +863,22 @@ export default function MothPage({ isActive = true, worldFactory }) {
           <MothHelp />
         </Dialog>
       )}
+      <Drawer open={tagsOpen} backdrop side="right" width="lg" label="Typed tags" title="Typed tags" onClose={() => setTagsOpen(false)} className="moth-settings-drawer">
+        {tagsOpen && (
+          <MothTagPanel
+            adapter={adapter}
+            store={store}
+            workspace={snap.workspace}
+            absent={snap.workspaceAbsent?.tags === true}
+            readFailed={!!snap.workspaceError}
+            readOnly={scrubAt != null ? 'Looking back changes nothing. Come back to now to change things.' : null}
+            isAdmin={isAdminHere}
+            userId={perms?.userId ?? null}
+            selectedNode={selectedNode}
+            canChange={mayChange(selectedNode).allowed}
+          />
+        )}
+      </Drawer>
       <Drawer open={settingsOpen} backdrop side="right" width="lg" label="Settings" title="M.O.T.H. settings" onClose={() => setSettingsOpen(false)} className="moth-settings-drawer">
         <MothSettings appearance={appearance} onChange={setAppearance} calm={calm} available={viewSnap?.prefsAvailable !== false} />
       </Drawer>

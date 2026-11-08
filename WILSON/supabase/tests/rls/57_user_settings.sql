@@ -17,6 +17,7 @@
 --      refusals, the CHECK, and nobody else's row is reached (probes 22-37).
 --   6. 0123 (MO2, 2026-11-07): moth_prefs, Moth's own settings per person and company, written through
 --      set_moth_prefs and read through moth_prefs(), which trusts nothing stored (probes 38-61).
+--   7. 0124 (MO3, MO2-12): that map's bound pinned by its definition, not its name (probe 63).
 --
 -- The sibling suite 56 carries the fuller commentary; this one is deliberately
 -- the same shape so a reader can diff them.
@@ -24,7 +25,7 @@
 
 BEGIN;
 
-SELECT plan(62);
+SELECT plan(63);
 
 SELECT * FROM tests.rls_setup();
 
@@ -519,6 +520,12 @@ SELECT ok(public.moth_can_read_target('file', '05700000-0000-0000-0000-000000000
           AND public.moth_prefs() -> 'recent' = '[{"k":"folder","id":"05700000-0000-0000-0000-000000000071"}]'::jsonb,
   'a forged opened folder that is a file or a task is not given back, though the file is the person''s to see');
 RESET ROLE;
+
+-- 63: 0124 (MO2-12): the stored map's bound by what it is, so a draft of the same name is not taken for it.
+SELECT is((SELECT pg_get_constraintdef(c.oid) || ' ' || c.convalidated::text FROM pg_constraint c
+            WHERE c.conrelid = 'public.user_settings'::regclass AND c.conname = 'user_settings_moth_prefs_chk'),
+  'CHECK (((jsonb_typeof(moth_prefs) = ''object''::text) AND (octet_length((moth_prefs)::text) <= 32768))) true',
+  'the settings'' bound is 0123''s, by its definition (0124)');
 
 SELECT * FROM finish();
 

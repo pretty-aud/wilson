@@ -576,8 +576,9 @@ describe('MO2: colour by, selection of several, the drop target, where a dot is'
     expect(back.has(DEFAULT_PALETTE.dot[2])).toBe(true)
   })
   it("the palette has a colour for every kind of item, none of them the selection's", () => {
-    expect(DEFAULT_PALETTE.dot).toHaveLength(11)
-    expect(new Set(DEFAULT_PALETTE.dot).size).toBe(11)
+    // MO3: thirteen, with a note and a typed tag (whose type's own colour comes first, model.js).
+    expect(DEFAULT_PALETTE.dot).toHaveLength(13)
+    expect(new Set(DEFAULT_PALETTE.dot).size).toBe(13)
     expect(DEFAULT_PALETTE.dot.includes(SIGNAL)).toBe(false)
   })
   it('several selected dots each get the selection ring, and none is drawn after it is cleared', () => {

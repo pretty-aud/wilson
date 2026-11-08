@@ -24,6 +24,7 @@ import { KIND_LABEL } from '../../state/taskItemsModel'
 import { ASSET_TYPES, assetTypeLabel } from '../../state/assetTypes'
 import { CHOICE_OPS, TEXT_OPS, itemKindOptions } from './tasksTableView'
 import { combinationOfIds } from './combinationGroups'
+import { mentionPlainText } from '../../state/mentionTokens'
 
 export const ASSETS_TABLE = 'assets'
 
@@ -144,7 +145,7 @@ export function assetsDescription({ kinds = [], phases = [], lookup = null, kind
       case 'type': return [a.type || 'other']
       case 'phase_id': return a.phase_id ? [a.phase_id] : []
       case 'name': return a.name ? [a.name] : []
-      case 'description': return a.description ? [a.description] : []
+      case 'description': return a.description ? [mentionPlainText(a.description)] : []
       case 'tasks': return [taskCountOf(a)]
       default:
         if (byKey.get(key)?.kind) return idsOf(a, key)

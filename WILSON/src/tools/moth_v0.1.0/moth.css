@@ -184,6 +184,16 @@
 /* Settings and the first visit's choices. */
 .moth-settings { display: flex; flex-direction: column; gap: 16px; }
 .moth-fieldset { margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 8px; }
+
+/* MO3 (0126): typed tags in the drawer — the selected thing's, a new tag and its advice, one's own, the queue, and
+   the company's. */
+.moth-tag-legend { padding: 0; font-size: var(--text-caption); font-weight: 600; color: var(--color-ink-3); }
+.moth-tag-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.moth-tag-check { display: flex; gap: 6px; align-items: center; font-size: var(--text-dense); color: var(--color-ink-2); }
+.moth-tag-advice { margin: 0; font-size: var(--text-dense); color: var(--color-ink-2); }
+.moth-tag-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.moth-tag-item { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: var(--text-dense); }
+.moth-tag-item[data-retired='true'] { color: var(--color-ink-3); }
 .moth-swatches { display: flex; flex-wrap: wrap; gap: 8px; }
 .moth-swatch {
   display: flex;

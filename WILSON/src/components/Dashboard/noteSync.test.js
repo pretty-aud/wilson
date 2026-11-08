@@ -78,12 +78,39 @@ describe('saveWithMerge', () => {
 
   it('bounds the retry loop', async () => {
     const save = vi.fn().mockResolvedValue(null) // never lands
-    const fetchRemote = vi.fn().mockResolvedValue({ ydocState: 'AA==', version: 9 })
+    // Another device saves first every time, so the version keeps moving.
+    let v = 8
+    const fetchRemote = vi.fn(async () => ({ ydocState: 'AA==', version: ++v }))
     await expect(saveWithMerge({
       encode: () => 'AA==', save, fetchRemote, applyRemote: vi.fn(),
       expectedVersion: 0, maxAttempts: 3,
     })).rejects.toThrow('too many version conflicts')
     expect(save).toHaveBeenCalledTimes(3)
+  })
+
+  // Review: the guard missed a row still at the version sent, so no other save beat it: row security left it out.
+  it('a miss on a row still at the version sent is a refusal, said at once and never retried', async () => {
+    const save = vi.fn().mockResolvedValue(null)
+    const fetchRemote = vi.fn().mockResolvedValue({ ydocState: 'AA==', version: 3 })
+    const applyRemote = vi.fn()
+    const err = await saveWithMerge({
+      encode: () => 'AA==', save, fetchRemote, applyRemote, expectedVersion: 3,
+    }).catch(e => e)
+    expect(err.code).toBe('refused')
+    expect(save).toHaveBeenCalledTimes(1)
+    expect(fetchRemote).toHaveBeenCalledTimes(1)
+    expect(applyRemote).not.toHaveBeenCalled()
+  })
+
+  it('a refusal after a real conflict is still said once the version stops moving', async () => {
+    const save = vi.fn().mockResolvedValue(null)
+    const fetchRemote = vi.fn().mockResolvedValue({ ydocState: 'UkVN', version: 7 })
+    const err = await saveWithMerge({
+      encode: () => 'AA==', save, fetchRemote, applyRemote: vi.fn(), expectedVersion: 3,
+    }).catch(e => e)
+    expect(err.code).toBe('refused')
+    expect(save).toHaveBeenNthCalledWith(2, 'AA==', 7)
+    expect(save).toHaveBeenCalledTimes(2)
   })
 })
 

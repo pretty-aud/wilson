@@ -1332,6 +1332,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| MO3 (M.O.T.H. Session 3, 2026-11-08; `po/moth3-tags`) — typed tags, relationships and workspace notes: migrations 0124 to 0129 on wilson-dev, the notes' tiers and trash, the `[[` and `#` pickers in R.A.B.B.I.T., M.O.T.H.'s typed-tag drawer, notes, tags and links in the graph and its record; two whole-session review rounds. | MO3-01 to MO3-12 (above, after MO2's list). | MO2-03 (links are saved: 0127, and the page's link drop), MO2-09, MO2-10, MO2-11, MO2-12 and MO2-18 (0124). |
 | MO2 (M.O.T.H. Session 2, 2026-11-07; `po/moth2-graph`) — the graph engine merged with its callers, migrations 0122 and 0123 on wilson-dev, the graph, glow, HUD and navigation; two whole-session review rounds. | MO2-01 to MO2-23 (above, after MO2a's list). | MO2a's R1-17, R1-18, R1-4, 5, 22, 52, R1-11, 23, R1-8, 24, R1-25, R1-13, R1-6, R1-3, R1-7, R1-32, R1-33, R1-34. |
 | MO1 (M.O.T.H. Session 1, 2026-11-02 to 2026-11-07; `po/moth1-foundations-9l5hbg`) — migrations 0107 to 0119 and 0121, the Edge Functions, the desktop's trash, moves and office-server routes, and the lazy Moth page; two whole-session review rounds. | MO1-01 to MO1-15 (below, at the end of this file). | The workspace channel's private rows and the write hops on `tasks` and `assets` (A-R1-04, A-R2-03), `files_delete`'s hop (C-R2-01), S4d-01, S4d-02: 0107 to 0109. OSP-01, OSP-07, S4c-12 for claimed keys: 0114, 0115 and the Edge Functions. S4b-06's first half and the receipts' residual 1: 0121, 0115. |
 | Post-overhaul DG8 (2026-11-06; `po/dg8-limit-bar-words` into `feat/post-overhaul-edit-versioning`) — her words, verbatim *"sorry dont say that its an estimate"*: the limit bar's sentence, card 1's header and the hover no longer say it, by the brief's table; *About* and *about* stay; the meter's arithmetic unchanged; one new group of tests over every word and attribute of the bar and the header in each state; walkthrough 94 corrected in place. | DG7-01 restated: the number can still read low, and the bar does not say it is an estimate; recorded, not fixed. DG8-01. | nothing: DG7-01 stays open. Comment markers: 4 → 4. |
@@ -4353,7 +4354,6 @@ Each stood against a checker told to refute it. R1 is round 1, R2 round 2 on the
 - **MO2-02 The 10,000 replay's p95 was 32.9 ms once in three runs** (17.3 and 17.4 the others), with drawing under 3 ms.
   The long frames are elsewhere, most likely the layout's ticks on the main thread while it settles. Not a target (the
   plan's is 1,000 dots, met), not measured further.
-- **MO2-03 Links between things are not saved.** A link drop puts the dot back and says so. Session 3.
 - **MO2-04 A project kept only on this computer keeps no saved view, place or setting**: the signed-out desktop has no
   table for them, and the page says they last the visit.
 - **MO2-05 The three graph reads are not timed on a large real project.** Dev's projects are small. The runbook's 0122
@@ -4364,17 +4364,6 @@ Each stood against a checker told to refute it. R1 is round 1, R2 round 2 on the
   the dev fixtures.
 - **MO2-08 Looking back reads at most 20,000 rows of the record** (20 pages); past that the slider says only part of
   the period could be read.
-- **MO2-09 A set-aside phase or task still passes Moth's gate** (0122's phase and task arms ask `deleted_at` only),
-  while the three reads leave it out. No one sees more than R.A.B.B.I.T. shows them; the page never offers such a dot,
-  so no place is made for one. For the next database change, or Session 3's writers: refuse `set_aside_at` in the gate
-  and pin it with a probe (whole-session round 1).
-- **MO2-10 `moth_put_positions` counts a focus before it folds a target named twice**, so one target sent twice with
-  focus then without clears the old focus and leaves none. The page sends each target once. Fold first, next time 0123
-  is restated.
-- **MO2-11 One revision sequence serves every company's views**, as 0098's `table_views` does, so a person polling
-  their own view's revision can read how busy the whole platform is. A per-row counter closes it; next restatement.
-- **MO2-12 0123's pre-flight does not pin `moth_view_access`**, and a re-run matches its two unique indexes and the
-  settings CHECK by name only. Only a draft left on a stack could slip through. Next restatement.
 - **MO2-13 One hidden target refuses a whole write of places** (a file moved where the writer cannot follow, between
   the read and the write). The page now sends only the dots moved, of the live catalogue, and says so in words; the
   server could leave a hidden target out instead of refusing, without telling anything. A first save of more than
@@ -4388,8 +4377,6 @@ Each stood against a checker told to refute it. R1 is round 1, R2 round 2 on the
   animate; the buttons do.
 - **MO2-17 An asset has no card of its own, and a phase opens R.A.B.B.I.T.'s Timeline without selecting the phase.**
   Session 3's items work.
-- **MO2-18 Looking back can bring back a file or item that was emptied from the trash while in it**: the record's prior
-  side does not say a row was in the trash (0119's projection). Needs `in_trash` in the projection, a migration.
 - **MO2-19 "Who last changed it" counts an office-server re-check as a change** (the walker's `updated_by`), and an
   update with no person names the uploader. Needs the catalogue's writers to keep `updated_by`, or an editor from
   `file_events`.
@@ -4406,3 +4393,53 @@ Each stood against a checker told to refute it. R1 is round 1, R2 round 2 on the
   signed-out desktop no folder-to-item lines are drawn.
 - **MO2-23 R.A.B.B.I.T.'s Files can show the last project's files for a moment during a project switch**, older than
   Moth, met on the jump path.
+
+## MO3 (2026-11-08, M.O.T.H. Session 3 on `po/moth3-tags`) — left open
+
+- **MO3-01 An approval races a rename, a retire or a delete of the tags it folds** (0126,
+  `moth_tag_nomination_decide` and `rabbit_private.moth_tag_fold`). The fold reads the personal tags it folds without
+  locking them, so a rename, retire or type change made at that moment is folded anyway; an owner deleting or retiring
+  a tag while an admin approves its nomination can deadlock, and the one who loses reads Postgres's own words; rename
+  and retire take no catalogue lock, so an approval can fold into a company tag being renamed or retired at that
+  moment. INFERRED from the code (whole-session round 1); settle with two sessions on dev, one approving while the
+  other renames, retires or deletes.
+- **MO3-02 In a shared note two people edit, a typed link can fail to be made.** Only the person who picked it holds
+  its key (`moth_note_mentions_sync` binds the writer's own reservations, 0127), and their key list is refused as stale
+  when the other person's save lands first; the client sends it once more with a fresh save, which can lose again to a
+  third. INFERRED; settle with two people typing in one shared note on dev.
+- **MO3-03 Two ways a file locks leave the record of its taggings and links stored, unblanked**: a file that becomes
+  money through a receipt (an expense row runs no capture on the file), and a file under a folder that turns Legal.
+  Every other way a file locks blanks those rows. No one reads them (the reader asks the file's own gate), but they
+  stay stored, a link's words included, until the file is written or purged; a receipt-only file that is then
+  hard-deleted keeps them for good (its cascade writes before the file's own capture). INFERRED; settle with a probe
+  that makes a tagged file money by a receipt.
+- **MO3-04 0127 makes a typed link from a money or a Legal file's description** (`rabbit_private.moth_mentions_apply`
+  on `files`). It is never shown (the gate refuses that end) and never recorded (0129), but the row is made; the rule
+  at the source is to make none. INFERRED.
+- **MO3-05 Two reservations made at the same moment can pass the 500-a-day cap by one** (`moth_mention_reserve`
+  counts, then inserts, under no lock). INFERRED.
+- **MO3-06 Looking back to before a note or a thing went to the trash brings back its dot but not its links or
+  typed-tag lines**: the live read leaves out a link or a tagging whose end is in the trash, and no record row says it
+  was there. INFERRED (round B on 0128 and 0129); settle by trashing a linked, tagged note on dev and looking back.
+- **MO3-07 Looking back to before a phase or a task was set aside does not bring it back**: the record keeps no
+  `set_aside_at` (0119's projection), and its reader asks today's gate, which refuses a set-aside row since 0124.
+  INFERRED; settle by setting a phase aside on dev and looking back.
+- **MO3-08 A note's or a typed tag's dot is laid out afresh on each visit**: a saved view keeps only the places of dots
+  in a project (`state/mothViews.js`, `keeps`), so one moved by hand goes back, though `moth_put_positions` takes them
+  since 0126. INFERRED.
+- **MO3-09 The Scenes and Shots tables' cells and the Timeline's asset editor edit a description holding a typed link
+  as its code** (`[[words|m:key]]`; the windows' boxes do too while editing). At rest every place shows the words. A
+  person editing there can cut the token, and its link goes at the next save. INFERRED.
+- **MO3-10 `moth_notes` stops at 5,000 inside the function, before its gate**, so a cut that leaves fewer than 5,000
+  after the gate is not seen; the client marks only a full 5,000 as cut. And the client's read, a page of 1,000 at a
+  time by id, runs the whole function again for each page (up to six for 5,000 notes). An exact sign and one run need
+  the function to take a cursor and answer `{notes, truncated}`, as `moth_relationships_read` does. INFERRED; the cost
+  is not timed (dev's companies are small).
+- **MO3-11 Pinned by no probe, each right in the code today**: the record of an approval's fold (suite 133 has a
+  merge's moves and no approval's); the record's pinned columns of a typed tag (`type_id`, `tier`, `canonical_id`,
+  `retired_at`; suite 121's pinned-column probe names only the older tables); a gone peer project's branch in the
+  capture. INFERRED (the second look on 0128 and 0129).
+- **MO3-12 A link picked in a note can be left out without a word**: when the words before the caret change while its
+  key is being reserved (a co-editor's change merged into a shared note, say), the editor gives up the splice rather
+  than cut the wrong words, and says nothing; the tag of a `#` pick is still put on. INFERRED (whole-session round 2);
+  settle with two people in one shared note, one typing above the other's pick.

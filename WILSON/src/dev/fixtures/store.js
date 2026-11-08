@@ -11,7 +11,7 @@
 // network — devFixtures.test.js greps this directory for exactly that.
 // =============================================================================
 
-import { WORKSPACE, MEMBERS } from './data/workspace'
+import { WORKSPACE, MEMBERS, MEMBER_ID } from './data/workspace'
 import {
   PROJECT, PHASES, MILESTONES, ASSETS, TASKS, DEPENDENCIES, TASK_LINKS,
   COMMENTS, ASSET_VERSIONS, EDIT_HISTORY, PROJECT_MEMBERS, PERSONAL_SPACES, PERSONAL_SPACE_FILES, PERSONAL_SPACE_MEMBERS, TASK_TEMPLATES,
@@ -30,7 +30,9 @@ import {
   RATE_CARDS, RATE_CARD_ENTRIES, BUDGET_LINES, BUDGET_ACTUALS, BUDGET_VERSIONS,
   EXPENSES, PROJECT_RATE_OVERRIDES,
 } from './data/money'
-import { NOTES, NOTE_SUBJECTS } from './data/notes'
+import { NOTES, NOTE_SUBJECTS, SHARED_NOTES, ydocState } from './data/notes'
+import { toPreview } from '../../components/Dashboard/noteSync'
+import { mentionPlainText } from '../../tools/rabbit_v0.1.0/state/mentionTokens'
 import { COURSE, SUBJECTS, PROGRESS, QUIZ_ATTEMPTS, CODING_COURSE, CODING_SUBJECTS } from './data/otter'
 
 export function clone(v) {
@@ -60,6 +62,56 @@ export function now() {
  * shot lists (0084) stay whole: every item still names a live row
  * (rabbitFixturesAdapter.contract.test.js checks the variant's bundle).
  */
+// MO3 (walkthrough 96): `?fixtures=tags`, Session 3 seeded. A company type and tag on the character Mara and on a
+// shot; Mara's own type and tag on the same character (hers alone); a link from the character to the lookbook; and
+// Theo's shared note with two typed links: to the character (everyone on Salt Hours sees it) and to a sketch in
+// Mara's personal space (Mara's alone: she added it, as a live admin may change a shared note). Read as Theo
+// (`?as=theo`), the sketch's link is its words alone, and Mara's own tag is not there at all.
+export function applyMothTagsVariant(store) {
+  const ws = store.workspace.id
+  const at = '2026-11-01T10:00:00.000Z'
+  const character = store.assets.find(a => a.id === fid('asset', 5))
+  const lookbook = store.assets.find(a => a.id === fid('asset', 3))
+  const shot = store.shots[0]
+  const space = store.projects.find(p => p.personal_owner_id === MEMBER_ID.mara)
+  const sketch = {
+    ...clone(store.files.find(f => f.project_id !== space?.id) || {}), id: fid('file', 902), project_id: space.id, folder_id: null,
+    name: 'lantern-sketch.png', kind: 'image', mime_type: 'image/png', size_bytes: 48213, storage_provider: 'supabase',
+    storage_path: `projects/${space.id}/images/lantern-sketch.png`, tags: [], is_financial: false, deleted_at: null,
+    created_by: MEMBER_ID.mara, created_at: at, updated_at: at,
+  }
+  store.files.push(sketch)
+  const character_type = { id: fid('mtype', 1), workspace_id: ws, tier: 'company', owner_id: null, name: 'Character', shape: 'star', colour: 'rose', retired_at: null, updated_at: at }
+  const mine = { id: fid('mtype', 2), workspace_id: ws, tier: 'personal', owner_id: MEMBER_ID.mara, name: 'Mine', shape: 'circle', colour: 'mist', retired_at: null, updated_at: at }
+  store.mothTagTypes.push(character_type, mine)
+  const tag = (n, type, tier, owner, label) => ({ id: fid('mtag', n), workspace_id: ws, type_id: type.id, tier, owner_id: owner, label,
+    canonical_id: null, retired_at: null, revision: 1, created_at: at, created_by: owner || MEMBER_ID.mara, updated_at: at })
+  const lead = tag(1, character_type, 'company', null, 'Lead')
+  const lantern = tag(2, mine, 'personal', MEMBER_ID.mara, 'Lantern')
+  store.mothTags.push(lead, lantern)
+  const tagging = (n, t, tier, owner, kind, id) => ({ id: fid('mtagging', n), workspace_id: ws, tag_id: t.id, tier, owner_id: owner,
+    target_type: kind, target_id: id, created_at: at })
+  store.mothTagAssignments.push(tagging(1, lead, 'company', null, 'asset', character.id),
+    tagging(2, lantern, 'personal', MEMBER_ID.mara, 'asset', character.id))
+  if (shot) store.mothTagAssignments.push(tagging(3, lead, 'company', null, 'shot', shot.id))
+  const link = (n, src, dst, label, origin, field, key, by) => ({ id: fid('mlink', n), workspace_id: ws, source_type: src[0], source_id: src[1],
+    dest_type: dst[0], dest_id: dst[1], label, origin, field, mention_key: key, created_by: by, created_at: at })
+  const note = store.notes.find(n => n.id === SHARED_NOTES[0].id)
+  const toCharacter = 'a1b2c3d4e5f6'
+  const toSketch = 'b2c3d4e5f6a1'
+  const paragraphs = [
+    'Harbour light: every exterior after 4pm is graded warm, the interiors cool, so the cut never asks where we are.',
+    `The lantern is the one warm thing inside. Keep it in frame whenever [[Mara|m:${toCharacter}]] is in the café, `
+      + `as in [[the lantern sketch|m:${toSketch}]].`,
+  ]
+  note.ydoc_state = ydocState(paragraphs)
+  note.body_preview = toPreview(mentionPlainText(paragraphs.join('\n')))
+  store.mothRelationships.push(
+    link(1, ['note', note.id], ['asset', character.id], null, 'inline', 'body', toCharacter, MEMBER_ID.theo),
+    link(2, ['note', note.id], ['file', sketch.id], null, 'inline', 'body', toSketch, MEMBER_ID.mara),
+    link(3, ['asset', character.id], ['asset', lookbook.id], 'dressed from', 'manual', null, null, MEMBER_ID.mara))
+}
+
 export function applyGameVariant(store) {
   const project = store.projects[0]
   project.levels_enabled = true
@@ -115,7 +167,13 @@ export function applyWorkspaceManagerVariant(store, userId) {
 /** `game`, `member` or `manager` from `?fixtures=…`, else null. */
 export function fixtureVariant(search = typeof location === 'undefined' ? '' : location.search) {
   const v = new URLSearchParams(search).get('fixtures')
-  return v === 'game' || v === 'member' || v === 'manager' ? v : null
+  return v === 'game' || v === 'member' || v === 'manager' || v === 'tags' ? v : null
+}
+
+// MO3 (walkthrough 96): `?as=theo` acts as that fixture person (any one's first name): their id, role and email.
+export function fixturePerson(search = typeof location === 'undefined' ? '' : location.search) {
+  const v = (new URLSearchParams(search).get('as') || '').trim().toLowerCase()
+  return v ? MEMBERS.find(m => m.display_name.split(/\s+/)[0].toLowerCase() === v) || null : null
 }
 
 // BC3: `?bins=browser` makes the fake cloud answer the Bins tab as the real
@@ -258,8 +316,15 @@ export function createStore() {
     // Nothing is seeded: the first visit asks what to map.
     mothViews: [],
     mothPositions: [],
-    mothViewRevision: 0,
     mothPrefs: {},
+    // MO3 (0126, 0127): typed tags, their nominations, relationships and the picker's reservations. Nothing is
+    // seeded: tags and links are made on the page.
+    mothTagTypes: [],
+    mothTags: [],
+    mothTagAssignments: [],
+    mothTagNominations: [],
+    mothRelationships: [],
+    mothMentionReservations: [],
 
     folders: clone(FOLDERS),
     files: [...clone(FILES), ...clone(PERSONAL_SPACE_FILES)],
@@ -276,7 +341,7 @@ export function createStore() {
     expenses: clone(EXPENSES),
     rateOverrides: clone(PROJECT_RATE_OVERRIDES),
 
-    notes: clone(NOTES),
+    notes: [...clone(NOTES), ...clone(SHARED_NOTES)],
     noteSubjects: clone(NOTE_SUBJECTS),
 
     // S2b: the C# course (a coding language) after the software one.

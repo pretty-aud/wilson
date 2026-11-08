@@ -39,6 +39,11 @@ export default function MothTimeSlider({ history }) {
         {history.loading ? ' Reading…' : ''}
         {history.error ? ` ${history.error}` : ''}
         {history.incomplete ? ' Only part of this period could be read.' : ''}
+        {/* MO3 (0129): notes, typed tags and links keep their own start; before it they show as they were then. */}
+        {history.at && history.s3Floor === Infinity
+          ? ' Notes, typed tags and links are not recorded here yet: they show as they are now.'
+          : history.at && history.s3Floor != null && history.at < history.s3Floor
+            ? ` Notes, typed tags and links are recorded from ${when(history.s3Floor)}: they show as they were then.` : ''}
       </p>
       {history.at != null && <Button size="sm" variant="ghost" onClick={() => history.setAt(null)} data-moth-time-now>Back to now</Button>}
     </div>

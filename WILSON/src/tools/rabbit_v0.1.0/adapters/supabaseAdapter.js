@@ -157,6 +157,7 @@ export function resetSupabaseAdapter() {
   fileTagsKnown = null;
   rekeyFileBodyKnown = null;
   topicEpochKnown = null;
+  notesTiersKnown = null;
   resetPersonalSpaceProbe();
   privateColumnKnown = null;
   fileMetaKnown = null;
@@ -310,6 +311,26 @@ async function fileMetaAvailable(client) {
 // strips `tags` from a patch rather than letting PGRST204 take the whole
 // request — a note typed beside a tag still saves.
 let fileTagsKnown = null;
+// MO3 (0125): notes gain a tier and a trash. Probed the same way: a database without the column answers 42703
+// (or PGRST204 from the schema cache) and every note is still its owner's alone, with no trash, as before 0125.
+// Any other failure says nothing about the column, and is the caller's to meet: it is not taken for an old
+// database, whose list would show other people's shared notes among one's own.
+// The session review: only "there" is remembered. A client open across the apply would otherwise go on reading the
+// database as before 0125 all session, so "not there" is asked again each time; and only the missing column or
+// table is taken for an old database, never a failure whose message merely holds the word.
+let notesTiersKnown = null;
+async function notesTiersAvailable(client) {
+  if (notesTiersKnown === true) return true;
+  const { error } = await client.from('notes').select('tier').limit(1);
+  if (!error) { notesTiersKnown = true; return true; }
+  const noTable = ['42P01', 'PGRST205'].includes(error.code);
+  const noColumn = ['42703', 'PGRST204'].includes(error.code) && /\btier\b/.test(error.message || '');
+  if (noTable || noColumn) return false;
+  lastError = error.message || String(error);
+  const err = new Error(`[supabase] ${lastError}`);
+  if (error.code) err.code = error.code;
+  throw err;
+}
 async function fileTagsAvailable(client) {
   if (fileTagsKnown !== null) return fileTagsKnown;
   const { error } = await client.from('files').select('tags').limit(1);
@@ -1891,11 +1912,11 @@ function mothAbsent(message) {
   err.code = 'moth_absent';
   return err;
 }
-function unwrapMothTable(result) {
+function unwrapMothTable(result, absent = MOTH_VIEWS_ABSENT) {
   const code = result?.error?.code;
   if (code === '42P01' || code === 'PGRST205') {
-    lastError = MOTH_VIEWS_ABSENT;
-    throw mothAbsent(MOTH_VIEWS_ABSENT);
+    lastError = absent;
+    throw mothAbsent(absent);
   }
   return keepMothCode(result);
 }
@@ -1911,6 +1932,74 @@ function unwrapMothRpc(result, fnName, absent = MOTH_VIEWS_ABSENT) {
   return keepMothCode(result);
 }
 const MOTH_VIEW_COLUMNS = 'id, scope_kind, project_id, owner_id, name, position, revision, config, updated_at, updated_by';
+// MO3 (0125 to 0127): workspace notes, typed tags and relationships, each said in words on a database without them.
+const MOTH_NOTES_ABSENT = 'this workspace\'s database does not keep workspace notes yet';
+const MOTH_TAGS_ABSENT = 'this workspace\'s database does not keep M.O.T.H.\'s typed tags yet';
+const MOTH_LINKS_ABSENT = 'this workspace\'s database does not keep M.O.T.H.\'s links yet';
+const MOTH_TAG_TYPE_COLUMNS = 'id, tier, owner_id, name, shape, colour, retired_at, updated_at';
+const MOTH_TAG_COLUMNS = 'id, type_id, tier, owner_id, label, canonical_id, retired_at, revision, updated_at';
+const MOTH_TAG_ASSIGNMENT_COLUMNS = 'id, tag_id, tier, owner_id, target_type, target_id, created_at';
+const MOTH_TAG_NOMINATION_COLUMNS = 'id, proposer_id, tag_id, label, type_name, note, status, review_note, decided_by, decided_at, result_tag_id, created_at';
+const MOTH_LINK_COLUMNS = 'id, source_type, source_id, dest_type, dest_id, label, origin, field, created_at';
+const unwrapMothTagTable = (result) => unwrapMothTable(result, MOTH_TAGS_ABSENT);
+const unwrapMothLinkTable = (result) => unwrapMothTable(result, MOTH_LINKS_ABSENT);
+// MO3 (the session review): Moth's lists of tags, types, uses, nominations and notes are read whole, a page at a time
+// (PostgREST stops at 1,000 rows an answer and says nothing of the rest), up to a bound. The last page asks one row
+// past the bound, so a list cut there says so: `truncated` on the array, out of sight of a plain comparison.
+const MOTH_LIST_BOUND = 20000;
+const MOTH_NOTES_BOUND = 5000; // moth_notes' own LIMIT (0125)
+function mothCut(rows) {
+  Object.defineProperty(rows, 'truncated', { value: true, enumerable: false });
+  return rows;
+}
+// Round 2: the pages are cut on the id, which no save moves (keyset: ordered by id, past the last id read, a page at a
+// time, until a short page). Offsets ordered by a column a save changes dropped or repeated a row that moved between
+// two pages, and made every page sort the whole table under its read policy before skipping its offset. The list is
+// then put back in the order its callers have always had (`order`: [column, 'text' | 'time', descending?], the id
+// last), so a list cut at its bound keeps the lowest ids, not the first in that order, and still says it was cut.
+// Words sort as the fixtures sort them (localeCompare), which may place case and accents apart from the collation.
+const mothText = (a, b) => String(a).localeCompare(String(b));
+const mothTime = (a, b) => (Date.parse(a) - Date.parse(b)) || (a < b ? -1 : a > b ? 1 : 0);
+function mothOrder(order) {
+  return (a, b) => {
+    for (const [col, kind, desc] of order) {
+      const x = a?.[col] ?? null;
+      const y = b?.[col] ?? null;
+      // As Postgres sorts them: a missing value last going up, first going down.
+      const c = x === y ? 0 : x === null ? 1 : y === null ? -1 : (kind === 'time' ? mothTime : mothText)(x, y);
+      if (c) return desc ? -c : c;
+    }
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  };
+}
+async function readMothPages(makeQuery, unwrapPage, order, bound = MOTH_LIST_BOUND) {
+  const out = [];
+  let after = null;
+  while (out.length <= bound) {
+    const want = Math.min(READ_PAGE, bound + 1 - out.length);
+    let q = makeQuery().order('id');
+    if (after !== null) q = q.gt('id', after);
+    const page = unwrapPage(await q.limit(want)) || [];
+    out.push(...page);
+    if (page.length < want) break;
+    after = page[page.length - 1].id;
+  }
+  const rows = (out.length > bound ? out.slice(0, bound) : out).sort(mothOrder(order));
+  return out.length > bound ? mothCut(rows) : rows;
+}
+// A change the database made to no row was refused by a policy (a seat lowered while the page stayed open, a label on
+// a typed link) or found nothing there: said in words, never a quiet null a panel would show as done. The words say
+// nothing of whether the row exists.
+const MOTH_TAG_UNCHANGED = 'That tag is not one you can change now, or it is no longer there.';
+const MOTH_TAG_NOT_DELETED = 'That tag is not one you can delete, or it is gone already.';
+const MOTH_TYPE_UNCHANGED = 'That type is not one you can change now, or it is no longer there.';
+const MOTH_TYPE_NOT_DELETED = 'That type is not one you can delete, or it is gone already.';
+const MOTH_LINK_UNCHANGED = 'That link is not one you can change: only a link drawn by hand takes a label, from someone who may change where it starts.';
+function mothNothingChanged(message) {
+  const err = new Error(message);
+  err.code = '42501';
+  return err;
+}
 
 // MO1 (0118): the same, with its refusals in words.
 function unwrapMoth(result, fnName) {
@@ -4331,12 +4420,34 @@ export function supabaseAdapter() {
     // `version` is the optimistic-concurrency counter. The list read
     // deliberately EXCLUDES ydoc_state — snapshots can be large and the
     // list only needs metadata + body_preview.
-    async listNotes() {
+    // 0125 (MO3): 'mine' (the default: the Dashboard's list and D.O.G.'s, as before: one's own notes of every
+    // tier), 'shared' (the company's shared and standard notes, one's own among them) or 'trash' (what the caller
+    // may bring back). Before 0125 every note is its owner's alone, and there is no trash.
+    async listNotes({ scope = 'mine' } = {}) {
       const client = await requireClient();
-      const { data, error } = await client
+      const tiers = await notesTiersAvailable(client);
+      if (!tiers && scope !== 'mine') return [];
+      let q = client
         .from('notes')
-        .select('id, title, subject, note_date, body_preview, version, created_at, updated_at')
-        .order('updated_at', { ascending: false });
+        .select('id, title, subject, note_date, body_preview, version, created_at, updated_at' + (tiers ? ', owner_id, tier, deleted_at' : ''));
+      if (tiers) {
+        // A note in the trash is in no plain read: its owner and live admins find it through note_trash_list.
+        if (scope === 'trash') {
+          const out = unwrapMothRpc(await client.rpc('note_trash_list'), 'note_trash_list', MOTH_NOTES_ABSENT);
+          lastError  = null;
+          lastSyncAt = new Date();
+          return Array.isArray(out) ? out : [];
+        }
+        if (scope === 'shared') q = q.is('deleted_at', null).neq('tier', 'personal');
+        else q = q.is('deleted_at', null);
+      }
+      // One's own are asked for whatever the probe said: before 0125 every note is its owner's anyway, and a probe
+      // wrong for a moment must not list a colleague's shared note as one's own.
+      if (scope === 'mine') {
+        const { data: sess } = await client.auth.getSession();
+        q = q.eq('owner_id', sess?.session?.user?.id ?? '00000000-0000-0000-0000-000000000000');
+      }
+      const { data, error } = await q.order('updated_at', { ascending: false });
       if (error) {
         // Environment predates migration 0017 — no notes yet.
         if (error.code === '42P01' || error.code === 'PGRST205') return [];
@@ -4380,7 +4491,20 @@ export function supabaseAdapter() {
     // NEVER send ydoc_state or version through here — body saves go
     // through saveNoteDoc so the version guard can't be bypassed.
     async patchNote(id, patch) {
-      return patchRow('notes', id, sanitize(patch, ['owner_id', 'ydoc_state', 'version']));
+      return patchRow('notes', id, sanitize(patch, ['owner_id', 'ydoc_state', 'version', 'tier', 'deleted_at', 'deleted_by']));
+    },
+    // 0125: who may read a note. personal (its owner's alone), shared (every active member's) or company_standard
+    // (set, cleared and changed by a live admin only). The guard says no in words, and the words reach the caller.
+    async notesHaveTiers() {
+      const client = await requireClient();
+      try { return await notesTiersAvailable(client); } catch { return false; }
+    },
+    async setNoteTier(id, tier) {
+      return patchRow('notes', id, { tier });
+    },
+    async restoreNote(id) {
+      const client = await requireClient();
+      return unwrapMothRpc(await client.rpc('note_restore', { p_note: id }), 'note_restore', MOTH_NOTES_ABSENT) === true;
     },
 
     // Version-guarded Yjs snapshot save. Returns the updated
@@ -4409,10 +4533,15 @@ export function supabaseAdapter() {
       return (data ?? []).length > 0 ? data[0] : null;
     },
 
-    // Hard delete (v1: notes have no trash — confirm in the UI).
+    // 0125: a note goes to the trash for 30 days, with its way back (restoreNote); true when it went. Before 0125
+    // there is no trash and it is deleted, as it was (v1: confirm in the UI).
     async deleteNote(id) {
       const client = await requireClient();
+      if (await notesTiersAvailable(client)) {
+        return unwrapMothRpc(await client.rpc('note_trash', { p_note: id }), 'note_trash', MOTH_NOTES_ABSENT) === true;
+      }
       unwrap(await client.from('notes').delete().eq('id', id));
+      return true;
     },
 
     // ── Note subjects (Session 8, migration 0017) ─────────────
@@ -4450,13 +4579,20 @@ export function supabaseAdapter() {
     // an option must re-tag the owner's notes or they silently fall out of
     // the renamed filter/group (review finding). RLS owner-scopes the
     // UPDATE for free. Returns the re-tagged note ids.
+    // 0125 (the second look on round A): a subject is its owner's, so only the renamer's own notes are re-tagged,
+    // never another member's shared note an admin may now change; and the company standard is left as it is.
     async retagNoteSubject(oldLabel, newLabel) {
       const client = await requireClient();
-      const { data, error } = await client
+      const tiers = await notesTiersAvailable(client);
+      const { data: sess } = await client.auth.getSession();
+      // The owner's filter whatever the probe said (the session review): it is harmless before 0125.
+      let q = client
         .from('notes')
         .update({ subject: newLabel })
         .eq('subject', oldLabel)
-        .select('id');
+        .eq('owner_id', sess?.session?.user?.id ?? '00000000-0000-0000-0000-000000000000');
+      if (tiers) q = q.neq('tier', 'company_standard');
+      const { data, error } = await q.select('id');
       if (error) {
         if (error.code === '42P01' || error.code === 'PGRST205') return [];
         lastError = error.message || String(error);
@@ -6175,6 +6311,162 @@ export function supabaseAdapter() {
     async setMothPrefs(patch) {
       const client = await requireClient();
       return unwrapMothRpc(await client.rpc('set_moth_prefs', { p_patch: patch }), 'set_moth_prefs') || {};
+    },
+    // ── MO3 (0125 to 0127): workspace notes in Moth, typed tags, relationships ─────────────────────────────────
+    // A workspace note is a note of 0017 that is not personal: Moth reads titles and tiers only (moth_notes), never a
+    // body. A database before 0125 has none, and the page says so.
+    // Paged on the function's answer by id, then put back newest first. moth_notes returns a set: PostgREST filters
+    // and orders its rows after it ran, so each page runs the function again, its 5,000 rows and their gate. The
+    // server stops at 5,000 before its gate, so a full 5,000 is the only sign some were left out, and is said to be cut.
+    async listMothNotes() {
+      const client = await requireClient();
+      const rows = await readMothPages(() => client.rpc('moth_notes'),
+        (res) => unwrapMothRpc(res, 'moth_notes', MOTH_NOTES_ABSENT), [['updated_at', 'time', true]], MOTH_NOTES_BOUND);
+      return rows.length >= MOTH_NOTES_BOUND && !rows.truncated ? mothCut(rows) : rows;
+    },
+    // The keys of the typed links a note's body holds, sent after each save with the version they were read from
+    // (the server cannot read a Yjs document; a list for a version the note no longer is answers false, unused).
+    async syncNoteMentions(noteId, version, keys) {
+      const client = await requireClient();
+      return unwrapMothRpc(await client.rpc('moth_note_mentions_sync', { p_note: noteId, p_version: version, p_keys: keys }),
+        'moth_note_mentions_sync', MOTH_LINKS_ABSENT) === true;
+    },
+    // Types and tags: the company's and the caller's own, through each table's own read policy.
+    async listMothTagTypes() {
+      const client = await requireClient();
+      return readMothPages(() => client.from('moth_tag_types').select(MOTH_TAG_TYPE_COLUMNS), unwrapMothTagTable, [['name', 'text']]);
+    },
+    async createMothTagType({ tier, name, shape = 'circle', colour = 'mist' }) {
+      const client = await requireClient();
+      return unwrapMothTagTable(await client.from('moth_tag_types').insert({ tier, name, shape, colour })
+        .select(MOTH_TAG_TYPE_COLUMNS).single());
+    },
+    async updateMothTagType(id, { name, shape, colour, retired } = {}) {
+      const client = await requireClient();
+      const patch = {};
+      if (name !== undefined) patch.name = name;
+      if (shape !== undefined) patch.shape = shape;
+      if (colour !== undefined) patch.colour = colour;
+      if (retired !== undefined) patch.retired_at = retired ? new Date().toISOString() : null;
+      const rows = unwrapMothTagTable(await client.from('moth_tag_types').update(patch).eq('id', id).select(MOTH_TAG_TYPE_COLUMNS)) || [];
+      if (!rows.length) throw mothNothingChanged(MOTH_TYPE_UNCHANGED);
+      return rows[0];
+    },
+    async deleteMothTagType(id) {
+      const client = await requireClient();
+      const rows = unwrapMothTagTable(await client.from('moth_tag_types').delete().eq('id', id).select('id')) || [];
+      if (!rows.length) throw mothNothingChanged(MOTH_TYPE_NOT_DELETED);
+      return { removed: true };
+    },
+    async listMothTags() {
+      const client = await requireClient();
+      return readMothPages(() => client.from('moth_tags').select(MOTH_TAG_COLUMNS), unwrapMothTagTable, [['label', 'text']]);
+    },
+    async createMothTag({ typeId, tier, label }) {
+      const client = await requireClient();
+      return unwrapMothTagTable(await client.from('moth_tags').insert({ type_id: typeId, tier, label })
+        .select(MOTH_TAG_COLUMNS).single());
+    },
+    async updateMothTag(id, { label, typeId, retired } = {}) {
+      const client = await requireClient();
+      const patch = {};
+      if (label !== undefined) patch.label = label;
+      if (typeId !== undefined) patch.type_id = typeId;
+      if (retired !== undefined) patch.retired_at = retired ? new Date().toISOString() : null;
+      const rows = unwrapMothTagTable(await client.from('moth_tags').update(patch).eq('id', id).select(MOTH_TAG_COLUMNS)) || [];
+      if (!rows.length) throw mothNothingChanged(MOTH_TAG_UNCHANGED);
+      return rows[0];
+    },
+    async deleteMothTag(id) {
+      const client = await requireClient();
+      const rows = unwrapMothTagTable(await client.from('moth_tags').delete().eq('id', id).select('id')) || [];
+      if (!rows.length) throw mothNothingChanged(MOTH_TAG_NOT_DELETED);
+      return { removed: true };
+    },
+    // Assignments the caller sees: the company's on what they see, and their own. One thing's, or all (bounded at
+    // 20,000, and said to be cut past it).
+    async listMothTagAssignments({ targetKind = null, targetId = null } = {}) {
+      const client = await requireClient();
+      return readMothPages(() => {
+        let q = client.from('moth_tag_assignments').select(MOTH_TAG_ASSIGNMENT_COLUMNS);
+        if (targetKind && targetId) q = q.eq('target_type', targetKind).eq('target_id', targetId);
+        return q;
+      }, unwrapMothTagTable, [['created_at', 'time']]);
+    },
+    async assignMothTag({ tagId, tier, targetKind, targetId }) {
+      const client = await requireClient();
+      return unwrapMothTagTable(await client.from('moth_tag_assignments')
+        .insert({ tag_id: tagId, tier, target_type: targetKind, target_id: targetId })
+        .select(MOTH_TAG_ASSIGNMENT_COLUMNS).single());
+    },
+    async unassignMothTag(id) {
+      const client = await requireClient();
+      const rows = unwrapMothTagTable(await client.from('moth_tag_assignments').delete().eq('id', id).select('id')) || [];
+      return { removed: rows.length > 0 };
+    },
+    // Putting one's own tag forward, and the company's live admins' decision. The proposer consents to the label and
+    // its type's name only; approving folds every exact match into the company tag, each owner's use kept private.
+    async listMothTagNominations() {
+      const client = await requireClient();
+      return readMothPages(() => client.from('moth_tag_nominations').select(MOTH_TAG_NOMINATION_COLUMNS),
+        unwrapMothTagTable, [['created_at', 'time', true]]);
+    },
+    async nominateMothTag(tagId, note = null) {
+      const client = await requireClient();
+      return unwrapMothRpc(await client.rpc('moth_tag_nominate', { p_tag: tagId, p_note: note }), 'moth_tag_nominate', MOTH_TAGS_ABSENT);
+    },
+    async withdrawMothTagNomination(nominationId) {
+      const client = await requireClient();
+      return unwrapMothRpc(await client.rpc('moth_tag_nomination_withdraw', { p_nomination: nominationId }),
+        'moth_tag_nomination_withdraw', MOTH_TAGS_ABSENT) === true;
+    },
+    async decideMothTagNomination(nominationId, approve, note = null) {
+      const client = await requireClient();
+      return unwrapMothRpc(await client.rpc('moth_tag_nomination_decide', { p_nomination: nominationId, p_approve: approve, p_review_note: note }),
+        'moth_tag_nomination_decide', MOTH_TAGS_ABSENT) ?? null;
+    },
+    async mergeMothTags(fromId, intoId) {
+      const client = await requireClient();
+      return unwrapMothRpc(await client.rpc('moth_tag_merge', { p_from: fromId, p_into: intoId }), 'moth_tag_merge', MOTH_TAGS_ABSENT);
+    },
+    // Relationships: the graph's (both ends seen, at most 60,000), one thing's ("Links" and "Mentioned in"), and the
+    // picker's key and offers. Not listMothLinks, which reads the links R.A.B.B.I.T.'s own fields make (0111).
+    async listMothRelationships() {
+      const client = await requireClient();
+      const out = unwrapMothRpc(await client.rpc('moth_relationships_read'), 'moth_relationships_read', MOTH_LINKS_ABSENT);
+      return { links: Array.isArray(out?.links) ? out.links : [], truncated: out?.truncated === true };
+    },
+    async createMothRelationship({ sourceKind, sourceId, targetKind, targetId, label = null }) {
+      const client = await requireClient();
+      return unwrapMothLinkTable(await client.from('moth_relationships')
+        .insert({ source_type: sourceKind, source_id: sourceId, dest_type: targetKind, dest_id: targetId, label })
+        .select(MOTH_LINK_COLUMNS).single());
+    },
+    async updateMothRelationshipLabel(id, label) {
+      const client = await requireClient();
+      const rows = unwrapMothLinkTable(await client.from('moth_relationships').update({ label }).eq('id', id).select(MOTH_LINK_COLUMNS)) || [];
+      if (!rows.length) throw mothNothingChanged(MOTH_LINK_UNCHANGED);
+      return rows[0];
+    },
+    async deleteMothRelationship(id) {
+      const client = await requireClient();
+      const rows = unwrapMothLinkTable(await client.from('moth_relationships').delete().eq('id', id).select('id')) || [];
+      return { removed: rows.length > 0 };
+    },
+    async listMothItemRelationships(kind, id) {
+      const client = await requireClient();
+      const out = unwrapMothRpc(await client.rpc('moth_item_links', { p_kind: kind, p_id: id }), 'moth_item_links', MOTH_LINKS_ABSENT);
+      return { out: Array.isArray(out?.out) ? out.out : [], in: Array.isArray(out?.in) ? out.in : [] };
+    },
+    async reserveMothMention(kind, id) {
+      const client = await requireClient();
+      return unwrapMothRpc(await client.rpc('moth_mention_reserve', { p_dest_type: kind, p_dest_id: id }), 'moth_mention_reserve', MOTH_LINKS_ABSENT);
+    },
+    async listMothMentionCandidates(query, limit = 20) {
+      const client = await requireClient();
+      const out = unwrapMothRpc(await client.rpc('moth_mention_candidates', { p_query: query, p_limit: limit }),
+        'moth_mention_candidates', MOTH_LINKS_ABSENT);
+      return Array.isArray(out) ? out : [];
     },
     // MO1's 0119, read by MO2's history scrub. Rows newest first, paged by an opaque row_key; the window says from
     // when each kind of thing has been recorded, per project.

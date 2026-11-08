@@ -39,10 +39,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as Y from 'yjs'
 import { useEditor, EditorContent } from '@tiptap/react'
+import { getText, getTextSerializersFromSchema } from '@tiptap/core'
+import { yXmlFragmentToProseMirrorRootNode } from '@tiptap/y-tiptap'
 import {
   Plus, Trash2, Bold, Underline as UnderlineIcon, Heading1, Heading2,
   List, Link2, Link2Off, CloudOff, StickyNote, Settings2, X, Check,
-  AlertTriangle,
+  AlertTriangle, RotateCcw,
 } from 'lucide-react'
 import { useNotes } from './useNotes'
 import { offlineSentence } from '../../cloud/ConnectionLostBanner'
@@ -50,14 +52,57 @@ import { u8ToB64, b64ToU8, saveWithMerge, toPreview } from './noteSync'
 // DG1: the extension list lives in noteText.js, so D.O.G.'s note reader and
 // this editor are one definition (a note read for a deck is read exactly as
 // it is shown here).
-import { noteEditorExtensions } from './noteText'
+import { noteEditorExtensions, setSeenMentions } from './noteText'
 import {
   Badge, Banner, Button, Dialog, EmptyState, IconButton, Input, Loading,
-  Select,
+  Select, useToast,
 } from '../../ui'
+// MO3 (0126, 0127): `[[` and `#` in a note, its tags, and a note asked for from elsewhere.
+import { useMentionPicker } from '../../tools/rabbit_v0.1.0/components/mentions/useMentionPicker'
+import MentionPicker from '../../tools/rabbit_v0.1.0/components/mentions/MentionPicker'
+import ItemTags from '../../tools/rabbit_v0.1.0/components/mentions/ItemTags'
+import MentionedIn from '../../tools/rabbit_v0.1.0/components/mentions/MentionedIn'
+import { useItemLinks, linksByKey } from '../../tools/rabbit_v0.1.0/components/mentions/useItemLinks'
+import { mentionKeys, mentionPlainText } from '../../tools/rabbit_v0.1.0/state/mentionTokens'
+import { OPEN_DASHBOARD_NOTE, takePendingNote } from '../../tools/rabbit_v0.1.0/state/linkedThings'
 import './dashboard.css'
 
 const SAVE_DEBOUNCE_MS = 1200
+// What an inline node that is not text (a line break) reads as in the words before the caret, as the picker is told.
+const LEAF = String.fromCharCode(0xfffc)
+
+// MO3 (0125): who reads a note, in words.
+const TIER_WORDS = Object.freeze({
+  personal: 'Only me',
+  shared: 'Shared with the company',
+  company_standard: 'Company standard',
+})
+const SCOPES = [['mine', 'Mine'], ['shared', 'Shared'], ['trash', 'Trash']]
+
+// The kit toast stack, or nothing where no ToastProvider is mounted (a test that mounts the tab alone).
+function useOptionalToast() {
+  try { return useToast() } catch { return null }
+}
+
+// May the signed-in person change this note? Its owner may, unless it is the company standard; a live admin may
+// change any note that is not personal. Before 0125 every note listed is one's own.
+export function noteMayChange(note, { tiers, userId, isAdmin }) {
+  if (!tiers) return true
+  const tier = note?.tier || 'personal'
+  const mine = !note?.owner_id || note.owner_id === userId
+  return (mine && tier !== 'company_standard') || (tier !== 'personal' && !!isAdmin)
+}
+
+// The tiers this person may move the note to (its own tier always shown).
+export function tierOptions(note, { userId, isAdmin }) {
+  const tier = note?.tier || 'personal'
+  const mine = !note?.owner_id || note.owner_id === userId
+  const offer = new Set([tier])
+  if (mine && tier !== 'company_standard') { offer.add('personal'); offer.add('shared') }
+  if (isAdmin && (tier !== 'personal' || mine)) { offer.add('shared'); offer.add('company_standard') }
+  if (isAdmin && tier === 'company_standard') offer.add('shared')
+  return ['personal', 'shared', 'company_standard'].filter(x => offer.has(x)).map(value => ({ value, label: TIER_WORDS[value] }))
+}
 
 const SORTS = [
   { value: 'updated_at', label: 'Updated' },
@@ -125,6 +170,29 @@ export default function NotesView() {
   const [manageSubjects, setManageSubjects] = useState(false)
   // The note the delete Dialog is asking about (W9). Null when it is closed.
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
+  const toast = useOptionalToast()
+  // MO3: a note asked for from elsewhere (a typed link, M.O.T.H.): looked for in one's own, then in the shared.
+  const [wantedId, setWantedId] = useState(() => takePendingNote())
+  // The scopes already looked in for the wanted note: the one on screen, then Mine, then Shared, never the trash.
+  const triedRef = useRef(new Set())
+  useEffect(() => {
+    const onOpen = () => { const id = takePendingNote(); if (id) { triedRef.current = new Set(); setWantedId(id) } }
+    window.addEventListener(OPEN_DASHBOARD_NOTE, onOpen)
+    return () => window.removeEventListener(OPEN_DASHBOARD_NOTE, onOpen)
+  }, [])
+  const { notes: listed, loading: listLoading, scope, setScope, tiers, loadedScope } = nb
+  useEffect(() => {
+    // Review: `loading` is false before the first load starts and in the commit a scope changes, so the rows on
+    // screen are only the answer once a load for this scope has finished.
+    if (!wantedId || listLoading || loadedScope !== (tiers ? scope : 'mine')) return
+    if (listed.some(n => n.id === wantedId)) { setSelectedId(wantedId); setWantedId(null); triedRef.current = new Set(); return }
+    triedRef.current.add(scope)
+    const next = tiers ? ['mine', 'shared'].find(s => !triedRef.current.has(s)) : null
+    if (next) { setSelectedId(null); setScope(next); return }
+    // Not in any list this person sees: nothing opens, and nothing says a note was there.
+    triedRef.current = new Set()
+    setWantedId(null)
+  }, [wantedId, listed, listLoading, loadedScope, scope, setScope, tiers])
 
   const visible = useMemo(() => {
     let rows = nb.notes
@@ -167,7 +235,17 @@ export default function NotesView() {
         title: 'Untitled note',
         note_date: new Date().toISOString().slice(0, 10),
       })
-      if (row?.id) setSelectedId(row.id)
+      if (!row?.id) return
+      // MO3 (review): a new note is one's own, so from the trash or the shared list the tab goes to Mine and opens
+      // it there once Mine has loaded, rather than showing it among notes it is not one of.
+      if (nb.tiers && nb.scope !== 'mine') {
+        setSelectedId(null)
+        triedRef.current = new Set(['shared', 'trash'])
+        setWantedId(row.id)
+        nb.setScope('mine')
+        return
+      }
+      setSelectedId(row.id)
     } catch { /* surfaced via nb.error */ }
   }, [nb])
 
@@ -175,12 +253,32 @@ export default function NotesView() {
   // Dialog, each lane converting its own as it passes. The warning this one
   // carries is not boilerplate — notes have no trash and no history — so the
   // copy is kept word for word and the button takes the danger variant.
+  // MO3 (0125): where the database keeps a trash, deleting is the trash, with an Undo here and a way back from the
+  // Trash scope for 30 days.
   const handleDelete = useCallback(async (id) => {
     try {
       await nb.deleteNote(id)
       setSelectedId(cur => (cur === id ? null : cur))
+      if (nb.tiers) {
+        toast?.push({
+          tone: 'info',
+          title: 'Moved to the trash',
+          body: 'It stays there 30 days.',
+          action: <Button size="sm" onClick={() => { nb.restoreNote(id).catch(() => {}) }}>Undo</Button>,
+        })
+      }
     } catch { /* surfaced via nb.error */ }
-  }, [nb])
+  }, [nb, toast])
+  const handleRestore = useCallback(async (id) => {
+    try {
+      // note_restore answers false for a note that is not in the trash: said so, never a false 'Brought back'.
+      if (await nb.restoreNote(id)) {
+        toast?.push({ tone: 'success', title: 'Brought back', body: 'It is with your notes again.' })
+      } else {
+        toast?.push({ tone: 'info', title: 'Not in the trash', body: 'This note is not in the trash, so there was nothing to bring back.' })
+      }
+    } catch { /* surfaced via nb.error */ }
+  }, [nb, toast])
 
   if (!nb.cloudReady) {
     return (
@@ -261,6 +359,24 @@ export default function NotesView() {
           />
         </div>
 
+        {nb.tiers && (
+          <div className="dash-notes-scopes" role="group" aria-label="Which notes">
+            {SCOPES.map(([id, label]) => (
+              <Button
+                key={id}
+                size="sm"
+                variant={nb.scope === id ? 'secondary' : 'ghost'}
+                aria-pressed={nb.scope === id ? 'true' : 'false'}
+                // Review: the person's click wins over a note asked for from elsewhere, which is dropped here, or its
+                // search would take the tab back to a list it has not looked in yet.
+                onClick={() => { setSelectedId(null); setWantedId(null); triedRef.current = new Set(); nb.setScope(id) }}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+        )}
+
         {manageSubjects && <SubjectManager nb={nb} />}
 
         {nb.error && (
@@ -281,9 +397,12 @@ export default function NotesView() {
             <EmptyState
               compact
               Icon={StickyNote}
-              title={nb.notes.length === 0 ? 'No notes yet' : 'No matches'}
+              title={nb.notes.length === 0
+                ? (nb.scope === 'trash' ? 'The trash is empty' : nb.scope === 'shared' ? 'No shared notes yet' : 'No notes yet')
+                : 'No matches'}
               body={nb.notes.length === 0
-                ? 'Create one to start writing.'
+                ? (nb.scope === 'trash' ? 'A note you delete waits here 30 days.'
+                  : nb.scope === 'shared' ? 'A note its owner shares with the company shows here.' : 'Create one to start writing.')
                 : 'No note matches the current filter.'}
             />
           ) : groups.map(group => (
@@ -312,6 +431,7 @@ export default function NotesView() {
                     >
                       <span className="dash-note-row-title">{n.title || 'Untitled note'}</span>
                       <span className="dash-note-row-meta">
+                        {nb.tiers && n.tier && n.tier !== 'personal' && <Badge>{TIER_WORDS[n.tier]}</Badge>}
                         {n.subject && <Badge>{n.subject}</Badge>}
                         <span className="dash-note-date">{fmtDate(n.note_date)}</span>
                       </span>
@@ -329,7 +449,18 @@ export default function NotesView() {
 
       {/* ── Right: editor ── */}
       <div className="dash-notes-editor">
-        {selected ? (
+        {selected && nb.scope === 'trash' ? (
+          // A note in the trash is read here and brought back; it is not changed until it is back.
+          <div className="dash-editor dash-note-trashed">
+            <div className="dash-note-head">
+              <span className="dash-note-title-static">{selected.title || 'Untitled note'}</span>
+              <Button size="sm" variant="primary" onClick={() => handleRestore(selected.id)}>
+                <RotateCcw aria-hidden="true" /> Bring back
+              </Button>
+            </div>
+            <p className="dash-note-trashed-preview">{selected.body_preview || 'This note is empty.'}</p>
+          </div>
+        ) : selected ? (
           <NoteEditor
             key={selected.id}
             note={selected}
@@ -348,7 +479,7 @@ export default function NotesView() {
       {confirmDeleteId && (
         <Dialog
           width="confirm"
-          title="Delete this note permanently?"
+          title={nb.tiers ? 'Move this note to the trash?' : 'Delete this note permanently?'}
           onClose={() => setConfirmDeleteId(null)}
           footer={(
             <>
@@ -361,12 +492,12 @@ export default function NotesView() {
                   handleDelete(id)
                 }}
               >
-                Delete note
+                {nb.tiers ? 'Move to trash' : 'Delete note'}
               </Button>
             </>
           )}
         >
-          Notes have no trash.
+          {nb.tiers ? 'You can bring it back from the trash for 30 days.' : 'Notes have no trash.'}
         </Dialog>
       )}
     </div>
@@ -512,14 +643,85 @@ function NoteEditor({ note, nb, onDelete }) {
   // (review finding C6). Route access through a ref instead.
   const nbRef = useRef(nb)
   useEffect(() => { nbRef.current = nb }, [nb])
+  // MO3 (0125): a note one may not change opens to read.
+  // Review: and a note that left this person's reach while open (trashed elsewhere, made the company standard under
+  // its owner) is locked where it stands, with the reason in words (`refused`), so its text can still be copied.
+  const [refused, setRefused] = useState(null)
+  const refusedRef = useRef(false)
+  const canChange = noteMayChange(note, nb) && !refused
+  const mayChangeRef = useRef(canChange)
+  mayChangeRef.current = canChange
+  const tier = note.tier || 'personal'
+  // MO3 (0126, 0127): `[[` and `#` in the body. The picker is read through a ref by the editor's key handler,
+  // which TipTap keeps from the editor's first render.
+  const tagsRef = useRef(null)
+  const picker = useMentionPicker({ getAdapter: nb.getAdapter, target: { kind: 'note', id: note.id }, onTagged: () => tagsRef.current?.reload() })
+  const pickerRef = useRef(picker)
+  useEffect(() => { pickerRef.current = picker }, [picker])
+  const pickRef = useRef(null)
+  const lastKeysRef = useRef(null)
+  // Whether the links of the latest edit have had their one more try (runSave).
+  const retriedRef = useRef(false)
 
   const editor = useEditor({
     // v3 traps (undoRedo off with Collaboration; Underline and Link in the
     // StarterKit) are stated with the list, in noteText.js.
     extensions: noteEditorExtensions(ydoc),
-    editable: true,
+    editable: canChange,
     shouldRerenderOnTransaction: true, // toolbar active-states need it
+    // The picker takes its keys first while its list is open.
+    editorProps: {
+      handleKeyDown: (_view, event) => {
+        const took = pickerRef.current?.keyDown(event)
+        if (took === 'pick') { pickRef.current?.(pickerRef.current.active); return true }
+        return took === 'handled'
+      },
+    },
+    // What is typed just before the caret, for `[[` and `#`.
+    // Review: a note read, not changed, opens no list (a pick would change it).
+    onSelectionUpdate: ({ editor: ed }) => {
+      if (!ed.isEditable) { pickerRef.current?.close(); return }
+      const { $from, empty } = ed.state.selection
+      if (!empty) { pickerRef.current?.close(); return }
+      // The words after the caret too: a caret inside a saved link's words asks nothing, so a pick never cuts it.
+      pickerRef.current?.update($from.parent.textBetween(0, $from.parentOffset, undefined, '\ufffc'),
+        $from.parent.textBetween($from.parentOffset, $from.parent.content.size, undefined, '\ufffc'))
+    },
   }, [ydoc])
+  useEffect(() => { editor?.setEditable(canChange) }, [editor, canChange])
+  // Review: the editor's schema, kept while it lives, so the body's text can still be read from the Y.Doc after the
+  // editor is destroyed (bodyText in runSave).
+  const schemaRef = useRef(null)
+  if (editor?.schema) schemaRef.current = editor.schema
+  // MO3 (acceptance 5): a typed link is drawn as one only when this reader sees what it leads to; any other is its
+  // words alone, with no hint. Read again after a save sends the body's keys.
+  const itemLinks = useItemLinks(nb.getAdapter, 'note', note.id)
+  const seenKeys = useMemo(() => [...linksByKey(itemLinks.out).keys()].sort().join(','), [itemLinks.out])
+  useEffect(() => {
+    if (editor && docReady) setSeenMentions(editor, seenKeys ? seenKeys.split(',') : [])
+  }, [editor, docReady, seenKeys])
+  const reloadLinksRef = useRef(itemLinks.reload)
+  useEffect(() => { reloadLinksRef.current = itemLinks.reload }, [itemLinks.reload])
+  // A pick replaces what was typed from where the asking began, in the block the caret is in.
+  // Review: the caret is read before the pick's wait, and only the asking up to it is replaced, so words typed (or a
+  // click elsewhere) while the server answers are left alone. When the block before the caret changed meanwhile, the
+  // asking is no longer where it was, and nothing is spliced.
+  pickRef.current = async (index) => {
+    if (!editor || !editor.isEditable) return
+    const { $from } = editor.state.selection
+    const at = $from.pos
+    const base = at - $from.parentOffset
+    const before = $from.parent.textBetween(0, $from.parentOffset, undefined, LEAF)
+    const res = await pickerRef.current.pick(index)
+    if (!res || editor.isDestroyed || !editor.isEditable) return
+    let $at
+    try { $at = editor.state.doc.resolve(at) } catch { return }
+    if ($at.pos - $at.parentOffset !== base || $at.parent.textBetween(0, $at.parentOffset, undefined, LEAF) !== before) return
+    const from = base + res.start
+    // Review: plain text, never a string TipTap reads as HTML: a name holding a tag the note knows (<b>, <br>) would
+    // lose it and turn &amp; into &. insertText keeps every character, and an empty text only deletes the asking.
+    editor.chain().focus().command(({ tr }) => { tr.insertText(res.text || '', from, at); return true }).run()
+  }
 
   // Load the snapshot AFTER the editor exists, then start listening for
   // local changes. StrictMode-safe: the fetch is idempotent (applyUpdate
@@ -544,16 +746,56 @@ function NoteEditor({ note, nb, onDelete }) {
     return () => { cancelled = true }
   }, [note.id, ydoc, loadAttempt])
 
+  // Review: why a save failed, when the reason is the note's and not the network's. The note is read again: gone
+  // (trashed or deleted elsewhere, or no longer shared with this person) or no longer theirs to change (made the
+  // company standard under its owner) is said in words; anything else is null, and the next edit tries again.
+  // Review: a save row security left out (saveWithMerge's 'refused': the note is still there at the version sent)
+  // is no longer this person's to change, whatever the client's own role, which lags the server's, still says.
+  const refusalOf = useCallback(async (err) => {
+    let row
+    try { row = await nbRef.current.openNote(note.id) } catch { return null }
+    if (!row) {
+      return {
+        gone: true,
+        why: nbRef.current.tiers
+          ? 'This note was moved to the trash, or is no longer shared with you, so what you wrote after that is not saved. You can still copy it from here.'
+          : 'This note was deleted on another device, so what you wrote after that is not saved. You can still copy it from here.',
+      }
+    }
+    if (noteMayChange(row, nbRef.current) && err?.code !== 'refused') return null
+    return {
+      gone: false,
+      why: row.tier === 'company_standard'
+        ? "This note became the company standard, which the company's admins change, so what you wrote after that is not saved. You can still copy it from here."
+        : 'This note can no longer be changed by you, so what you wrote after that is not saved. You can still copy it from here.',
+    }
+  }, [note.id])
+
   const runSave = useCallback(async () => {
+    // Review: a note read, not changed, is never sent (the server would refuse every try).
+    if (refusedRef.current || !mayChangeRef.current) return
     if (savingRef.current) { queuedRef.current = true; return }
     savingRef.current = true
     if (mountedRef.current) setSaveState('saving')
+    // Review: the body's text as it is now. A save flushed as the note closes lands after TipTap has destroyed the
+    // editor (a moment after unmount), so then it is read from the Y.Doc, which outlives the editor and holds the
+    // merged body, with the editor's own schema and separators. Never from text read before the merge: those keys
+    // would drop a co-editor's links.
+    const bodyText = () => {
+      if (editor && !editor.isDestroyed) return editor.getText()
+      const schema = schemaRef.current
+      if (!schema) throw new Error('note text: the editor never had a schema')
+      return getText(yXmlFragmentToProseMirrorRootNode(ydoc.getXmlFragment('default'), schema), {
+        blockSeparator: '\n\n',
+        textSerializers: getTextSerializersFromSchema(schema),
+      })
+    }
     try {
       const res = await saveWithMerge({
         encode: () => u8ToB64(Y.encodeStateAsUpdate(ydoc)),
         save: (b64, version) => nbRef.current.saveNoteDoc(note.id, {
           ydocState: b64,
-          bodyPreview: toPreview(editor?.getText?.() || ''),
+          bodyPreview: toPreview(mentionPlainText(bodyText())),
           expectedVersion: version,
         }),
         fetchRemote: async () => {
@@ -564,22 +806,43 @@ function NoteEditor({ note, nb, onDelete }) {
         expectedVersion: versionRef.current,
       })
       versionRef.current = res.version
+      const text = bodyText()
       nbRef.current.reflectSaved(note.id, {
         version: res.version,
         updated_at: new Date().toISOString(),
-        body_preview: toPreview(editor?.getText?.() || ''),
+        body_preview: toPreview(mentionPlainText(text)),
       })
+      // 0127: the typed links the body now holds, sent with the version just saved (the server cannot read a
+      // Yjs document). Sent when they change, and once after the note is opened.
+      const keys = mentionKeys(text)
+      const said = keys.join(',')
+      if (said !== lastKeysRef.current) {
+        const sent = await nbRef.current.syncNoteMentions(note.id, res.version, keys)
+        if (sent) { lastKeysRef.current = said; retriedRef.current = false; reloadLinksRef.current?.() }
+        // Review: not taken (a co-editor saved first, or the call failed): one more save, at a fresh version, sends
+        // these keys again while their reservation is still this person's. Once per edit, so it cannot loop.
+        else if (sent === false && !retriedRef.current) { retriedRef.current = true; queuedRef.current = true }
+      }
       if (mountedRef.current) setSaveState('saved')
-    } catch {
-      if (mountedRef.current) setSaveState('error')
+    } catch (err) {
+      const refusal = await refusalOf(err)
+      if (refusal) {
+        // Stop here: every later try would be refused the same way. The editor locks where it stands. A note still
+        // listed has the list read again, so its tier is the server's; a gone one is not, or the list would close
+        // it, and its words, before they are read.
+        refusedRef.current = true
+        queuedRef.current = false
+        if (mountedRef.current) { setRefused(refusal.why); setSaveState('refused') }
+        if (!refusal.gone) nbRef.current.reload?.()
+      } else if (mountedRef.current) setSaveState('error')
     } finally {
       savingRef.current = false
-      if (queuedRef.current) {
+      if (queuedRef.current && !refusedRef.current) {
         queuedRef.current = false
         runSave()
       }
     }
-  }, [ydoc, note.id, editor])
+  }, [ydoc, note.id, editor, refusalOf])
 
   const runSaveRef = useRef(runSave)
   useEffect(() => { runSaveRef.current = runSave }, [runSave])
@@ -592,6 +855,9 @@ function NoteEditor({ note, nb, onDelete }) {
     if (!docReady) return undefined
     const onUpdate = (_update, origin) => {
       if (origin === 'remote-load' || origin === 'remote-merge') return
+      // Review: a note read, not changed, schedules no save; a change made anyway is never sent.
+      if (refusedRef.current || !mayChangeRef.current) return
+      retriedRef.current = false
       if (mountedRef.current) setSaveState('dirty')
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
       saveTimerRef.current = setTimeout(() => {
@@ -687,9 +953,21 @@ function NoteEditor({ note, nb, onDelete }) {
           onCommit={() => commitTitle(titleDraft)}
           placeholder="Untitled note"
           aria-label="Note title"
+          disabled={!canChange}
         />
-        <IconButton icon={Trash2} size="sm" danger title="Delete note" onClick={onDelete} />
+        {canChange && <IconButton icon={Trash2} size="sm" danger title={nb.tiers ? 'Move to trash' : 'Delete note'} onClick={onDelete} />}
       </div>
+      {refused && (
+        <Banner tone="warning" Icon={AlertTriangle}>{refused}</Banner>
+      )}
+      {!canChange && !refused && (
+        <Banner tone="info">
+          {tier === 'company_standard'
+            ? "This is the company standard. You can read it; the company's admins change it."
+            : "You can read this note. Its owner and the company's admins change it."}
+        </Banner>
+      )}
+      <ItemTags ref={tagsRef} getAdapter={nb.getAdapter} kind="note" id={note.id} canChange={canChange} />
 
       <div className="dash-note-meta">
         <Select
@@ -699,6 +977,7 @@ function NoteEditor({ note, nb, onDelete }) {
           // could only ever swallow a legitimate retry after a failed write
           // (review round 2, finding 2).
           onChange={v => nb.patchNoteMeta(note.id, { subject: v || null }).catch(() => {})}
+          disabled={!canChange}
           placeholder="No subject"
           options={[
             ...nb.subjects.map(s => ({ value: s.label, label: s.label })),
@@ -723,12 +1002,26 @@ function NoteEditor({ note, nb, onDelete }) {
             nb.patchNoteMeta(note.id, { note_date: v || null }).catch(() => {})
           }}
           aria-label="Note date"
+          disabled={!canChange}
         />
+        {nb.tiers && (
+          <Select
+            size="sm"
+            value={tier}
+            onChange={v => { if (v && v !== tier) nb.setNoteTier(note.id, v).catch(() => {}) }}
+            options={tierOptions(note, nb)}
+            // Review: and once a save was refused, so a note locked to be copied from is not closed by a change here.
+            disabled={!!refused || tierOptions(note, nb).length < 2}
+            aria-label="Who reads this note"
+            title="Who reads this note"
+          />
+        )}
         <span className="dash-save-state" data-state={saveState}>
           {saveState === 'saving' ? 'Saving…'
             : saveState === 'dirty' ? 'Unsaved'
               : saveState === 'error' ? 'Save failed — retrying on next edit'
-                : 'Saved'}
+                : saveState === 'refused' ? 'Not saved'
+                  : 'Saved'}
         </span>
       </div>
 
@@ -744,41 +1037,54 @@ function NoteEditor({ note, nb, onDelete }) {
           the active state "comes from TipTap rather than from a prop" — which
           is not a reason, because `editor.isActive('bold')` is just a value
           you pass to a prop. The kit version also brings `aria-pressed`,
-          which the hand-rolled seven did not have (C8; review round 1). */}
-      <div className="dash-format-bar">
-        <span className="dash-format-group">
-          <IconButton icon={Heading1} size="sm" title="Heading 1"
-            active={!!editor?.isActive('heading', { level: 1 })}
-            onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()} />
-          <IconButton icon={Heading2} size="sm" title="Heading 2"
-            active={!!editor?.isActive('heading', { level: 2 })}
-            onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()} />
-          <IconButton icon={List} size="sm" title="Bullet list"
-            active={!!editor?.isActive('bulletList')}
-            onClick={() => editor?.chain().focus().toggleBulletList().run()} />
-        </span>
-        <span className="dash-format-group">
-          <IconButton icon={Bold} size="sm" title="Bold"
-            active={!!editor?.isActive('bold')}
-            onClick={() => editor?.chain().focus().toggleBold().run()} />
-          <IconButton icon={UnderlineIcon} size="sm" title="Underline"
-            active={!!editor?.isActive('underline')}
-            onClick={() => editor?.chain().focus().toggleUnderline().run()} />
-        </span>
-        <span className="dash-format-group">
-          <IconButton icon={Link2} size="sm" title="Add / edit link"
-            active={!!(editor?.isActive('link') || linkPanel !== null)}
-            onClick={openLinkPanel} />
-          {/* The one that recedes: it is the only destructive-ish control in
-              a run of constructive ones (D24). One page rule, not a variant. */}
-          <IconButton icon={Link2Off} size="sm" title="Remove link"
-            className="dash-tb-quiet"
-            onClick={() => editor?.chain().focus().unsetLink().run()} />
-        </span>
-      </div>
+          which the hand-rolled seven did not have (C8; review round 1).
 
+          MO3 (review): shown only on a note this person may change. TipTap runs a command whether or not the
+          editor is editable, so on a note read, not changed, these buttons changed the words on screen and every
+          save of them was refused. */}
+      {canChange && (
+        <div className="dash-format-bar">
+          <span className="dash-format-group">
+            <IconButton icon={Heading1} size="sm" title="Heading 1"
+              active={!!editor?.isActive('heading', { level: 1 })}
+              onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()} />
+            <IconButton icon={Heading2} size="sm" title="Heading 2"
+              active={!!editor?.isActive('heading', { level: 2 })}
+              onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()} />
+            <IconButton icon={List} size="sm" title="Bullet list"
+              active={!!editor?.isActive('bulletList')}
+              onClick={() => editor?.chain().focus().toggleBulletList().run()} />
+          </span>
+          <span className="dash-format-group">
+            <IconButton icon={Bold} size="sm" title="Bold"
+              active={!!editor?.isActive('bold')}
+              onClick={() => editor?.chain().focus().toggleBold().run()} />
+            <IconButton icon={UnderlineIcon} size="sm" title="Underline"
+              active={!!editor?.isActive('underline')}
+              onClick={() => editor?.chain().focus().toggleUnderline().run()} />
+          </span>
+          <span className="dash-format-group">
+            <IconButton icon={Link2} size="sm" title="Add / edit link"
+              active={!!(editor?.isActive('link') || linkPanel !== null)}
+              onClick={openLinkPanel} />
+            {/* The one that recedes: it is the only destructive-ish control in
+                a run of constructive ones (D24). One page rule, not a variant. */}
+            <IconButton icon={Link2Off} size="sm" title="Remove link"
+              className="dash-tb-quiet"
+              onClick={() => editor?.chain().focus().unsetLink().run()} />
+          </span>
+        </div>
+      )}
+
+      {/* MO3 (0125): plainly, what a shared note does when two people change it. */}
+      {nb.tiers && tier !== 'personal' && (
+        <p className="dash-note-merge-words">
+          Saved as you write. If someone else changes this note too, both changes are kept: they come together
+          when each of you saves. You will not see each other type.
+        </p>
+      )}
       {/* inline link URL entry (window.prompt is unavailable in Electron) */}
-      {linkPanel !== null && (
+      {canChange && linkPanel !== null && (
         <div className="dash-link-panel" onKeyDownCapture={e => { if (e.key === 'Escape') setLinkPanel(null) }}>
           <Input
             size="sm"
@@ -816,7 +1122,12 @@ function NoteEditor({ note, nb, onDelete }) {
             </Button>
           </div>
         ) : docReady ? (
-          <EditorContent editor={editor} />
+          <>
+            <EditorContent editor={editor} />
+            <MentionPicker picker={picker} onPick={(i) => pickRef.current?.(i)} id={`note-picker-${note.id}`} />
+            <MentionedIn links={itemLinks.out} title="Links" />
+            <MentionedIn links={itemLinks.in} />
+          </>
         ) : (
           <Loading label="Loading this note" />
         )}

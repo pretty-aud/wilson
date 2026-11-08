@@ -88,6 +88,12 @@ import TaskDetailPopup from '../components/TaskDetailPopup'
 import RelationsPanel, { NewTaskSidePopup } from '../components/RelationsPanel'
 // P1-23 (S3b step 7): a related asset opens in the Assets tab's own popup.
 import { AssetDetailPopup } from './ProjectAssetsView'
+import MentionTextArea from '../components/mentions/MentionTextArea'
+import MentionText from '../components/mentions/MentionText'
+import MentionedIn from '../components/mentions/MentionedIn'
+import ItemTags from '../components/mentions/ItemTags'
+import { useItemLinks, linksByKey } from '../components/mentions/useItemLinks'
+import { mentionPlainText } from '../state/mentionTokens'
 // Session 25: naming moved out of this file. It had five copies here and in
 // ProjectSummaryView, and S26 needs the same strings to name folders.
 import {
@@ -1102,7 +1108,7 @@ export default function ScenesView({ pageActive = false } = {}) {
     let list = scenes
     if (search.trim()) {
       const q = search.toLowerCase()
-      list = list.filter(s => (s.name || '').toLowerCase().includes(q) || (s.description || '').toLowerCase().includes(q))
+      list = list.filter(s => (s.name || '').toLowerCase().includes(q) || mentionPlainText(s.description || '').toLowerCase().includes(q))
     }
     return applyViewFilters(list, tvScenes.config.filters, sceneDescription)
   }, [scenes, search, tvScenes.config.filters, sceneDescription])
@@ -1147,7 +1153,7 @@ export default function ScenesView({ pageActive = false } = {}) {
     let list = shots
     if (search.trim()) {
       const q = search.toLowerCase()
-      list = list.filter(s => (s.name || '').toLowerCase().includes(q) || (s.description || '').toLowerCase().includes(q))
+      list = list.filter(s => (s.name || '').toLowerCase().includes(q) || mentionPlainText(s.description || '').toLowerCase().includes(q))
     }
     return applyViewFilters(list, tvShots.config.filters, shotDescription)
   }, [shots, search, tvShots.config.filters, shotDescription])
@@ -2665,7 +2671,7 @@ function SceneGallery({ scenes, shotsByScene, sceneTotals, cardShows = null, gal
                 </span>
                 {show('description') && sc.description && (
                   <span className="rb-scene-card-desc">
-                    {sc.description}
+                    {mentionPlainText(sc.description)}
                   </span>
                 )}
                 {(show('type') || (show('time_of_day') && sc.time_of_day) || show('status')) && (
@@ -3276,7 +3282,7 @@ function ShotGallery({ shotGroups, cardShows = null, gallerySize, fps, ctx, take
                     </span>
                     {show('description') && shot.description && (
                       <span className="rb-scene-card-desc">
-                        {shot.description}
+                        {mentionPlainText(shot.description)}
                       </span>
                     )}
                     {(show('shot_number') || show('status')) && (
@@ -3383,6 +3389,8 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
   // its editor is closed, or open and untouched — never once typed in.
   const [descDraft, setDescDraft] = useSavedDraft(scene?.description || '', editingDesc)
   const [notesDraft, setNotesDraft] = useSavedDraft(scene?.notes || '', editingNotes)
+  // MO3 (0127): the scene's links and tags (useThingLinks).
+  const sceneLinks = useThingLinks(ctx, 'scene', scene?.id, scene?.description, scene?.notes)
   // Focus back to each one's words when its edit closes (R2-05, useFocusBack).
   const descWordsRef = useFocusBack(editingDesc)
   const notesWordsRef = useFocusBack(editingNotes)
@@ -3419,7 +3427,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
   const status = scene.status || 'not_started'
   const hasThumbnail = !!scene.thumbnail_image
 
-  function handleUpdate(patch) { if (canWrite) ctx?.updateScene?.(scene.id, patch) }
+  function handleUpdate(patch) { return canWrite ? ctx?.updateScene?.(scene.id, patch) : undefined }
   // D21: a draft that differs from what is saved, in an open editor — and
   // (S3b-05) a task form with anything typed or chosen in it.
   const dirty = {
@@ -3718,6 +3726,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
                 </div>
               </div>
 
+              <ItemTags ref={sceneLinks.tagsRef} getAdapter={sceneLinks.getAdapter} kind="scene" id={scene.id} canChange={canWrite} />
               {/* Description: the words in the kit's well open its textarea;
                   Save and Cancel are the kit's Buttons (W2). A changed draft
                   asks before Escape drops it (D21, PopupDraftText). */}
@@ -3725,6 +3734,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
                 <FieldLabel>Description</FieldLabel>
                 <PopupDraftText label="Description" field="description" value={scene.description} emptyWords="Click to add a description..."
                   editing={editingDesc} setEditing={setEditingDesc} draft={descDraft} setDraft={setDescDraft} wordsRef={descWordsRef}
+                  mention={sceneLinks.mention}
                   onSave={v => handleUpdate({ description: v })} onAskDiscard={() => setAskDiscard('description')} readOnly={!canWrite} />
               </div>
 
@@ -3733,8 +3743,11 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
                 <FieldLabel>Notes</FieldLabel>
                 <PopupDraftText label="Notes" field="notes" value={scene.notes} emptyWords="Click to add notes..."
                   editing={editingNotes} setEditing={setEditingNotes} draft={notesDraft} setDraft={setNotesDraft} wordsRef={notesWordsRef}
+                  mention={sceneLinks.mention}
                   onSave={v => handleUpdate({ notes: v })} onAskDiscard={() => setAskDiscard('notes')} readOnly={!canWrite} />
               </div>
+              <MentionedIn links={sceneLinks.itemLinks.out} title="Links" />
+              <MentionedIn links={sceneLinks.itemLinks.in} />
 
               {/* The folder: a value nobody types, so inert (R3-36) */}
               <div className="rb-scene-detail-text">
@@ -3891,6 +3904,8 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
   // R1-06: as the scene popup's (useSavedDraft).
   const [descDraft, setDescDraft] = useSavedDraft(shot?.description || '', editingDesc)
   const [notesDraft, setNotesDraft] = useSavedDraft(shot?.notes || '', editingNotes)
+  // MO3 (0127): the shot's links and tags (useThingLinks).
+  const shotLinks = useThingLinks(ctx, 'shot', shot?.id, shot?.description, shot?.notes)
   // Focus back to each one's words when its edit closes (R2-05, as the scene popup's).
   const descWordsRef = useFocusBack(editingDesc)
   const notesWordsRef = useFocusBack(editingNotes)
@@ -3919,7 +3934,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
   const status = shot.status || 'not_started'
   const hasThumbnail = !!shot.thumbnail_image
 
-  function handleUpdate(patch) { if (canWrite) ctx?.updateShot?.(shot.id, patch) }
+  function handleUpdate(patch) { return canWrite ? ctx?.updateShot?.(shot.id, patch) : undefined }
   const dirty = {
     description: editingDesc && descDraft !== (shot.description || ''),
     notes: editingNotes && notesDraft !== (shot.notes || ''),
@@ -4255,11 +4270,13 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
                 </div>
               </div>
 
+              <ItemTags ref={shotLinks.tagsRef} getAdapter={shotLinks.getAdapter} kind="shot" id={shot.id} canChange={canWrite} />
               {/* Description (W2, as the scene popup's; D21) */}
               <div className="rb-scene-detail-text">
                 <FieldLabel>Description</FieldLabel>
                 <PopupDraftText label="Description" field="description" value={shot.description} emptyWords="Click to add a description..."
                   editing={editingDesc} setEditing={setEditingDesc} draft={descDraft} setDraft={setDescDraft} wordsRef={descWordsRef}
+                  mention={shotLinks.mention}
                   onSave={v => handleUpdate({ description: v })} onAskDiscard={() => setAskDiscard('description')} readOnly={!canWrite} />
               </div>
 
@@ -4268,8 +4285,11 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
                 <FieldLabel>Notes</FieldLabel>
                 <PopupDraftText label="Notes" field="notes" value={shot.notes} emptyWords="Click to add notes..."
                   editing={editingNotes} setEditing={setEditingNotes} draft={notesDraft} setDraft={setNotesDraft} wordsRef={notesWordsRef}
+                  mention={shotLinks.mention}
                   onSave={v => handleUpdate({ notes: v })} onAskDiscard={() => setAskDiscard('notes')} readOnly={!canWrite} />
               </div>
+              <MentionedIn links={shotLinks.itemLinks.out} title="Links" />
+              <MentionedIn links={shotLinks.itemLinks.in} />
 
               {/* The folder: inert (R3-36) */}
               <div className="rb-scene-detail-text">
@@ -4499,7 +4519,7 @@ function InlineText({ value, placeholder, onCommit, size = 'md', strong = false,
         data-empty={value ? undefined : 'true'}
         title={title}
       >
-        {value || (strong ? placeholder : '—')}
+        {mentionPlainText(value || '') || (strong ? placeholder : '—')}
       </span>
     )
   }
@@ -4527,7 +4547,7 @@ function InlineText({ value, placeholder, onCommit, size = 'md', strong = false,
       title={title}
       onClick={e => { e.stopPropagation(); setEditing(true) }}
     >
-      {value || placeholder}
+      {mentionPlainText(value || '') || placeholder}
     </span>
   )
 }
@@ -4582,11 +4602,34 @@ function PopupInlineText({ value, placeholder, label, onCommit, readOnly = false
       className="ui-input rb-scene-name-text"
       data-size="sm"
       data-empty={value ? undefined : 'true'}>
-      {value || placeholder}
+      {mentionPlainText(value || '') || placeholder}
     </button>
   )
 }
 
+
+// ─── useThingLinks (MO3, 0127) ───
+// A scene's or a shot's links and tags, for its window's two texts. The server makes a typed link when the words are
+// saved, so the links are read again once each save of either text has landed (and, should a save say nothing, a
+// moment after the words change); a `#` pick tags the thing at once and
+// the tags above the description are read again. Without a database that keeps links (a project kept on this
+// computer, a database before 0127) there are none, and the words read as plain words.
+function useThingLinks(ctx, kind, id, description, notes) {
+  const getAdapter = ctx?.getAdapter
+  const itemLinks = useItemLinks(getAdapter, kind, id)
+  const links = useMemo(() => linksByKey(itemLinks.out), [itemLinks.out])
+  const tagsRef = useRef(null)
+  const reload = itemLinks.reload
+  useEffect(() => {
+    if (!id) return undefined
+    const timer = setTimeout(() => reload(), 800)
+    return () => clearTimeout(timer)
+  }, [id, description, notes, reload])
+  const mention = useMemo(() => (id
+    ? { getAdapter, target: { kind, id }, links, onTagged: () => tagsRef.current?.reload(), reload }
+    : null), [getAdapter, kind, id, links, reload])
+  return { itemLinks, tagsRef, mention, getAdapter }
+}
 
 // ─── PopupDraftText (S3b step 7) ───
 // A popup's description or notes, one editor for the four (it was written
@@ -4599,32 +4642,49 @@ function PopupInlineText({ value, placeholder, label, onCommit, readOnly = false
 // Dialog stays — W2). Cancel is the person's own "drop it", and does.
 // Read-only (a seat that may not write scenes and shots): the words alone,
 // inert, a dash for none.
-function PopupDraftText({ label, field, value, emptyWords, editing, setEditing, draft, setDraft, wordsRef, onSave, onAskDiscard, readOnly = false }) {
+//
+// MO3 (0127): with `mention` (useThingLinks) the box takes `[[` and `#` as the task window's does, and the saved words
+// draw a seen link's words as a link; without it, and for any token whose thing the reader cannot see, a token reads
+// as its words alone. The token itself is never shown at rest.
+function PopupDraftText({ label, field, value, emptyWords, editing, setEditing, draft, setDraft, wordsRef, onSave, onAskDiscard, readOnly = false, mention = null }) {
   const saved = value || ''
+  const words = value ? <MentionText text={value} links={mention?.links} interactive={false} /> : null
   if (readOnly) {
     return (
       <span className="rb-scene-prop-inert" data-empty={value ? undefined : 'true'}>
-        {value || '—'}
+        {words || '—'}
       </span>
     )
   }
   if (editing) {
+    const onKeyDown = e => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      if (draft !== saved) onAskDiscard()
+      else setEditing(false)
+    }
     return (
       <>
-        <textarea value={draft} onChange={e => setDraft(e.target.value)}
-          onKeyDown={e => {
-            if (e.key !== 'Escape') return
-            e.preventDefault()
-            if (draft !== saved) onAskDiscard()
-            else setEditing(false)
-          }}
-          aria-label={label}
-          className="ui-input rb-scene-textarea"
-          data-field={field === 'notes' ? 'notes' : 'description'}
-          autoFocus />
+        {mention
+          ? <MentionTextArea value={draft} onChange={setDraft} onKeyDown={onKeyDown}
+              getAdapter={mention.getAdapter} target={mention.target} onTagged={mention.onTagged}
+              aria-label={label}
+              className="ui-input rb-scene-textarea"
+              data-field={field === 'notes' ? 'notes' : 'description'}
+              autoFocus />
+          : <textarea value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={onKeyDown}
+              aria-label={label}
+              className="ui-input rb-scene-textarea"
+              data-field={field === 'notes' ? 'notes' : 'description'}
+              autoFocus />}
         <div className="rb-scene-edit-acts">
           <Button size="sm" variant="primary" Icon={Save}
-            onClick={() => { onSave(draft); setEditing(false) }}>
+            onClick={() => {
+              const saving = onSave(draft)
+              setEditing(false)
+              // MO3: the server makes a typed link with the write, so the links are read once it has landed.
+              if (mention?.reload) Promise.resolve(saving).catch(() => {}).finally(() => mention.reload())
+            }}>
             Save
           </Button>
           <Button size="sm" variant="ghost"
@@ -4639,7 +4699,7 @@ function PopupDraftText({ label, field, value, emptyWords, editing, setEditing, 
     <button ref={wordsRef} type="button" onClick={() => setEditing(true)}
       className="ui-input rb-scene-prop-text"
       data-empty={value ? undefined : 'true'}>
-      {value || emptyWords}
+      {words || emptyWords}
     </button>
   )
 }

@@ -812,7 +812,9 @@ tightened by 0013 (project roles), 0014 (soft delete), 0015 (rate identity),
 0020 (active-membership + grants).
 
 Plus `project_members` (0013), `notes` and `note_subjects` (0017, owner-only,
-no admin bypass).
+no admin bypass; since 0125 a note has a tier: a personal one is its owner's alone, a shared
+one is read by the company and changed by its owner and live admins, the company
+standard is the admins' to change, and a note goes to a trash first).
 
 **Edit history** — `edit_history` (0012): append-only diff rows for the 13
 RABBIT tables, one SELECT policy and no write policy at all; the DEFINER
@@ -1306,7 +1308,10 @@ only matter if someone **replays a migration by hand**:
 
 | If you re-run… | You must then re-run… | Because |
 |---|---|---|
-| `0111` **or** `0121` | `0121`, then `0122` | **(MO2)** 0122 restates `_moth_target_eligible` and `moth_can_write_target` from 0121's bodies with the seven item kinds, and its pre-flight accepts 0121's body or its own: after a replay of 0111 re-run 0121 first, then 0122. A replay of either drops the item arms (every item answers false, so Moth shows no item, keeps no item's place and writes none). 0123 needs 0122 (it refuses without `moth_project_items`), and its places ask the same gates. |
+| `0124`, `0125` **or** `0128` | (nothing: each refuses) | **(MO3)** Each refuses once a later file has moved on, so none can be replayed after it: 0124's pre-flight once 0125 or 0126 has restated the gate or 0129 the record's projector; 0125's once 0126 has restated the gate (in the words "0124 must be applied first", which then mean the gate is neither 0124's nor its own); 0128's once 0129 has validated its checks. Replay one only on a database where the later file has not run. 0126, 0127 and 0129 are re-runnable over themselves. |
+| `0017` | (nothing: 0125 refuses) | **(MO3)** 0125 restates 0017's note policies with the tiers and the trash and drops its `notes_delete` (a note goes to the trash; only the purge deletes). A replay of 0017 puts back the owner-only read and update with no trash filter, and `notes_delete`; 0125 then refuses (its pre-flight finds four policies where it left three, and the gate is no longer its own). Never replay 0017 once 0125 is applied; if it was, drop `notes_delete` and restate `notes_select`, `notes_insert` and `notes_update` from 0125 §3 by hand. |
+| `0122` **or** `0123` | (nothing: each refuses once 0124 is applied) | **(MO3)** 0124 restates `_moth_target_eligible` (a set-aside phase or task is no target), `fn_moth_views_pin`, `moth_put_positions`, `moth_history_project` and `moth_history_projection_ok`, and 0125 and 0126 restate the gate again. **Both refuse after 0124**: 0122's pre-flight finds `_moth_target_eligible` neither 0121's nor its own, 0123's finds the views' pin not its own. Replay either only on a database where 0124 has not run, where MO2's rows below hold. |
+| `0111` **or** `0121` | before 0124: `0121`, then `0122`; once 0124 is applied: never replay either | **(MO2)** 0122 restates `_moth_target_eligible` and `moth_can_write_target` from 0121's bodies with the seven item kinds, and its pre-flight accepts 0121's body or its own: after a replay of 0111 re-run 0121 first, then 0122. A replay of either drops the item arms (every item answers false, so Moth shows no item, keeps no item's place and writes none). 0123 needs 0122 (it refuses without `moth_project_items`), and its places ask the same gates. **(MO3)** Once 0124 is applied those re-runs end at 0122's gate, which knows no note or typed tag and has no set-aside arm, and 0124 to 0126, which restated it, refuse to run again. If 0111 or 0121 was replayed there, put back 0126's `_moth_target_eligible` (md5 `d698cc503481bb497557ff247b3aab72`) and 0125's `moth_can_write_target` (md5 `cebbff6f84c8827799022eea970afcbd`) by hand, from those files. |
 | `0042`, `0053`, `0073` **or** `0114` | `0115` | **(MO1)** 0115 restates the eight base storage policies (0042, 0053), `workspace_petal_committed_bytes` (0073) and three of 0114's helpers (`storage_object_claimed`, `storage_object_current_project`, `file_key_admissible`). Re-running any of those without 0115 puts the key's prefix back in charge of every stored copy, or loses the moved-copies arm or the picture's arm, and 0115's pre-flight pins each by md5. |
 | `0107` **or** `0110` | `0114` | **(MO1)** 0114 restates `fn_same_project_refs_guard` (0107) without its skip, and `fn_projects_owner_guard` (0110) with the id-tied arm. Re-running either without 0114 brings the skip back or loses the arm, and 0114's preflight pins both bodies by md5. |
 | `0013`, `0084` **or** `0107` | `0110` | **(MO1)** 0110 restates `projects_insert` and `projects_delete` and the four write helpers (`can_write_project`, `can_comment_project`, `can_manage_project_roster` from 0013, `can_edit_shot_lists` from 0084) with the personal arm, and `projects_update` and `fn_projects_owner_guard` (0107) with the personal and id-reuse arms. A replay of any of them puts back a body that lets an admin write into someone's personal space, silently. 0110's pre-flight accepts 0107's guard (md5 `ab21a087…`) or its own (`b6b800f4448eb9723f4afab2e6d97ec0`), so it refuses once 0114 or 0117 have restated the guard: re-run 0107, then 0110, then those |
@@ -5200,6 +5205,38 @@ answered by the shell and by `Rabbit.jsx` through `mothItemTarget`), and looking
 only). Links between things are not saved until Session 3. Development only: `?mothFrames=1` shows a frame readout and
 `?mothReplay=N` maps a generated catalogue of N dots for the measured replays.
 
+**Workspace notes (MO3, 0125).** A note has a tier: personal (its owner's alone, no admin leg), shared (every active
+member reads it) or the company standard (only a live admin changes it or puts it in the trash). Deleting is the trash:
+DELETE is revoked from clients, `note_trash` and `note_restore` move a note in and out, `note_trash_list` lists one's own
+and, for an admin, the company's, and `purge_trashed_notes` (the `wilson-purge-notes` job) removes what has waited 30 days.
+A refused change says why ("Only a workspace admin changes the company standard."), never a silent no-row: the owner stays
+in the update policy and the guard refuses. Where row security does leave a save out (an admin demoted, a member
+gone, the note still read at the version sent), the editor tells it from a conflict, says so ("This note can no longer
+be changed by you…"), and the note locks where it stands. A note's body is a Yjs snapshot the server never reads; changes merge when
+saved, and no one sees another type. Moth's gate and write gate know notes.
+
+**Typed tags (MO3, 0126).** Types (a company's or a person's own: a name, a shape, a colour), tags (label, type, tier,
+owner; `canonical_id` once folded; retired), assignments (a tag on one of eleven kinds of thing, with its own tier: a
+person's own use of a company tag is theirs alone) and nominations (a person puts their own tag forward; a live admin
+approves or turns it down; managers put forward, never decide). Approve and merge take one catalogue lock a
+company, and a fold moves every use to the tag it now stands for; rename and retire do not take it. The gate knows a typed tag (`mtag`), and places
+know notes and typed tags.
+
+**Links (MO3, 0127).** `moth_relationships` holds saved links between any two things, both ends through Moth's gate,
+labelled, drawn by hand or made inline. An inline link is the token `[[words|m:key]]` in a thing's words or a note: the
+key is reserved by its writer for a thing they see (`moth_mention_reserve`), bound where it is used, and made a link by
+the text triggers on nine tables when the words are saved; a note's keys come with the version saved
+(`moth_note_mentions_sync`). `moth_mention_candidates` (the picker), `moth_item_links` (a thing's links out and in) and
+`moth_relationships_read` (the graph's) show only links whose both ends the reader may see. A reader who cannot see a
+link's far end sees its words alone, with nothing to say a link was there.
+
+**The record of Session 3 (MO3, 0128, 0129).** `moth_history` records notes (title, tier, trash; never a body), typed
+tags, their assignments and links. Each side has a peer: an assignment's own tier, a link's far end. A side shows when
+its audience and its peer's both pass. A tagging or link with an end in money or Legal is locked as that end is, and a
+file or folder that locks blanks the record of those still naming it. A removal a purge takes is told to the audience its
+gone thing last had (`_moth_history_end_last`); a gone thing is read by what its own record last said
+(`_moth_history_end_visible`). The window tells a restart only to those its row was for.
+
 ## 14. Who talks to whom
 
 **M.O.T.H.'s arrows (MO1).** Personal spaces and private projects' content are off every workspace realtime topic. `moth_history` is
@@ -5209,6 +5246,8 @@ person's change shows when the list next reads. **A join is judged when it is ma
 hearing a project channel they had joined until their token refreshes or runs out, each of which closes it. A new join is judged afresh.
 
 **M.O.T.H.'s arrows (MO2).** Two more cross-tool events, Moth to R.A.B.B.I.T.: `wilson:open-rabbit-item` `{ projectId, kind, id }` and `wilson:open-project-file` `{ projectId, fileId }`, each sent only after the person says yes to leaving. Views, places and settings are read when a view opens; none is on a channel, and a post-condition of 0123 keeps both tables off every broadcast.
+
+**M.O.T.H.'s arrows (MO3).** One more cross-tool event: `wilson:open-dashboard-note` `{ noteId }`, from Moth's note jump and from a link's words that lead to a note, answered by the Dashboard. A link's words in a R.A.B.B.I.T. window send `wilson:open-rabbit-item` or `wilson:open-project-file` as Moth's jumps do. Notes, typed tags, assignments, links and their record are on no realtime topic: each is read when a page or window opens, and again after a save. D.O.G. reads a note's or a thing's words as their reader sees them (`mentionPlainText`): no link's code reaches a deck.
 
 Every arrow in the system, in prose. Read this section if you read nothing
 else.
@@ -5311,7 +5350,7 @@ else.
 
 ## 15. Testing and verification
 
-**As of MO2 (2026-11-07):** 120 pgTAP suites, 6,511 checks with 0122 and 0123 (by count, after both review rounds) (the whole set read 6,493 on wilson-dev, rolled back, before the 15 probes the planted breakages asked for; the four suites they went into were read again). **As of MO1 (2026-11-07):** 117 pgTAP suites, 6,252 checks with 0120 and 0121, read by running them on wilson-dev, rolled back. The counts just below are dated history.
+**As of MO3 (2026-11-08):** 127 pgTAP suites, 6,950 checks with 0128 and 0129 (by count, after both whole-session review rounds; the whole set read on wilson-dev, rolled back, with the two prepended before they were applied and on the applied schema at the session's end: 6,948 passed, the rest suite 74's two checks on dev's own old sign-in rows, red before this session). **As of MO2 (2026-11-07):** 120 pgTAP suites, 6,511 checks with 0122 and 0123 (by count, after both review rounds) (the whole set read 6,493 on wilson-dev, rolled back, before the 15 probes the planted breakages asked for; the four suites they went into were read again). **As of MO1 (2026-11-07):** 117 pgTAP suites, 6,252 checks with 0120 and 0121, read by running them on wilson-dev, rolled back. The counts just below are dated history.
 
 **pgTAP** — 55 suites under `supabase/tests/rls/` (Session 20 added 39–42, one
 per model control-plane table; **Session 24 added 43–47, one per money table;

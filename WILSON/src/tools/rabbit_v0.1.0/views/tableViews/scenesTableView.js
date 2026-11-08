@@ -23,6 +23,7 @@
 
 import { statusMeta, humanizeStatus } from '../../../../ui'
 import { CHOICE_OPS, TEXT_OPS } from './tasksTableView'
+import { mentionPlainText } from '../../state/mentionTokens'
 
 export const SCENES_TABLE = 'scenes'
 export const SHOTS_TABLE = 'shots'
@@ -184,6 +185,8 @@ export function scenesDescription({ defaultOrderLabel = 'Default order', takes =
       case 'status': return [row.status || 'not_started']
       case 'runtime':
       case 'frames': return [framesOf(row)]
+      // MO3: a description's words, never a link's code.
+      case 'description': return row.description ? [mentionPlainText(row.description)] : []
       default: return row[key] == null || row[key] === '' ? [] : [row[key]]
     }
   }
@@ -260,6 +263,7 @@ export function shotsDescription({ defaultOrderLabel = 'Default order', takes = 
       case 'status': return [row.status || 'not_started']
       case 'scene': return row.scene_id ? [row.scene_id] : []
       case 'duration': return [Number(row.frame_count) || 0]
+      case 'description': return row.description ? [mentionPlainText(row.description)] : []
       default: return row[key] == null || row[key] === '' ? [] : [row[key]]
     }
   }

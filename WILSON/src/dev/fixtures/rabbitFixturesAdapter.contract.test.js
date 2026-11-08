@@ -1634,3 +1634,20 @@ describe('personal spaces (0110)', () => {
     expect(data.filter(r => r.projects?.personal_owner_id).length).toBe(2)
   })
 })
+
+// 0124 (MO2-10): the fake cloud's places writer folds a target named twice before it counts a focus, as the server.
+describe('the fake cloud\'s places, as 0124 writes them', () => {
+  it('a target sent with a focus and then without keeps the old focus; sent twice with one, it is the one focus', async () => {
+    const fx = buildDevFixtures().rabbitAdapter()
+    const files = await fx.listMothFiles(PROJECT_ID)
+    const [a, x] = files.map(f => f.id)
+    expect(a && x).toBeTruthy()
+    const view = await fx.createMothView({ scopeKind: 'aggregate', name: 'Fold first' })
+    await fx.putMothPositions(view.id, [{ t: 'file', id: a, x: 1, y: 1, focus: true }])
+    const focusOf = async () => (await fx.listMothPositions(view.id)).filter(p => p.is_focus).map(p => p.target_id)
+    expect(await fx.putMothPositions(view.id, [{ t: 'file', id: x, x: 2, y: 2, focus: true }, { t: 'file', id: x, x: 3, y: 3 }])).toBe(1)
+    expect(await focusOf()).toEqual([a])
+    expect(await fx.putMothPositions(view.id, [{ t: 'file', id: x, x: 4, y: 4, focus: true }, { t: 'file', id: x, x: 5, y: 5, focus: true }])).toBe(1)
+    expect(await focusOf()).toEqual([x])
+  })
+})

@@ -191,7 +191,10 @@ describe('the dev fixtures switch is gated on import.meta.env.DEV', () => {
       // MO1 (0111): the money key and folder-chain rule (storage/index.js is the
       // provider vocabulary, with no imports), so the fake cloud's Moth reads
       // hide what the database's classifier hides.
-      'tools/rabbit_v0.1.0/storage/index']
+      'tools/rabbit_v0.1.0/storage/index',
+      // MO3 (0127): the typed link's rule (mentionTokens.js, pure, no imports), so the fake cloud reads a key out
+      // of the words as the database's trigger does.
+      'tools/rabbit_v0.1.0/state/mentionTokens']
     for (const f of devFiles.filter(inFixturesDir)) {
       const external = (read(f).match(/from '(\.\.\/){2,}[^']+'/g) || [])
         .map((m) => m.slice(6, -1).replace(/^(\.\.\/)+/, ''))

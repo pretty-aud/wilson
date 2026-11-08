@@ -93,6 +93,13 @@ function mothLocalAbsent() {
   err.code = 'moth_absent';
   return err;
 }
+// MO3 (0125 to 0127): typed tags, links and workspace notes wait for the cloud the same way.
+const MOTH_LOCAL_S3 = 'Typed tags, links and workspace notes come when this project moves to the cloud.';
+function mothLocalS3() {
+  const err = new Error(MOTH_LOCAL_S3);
+  err.code = 'moth_absent';
+  return err;
+}
 const MOTH_LOCAL_ITEMS = [['phase', 'phases'], ['asset', 'assets'], ['task', 'tasks'], ['scene', 'scenes'],
   ['shot', 'shots'], ['level', 'levels'], ['experience', 'experiences']];
 
@@ -373,12 +380,38 @@ export function localServerAdapter() {
     async clearMothPositions() { throw mothLocalAbsent(); },
     async getMothPrefs() { return null; },
     async setMothPrefs() { throw mothLocalAbsent(); },
+    async listMothNotes() { throw mothLocalS3(); },
+    async syncNoteMentions() { throw mothLocalS3(); },
+    async listMothTagTypes() { throw mothLocalS3(); },
+    async createMothTagType() { throw mothLocalS3(); },
+    async updateMothTagType() { throw mothLocalS3(); },
+    async deleteMothTagType() { throw mothLocalS3(); },
+    async listMothTags() { throw mothLocalS3(); },
+    async createMothTag() { throw mothLocalS3(); },
+    async updateMothTag() { throw mothLocalS3(); },
+    async deleteMothTag() { throw mothLocalS3(); },
+    async listMothTagAssignments() { throw mothLocalS3(); },
+    async assignMothTag() { throw mothLocalS3(); },
+    async unassignMothTag() { throw mothLocalS3(); },
+    async listMothTagNominations() { throw mothLocalS3(); },
+    async nominateMothTag() { throw mothLocalS3(); },
+    async withdrawMothTagNomination() { throw mothLocalS3(); },
+    async decideMothTagNomination() { throw mothLocalS3(); },
+    async mergeMothTags() { throw mothLocalS3(); },
+    async listMothRelationships() { throw mothLocalS3(); },
+    async createMothRelationship() { throw mothLocalS3(); },
+    async updateMothRelationshipLabel() { throw mothLocalS3(); },
+    async deleteMothRelationship() { throw mothLocalS3(); },
+    async listMothItemRelationships() { throw mothLocalS3(); },
+    async reserveMothMention() { throw mothLocalS3(); },
+    async listMothMentionCandidates() { throw mothLocalS3(); },
     // Not recorded for projects kept only on this computer (MOTH_DESIGN H2): no rows, and every kind recorded
     // only from now, so the scrub labels everything before as not recorded.
     async fetchMothHistory() { return []; },
     async fetchMothHistoryWindow() {
       const now = new Date().toISOString();
-      return ['projects', 'folders', 'files', 'phases', 'assets', 'tasks', 'scenes', 'shots', 'levels', 'experiences', 'task_items']
+      return ['projects', 'folders', 'files', 'phases', 'assets', 'tasks', 'scenes', 'shots', 'levels', 'experiences', 'task_items',
+        'notes', 'moth_tags', 'moth_tag_assignments', 'moth_relationships']
         .map(entity_type => ({ entity_type, project_id: null, recording_since: now }));
     },
 

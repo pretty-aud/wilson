@@ -41,6 +41,7 @@ import { useWorkspaceMembers, isOwnAvatarUrl } from '../TeamMembers/useWorkspace
 import ProfileSection from '../settings/ProfileSection'
 import DashboardTasksView from './DashboardTasksView'
 import NotesView from './NotesView'
+import { OPEN_DASHBOARD_NOTE, peekPendingNote } from '../../tools/rabbit_v0.1.0/state/linkedThings'
 import { Tabs, Toolbar } from '../../ui'
 import './dashboard.css'
 
@@ -53,7 +54,13 @@ const TABS = [
 const DASH_PANEL_ID = 'dashboard-panel'
 
 export default function DashboardPage() {
-  const [tab, setTab] = useState('tasks')
+  // MO3: a note asked for from elsewhere opens the Notes tab (NotesView finds the note).
+  const [tab, setTab] = useState(() => (peekPendingNote() ? 'notes' : 'tasks'))
+  useEffect(() => {
+    const toNotes = () => setTab('notes')
+    window.addEventListener(OPEN_DASHBOARD_NOTE, toNotes)
+    return () => window.removeEventListener(OPEN_DASHBOARD_NOTE, toNotes)
+  }, [])
   const rabbit = useRabbit()
 
   return (

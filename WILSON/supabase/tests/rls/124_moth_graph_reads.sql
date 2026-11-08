@@ -5,6 +5,7 @@
 -- B. The two gates, for the seven new kinds: each is its project's, the trash keeps it out, a personal
 --    space is its owner's alone (no admin leg), a private project its creator's and admins', another company
 --    nothing, the same answer as for an id that does not exist. Writes as the project's own rule says.
+--    0124 (MO3, MO2-09): a phase or a task set aside by its bid version is no target, to read or to write.
 -- C. A project's items, in one answer: exactly the live ones (none trashed, gone or set aside by a bid version),
 --    a phase's parent phase and a shot's scene, a name cut short, and whether the answer was cut.
 -- D. A project's links between items and folders: exactly the stored relationships between two live ends. A
@@ -23,7 +24,7 @@
 
 BEGIN;
 
-SELECT plan(84);
+SELECT plan(87);
 
 SELECT * FROM tests.rls_setup();
 
@@ -237,6 +238,32 @@ SELECT ok(public.moth_can_read_target('asset', '12400000-0000-0000-0000-00000000
 SELECT ok(NOT public.moth_can_read_target('asset', '12400000-0000-0000-0000-000000000052'), 'admin: a trashed asset is not');
 SELECT ok(public.moth_can_read_target('task', '12400000-0000-0000-0000-000000000061'), 'admin: a live task');
 SELECT ok(NOT public.moth_can_read_target('task', '12400000-0000-0000-0000-000000000062'), 'admin: a trashed task is not');
+-- 0124 (MO2-09): set aside by its bid version (the fixtures above), a phase and a task are no targets.
+SELECT ok(NOT public.moth_can_read_target('phase', '12400000-0000-0000-0000-000000000005')
+          AND NOT public.moth_can_read_target('task', '12400000-0000-0000-0000-000000000064'),
+  'admin: a phase and a task set aside by a bid version are not targets (0124)');
+SELECT ok(NOT public.moth_can_write_target('phase', '12400000-0000-0000-0000-000000000005')
+          AND NOT public.moth_can_write_target('task', '12400000-0000-0000-0000-000000000064'),
+  '… nor targets to write to (0124)');
+RESET ROLE;
+ALTER TABLE public.tasks DISABLE TRIGGER USER;
+ALTER TABLE public.phases DISABLE TRIGGER USER;
+UPDATE public.tasks SET set_aside_at = NULL WHERE id = '12400000-0000-0000-0000-000000000064';
+UPDATE public.phases SET set_aside_at = NULL WHERE id = '12400000-0000-0000-0000-000000000005';
+SET LOCAL ROLE authenticated;
+SELECT public.t124_a();
+SELECT ok(public.moth_can_read_target('phase', '12400000-0000-0000-0000-000000000005')
+          AND public.moth_can_read_target('task', '12400000-0000-0000-0000-000000000064')
+          AND public.moth_can_write_target('phase', '12400000-0000-0000-0000-000000000005')
+          AND public.moth_can_write_target('task', '12400000-0000-0000-0000-000000000064'),
+  'CONTROL: brought back by their version, both are targets again (0124)');
+RESET ROLE;
+UPDATE public.tasks SET set_aside_at = now() WHERE id = '12400000-0000-0000-0000-000000000064';
+UPDATE public.phases SET set_aside_at = now() WHERE id = '12400000-0000-0000-0000-000000000005';
+ALTER TABLE public.tasks ENABLE TRIGGER USER;
+ALTER TABLE public.phases ENABLE TRIGGER USER;
+SET LOCAL ROLE authenticated;
+SELECT public.t124_a();
 SELECT ok(public.moth_can_read_target('scene', '12400000-0000-0000-0000-000000000011')
           AND public.moth_can_read_target('shot', '12400000-0000-0000-0000-000000000021')
           AND public.moth_can_read_target('level', '12400000-0000-0000-0000-000000000031')
@@ -248,8 +275,10 @@ SELECT ok(NOT public.moth_can_read_target('asset', '12400000-0000-0000-0000-0000
           AND NOT public.moth_can_read_target('task', '12400000-0000-0000-0000-0000000000e2'),
   'admin: nothing of another person''s personal space (no admin leg)');
 SELECT ok(NOT public.moth_can_read_target('asset', '12400000-0000-0000-0000-0000000000b1'), 'admin: nothing of another company');
-SELECT ok(NOT public.moth_can_read_target('note', '12400000-0000-0000-0000-000000000051')
-          AND NOT public.moth_can_read_target('bin', '12400000-0000-0000-0000-000000000051'),
+SELECT ok(NOT public.moth_can_read_target('milestone', '12400000-0000-0000-0000-000000000051')
+          AND NOT public.moth_can_read_target('bin', '12400000-0000-0000-0000-000000000051')
+          AND NOT public.moth_can_read_target('note', '12400000-0000-0000-0000-000000000051')
+          AND NOT public.moth_can_read_target('mtag', '12400000-0000-0000-0000-000000000051'),
   'a kind still unknown is false, even for an id that exists as another kind');
 SELECT ok(NOT public.moth_can_read_target('asset', '12400000-0000-0000-0000-0000000000ff')
           AND NOT public.moth_can_read_target('asset', NULL), 'an id that does not exist, and none, are false');
@@ -452,10 +481,10 @@ SELECT ok(NOT public.moth_can_read_target('experience', '12400000-0000-0000-0000
           AND NOT public.moth_can_read_target('experience', '12400000-0000-0000-0000-00000000dead')
           AND NOT public.moth_can_read_target('shot', '12400000-0000-0000-0000-00000000dead'),
   'an id asked as another kind, or no row of its kind, is refused where the company holds that kind');
-SELECT ok(NOT public.moth_can_read_target('note', 'aaaa1240-0000-0000-0000-00000000000a')
+SELECT ok(NOT public.moth_can_read_target('milestone', 'aaaa1240-0000-0000-0000-00000000000a')
           AND NOT public.moth_can_read_target('', 'aaaa1240-0000-0000-0000-00000000000a')
           AND NOT public.moth_can_read_target(NULL, 'aaaa1240-0000-0000-0000-00000000000a')
-          AND NOT public.moth_can_write_target('note', 'aaaa1240-0000-0000-0000-00000000000a'),
+          AND NOT public.moth_can_write_target('milestone', 'aaaa1240-0000-0000-0000-00000000000a'),
   'a readable project''s id under a kind the gate does not know is refused');
 SELECT ok(public.moth_can_write_target('phase', '12400000-0000-0000-0000-000000000001') AND public.moth_can_write_target('asset', '12400000-0000-0000-0000-000000000051')
           AND public.moth_can_write_target('task', '12400000-0000-0000-0000-000000000061') AND public.moth_can_write_target('scene', '12400000-0000-0000-0000-000000000011')

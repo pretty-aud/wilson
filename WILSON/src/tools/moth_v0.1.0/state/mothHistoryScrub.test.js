@@ -45,6 +45,39 @@ describe('rewind', () => {
     expect(rewind(live(), rows, NOW - 2 * DAY).catalogue.files.p1[0]).toMatchObject({ name: 'take1.mov', folder_id: 'd1' })
     expect(rewind(live(), rows, NOW - 4 * DAY).catalogue.files.p1[0]).toMatchObject({ name: 'take1.mov', folder_id: null })
   })
+  // 0124 (MO2-18): the record's prior side says when a row was in the trash.
+  it('a file emptied from the trash while in it is not brought back for the time it spent there', () => {
+    const c = live()
+    c.files.p1 = []
+    const rows = [
+      { entity_type: 'files', entity_id: 'f9', action: 'removed', observed_at: at(2), prior_project_id: 'p1',
+        prior: { name: 'old.png', folder_id: 'd1', in_trash: true } },
+      { entity_type: 'files', entity_id: 'f9', action: 'trashed', observed_at: at(6), prior_project_id: 'p1', state_project_id: 'p1',
+        prior: { name: 'old.png', folder_id: 'd1' }, state: { name: 'old.png', folder_id: 'd1', in_trash: true } },
+    ]
+    expect(rewind(c, rows, NOW - 4 * DAY).catalogue.files.p1).toEqual([])
+    expect(rewind(c, rows, NOW - 8 * DAY).catalogue.files.p1.map((f) => f.name)).toEqual(['old.png'])
+    // A row recorded before 0124 says nothing of the trash, and is put back as before.
+    const old = [{ ...rows[0], prior: { name: 'old.png', folder_id: 'd1' } }]
+    expect(rewind(c, old, NOW - 4 * DAY).catalogue.files.p1.map((f) => f.name)).toEqual(['old.png'])
+  })
+  it('an item or a project emptied from the trash while in it is not brought back either (0124)', () => {
+    const c = live()
+    c.items.p1 = []
+    c.islands = []
+    const rows = [
+      { entity_type: 'tasks', entity_id: 't9', action: 'removed', observed_at: at(2), prior_project_id: 'p1', prior: { title: 'Old', in_trash: true } },
+      { entity_type: 'projects', entity_id: 'p9', action: 'removed', observed_at: at(2), prior_project_id: 'p9', prior: { title: 'Gone', in_trash: true } },
+    ]
+    const { catalogue } = rewind(c, rows, NOW - 4 * DAY)
+    expect(catalogue.items.p1).toEqual([])
+    expect(catalogue.islands).toEqual([])
+    // Without the key, as recorded before 0124, both come back as before.
+    const old = rows.map((r) => ({ ...r, prior: { title: r.prior.title } }))
+    const back = rewind(c, old, NOW - 4 * DAY).catalogue
+    expect(back.items.p1.map((i) => i.name)).toEqual(['Old'])
+    expect(back.islands.map((i) => i.title)).toEqual(['Gone'])
+  })
   it('a file shows at a time only if its folder does', () => {
     const rows = [{ entity_type: 'folders', entity_id: 'd1', action: 'added', observed_at: at(1), state_project_id: 'p1' }]
     const { catalogue } = rewind(live(), rows, NOW - 2 * DAY)

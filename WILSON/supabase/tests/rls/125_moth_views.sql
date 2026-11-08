@@ -2,7 +2,7 @@
 -- 125_moth_views.sql — M.O.T.H. Session 2 (MO2): saved views (0123 §1).
 --
 -- A. Structure: forced row security, four policies each asking Moth's gate, the grants (no id, company or
---    owner from a client), the revision sequence, no channel.
+--    owner from a client), no revision sequence (0124, MO2-11: each view counts its own), no channel.
 -- B. Writing: a project's writers save a project's view, a reviewer cannot, anyone saves their own; the scope's
 --    shape; the database says whose and which company's a view is; a config holds no id; the name's rules.
 -- C. Reading: a project's views to those Moth shows the project to (a personal space's to its owner alone, no
@@ -24,7 +24,7 @@
 
 BEGIN;
 
-SELECT plan(74);
+SELECT plan(76);
 
 SELECT * FROM tests.rls_setup();
 
@@ -118,9 +118,8 @@ SELECT is((SELECT string_agg(column_name, ',' ORDER BY column_name) FROM informa
 SELECT is((SELECT string_agg(column_name, ',' ORDER BY column_name) FROM information_schema.column_privileges
             WHERE table_schema = 'public' AND table_name = 'moth_views' AND grantee = 'authenticated' AND privilege_type = 'UPDATE'),
   'config,name,position', 'and changes a name, a place in the list and a config only');
-SELECT ok(has_sequence_privilege('authenticated', 'public.moth_views_revision_seq', 'USAGE')
-          AND NOT has_sequence_privilege('authenticated', 'public.moth_views_revision_seq', 'UPDATE')
-          AND NOT has_sequence_privilege('authenticated', 'public.moth_views_revision_seq', 'SELECT'), 'the revision sequence: USAGE only');
+SELECT ok(to_regclass('public.moth_views_revision_seq') IS NULL,
+  'no revision sequence for every company: each view counts its own (0124, MO2-11)');
 SELECT ok(NOT EXISTS (SELECT 1 FROM pg_trigger tg JOIN pg_proc pr ON pr.oid = tg.tgfoid
                        WHERE tg.tgrelid = 'public.moth_views'::regclass AND NOT tg.tgisinternal AND pr.proname ~ 'broadcast')
           AND NOT EXISTS (SELECT 1 FROM pg_proc pr WHERE pr.pronamespace = 'public'::regnamespace AND pr.proname ~ 'broadcast'
@@ -198,6 +197,8 @@ SELECT is((SELECT owner_id FROM public.moth_views WHERE name = 'R own'), '999999
 SELECT ok((SELECT owner_id IS NULL AND workspace_id = '11111111-1111-1111-1111-111111111111' AND created_by = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
              FROM public.moth_views WHERE name = 'P shared'), 'a project''s view has no owner, is of the caller''s company, and says who made it');
 SELECT ok((SELECT revision > 0 FROM public.moth_views WHERE name = 'P shared'), 'a new view has a revision');
+SELECT is((SELECT array_agg(DISTINCT revision) FROM public.moth_views WHERE created_at = now()), ARRAY[1::bigint],
+  'every new view''s revision is 1, however many were made before it, in this company or another (0124)');
 
 -- ── C. Reading ──────────────────────────────────────────────────────────────
 SET LOCAL ROLE authenticated;
@@ -238,6 +239,8 @@ SELECT is((SELECT revision::text || ':' || position::text FROM public.moth_views
   'a reorder keeps the revision too');
 UPDATE public.moth_views SET config = '{"layout":"radial"}' WHERE id = public.t125_id('P renamed');
 SELECT ok((SELECT revision::text FROM public.moth_views WHERE name = 'P renamed') <> current_setting('t125.rev'), 'a new config is a new revision');
+SELECT is((SELECT revision FROM public.moth_views WHERE name = 'P renamed'), 2::bigint,
+  'one change of config, one revision more: a rename and a reorder made none (0124)');
 UPDATE public.moth_views SET config = '{"layout":"force"}' WHERE id = public.t125_id('P renamed') AND revision = current_setting('t125.rev')::bigint;
 SELECT is((SELECT config ->> 'layout' FROM public.moth_views WHERE name = 'P renamed'), 'radial', 'a save from an old copy changes nothing');
 SELECT is(public.t125_err($$ UPDATE public.moth_views SET project_id = 'aaaa1250-0000-0000-0000-00000000000b' WHERE name = 'P renamed' $$), '42501',
