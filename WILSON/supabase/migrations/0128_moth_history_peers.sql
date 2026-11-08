@@ -89,7 +89,8 @@ ALTER TABLE public.moth_history ADD CONSTRAINT moth_history_c_class_chk
   NOT VALID;
 
 -- A peer is a side's second audience: none at all, or one of the four, of the same shape as a side's; never on the
--- missing side of a create or a delete, nor on a mark.
+-- missing side of a create or a delete, nor on a mark but a failure's (it keeps the peers of the row that failed,
+-- so the window tells that restart only to those the row was for).
 ALTER TABLE public.moth_history DROP CONSTRAINT IF EXISTS moth_history_g_peer_chk;
 ALTER TABLE public.moth_history ADD CONSTRAINT moth_history_g_peer_chk
   CHECK ((prior_peer_class IS NULL OR prior_peer_class IN ('shared', 'private', 'personal', 'workspace'))
@@ -104,7 +105,7 @@ ALTER TABLE public.moth_history ADD CONSTRAINT moth_history_g_peer_chk
          AND (state_peer_class IS DISTINCT FROM 'workspace' OR (state_peer_owner_id IS NULL AND state_peer_project_id IS NULL))
          AND (action <> 'create' OR prior_peer_class IS NULL)
          AND (action <> 'delete' OR state_peer_class IS NULL)
-         AND (action <> 'mark_recording' OR (prior_peer_class IS NULL AND state_peer_class IS NULL)))
+         AND (action <> 'mark_recording' OR mark_kind = 'capture_failed' OR (prior_peer_class IS NULL AND state_peer_class IS NULL)))
   NOT VALID;
 
 COMMENT ON COLUMN public.moth_history.prior_peer_class IS
@@ -132,7 +133,7 @@ BEGIN
   IF NOT (position('''notes''' IN v_b) > 0 AND position('''moth_tags''' IN v_b) > 0 AND position('''moth_tag_assignments''' IN v_b) > 0
           AND position('''moth_relationships''' IN v_b) > 0 AND position('''task_items''' IN v_b) > 0)
      OR position('''workspace''' IN v_c) = 0 OR position('prior_owner_id IS NULL' IN v_c) = 0
-     OR position('prior_peer_class' IN v_g) = 0 OR position('mark_recording' IN v_g) = 0
+     OR position('prior_peer_class' IN v_g) = 0 OR position('mark_recording' IN v_g) = 0 OR position('capture_failed' IN v_g) = 0
      OR (SELECT count(*) FROM pg_constraint
           WHERE conrelid = 'public.moth_history'::regclass AND NOT convalidated
             AND conname IN ('moth_history_b_entity_chk', 'moth_history_c_class_chk', 'moth_history_g_peer_chk')) <> 3 THEN

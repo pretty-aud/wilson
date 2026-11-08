@@ -14,6 +14,8 @@
 // whose file was removed (undo brings either back, so nothing prunes them).
 // Every selector here joins through the live shot or file and skips the rest.
 
+import { mentionPlainText } from '../state/mentionTokens'
+
 export const TAKE_ROLES = ['primary', 'part', 'alt']
 
 export const TAKE_ROLE_META = {
@@ -151,10 +153,11 @@ export function commonSceneId(files) {
   return best
 }
 
+// MO3: a shot's description is searched by its words, never a link's code.
 export function matchesShotSearch(shot, scene, q) {
   const s = String(q || '').trim().toLowerCase()
   if (!s) return true
-  const hay = [shot.name, shot.description, shot.shot_number != null ? `#${shot.shot_number}` : '', shot.shot_number, scene?.name, scene?.scene_number != null ? `sc${scene.scene_number}` : '', shot.framing, shot.status]
+  const hay = [shot.name, mentionPlainText(shot.description || ''), shot.shot_number != null ? `#${shot.shot_number}` : '', shot.shot_number, scene?.name, scene?.scene_number != null ? `sc${scene.scene_number}` : '', shot.framing, shot.status]
     .filter(v => v != null && v !== '').join(' | ').toLowerCase()
   return s.split(/\s+/).every(term => hay.includes(term))
 }

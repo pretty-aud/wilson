@@ -15,7 +15,7 @@ import { fid, day, stamp } from '../ids'
 import { u8ToB64, toPreview } from '../../../components/Dashboard/noteSync'
 import { WORKSPACE_ID, MEMBER_ID } from './workspace'
 
-function ydocState(paragraphs) {
+export function ydocState(paragraphs) {
   const doc = new Y.Doc()
   const frag = doc.getXmlFragment('default')
   doc.transact(() => {

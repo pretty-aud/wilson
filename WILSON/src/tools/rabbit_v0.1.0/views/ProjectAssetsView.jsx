@@ -101,6 +101,7 @@ import MentionText from '../components/mentions/MentionText'
 import MentionedIn from '../components/mentions/MentionedIn'
 import ItemTags from '../components/mentions/ItemTags'
 import { useItemLinks, linksByKey } from '../components/mentions/useItemLinks'
+import { mentionPlainText } from '../state/mentionTokens'
 
 // ── Thumbnail sizing ──
 // 1x, 2x and 3x the 36px row. The sizes themselves live in rabbitFiles.css,
@@ -1235,8 +1236,8 @@ function AssetRow({ asset, columns, showThumb = true, phaseOptions, taskCount, w
         return (
           <Td key={col.key} className="rb-asset-desc"
             data-empty={asset.description ? 'false' : 'true'}
-            title={asset.description || undefined}>
-            {asset.description || '—'}
+            title={mentionPlainText(asset.description || '') || undefined}>
+            {mentionPlainText(asset.description || '') || '—'}
           </Td>
         )
       case 'tasks':

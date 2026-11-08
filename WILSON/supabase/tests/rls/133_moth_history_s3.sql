@@ -13,10 +13,13 @@
 --    in a private project, to that project's audience.
 -- E. A link's record: to whoever sees both its ends, never to one who sees only one; from a person's own note, theirs.
 -- F. The window names the four.
+-- G. Round B: money and Legal reach no tagging or link, gone or not; a purge's removals read as they were; a note
+--    made personal again keeps its tagging's past to its owner; the peer alone; failure marks and the window; what
+--    is not recorded; three more of the checks.
 -- =============================================================================
 
 BEGIN;
-SELECT plan(33);
+SELECT plan(74);
 
 SELECT * FROM tests.rls_setup();
 
@@ -142,7 +145,8 @@ SELECT is((SELECT count(*)::int FROM pg_trigger WHERE tgfoid = 'public.fn_moth_h
                             'public.moth_relationships'::regclass)), 8,
   'notes, typed tags, their assignments and links are recorded, two triggers each');
 SELECT ok(NOT has_function_privilege('authenticated', 'public._moth_history_s3_side(text,jsonb)', 'EXECUTE')
-          AND NOT has_function_privilege('authenticated', 'public._moth_history_end(text,uuid)', 'EXECUTE'),
+          AND NOT has_function_privilege('authenticated', 'public._moth_history_end(text,uuid)', 'EXECUTE')
+          AND NOT has_function_privilege('authenticated', 'public._moth_history_end_visible(uuid,text,uuid)', 'EXECUTE'),
   'whose a row is, is no client''s to ask');
 SELECT is(public.t133_err($$INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, state_project_id, state_class, state)
           VALUES ('11111111-1111-1111-1111-111111111111', 'notes', gen_random_uuid(), 'create', 'aaaa1330-0000-0000-0000-00000000000a', 'workspace', '{"title": "x"}')$$),
@@ -241,6 +245,246 @@ SELECT is((SELECT state ->> 'origin' FROM public.moth_history_read() WHERE entit
 SELECT is((SELECT count(*)::int FROM public.moth_history_window()
             WHERE entity_type IN ('notes', 'moth_tags', 'moth_tag_assignments', 'moth_relationships') AND project_id IS NULL), 4,
   'the window says since when each of the four is recorded');
+
+-- ── G. Round B (the review round of 0128 and 0129) ──────────────────────────
+-- G1. Money: a tagging and a link on a file that turns money go blank, and stay unread when they go; a link gone
+--     before then is read by the file's lock, and once the file is purged, by its locked record.
+RESET ROLE;
+SELECT public.t133_a();
+INSERT INTO public.moth_tag_assignments (id, tag_id, tier, target_type, target_id)
+VALUES ('13300000-0000-0000-0000-000000000111', public.t133_tag('Mira'), 'company', 'file', '13300000-0000-0000-0000-000000000081'),
+       ('13300000-0000-0000-0000-000000000117', public.t133_tag('Mira'), 'personal', 'file', '13300000-0000-0000-0000-000000000081');
+INSERT INTO public.moth_relationships (id, source_type, source_id, dest_type, dest_id, label)
+VALUES ('13300000-0000-0000-0000-000000000121', 'asset', '13300000-0000-0000-0000-000000000051', 'file', '13300000-0000-0000-0000-000000000081', 'see the fee memo'),
+       ('13300000-0000-0000-0000-000000000123', 'task', '13300000-0000-0000-0000-000000000061', 'file', '13300000-0000-0000-0000-000000000081', 'was the fee');
+DELETE FROM public.moth_relationships WHERE id = '13300000-0000-0000-0000-000000000123';
+SET LOCAL ROLE authenticated;
+SELECT public.t133_d();
+SELECT is(public.t133_seen('13300000-0000-0000-0000-000000000111') + public.t133_seen('13300000-0000-0000-0000-000000000121') + public.t133_seen('13300000-0000-0000-0000-000000000123'), 4,
+  'a member reads the record of a tagging and of links on a file they see');
+RESET ROLE;
+SELECT public.t133_a();
+UPDATE public.files SET is_financial = true WHERE id = '13300000-0000-0000-0000-000000000081';
+SELECT ok((SELECT bool_and(h.locked AND h.prior IS NULL AND h.state IS NULL) FROM public.moth_history h
+            WHERE h.entity_id IN ('13300000-0000-0000-0000-000000000111', '13300000-0000-0000-0000-000000000117', '13300000-0000-0000-0000-000000000121')),
+  'once the file is money, the record of the taggings and the link still on it goes blank');
+DELETE FROM public.moth_tag_assignments WHERE id = '13300000-0000-0000-0000-000000000111';
+DELETE FROM public.moth_relationships WHERE id = '13300000-0000-0000-0000-000000000121';
+SELECT is((SELECT count(*)::int FROM public.moth_history h WHERE h.entity_id IN ('13300000-0000-0000-0000-000000000111', '13300000-0000-0000-0000-000000000121') AND NOT h.locked), 0,
+  'and their going writes nothing');
+SET LOCAL ROLE authenticated;
+SELECT public.t133_d();
+SELECT is(public.t133_seen('13300000-0000-0000-0000-000000000111') + public.t133_seen('13300000-0000-0000-0000-000000000121'), 0, 'so a member reads none of either, gone');
+SELECT is(public.t133_seen('13300000-0000-0000-0000-000000000123'), 0, 'nor of a link gone before the file was money');
+RESET ROLE;
+DELETE FROM public.files WHERE id = '13300000-0000-0000-0000-000000000081';
+SELECT is((SELECT count(*)::int FROM public.moth_history h WHERE h.entity_id = '13300000-0000-0000-0000-000000000117' AND NOT h.locked), 0,
+  'a tagging the money file''s purge takes writes nothing either');
+SET LOCAL ROLE authenticated;
+SELECT public.t133_d();
+SELECT is(public.t133_seen('13300000-0000-0000-0000-000000000123'), 0, 'and with the file purged, its locked record keeps that link unread');
+
+-- G1c. A file gone with no record of its own (its going never written): its links read to no one, their maker too.
+RESET ROLE;
+SELECT public.t133_e();
+INSERT INTO public.moth_relationships (id, source_type, source_id, dest_type, dest_id, label)
+VALUES ('13300000-0000-0000-0000-000000000124', 'asset', '13300000-0000-0000-0000-0000000000e1', 'file', '13300000-0000-0000-0000-0000000000e2', 'pitch');
+DELETE FROM public.files WHERE id = '13300000-0000-0000-0000-0000000000e2';
+DELETE FROM public.moth_history WHERE entity_type = 'files' AND entity_id = '13300000-0000-0000-0000-0000000000e2';
+SET LOCAL ROLE authenticated;
+SELECT public.t133_e();
+SELECT is(public.t133_seen('13300000-0000-0000-0000-000000000124'), 0, 'a link to a file gone with no record of its own reads to no one');
+
+-- G2. What the capture asks of an end.
+RESET ROLE;
+SELECT ok((SELECT e.o_locked AND e.o_class IS NULL FROM public._moth_history_end('file', '13300000-0000-0000-0000-000000000082') e),
+  'an end in money is locked, with no audience');
+SELECT ok((SELECT s.o_locked FROM public._moth_history_s3_side('moth_relationships',
+            jsonb_build_object('source_type', 'task', 'source_id', '13300000-0000-0000-0000-000000000061', 'dest_type', 'file',
+                               'dest_id', '13300000-0000-0000-0000-000000000082')) s),
+  'so a link to it is locked');
+SELECT ok((SELECT e.o_gone AND NOT e.o_locked FROM public._moth_history_end('task', gen_random_uuid()) e),
+  'and a thing that cannot be found is gone, not locked');
+INSERT INTO public.folders (id, project_id, parent_id, kind, slug, path)
+SELECT '13300000-0000-0000-0000-0000000001f0', 'aaaa1330-0000-0000-0000-00000000000a', NULL, 'root', 'salt', ''
+ WHERE NOT EXISTS (SELECT 1 FROM public.folders WHERE project_id = 'aaaa1330-0000-0000-0000-00000000000a' AND kind = 'root');
+INSERT INTO public.folders (id, project_id, parent_id, kind, slug, path) VALUES
+  ('13300000-0000-0000-0000-0000000001f3', 'aaaa1330-0000-0000-0000-00000000000a', (SELECT id FROM public.folders WHERE project_id = 'aaaa1330-0000-0000-0000-00000000000a' AND kind = 'root' LIMIT 1), 'category', 'invoices', 'INVOICES'),
+  ('13300000-0000-0000-0000-0000000001f1', 'aaaa1330-0000-0000-0000-00000000000a', (SELECT id FROM public.folders WHERE project_id = 'aaaa1330-0000-0000-0000-00000000000a' AND kind = 'root' LIMIT 1), 'category', 'rushes', 'rushes');
+SELECT ok((SELECT e.o_locked FROM public._moth_history_end('folder', '13300000-0000-0000-0000-0000000001f3') e)
+          AND NOT (SELECT e.o_locked FROM public._moth_history_end('folder', '13300000-0000-0000-0000-0000000001f1') e),
+  'a money folder is locked too, and another folder is not');
+
+-- G3. A purge takes a note's tagging and its link with it: their going reads to those who read them.
+SET LOCAL ROLE authenticated;
+SELECT public.t133_c();
+INSERT INTO public.notes (id, title, tier) VALUES ('13300000-0000-0000-0000-000000000101', 'C, purged', 'shared');
+RESET ROLE;
+SELECT public.t133_c();
+INSERT INTO public.moth_tag_assignments (id, tag_id, tier, target_type, target_id)
+VALUES ('13300000-0000-0000-0000-000000000112', public.t133_tag('Mira'), 'company', 'note', '13300000-0000-0000-0000-000000000101');
+INSERT INTO public.moth_relationships (id, source_type, source_id, dest_type, dest_id, label)
+VALUES ('13300000-0000-0000-0000-000000000122', 'note', '13300000-0000-0000-0000-000000000101', 'asset', '13300000-0000-0000-0000-000000000051', 'about');
+DELETE FROM public.notes WHERE id = '13300000-0000-0000-0000-000000000101';
+SET LOCAL ROLE authenticated;
+SELECT public.t133_d();
+SELECT is(public.t133_last('13300000-0000-0000-0000-000000000112'), 'removed:false:true', 'a tagging a purge took reads as removed, as it was');
+SELECT is(public.t133_seen('13300000-0000-0000-0000-000000000112'), 2, 'after it was added');
+SELECT is(public.t133_last('13300000-0000-0000-0000-000000000122'), 'removed:false:true', 'and so does a link');
+SELECT is(public.t133_last('13300000-0000-0000-0000-000000000101'), 'removed:false:true', 'and the note itself');
+
+-- G3b. A tagging the record never held (made before it began): a purge takes it, and nothing is written.
+SET LOCAL ROLE authenticated;
+SELECT public.t133_c();
+INSERT INTO public.notes (id, title, tier) VALUES ('13300000-0000-0000-0000-000000000104', 'C, older', 'shared');
+RESET ROLE;
+SELECT public.t133_c();
+INSERT INTO public.moth_tag_assignments (id, tag_id, tier, target_type, target_id)
+VALUES ('13300000-0000-0000-0000-000000000116', public.t133_tag('Mira'), 'company', 'note', '13300000-0000-0000-0000-000000000104');
+DELETE FROM public.moth_history WHERE entity_id = '13300000-0000-0000-0000-000000000116';
+DELETE FROM public.notes WHERE id = '13300000-0000-0000-0000-000000000104';
+SELECT is((SELECT count(*)::int FROM public.moth_history h WHERE h.entity_id = '13300000-0000-0000-0000-000000000116'), 0,
+  'a tagging the record never held writes nothing when a purge takes it');
+
+-- G4. A note made personal again: what it was tagged with, gone too, is its owner's alone; purged, so is the note.
+SET LOCAL ROLE authenticated;
+SELECT public.t133_c();
+INSERT INTO public.notes (id, title, tier) VALUES ('13300000-0000-0000-0000-000000000102', 'C, then mine', 'shared');
+RESET ROLE;
+SELECT public.t133_c();
+INSERT INTO public.moth_tag_assignments (id, tag_id, tier, target_type, target_id)
+VALUES ('13300000-0000-0000-0000-000000000113', public.t133_tag('Mira'), 'company', 'note', '13300000-0000-0000-0000-000000000102');
+DELETE FROM public.moth_tag_assignments WHERE id = '13300000-0000-0000-0000-000000000113';
+SET LOCAL ROLE authenticated;
+SELECT public.t133_d();
+SELECT is(public.t133_seen('13300000-0000-0000-0000-000000000113'), 2, 'a member reads a shared note''s tagging, added and removed');
+SELECT public.t133_c();
+UPDATE public.notes SET tier = 'personal' WHERE id = '13300000-0000-0000-0000-000000000102';
+SELECT public.t133_d();
+SELECT is(public.t133_seen('13300000-0000-0000-0000-000000000113'), 0, 'made personal again, none of it reads to them');
+SELECT public.t133_c();
+SELECT is(public.t133_seen('13300000-0000-0000-0000-000000000113'), 2, 'its owner reads all of it');
+RESET ROLE;
+DELETE FROM public.notes WHERE id = '13300000-0000-0000-0000-000000000102';
+SET LOCAL ROLE authenticated;
+SELECT public.t133_d();
+SELECT is(public.t133_seen('13300000-0000-0000-0000-000000000102') + public.t133_seen('13300000-0000-0000-0000-000000000113'), 0,
+  'purged, neither the note nor its tagging reads to them: its last word was personal');
+SELECT public.t133_c();
+SELECT ok(public.t133_seen('13300000-0000-0000-0000-000000000102') > 0, 'its owner still reads the note''s record');
+
+-- G5. The peer alone: a person's own tagging of a shared thing, gone, reads to them and to no one else.
+RESET ROLE;
+DELETE FROM public.moth_tag_assignments WHERE id = '13300000-0000-0000-0000-0000000000d2';
+SET LOCAL ROLE authenticated;
+SELECT public.t133_d();
+SELECT is(public.t133_seen('13300000-0000-0000-0000-0000000000d2'), 0, 'one who sees the thing reads none of someone''s own tagging, gone');
+SELECT public.t133_c();
+SELECT is(public.t133_seen('13300000-0000-0000-0000-0000000000d2'), 2, 'its owner reads it added and removed');
+
+-- G6. A failure mark keeps its peers: the window tells its restart only to those the row was for, one with no project too.
+RESET ROLE;
+CREATE TEMP TABLE t133_mark ON COMMIT DROP AS SELECT clock_timestamp() AS at;
+GRANT SELECT ON t133_mark TO authenticated;
+SELECT lives_ok($$INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, mark_kind,
+                    state_project_id, state_class, state_peer_class, state_peer_owner_id, observed_at)
+                  VALUES ('11111111-1111-1111-1111-111111111111', 'moth_tag_assignments', '11111111-1111-1111-1111-111111111111',
+                          'mark_recording', 'capture_failed', 'aaaa1330-0000-0000-0000-00000000000a', 'shared', 'personal',
+                          'cccccccc-cccc-cccc-cccc-cccccccccccc', (SELECT at FROM t133_mark))$$,
+  'a failure mark may carry the peers of the row that failed');
+SELECT ok(public.t133_words($$INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, mark_kind, state_peer_class)
+          VALUES ('11111111-1111-1111-1111-111111111111', 'notes', '11111111-1111-1111-1111-111111111111', 'mark_recording', 'baseline', 'workspace')$$)
+          LIKE '%moth_history_g_peer_chk%',
+  'no other mark has a peer');
+INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, mark_kind, state_class, observed_at)
+VALUES ('11111111-1111-1111-1111-111111111111', 'notes', '11111111-1111-1111-1111-111111111111', 'mark_recording', 'capture_failed',
+        'workspace', (SELECT at FROM t133_mark));
+SET LOCAL ROLE authenticated;
+SELECT public.t133_d();
+SELECT is((SELECT count(*)::int FROM public.moth_history_window() w
+            WHERE w.entity_type = 'moth_tag_assignments' AND w.project_id = 'aaaa1330-0000-0000-0000-00000000000a'), 0,
+  'a restart about someone''s own tagging is not told to others');
+SELECT is((SELECT w.recording_since FROM public.moth_history_window() w WHERE w.entity_type = 'notes' AND w.project_id IS NULL),
+  (SELECT at FROM t133_mark), 'a restart with no project moves its type''s own start, for every member');
+SELECT public.t133_c();
+SELECT is((SELECT count(*)::int FROM public.moth_history_window() w
+            WHERE w.entity_type = 'moth_tag_assignments' AND w.project_id = 'aaaa1330-0000-0000-0000-00000000000a'), 1,
+  'and the restart about their own tagging is told to its owner');
+
+-- G7. The window names the four from its own list, not from the marks a company happens to hold.
+RESET ROLE;
+DELETE FROM public.moth_history WHERE workspace_id = '11111111-1111-1111-1111-111111111111' AND action = 'mark_recording'
+   AND entity_type IN ('notes', 'moth_tags', 'moth_tag_assignments', 'moth_relationships');
+SET LOCAL ROLE authenticated;
+SELECT public.t133_d();
+SELECT is((SELECT count(*)::int FROM public.moth_history_window()
+            WHERE entity_type IN ('notes', 'moth_tags', 'moth_tag_assignments', 'moth_relationships') AND project_id IS NULL), 4,
+  'with no mark for them, the window still names the four');
+
+-- G8. What is not recorded: a note's words, a tag's bookkeeping.
+SELECT public.t133_c();
+INSERT INTO public.notes (id, title, tier, body_preview) VALUES ('13300000-0000-0000-0000-000000000103', 'C, with words', 'shared', 'SECRET-BODY words');
+UPDATE public.notes SET body_preview = 'SECRET-BODY other words' WHERE id = '13300000-0000-0000-0000-000000000103';
+SELECT is(public.t133_seen('13300000-0000-0000-0000-000000000103'), 1, 'a change to a note''s words alone writes no row');
+SELECT ok((SELECT bool_and(COALESCE(h.state, '{}'::jsonb)::text !~ 'SECRET' AND COALESCE(h.prior, '{}'::jsonb)::text !~ 'SECRET')
+            FROM public.moth_history_read() h WHERE h.entity_id = '13300000-0000-0000-0000-000000000103'),
+  'and its record holds none of its words');
+UPDATE public.notes SET title = 'C, with other words' WHERE id = '13300000-0000-0000-0000-000000000103';
+SELECT is(public.t133_seen('13300000-0000-0000-0000-000000000103'), 2, 'a new title does');
+RESET ROLE;
+UPDATE public.moth_tags SET updated_at = updated_at + interval '1 minute' WHERE id = public.t133_tag('Mira');
+SET LOCAL ROLE authenticated;
+SELECT public.t133_d();
+SELECT is(public.t133_seen(public.t133_tag('Mira')), 1, 'nor does a tag''s bookkeeping');
+
+-- G10. A merge moves a tagging to the tag it now stands for: whoever reads the tagging reads the move, both sides.
+RESET ROLE;
+SELECT public.t133_a();
+INSERT INTO public.moth_tags (id, type_id, tier, label)
+VALUES ('13300000-0000-0000-0000-0000000001a2', '13300000-0000-0000-0000-0000000000a1', 'company', 'Mira Two');
+INSERT INTO public.moth_tag_assignments (id, tag_id, tier, target_type, target_id)
+VALUES ('13300000-0000-0000-0000-000000000114', '13300000-0000-0000-0000-0000000001a2', 'company', 'asset', '13300000-0000-0000-0000-000000000051');
+SET LOCAL ROLE authenticated;
+SELECT public.t133_a();
+SELECT public.moth_tag_merge('13300000-0000-0000-0000-0000000001a2', public.t133_tag('Mira'));
+SELECT public.t133_d();
+SELECT is(public.t133_last('13300000-0000-0000-0000-000000000114'), 'moved:false:false', 'a merge reads as a tagging moved, both sides shown');
+
+-- G11. A project's purge: the taggings it takes with it write nothing no one could read.
+RESET ROLE;
+SELECT public.t133_a();
+INSERT INTO public.assets (id, project_id, name) VALUES ('13300000-0000-0000-0000-000000000053', 'aaaa1330-0000-0000-0000-00000000000b', 'Gone soon');
+INSERT INTO public.moth_tag_assignments (id, tag_id, tier, target_type, target_id)
+VALUES ('13300000-0000-0000-0000-000000000115', public.t133_tag('Mira'), 'company', 'asset', '13300000-0000-0000-0000-000000000053');
+DELETE FROM public.projects WHERE id = 'aaaa1330-0000-0000-0000-00000000000b';
+SELECT is((SELECT count(*)::int FROM public.moth_history h WHERE h.entity_id = '13300000-0000-0000-0000-000000000115'), 1,
+  'a tagging a project''s purge takes leaves only the row of its making');
+
+-- G9. Three more of the checks, each by its own name.
+RESET ROLE;
+SELECT ok(public.t133_words($$INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, state_class, state_owner_id, state)
+          VALUES ('11111111-1111-1111-1111-111111111111', 'notes', gen_random_uuid(), 'create', 'workspace', 'cccccccc-cccc-cccc-cccc-cccccccccccc', '{"title": "x"}')$$)
+          LIKE '%moth_history_c_class_chk%',
+  'a company row has no owner');
+SELECT ok(public.t133_words($$INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, state_class, state, prior_peer_class)
+          VALUES ('11111111-1111-1111-1111-111111111111', 'moth_tag_assignments', gen_random_uuid(), 'create', 'workspace', '{"tier": "company"}', 'workspace')$$)
+          LIKE '%moth_history_g_peer_chk%',
+  'a create has no prior peer');
+SELECT ok(public.t133_words($$INSERT INTO public.moth_history (workspace_id, entity_type, entity_id, action, state_class, state, state_peer_class, state_peer_project_id)
+          VALUES ('11111111-1111-1111-1111-111111111111', 'moth_tag_assignments', gen_random_uuid(), 'create', 'workspace', '{"tier": "company"}', 'workspace', 'aaaa1330-0000-0000-0000-00000000000a')$$)
+          LIKE '%moth_history_g_peer_chk%',
+  'and the company''s peer has no project');
+
+-- G12. A tag's new name and a link's new words are recorded.
+RESET ROLE;
+SELECT public.t133_a();
+UPDATE public.moth_tags SET label = 'Mira Lund' WHERE id = public.t133_tag('Mira');
+SELECT public.t133_d();
+UPDATE public.moth_relationships SET label = 'leads to' WHERE id = (SELECT id FROM t133_links WHERE k = 'asset>task');
+SET LOCAL ROLE authenticated;
+SELECT public.t133_d();
+SELECT is(public.t133_last(public.t133_tag('Mira Lund')), 'changed:false:false', 'a tag renamed reads as changed');
+SELECT is(public.t133_last((SELECT id FROM t133_links WHERE k = 'asset>task')), 'changed:false:false', 'and a link given new words');
 
 SELECT * FROM finish();
 ROLLBACK;

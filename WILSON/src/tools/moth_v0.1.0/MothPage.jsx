@@ -32,7 +32,7 @@ import { createInputMode, prefersReducedMotion } from './state/mothInputMode.js'
 import { QUICK_VIEWS, normalizeConfig, engineView, filterByTags, containersOf } from './state/mothViewState.js'
 import { createMothViews } from './state/mothViews.js'
 import { colourFor, radiusFor, normalizeAppearance } from './state/mothAppearance.js'
-import { rewind, recordedSince, readHistory, RECENT_DAYS } from './state/mothHistoryScrub.js'
+import { rewind, recordedSince, s3RecordedSince, readHistory, RECENT_DAYS } from './state/mothHistoryScrub.js'
 import { mothJump, JUMP_WORDS } from './state/mothJumps.js'
 import MothWorldView from './components/MothWorldView.jsx'
 import MothViewWidget from './components/MothViewWidget.jsx'
@@ -237,7 +237,7 @@ export default function MothPage({ isActive = true, worldFactory }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [replay, store, snap.version])
   // Looking back: the record from the slider's time to now, read once per time, the live catalogue rewound.
-  const scrubbed = useMemo(() => (scrubAt != null && scrub.rows ? rewind(catalogue, scrub.rows, scrubAt) : null), [scrubAt, scrub.rows, catalogue])
+  const scrubbed = useMemo(() => (scrubAt != null && scrub.rows ? rewind(catalogue, scrub.rows, scrubAt, { s3Since: scrub.s3Floor }) : null), [scrubAt, scrub.rows, scrub.s3Floor, catalogue])
   const base = scrubbed ? scrubbed.catalogue : catalogue
   // The person's own space is "My personal space" on the graph and in a search, as it is in the list.
   const shown = useMemo(() => {
@@ -647,7 +647,7 @@ export default function MothPage({ isActive = true, worldFactory }) {
     if (!isActive || !adapter || localOnly || scrub.floor != null || scrub.available === false) return undefined
     let live = true
     Promise.resolve().then(() => adapter.fetchMothHistoryWindow(null))
-      .then((rows) => { if (live) setScrub((s) => ({ ...s, available: true, floor: recordedSince(rows) })) })
+      .then((rows) => { if (live) setScrub((s) => ({ ...s, available: true, floor: recordedSince(rows), s3Floor: s3RecordedSince(rows) })) })
       .catch((err) => { if (live && err?.code === 'moth_absent') setScrub((s) => ({ ...s, available: false })) })
     return () => { live = false }
   }, [isActive, adapter, localOnly, scrub.floor, scrub.available])
@@ -657,14 +657,16 @@ export default function MothPage({ isActive = true, worldFactory }) {
     setScrub((s) => ({ ...s, loading: true, error: '' }))
     ;(async () => {
       let floor = scrub.floor
+      let s3Floor = scrub.s3Floor
       if (floor == null) {
         const windowRows = await adapter.fetchMothHistoryWindow(null)
         floor = recordedSince(windowRows)
+        s3Floor = s3RecordedSince(windowRows)
       }
       const since = Math.max(scrubAt - RECENT_DAYS * 86400000, floor)
       const kept = scrub.rows && scrub.since != null && scrub.since <= since && scrub.version === snap.version
       const read = kept ? { rows: scrub.rows, complete: !scrub.incomplete } : await readHistory(adapter, since)
-      if (live) setScrub({ available: true, floor, rows: read.rows, since: kept ? scrub.since : since, version: snap.version, loading: false, error: '', incomplete: !read.complete })
+      if (live) setScrub({ available: true, floor, s3Floor, rows: read.rows, since: kept ? scrub.since : since, version: snap.version, loading: false, error: '', incomplete: !read.complete })
     })().catch((err) => {
       if (!live) return
       if (err?.code === 'moth_absent') setScrub((s) => ({ ...s, available: false, loading: false }))
@@ -678,6 +680,7 @@ export default function MothPage({ isActive = true, worldFactory }) {
     available: localOnly ? false : scrub.available,
     localOnly,
     floor: scrub.floor,
+    s3Floor: scrub.s3Floor,
     at: scrubDraft !== undefined ? scrubDraft : scrubAt,
     setAt: (t) => {
       const v = t == null ? null : Math.max(t, scrub.floor ?? t)

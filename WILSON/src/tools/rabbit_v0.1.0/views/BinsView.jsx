@@ -65,6 +65,7 @@ import { usageByFile, usageCounts } from '../bins/shotTakeSelectors'
 // Post-overhaul S3c, step 1: which shot list holds a shot a file is used in.
 import { useHomeIndex } from './scenes/LinkHome'
 import { useNavigateTarget } from '../state/rabbitNavigate'
+import { mentionPlainText } from '../state/mentionTokens'
 
 // A filter chip whose label is the user's own data (a camera, a day, a scene,
 // a tag) keeps its case: the kit Chip sets its label in capitals (the Label
@@ -636,7 +637,7 @@ export default function BinsView({ pageActive = false, people = [] } = {}) {
   const createStarter = useCallback(async (which) => {
     if (!canWrite) return
     const list = which === 'types' ? TYPE_STARTER
-      : which === 'scenes' ? scenes.slice().sort((a, b) => (a.scene_number ?? 0) - (b.scene_number ?? 0)).map(s => ({ name: s.name || 'Untitled scene', kind: 'footage', color: null, description: s.description || '' }))
+      : which === 'scenes' ? scenes.slice().sort((a, b) => (a.scene_number ?? 0) - (b.scene_number ?? 0)).map(s => ({ name: s.name || 'Untitled scene', kind: 'footage', color: null, description: mentionPlainText(s.description || '') }))
         : [{ name: 'Dailies', kind: 'footage', color: 'orange', description: 'Untouched footage, one nested bin per shoot day' }, { name: 'Selects', kind: 'selects', color: 'yellow' }]
     try {
       await ctx.runBatch(async () => { for (const p of list) await ctx.addBin({ name: p.name, kind: p.kind, color: p.color || null, description: p.description || '' }) })

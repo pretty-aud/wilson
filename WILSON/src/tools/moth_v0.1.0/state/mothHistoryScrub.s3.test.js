@@ -1,7 +1,7 @@
 // MO3 (0129): looking back over workspace notes, typed tags, their assignments and saved links. Each is taken out
 // and put back by id as the record says; their kinds do not set the floor, which stays the structural kinds'.
 import { describe, it, expect } from 'vitest'
-import { rewind, recordedSince, S3_KINDS } from './mothHistoryScrub.js'
+import { rewind, recordedSince, s3RecordedSince, S3_KINDS } from './mothHistoryScrub.js'
 
 const T0 = Date.parse('2026-11-01T00:00:00Z')
 const at = (h) => new Date(T0 + h * 3600000).toISOString()
@@ -55,5 +55,50 @@ describe('looking back over Session 3\'s rows', () => {
       ...S3_KINDS.map((entity_type) => ({ entity_type, project_id: null, recording_since: at(0) })),
     ]
     expect(recordedSince(windowRows, T0 + 3600000)).toBe(T0 - 48 * 3600000)
+  })
+
+  it('they keep their own floor: their latest start, a restart with a project too, and none before 0129', () => {
+    const windowRows = [
+      { entity_type: 'files', project_id: null, recording_since: at(-48) },
+      ...S3_KINDS.map((entity_type) => ({ entity_type, project_id: null, recording_since: at(0) })),
+      { entity_type: 'moth_tag_assignments', project_id: 'p1', recording_since: at(3) },
+    ]
+    expect(s3RecordedSince(windowRows, T0 + 10 * 3600000)).toBe(T0 + 3 * 3600000)
+    expect(recordedSince(windowRows, T0 + 10 * 3600000)).toBe(T0 - 48 * 3600000)
+    expect(s3RecordedSince([{ entity_type: 'files', project_id: null, recording_since: at(-48) }])).toBe(null)
+  })
+
+  it('no row of theirs older than that floor is undone: before it they show as they were at it', () => {
+    const now = live()
+    now.mtags = [{ id: 'g1', label: 'Mira Lund', tier: 'company', type_id: 'ty1', shape: 'star', colour: 'rose' }]
+    const rows = [
+      { entity_type: 'moth_tags', entity_id: 'g1', action: 'changed', observed_at: at(6), prior: { label: 'Mira L', type_id: 'ty1', tier: 'company' } },
+      { entity_type: 'moth_tags', entity_id: 'g1', action: 'changed', observed_at: at(2), prior: { label: 'Mira', type_id: 'ty1', tier: 'company' } },
+    ]
+    expect(rewind(now, rows, T0).catalogue.mtags[0].label).toBe('Mira')
+    expect(rewind(now, rows, T0, { s3Since: T0 + 4 * 3600000 }).catalogue.mtags[0].label).toBe('Mira L')
+  })
+
+  it('a change or a move about one not on the graph is ignored, as for every other kind', () => {
+    const rows = [
+      { entity_type: 'notes', entity_id: 'n9', action: 'changed', observed_at: at(5), prior: { title: 'Elsewhere', tier: 'shared' } },
+      { entity_type: 'moth_tag_assignments', entity_id: 'x9', action: 'moved', observed_at: at(5),
+        prior: { tag_id: 'g1', target_type: 'asset', target_id: 'a9', tier: 'company' } },
+      { entity_type: 'moth_relationships', entity_id: 'r9', action: 'changed', observed_at: at(5),
+        prior: { source_type: 'asset', source_id: 'a9', dest_type: 'task', dest_id: 't9', label: 'was' } },
+    ]
+    const { catalogue: c } = rewind(live(), rows, T0)
+    expect(c.notes.map((n) => n.id)).toEqual(['n1'])
+    expect(c.assignments.map((a) => a.id)).toEqual(['x1'])
+    expect(c.relations.map((l) => l.relationship)).toEqual(['r1'])
+  })
+
+  it('a tag comes back with its type\'s look as its type was then, and plain when that type is not known', () => {
+    const now = live()
+    now.mtagTypes = [{ id: 'ty1', name: 'Character', shape: 'star', colour: 'rose' }, { id: 'ty2', name: 'Place', shape: 'square', colour: 'sea' }]
+    const toTy2 = [{ entity_type: 'moth_tags', entity_id: 'g1', action: 'changed', observed_at: at(5), prior: { label: 'Mira', type_id: 'ty2', tier: 'company' } }]
+    expect(rewind(now, toTy2, T0).catalogue.mtags[0]).toMatchObject({ shape: 'square', colour: 'sea', type_name: 'Place' })
+    const toGone = [{ entity_type: 'moth_tags', entity_id: 'g1', action: 'changed', observed_at: at(5), prior: { label: 'Mira', type_id: 'ty-gone', tier: 'company' } }]
+    expect(rewind(now, toGone, T0).catalogue.mtags[0]).toMatchObject({ shape: 'circle', colour: 'mist' })
   })
 })

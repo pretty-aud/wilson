@@ -116,6 +116,7 @@ import {
 import {
   applyViewFilters, applyViewSorts, effectiveFields, filterCount, withFirstSort, withFirstSortReversed,
 } from './tableViews/viewScreenModel'
+import { mentionPlainText } from '../state/mentionTokens'
 import './rabbitTasks.css'
 
 // Q17 (her "Start fresh"): the views this browser kept for the Tasks table
@@ -743,7 +744,8 @@ export default function ProjectTasksView() {
     const stem = (project?.title || 'project').replace(/[^\w.-]+/g, '_')
     downloadCsv(`${stem}-tasks-${exportDateStamp()}.csv`, processed, [
       ...columns.map(col => ({ key: col.key, header: col.label, map: t => shown(col, t) })),
-      { key: 'notes',      header: 'Notes' },
+      // MO3: the notes' words, never a link's code.
+      { key: 'notes',      header: 'Notes', map: t => mentionPlainText(t.notes || '') },
       { key: 'created_at', header: 'Created' },
     ])
   }, [processed, columns, memberById, phaseById, itemLookup, itemSort, project?.title])

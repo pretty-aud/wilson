@@ -229,7 +229,7 @@ export function createMothCatalogue({ adapter }) {
     catalogue() {
       if (cachedVersion === version && cachedCatalogue) return cachedCatalogue
       const out = { islands: [], folders: {}, files: {}, items: {}, relations: [],
-        notes: workspace.notes, mtags: workspace.mtags, assignments: workspace.assignments }
+        notes: workspace.notes, mtags: workspace.mtags, assignments: workspace.assignments, mtagTypes: workspace.types || [] }
       for (const isle of islands || []) {
         out.islands.push(isle)
         const p = projects.get(isle.id)

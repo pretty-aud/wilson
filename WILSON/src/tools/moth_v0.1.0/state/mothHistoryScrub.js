@@ -9,7 +9,9 @@
 // does. Everything before a kind's recording_since is not recorded. The scrub reads only; nothing is written.
 //
 // MO3 (0129): workspace notes, typed tags, their assignments and saved links are rewound the same way, by id. Their
-// record begins with 0129, so they do not set the floor (S3_KINDS): before their beginning they show as they are now.
+// record begins with 0129, so they do not set the floor (S3_KINDS); they keep their own (s3RecordedSince: their
+// baseline, or a restart the reader is told of), and no row of theirs older than it is undone: before it they show as
+// they were then, and the slider says so. A change or a move about one not on the graph is ignored.
 export const HISTORY_DAYS = 90
 export const RECENT_DAYS = 7
 const TABLE_KIND = Object.freeze({
@@ -37,7 +39,7 @@ const listById = (list) => new Map((list || []).filter((r) => r && r.id != null)
  * The catalogue as it was at `atMs`, from the live one and the record's rows (newest first, as moth_history_read
  * answers). Returns { catalogue, changed: Set of entity ids changed in the RECENT_DAYS before atMs }.
  */
-export function rewind(live, rows, atMs) {
+export function rewind(live, rows, atMs, { s3Since = null } = {}) {
   const pids = new Set([...Object.keys(live.files || {}), ...Object.keys(live.folders || {}), ...Object.keys(live.items || {})])
   const files = byId(live.files)
   const folders = byId(live.folders)
@@ -48,6 +50,8 @@ export function rewind(live, rows, atMs) {
   const mtags = listById(live.mtags)
   const assignments = listById(live.assignments)
   const looks = new Map((live.mtags || []).map((t) => [t.type_id, { shape: t.shape, colour: t.colour, type_name: t.type_name }]))
+  for (const ty of live.mtagTypes || []) if (ty?.id) looks.set(ty.id, { shape: ty.shape ?? 'circle', colour: ty.colour ?? 'mist', type_name: ty.name ?? '' })
+  const s3Floor = Number.isFinite(s3Since) ? s3Since : null
   const changed = new Set()
   const recentFrom = atMs - RECENT_DAYS * 86400000
   for (const r of rows || []) {
@@ -57,6 +61,8 @@ export function rewind(live, rows, atMs) {
       if (t >= recentFrom) changed.add(r.entity_id)
       continue
     }
+    // Session 3's record is whole only from its own floor: an older row of theirs is not undone.
+    if (s3Floor != null && t < s3Floor && S3_KINDS.includes(r.entity_type)) continue
     const before = r.prior || null
     const pidBefore = r.prior_project_id || null
     const id = r.entity_id
@@ -100,21 +106,26 @@ export function rewind(live, rows, atMs) {
       if (isle && before?.title) isle.title = before.title
     } else if (r.entity_type === 'notes') {
       const now = notes.get(id) || null
+      if (!now && (r.action === 'changed' || r.action === 'moved')) continue
       notes.delete(id)
       if (r.action === 'added' || r.action === 'restored' || before?.in_trash === true) continue
       if (!before) { if (now) notes.set(id, now); continue }
       notes.set(id, { ...(now || { id, is_mine: false }), id, title: before.title ?? now?.title ?? '', tier: before.tier ?? now?.tier ?? null })
     } else if (r.entity_type === 'moth_tags') {
       const now = mtags.get(id) || null
+      if (!now && (r.action === 'changed' || r.action === 'moved')) continue
       mtags.delete(id)
       if (r.action === 'added') continue
       if (!before) { if (now) mtags.set(id, now); continue }
-      const look = looks.get(before.type_id) || {}
-      mtags.set(id, { shape: 'circle', colour: 'mist', ...look, ...(now || {}), id, label: before.label ?? now?.label ?? '',
+      // Its type's look as its type was then: a type no longer known is drawn plain, never with today's type's look.
+      const typeThen = before.type_id ?? now?.type_id ?? null
+      const look = looks.get(typeThen) || (typeThen !== (now?.type_id ?? null) ? { shape: 'circle', colour: 'mist', type_name: '' } : {})
+      mtags.set(id, { shape: 'circle', colour: 'mist', ...(now || {}), ...look, id, label: before.label ?? now?.label ?? '',
         type_id: before.type_id ?? now?.type_id ?? null, tier: before.tier ?? now?.tier ?? null, canonical_id: before.canonical_id ?? null,
         retired_at: before.retired === true ? (now?.retired_at || 'retired') : null })
     } else if (r.entity_type === 'moth_tag_assignments') {
       const now = assignments.get(id) || null
+      if (!now && (r.action === 'changed' || r.action === 'moved')) continue
       assignments.delete(id)
       if (r.action === 'added') continue
       if (!before) { if (now) assignments.set(id, now); continue }
@@ -122,6 +133,7 @@ export function rewind(live, rows, atMs) {
         target_id: before.target_id ?? now?.target_id, tier: before.tier ?? now?.tier })
     } else if (r.entity_type === 'moth_relationships') {
       const was = relations.find((l) => l.relationship === id) || null
+      if (!was && (r.action === 'changed' || r.action === 'moved')) continue
       relations = relations.filter((l) => l.relationship !== id)
       if (r.action === 'added') continue
       if (!before) { if (was) relations.push(was); continue }
@@ -156,6 +168,21 @@ export function recordedSince(windowRows, nowMs = Date.now()) {
     if (Number.isFinite(t) && t > floor) floor = t
   }
   return Math.min(floor, nowMs)
+}
+
+/**
+ * MO3 (0129): from when the record holds notes, typed tags, their assignments and links: the latest recording_since
+ * among their rows (their baseline, or a restart the reader is told of, with a project or without). null when the
+ * record names none of them (a database before 0129).
+ */
+export function s3RecordedSince(windowRows, nowMs = Date.now()) {
+  let floor = null
+  for (const w of windowRows || []) {
+    if (!S3_KINDS.includes(w.entity_type)) continue
+    const t = ms(w.recording_since)
+    if (Number.isFinite(t) && (floor == null || t > floor)) floor = t
+  }
+  return floor == null ? null : Math.min(floor, nowMs)
 }
 
 /** Every row of the record from `sinceMs` to now, following the opaque row_key, at most `maxPages` pages. */

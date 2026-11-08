@@ -10,7 +10,7 @@
 // =============================================================================
 
 import { installDevFixtures } from '../devFixtures'
-import { createStore, clone, now, findById, applyGameVariant, applyMemberVariant, applyWorkspaceManagerVariant, applyNetworkStorageVariant, fixtureVariant, binsFixtureMode, connectionFixtureMode, storageFixtureMode } from './store'
+import { createStore, clone, now, findById, applyGameVariant, applyMemberVariant, applyWorkspaceManagerVariant, applyNetworkStorageVariant, applyMothTagsVariant, fixturePerson, fixtureVariant, binsFixtureMode, connectionFixtureMode, storageFixtureMode } from './store'
 import { createRabbitFixturesAdapter } from './rabbitFixturesAdapter'
 import { createOtterFixturesHandler } from './otterFixturesRoutes'
 import { createGatewayFixtures, gatewayFixtureMode } from './gatewayFixtures'
@@ -33,14 +33,18 @@ import { BUILTIN } from '../../lib/aiModels'
 // `connection: 'files-down' | 'offline'` (FX11, `?connection=…`) is what the
 // connection dot hears: amber, then red (store.connectionFixtureMode).
 // `storage: 'network'` (MO1, `?storage=network`) is a company on its office server (store.applyNetworkStorageVariant).
-export function buildDevFixtures({ variant = null, bins = null, connection = null, storage = null } = {}) {
+// MO3 (walkthrough 96): `variant: 'tags'` (`?fixtures=tags`) seeds Session 3's notes, typed tags and links
+// (store.applyMothTagsVariant); `person` (`?as=theo`) acts as another fixture person (store.fixturePerson).
+export function buildDevFixtures({ variant = null, bins = null, connection = null, storage = null, person = null } = {}) {
   const store = createStore()
+  const userId = person?.user_id || PERMISSIONS.userId
   if (variant === 'game') applyGameVariant(store)
-  if (variant === 'member') applyMemberVariant(store, PERMISSIONS.userId)
-  if (variant === 'manager') applyWorkspaceManagerVariant(store, PERMISSIONS.userId)
-  if (storage === 'network') applyNetworkStorageVariant(store, PERMISSIONS.userId)
-  const appRole = variant === 'member' ? 'user' : variant === 'manager' ? 'manager' : PERMISSIONS.role
-  const identity = { userId: PERMISSIONS.userId, workspaceId: WORKSPACE_ID, appRole }
+  if (variant === 'member') applyMemberVariant(store, userId)
+  if (variant === 'manager') applyWorkspaceManagerVariant(store, userId)
+  if (variant === 'tags') applyMothTagsVariant(store)
+  if (storage === 'network') applyNetworkStorageVariant(store, userId)
+  const appRole = variant === 'member' ? 'user' : variant === 'manager' ? 'manager' : (person?.app_role || PERMISSIONS.role)
+  const identity = { userId, workspaceId: WORKSPACE_ID, appRole }
   const adapterOptions = { browser: bins === 'browser', connection }
   let rabbitAdapter = null
   const gatewayDoors = createGatewayDoorsStub(store, identity)
@@ -48,8 +52,8 @@ export function buildDevFixtures({ variant = null, bins = null, connection = nul
   return {
     label: PROJECT.title,
     store,
-    permissions: { ...PERMISSIONS, role: appRole },
-    profile: { ...PROFILE },
+    permissions: { ...PERMISSIONS, userId, role: appRole },
+    profile: { ...PROFILE, ...(person ? { email: person.email } : {}) },
     bins: true,
     // What workspaceStorage.js answers. Null: as before, it asks the real client, which a fixtures build has not got.
     workspaceStorage: store.workspaceStorage ?? null,
@@ -131,4 +135,4 @@ export function buildDevFixtures({ variant = null, bins = null, connection = nul
   }
 }
 
-installDevFixtures(buildDevFixtures({ variant: fixtureVariant(), bins: binsFixtureMode(), connection: connectionFixtureMode(), storage: storageFixtureMode() }))
+installDevFixtures(buildDevFixtures({ variant: fixtureVariant(), bins: binsFixtureMode(), connection: connectionFixtureMode(), storage: storageFixtureMode(), person: fixturePerson() }))

@@ -23,6 +23,7 @@
 // =============================================================================
 
 import { isLegalFile } from '../../rabbit_v0.1.0/fileTags';
+import { mentionPlainText } from '../../rabbit_v0.1.0/state/mentionTokens';
 import { dogTypeForRow } from '../../rabbit_v0.1.0/deckAttachments';
 import { humanizeStatus } from '../../../ui/StatusDot';
 import { inputLimitFor } from '../../../lib/aiModels';
@@ -157,6 +158,8 @@ function storedDogType(row) {
 
 const live = (rows) => (Array.isArray(rows) ? rows : []).filter(r => r && !r.deleted_at && !r.set_aside_at);
 const text = (v) => (v == null ? '' : String(v)).trim();
+// MO3: a description's or notes' words as their reader sees them, never a link's code (as a note's are).
+const plain = (v) => mentionPlainText(text(v)).trim();
 
 function itemName(kind, row, byId) {
   switch (kind) {
@@ -448,7 +451,7 @@ export function itemWords(entry, pool) {
         ['Type', text(r.type_label) || words(r.type)],
         ['Status', shown(r.status)],
         ['Dates', dates(r.start_date, r.end_date)],
-        ['Description', text(r.description)],
+        ['Description', plain(r.description)],
       ]);
       break;
     case 'scene':
@@ -458,8 +461,8 @@ export function itemWords(entry, pool) {
         ['Type', shown(r.type)],
         ['Time of day', words(r.time_of_day)],
         ['Dates', dates(r.start_date, r.end_date)],
-        ['Description', text(r.description)],
-        ['Notes', text(r.notes)],
+        ['Description', plain(r.description)],
+        ['Notes', plain(r.notes)],
       ]);
       break;
     case 'shot':
@@ -469,8 +472,8 @@ export function itemWords(entry, pool) {
         ['Framing', text(r.framing)],
         ['Camera movement', text(r.camera_movement)],
         ['Frame count', r.frame_count ? r.frame_count : ''],
-        ['Description', text(r.description)],
-        ['Notes', text(r.notes)],
+        ['Description', plain(r.description)],
+        ['Notes', plain(r.notes)],
       ]);
       break;
     case 'level':
@@ -478,8 +481,8 @@ export function itemWords(entry, pool) {
       body = lines([
         ['Status', shown(r.status)],
         ['Dates', dates(r.start_date, r.end_date)],
-        ['Description', text(r.description)],
-        ['Notes', text(r.notes)],
+        ['Description', plain(r.description)],
+        ['Notes', plain(r.notes)],
       ]);
       break;
     case 'task': {
@@ -489,15 +492,15 @@ export function itemWords(entry, pool) {
         ['Dates', dates(r.start_date, r.end_date)],
         ['Role', text(r.assigned_position)],
         ['About', taskItemNames(entry, pool).join('; ')],
-        ['Description', text(r.description)],
-        ['Notes', text(r.notes)],
+        ['Description', plain(r.description)],
+        ['Notes', plain(r.notes)],
       ]);
       break;
     }
     case 'phase':
       body = lines([
         ['Dates', dates(r.start_date, r.end_date)],
-        ['Description', text(r.description)],
+        ['Description', plain(r.description)],
       ]);
       break;
     case 'milestone': {
@@ -505,7 +508,7 @@ export function itemWords(entry, pool) {
       body = lines([
         ['Date', r.date || ''],
         ['Phase', phase ? phase.name : ''],
-        ['Description', text(r.description)],
+        ['Description', plain(r.description)],
       ]);
       break;
     }
