@@ -14,7 +14,7 @@
 -- De-auth pair before every persona switch: tests schema is runner-only.
 
 BEGIN;
-SELECT plan(75);
+SELECT plan(76);
 
 SELECT * FROM tests.rls_setup();
 
@@ -340,6 +340,8 @@ RESET ROLE;
 
 -- The trash: the owner's, or a live admin's for a note that is not personal.
 SELECT tests.login_as('cccccccc-cccc-cccc-cccc-cccccccccccc', '11111111-1111-1111-1111-111111111111');
+SELECT throws_ok($$UPDATE public.notes SET deleted_at = now(), deleted_by = 'cccccccc-cccc-cccc-cccc-cccccccccccc' WHERE id = 'da000000-0000-0000-0000-0000000000c2'$$,
+  '42501', 'A note goes to the trash and comes back from it through the trash.', 'no one puts a note in the trash by hand');
 SELECT is(public.note_trash('da000000-0000-0000-0000-0000000000c2'), true, 'the owner puts a note in the trash');
 SELECT is(public.note_trash('da000000-0000-0000-0000-0000000000c2'), false, '… once');
 SELECT is((SELECT count(*)::int FROM public.notes WHERE id = 'da000000-0000-0000-0000-0000000000c2'), 0,

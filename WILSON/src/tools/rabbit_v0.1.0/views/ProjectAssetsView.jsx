@@ -95,6 +95,12 @@ import { RelationPickerPopup, RelationBadge, AssetRelationsSidebar } from '../co
 import { useHomeIndex } from './scenes/LinkHome'
 import { pickerRows, otherListRows } from './scenes/linkHomes'
 import FileManager from '../components/FileManager'
+// MO3 (0126, 0127): `[[` and `#` in an asset's description, its tags, its links and what mentions it.
+import MentionTextArea from '../components/mentions/MentionTextArea'
+import MentionText from '../components/mentions/MentionText'
+import MentionedIn from '../components/mentions/MentionedIn'
+import ItemTags from '../components/mentions/ItemTags'
+import { useItemLinks, linksByKey } from '../components/mentions/useItemLinks'
 
 // ── Thumbnail sizing ──
 // 1x, 2x and 3x the 36px row. The sizes themselves live in rabbitFiles.css,
@@ -1675,11 +1681,12 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
 
         {/* Description */}
         <Field label="Description">
-          <textarea
+          <MentionTextArea
             value={draft.description}
-            onChange={e => patch({ description: e.target.value })}
+            getAdapter={ctx?.getAdapter}
+            onChange={v => patch({ description: v })}
             rows={2}
-            placeholder="Optional description…"
+            placeholder="Optional description… ([[ links a thing)"
             className="ui-input"
           />
         </Field>
@@ -1765,6 +1772,17 @@ export function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onTh
 
   const [editingDesc, setEditingDesc] = useState(false)
   const [descDraft, setDescDraft] = useState(asset?.description || '')
+  // MO3: the asset's links and tags; a typed link is made when the words are saved, so they are read again then.
+  const getAdapter = ctx?.getAdapter
+  const itemLinks = useItemLinks(getAdapter, 'asset', asset?.id)
+  const linkKeys = useMemo(() => linksByKey(itemLinks.out), [itemLinks.out])
+  const tagsRef = useRef(null)
+  const reloadLinks = itemLinks.reload
+  useEffect(() => {
+    if (!asset?.id) return undefined
+    const timer = setTimeout(() => reloadLinks(), 800)
+    return () => clearTimeout(timer)
+  }, [asset?.id, asset?.description, reloadLinks])
   const [applyingTemplate, setApplyingTemplate] = useState(false)
 
   // Relation picker state
@@ -2051,11 +2069,15 @@ export function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onTh
             </PropField>
             <div className="col-span-2">
               <PropField label="Description">
+                <ItemTags ref={tagsRef} getAdapter={getAdapter} kind="asset" id={asset.id} canChange={canWrite} />
                 {editingDesc ? (
-                  <textarea
+                  <MentionTextArea
                     autoFocus
                     value={descDraft}
-                    onChange={(e) => setDescDraft(e.target.value)}
+                    getAdapter={getAdapter}
+                    target={{ kind: 'asset', id: asset.id }}
+                    onTagged={() => tagsRef.current?.reload()}
+                    onChange={setDescDraft}
                     onBlur={() => {
                       setEditingDesc(false)
                       if (descDraft !== (asset.description || '')) {
@@ -2078,9 +2100,13 @@ export function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onTh
                     className="rb-asset-prop-text"
                     data-empty={asset.description ? 'false' : 'true'}
                   >
-                    {asset.description || 'Click to add description…'}
+                    {asset.description
+                      ? <MentionText text={asset.description} links={linkKeys} interactive={false} />
+                      : 'Click to add description…'}
                   </button>
                 )}
+                <MentionedIn links={itemLinks.out} title="Links" />
+                <MentionedIn links={itemLinks.in} />
               </PropField>
             </div>
             {asset.created_at && <PropField label="Created" value={new Date(asset.created_at).toLocaleDateString()} />}
