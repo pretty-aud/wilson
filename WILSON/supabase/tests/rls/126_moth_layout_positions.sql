@@ -105,7 +105,9 @@ INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, 
   ('12600000-0000-0000-0000-000000000081', 'aaaa1260-0000-0000-0000-00000000000a', 'mira.png', 'supabase', 'projects/aaaa1260-0000-0000-0000-00000000000a/files/12600000-0000-0000-0000-000000000081/mira.png', false),
   ('12600000-0000-0000-0000-000000000082', 'aaaa1260-0000-0000-0000-00000000000a', 'fee.pdf', 'supabase', 'projects/aaaa1260-0000-0000-0000-00000000000a/files/12600000-0000-0000-0000-000000000082/fee.pdf', true),
   ('12600000-0000-0000-0000-000000000083', 'aaaa1260-0000-0000-0000-00000000000a', 'later.png', 'supabase', 'projects/aaaa1260-0000-0000-0000-00000000000a/files/12600000-0000-0000-0000-000000000083/later.png', false),
-  ('12600000-0000-0000-0000-000000000084', 'aaaa1260-0000-0000-0000-00000000000a', 'binned.png', 'supabase', 'projects/aaaa1260-0000-0000-0000-00000000000a/files/12600000-0000-0000-0000-000000000084/binned.png', false);
+  ('12600000-0000-0000-0000-000000000084', 'aaaa1260-0000-0000-0000-00000000000a', 'binned.png', 'supabase', 'projects/aaaa1260-0000-0000-0000-00000000000a/files/12600000-0000-0000-0000-000000000084/binned.png', false),
+  -- An id with letters in it, so naming it in capitals is naming it differently (0124's plants).
+  ('12600000-0000-0000-0000-0000000000ab', 'aaaa1260-0000-0000-0000-00000000000a', 'lettered.png', 'supabase', 'projects/aaaa1260-0000-0000-0000-00000000000a/files/12600000-0000-0000-0000-0000000000ab/lettered.png', false);
 
 -- The views: P's shared one (VP), the reviewer's own (VR), the admin's own (VA), the owner's view of their space
 -- (VS). Each made with its maker's claims, because the database says whose a view is.
@@ -234,12 +236,14 @@ SELECT ok(public.t126_err($$ SELECT public.t126_put('12600000-0000-0000-0000-000
 SELECT is(public.t126_put('12600000-0000-0000-0000-0000000000a1', '[{"t":"file","id":"12600000-0000-0000-0000-000000000081","x":30,"y":30},{"t":"file","id":"12600000-0000-0000-0000-000000000081","x":40,"y":41}]'), 1,
   'a target named twice is one place');
 SELECT is(public.t126_put('12600000-0000-0000-0000-0000000000a1', jsonb_build_array(
-            jsonb_build_object('t', 'file', 'id', '12600000-0000-0000-0000-000000000081', 'x', 50, 'y', 51),
-            jsonb_build_object('t', 'file', 'id', upper('12600000-0000-0000-0000-000000000081'), 'x', 40, 'y', 41))), 1,
+            jsonb_build_object('t', 'file', 'id', '12600000-0000-0000-0000-0000000000ab', 'x', 50, 'y', 51),
+            jsonb_build_object('t', 'file', 'id', upper('12600000-0000-0000-0000-0000000000ab'), 'x', 40, 'y', 41))), 1,
   'and named in capitals, still the same place: one place, never two writes of it in one call');
-SELECT is((SELECT x::text || ',' || y::text FROM public.moth_layout_positions WHERE view_id = '12600000-0000-0000-0000-0000000000a1' AND target_id = '12600000-0000-0000-0000-000000000081'),
+SELECT is((SELECT x::text || ',' || y::text FROM public.moth_layout_positions WHERE view_id = '12600000-0000-0000-0000-0000000000a1' AND target_id = '12600000-0000-0000-0000-0000000000ab'),
   '40,41', '… at its last place');
 RESET ROLE;
+-- The lettered file's place goes again, so the places counted below are as they were.
+DELETE FROM public.moth_layout_positions WHERE target_id = '12600000-0000-0000-0000-0000000000ab';
 
 -- The focus on a file that leaves the picture: a new focus must still land, and say nothing of it (review round 1).
 UPDATE public.files SET deleted_at = now() WHERE id = '12600000-0000-0000-0000-000000000084';

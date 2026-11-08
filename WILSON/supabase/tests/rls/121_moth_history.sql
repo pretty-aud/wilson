@@ -13,7 +13,7 @@
 
 BEGIN;
 
-SELECT plan(298);
+SELECT plan(299);
 
 SELECT * FROM tests.rls_setup();
 
@@ -561,6 +561,8 @@ SELECT is(public.moth_history_projection_ok(jsonb_build_object('scene_ids', (SEL
 SELECT is(public.moth_history_projection_ok('{"name":{"a":1}}'::jsonb), false, 'nor an object inside');
 SELECT is(public.moth_history_projection_ok('{"scene_ids":[{"a":1}]}'::jsonb), false, 'nor an object in an array');
 SELECT is(public.moth_history_projection_ok('{"name":"x","folder_id":"y"}'::jsonb), true, 'CONTROL: this is');
+SELECT is(public.moth_history_projection_ok('{"name":"x","deleted_at":"2026-01-01"}'::jsonb), false,
+  'nor a key the projector never writes, the trash''s own time among them: in_trash says it (0124)');
 
 
 -- ── F. Who may read ─────────────────────────────────────────────────────────
