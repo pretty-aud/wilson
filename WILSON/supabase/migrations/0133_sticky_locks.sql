@@ -16,13 +16,16 @@
 --   §2  sticky_claim(element, session): the turn, if nobody else holds a live one (the holder's same window renews
 --       it); else who holds it, for the name and the glow. sticky_renew(element, number), sticky_release(element,
 --       number): the holder's own. sticky_status(board): the live turns on a board, for a reader. A claim and a
---       release say so on the board's channel (0132), for the glow; a turn that runs out says nothing: everyone
---       holds its end.
+--       release say so on the board's channel (0132), for the glow, and so does each renewal (every 10 seconds or so
+--       while the holder types), so the glow lasts as long as the typing; a turn that runs out says nothing.
 --   §3  board_sticky_publish(element, number, from, to): the sticky's words saved, only by the holder of the current
 --       turn, only over the key it read (else false, as rekey_file_body's compare-and-set), to a fresh key the server
 --       admits for the file's own project (file_key_admissible), on Petal's storage or a company's Local Server; a
 --       company's own bucket waits ('s3_sticky_off'), as its moves do (0120). The board's channel hears 'body'.
---   §4  rekey_file_body (restated from 0114's body) refuses a sticky's file: §3 is the only path to a sticky's words.
+--   §4  rekey_file_body (restated from 0114's body) refuses a sticky's file while it is on its board (one whose file
+--       has left the board's folder is edited where it is now). Two paths still reach a sticky's object without the
+--       turn, recorded in OUTSTANDING (MO4): a client's storage UPDATE of the object at its key (0115's update arm),
+--       and a move between projects whose copy replaces the key at its commit (fn_moth_apply_moves).
 --
 -- One transaction, re-runnable, no enum. Suite 138_sticky_locks.sql; RLS_TABLES gains sticky_locks; 115 affected.
 -- =============================================================================
@@ -40,7 +43,7 @@ BEGIN
   END IF;
   IF (SELECT md5(replace(prosrc, chr(13), '')) FROM pg_proc
        WHERE oid = 'public.rekey_file_body(uuid,text,text,text,text,boolean)'::regprocedure)
-       NOT IN ('96a2b17b088ab21e9158d930ecf2ac35', '4fcf8d47437edca395b61b0b44e37f90') THEN
+       NOT IN ('96a2b17b088ab21e9158d930ecf2ac35', '784be073aef07c326f7211efbb45de8a') THEN
     RAISE EXCEPTION '0133 refused: rekey_file_body is neither 0114''s nor this file''s';
   END IF;
   IF to_regclass('public.sticky_locks') IS NOT NULL
@@ -198,6 +201,10 @@ BEGIN
   UPDATE public.sticky_locks l SET expires_at = v_now + interval '30 seconds'
    WHERE l.element_id = v_e.id AND l.holder = auth.uid() AND l.generation = p_generation AND l.expires_at > v_now;
   GET DIAGNOSTICS v_n = ROW_COUNT;
+  IF v_n = 1 THEN
+    PERFORM rabbit_private.sticky_say(v_e.board_id, jsonb_build_object('op', 'renew', 'element', v_e.id,
+      'holder_label', rabbit_private.sticky_holder_label(v_e.workspace_id, auth.uid()), 'ends_in_ms', 30000));
+  END IF;
   RETURN jsonb_build_object('ok', v_n = 1, 'ends_in_ms', CASE WHEN v_n = 1 THEN 30000 ELSE 0 END);
 END;
 $$;
@@ -283,6 +290,9 @@ BEGIN
       DETAIL = 'Someone else is writing in this sticky now, or your turn ended: your words were not saved.';
   END IF;
   SELECT * INTO v_f FROM public.files f WHERE f.id = v_e.file_id FOR UPDATE;
+  IF FOUND AND v_f.folder_id IS DISTINCT FROM (SELECT b.folder_id FROM public.boards b WHERE b.id = v_e.board_id) THEN
+    RAISE EXCEPTION 'This note has left its board: it is edited where it is now.' USING ERRCODE = '22023';
+  END IF;
   IF NOT FOUND OR v_f.deleted_at IS NOT NULL
      OR NOT COALESCE(public.moth_can_read_target('file', v_f.id), false)
      OR NOT COALESCE(public.moth_can_write_target('file', v_f.id), false) THEN
@@ -350,9 +360,10 @@ BEGIN
     RAISE EXCEPTION 'file not found or not writable' USING ERRCODE = '42501';
   END IF;
 
-  -- 0133: a sticky's words are saved by board_sticky_publish alone, under its writer's turn; no other path moves
-  -- a sticky's key.
-  IF EXISTS (SELECT 1 FROM public.board_elements e WHERE e.file_id = p_file AND e.kind = 'sticky') THEN
+  -- 0133: a sticky's words, while it is on its board, are saved by board_sticky_publish alone, under its writer's
+  -- turn. A sticky's file that has left its board's folder is edited where it is now.
+  IF EXISTS (SELECT 1 FROM public.board_elements e JOIN public.boards b ON b.id = e.board_id
+              WHERE e.file_id = p_file AND e.kind = 'sticky' AND b.folder_id = v_f.folder_id) THEN
     RAISE EXCEPTION 'A sticky''s words are saved from its board.' USING ERRCODE = '42501';
   END IF;
 
@@ -412,7 +423,7 @@ BEGIN
     RAISE EXCEPTION '0133 post-condition: a client can reach sticky_locks or its numbers';
   END IF;
   IF (SELECT md5(replace(prosrc, chr(13), '')) FROM pg_proc
-       WHERE oid = 'public.rekey_file_body(uuid,text,text,text,text,boolean)'::regprocedure) <> '4fcf8d47437edca395b61b0b44e37f90' THEN
+       WHERE oid = 'public.rekey_file_body(uuid,text,text,text,text,boolean)'::regprocedure) <> '784be073aef07c326f7211efbb45de8a' THEN
     RAISE EXCEPTION '0133 post-condition: rekey_file_body is not this file''s';
   END IF;
   IF has_function_privilege('authenticated', 'rabbit_private.sticky_for(uuid)', 'EXECUTE')

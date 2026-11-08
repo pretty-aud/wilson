@@ -14,7 +14,7 @@
 -- =============================================================================
 
 BEGIN;
-SELECT plan(40);
+SELECT plan(41);
 
 SELECT * FROM tests.rls_setup();
 
@@ -88,7 +88,8 @@ BEGIN
   RETURN CASE WHEN n = 0 THEN 'no-partition' ELSE 'ok' END;
 END;
 $$;
--- The messages on a topic, as 'EVENT' a message in order, or 'nothing'; 'vacuous' without realtime.
+-- The messages on a topic, as 'EVENT/op' a message, sorted (one transaction's messages share their moment, so their
+-- order is not theirs to keep), or 'nothing'; 'vacuous' without realtime.
 CREATE FUNCTION pg_temp.heard(p_topic TEXT) RETURNS TEXT LANGUAGE plpgsql AS $$
 DECLARE
   s TEXT;
@@ -96,7 +97,7 @@ BEGIN
   IF pg_temp.rt_env() <> 'ok' THEN
     RETURN 'vacuous';
   END IF;
-  EXECUTE 'SELECT COALESCE(string_agg(event || ''/'' || COALESCE(payload ->> ''op'', ''''), '' '' ORDER BY inserted_at, id), ''nothing'')
+  EXECUTE 'SELECT COALESCE(string_agg(event || ''/'' || COALESCE(payload ->> ''op'', ''''), '' '' ORDER BY event, payload ->> ''op''), ''nothing'')
              FROM realtime.messages WHERE topic = $1' INTO s USING p_topic;
   RETURN s;
 END;
@@ -108,7 +109,7 @@ BEGIN
   IF pg_temp.rt_env() <> 'ok' THEN
     RETURN NULL;
   END IF;
-  EXECUTE 'SELECT COALESCE(jsonb_agg(payload ORDER BY inserted_at, id), ''[]'') FROM realtime.messages WHERE topic = $1' INTO j USING p_topic;
+  EXECUTE 'SELECT COALESCE(jsonb_agg(payload ORDER BY payload ->> ''op'' DESC), ''[]'') FROM realtime.messages WHERE topic = $1' INTO j USING p_topic;
   RETURN j;
 END;
 $$;
@@ -265,7 +266,7 @@ SELECT is(public.t137_gen('13700000-0000-0000-0000-0000000000f1'), 3, 'a member 
 -- The board's folder goes to the trash: renamed, and no name reads.
 SELECT public.t137_as('cccccccc-cccc-cccc-cccc-cccccccccccc', 'user');
 SET LOCAL ROLE authenticated;
-SELECT ok((public.moth_trash_folders(ARRAY['13700000-0000-0000-0000-0000000000a1']::uuid[]) ->> 'batch') IS NOT NULL, 'the board goes to the trash');
+SELECT ok((public.moth_trash_folders(ARRAY['13700000-0000-0000-0000-0000000000a1']::uuid[]) ->> 'batches') = '1', 'the board goes to the trash');
 RESET ROLE;
 SELECT is(public.t137_gen('13700000-0000-0000-0000-0000000000f1'), 4, 'which renames it');
 SELECT ok(NOT public.t137_reads('cccccccc-cccc-cccc-cccc-cccccccccccc', 'user', 'moth:board:13700000-0000-0000-0000-0000000000f1:0.4'),
@@ -313,6 +314,8 @@ SELECT is(pg_temp.heard(public.t137_name('13700000-0000-0000-0000-0000000000f1',
   'is one message more');
 SELECT is(pg_temp.joined_reads('cccccccc-cccc-cccc-cccc-cccccccccccc', 'user', public.t137_name('13700000-0000-0000-0000-0000000000f1', false)),
   pg_temp.want('reads'), 'a reader joined to the board''s channel reads it');
+SELECT is(pg_temp.joined_reads('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'admin', public.t137_name('13700000-0000-0000-0000-0000000000f1', false)),
+  pg_temp.want('reads nothing'), 'someone the board is not for, joined to the same name, reads nothing of it');
 SELECT is(pg_temp.joined_sends('cccccccc-cccc-cccc-cccc-cccccccccccc', 'user', public.t137_name('13700000-0000-0000-0000-0000000000f1', false)),
   pg_temp.want('refused'), 'and never sends on it');
 SELECT is(pg_temp.joined_sends('cccccccc-cccc-cccc-cccc-cccccccccccc', 'user', public.t137_name('13700000-0000-0000-0000-0000000000f1', true)),

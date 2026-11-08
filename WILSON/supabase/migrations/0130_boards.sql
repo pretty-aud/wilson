@@ -163,6 +163,9 @@ CREATE TABLE IF NOT EXISTS public.board_elements (
 );
 CREATE INDEX IF NOT EXISTS board_elements_board_idx ON public.board_elements (board_id, z, id);
 CREATE INDEX IF NOT EXISTS board_elements_file_idx ON public.board_elements (file_id) WHERE file_id IS NOT NULL;
+-- One sticky a file (0133's turn is the sticky's, so one file has one turn).
+CREATE UNIQUE INDEX IF NOT EXISTS board_elements_sticky_file_uniq ON public.board_elements (file_id)
+  WHERE kind = 'sticky' AND file_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS board_elements_from_idx ON public.board_elements (from_id, board_id) WHERE from_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS board_elements_to_idx ON public.board_elements (to_id, board_id) WHERE to_id IS NOT NULL;
 
@@ -314,7 +317,12 @@ BEGIN
           OR (NEW.file_id IS NULL AND OLD.file_id IS NOT NULL)
           OR (NEW.from_id IS NULL AND OLD.from_id IS NOT NULL)
           OR (NEW.to_id IS NULL AND OLD.to_id IS NOT NULL)) THEN
-    -- A key's own action: the board's project followed its folder, or a placed file or a connector's end went.
+    -- A key's own action: the board's project followed its folder, or a placed file or a connector's end went. A
+    -- change its readers see counts a version, so a peer's undo never takes it for the state it replaced.
+    IF NEW.project_id IS NOT DISTINCT FROM OLD.project_id THEN
+      NEW.version := OLD.version + 1;
+      NEW.updated_at := now();
+    END IF;
     RETURN NEW;
   END IF;
 
@@ -489,6 +497,24 @@ END;
 $$;
 REVOKE EXECUTE ON FUNCTION rabbit_private.board_for(uuid, boolean) FROM PUBLIC, anon, authenticated;
 
+-- Whether a folder is, or is inside, a thing's own folder (a shot's, a scene's, an asset's, a level's, an
+-- experience's): deleting that thing deletes its folder by key, so a board must never sit there.
+CREATE OR REPLACE FUNCTION rabbit_private.folder_chain_has_entity(p_folder uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  WITH RECURSIVE up (id, parent_id, kind, depth) AS (
+    SELECT fo.id, fo.parent_id, fo.kind, 1 FROM public.folders fo WHERE fo.id = p_folder
+    UNION ALL
+    SELECT par.id, par.parent_id, par.kind, up.depth + 1 FROM up JOIN public.folders par ON par.id = up.parent_id
+     WHERE up.depth < 64)
+  SELECT EXISTS (SELECT 1 FROM up WHERE up.kind = 'entity');
+$$;
+REVOKE EXECUTE ON FUNCTION rabbit_private.folder_chain_has_entity(uuid) FROM PUBLIC, anon, authenticated;
+
 -- A new board: a custom folder under the parent (the project's top folder when none is named) and its board row.
 CREATE OR REPLACE FUNCTION public.board_create(p_project uuid, p_parent uuid DEFAULT NULL, p_title text DEFAULT NULL)
 RETURNS jsonb
@@ -525,6 +551,10 @@ BEGIN
   IF v_parent.id IS NULL OR NOT COALESCE(public.moth_can_write_target('folder', v_parent.id), false) THEN
     RAISE EXCEPTION 'folder not found or not writable' USING ERRCODE = '42501';
   END IF;
+  IF rabbit_private.folder_chain_has_entity(v_parent.id) THEN
+    RAISE EXCEPTION 'A board is made in the project''s own folders, not inside a shot''s, a scene''s or an asset''s.'
+      USING ERRCODE = '22023';
+  END IF;
   PERFORM pg_advisory_xact_lock(hashtextextended('moth-boards:' || p_project::text, 0));
   IF (SELECT count(*) FROM public.boards b WHERE b.project_id = p_project) >= 500 THEN
     RAISE EXCEPTION 'A project holds at most 500 boards.' USING ERRCODE = '54000';
@@ -533,6 +563,11 @@ BEGIN
   v_base := left(btrim(regexp_replace(lower(v_title), '[^a-z0-9]+', '-', 'g'), '-'), 60);
   IF v_base = '' THEN
     v_base := 'board';
+  END IF;
+  -- A top-level money or Legal name is refused before any folder is looked up, so the answer never depends on one
+  -- that is hidden.
+  IF v_parent.kind = 'root' AND public.rabbit_money_segment(v_base) THEN
+    RAISE EXCEPTION 'That name is kept for the project''s own folders.' USING ERRCODE = '22023';
   END IF;
   LOOP
     v_slug := CASE WHEN v_n = 1 THEN v_base ELSE v_base || '-' || v_n::text END;
@@ -590,7 +625,60 @@ END;
 $$;
 REVOKE EXECUTE ON FUNCTION rabbit_private.board_element_json(public.board_elements) FROM PUBLIC, anon, authenticated;
 
-CREATE OR REPLACE FUNCTION public.board_read(p_board uuid)
+-- The board and a page of its elements in stacking order: at most 2,000 elements and 8 MB of points and words a
+-- page; 'next' is where the following page starts (null at the end).
+CREATE OR REPLACE FUNCTION public.board_read(p_board uuid, p_after jsonb DEFAULT NULL)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_b      public.boards%ROWTYPE := rabbit_private.board_for(p_board, false);
+  v_label  TEXT;
+  v_az     BIGINT := (p_after ->> 'z')::bigint;
+  v_aid    UUID := public.fn_try_uuid(p_after ->> 'id');
+  v_els    JSONB[] := '{}';
+  v_bytes  BIGINT := 0;
+  v_size   BIGINT;
+  v_lz     BIGINT;
+  v_lid    UUID;
+  v_next   JSONB := NULL;
+  e        public.board_elements%ROWTYPE;
+BEGIN
+  IF v_b.id IS NULL THEN
+    RAISE EXCEPTION 'board not found' USING ERRCODE = '42501';
+  END IF;
+  IF p_after IS NOT NULL AND (v_az IS NULL OR v_aid IS NULL) THEN
+    RAISE EXCEPTION 'A page starts after an element''s z and id.' USING ERRCODE = '22023';
+  END IF;
+  SELECT fo.label INTO v_label FROM public.folders fo WHERE fo.id = v_b.folder_id;
+  FOR e IN SELECT * FROM public.board_elements x
+             WHERE x.board_id = v_b.id AND (v_aid IS NULL OR (x.z, x.id) > (v_az, v_aid))
+             ORDER BY x.z, x.id LOOP
+    v_size := COALESCE(pg_column_size(e.points), 0) + COALESCE(pg_column_size(e.body), 0) + 256;
+    IF cardinality(v_els) > 0 AND (cardinality(v_els) >= 2000 OR v_bytes + v_size > 8388608) THEN
+      v_next := jsonb_build_object('z', v_lz, 'id', v_lid);
+      EXIT;
+    END IF;
+    v_els := array_append(v_els, rabbit_private.board_element_json(e));
+    v_bytes := v_bytes + v_size;
+    v_lz := e.z;
+    v_lid := e.id;
+  END LOOP;
+  RETURN jsonb_build_object(
+    'board', jsonb_build_object('id', v_b.id, 'folder_id', v_b.folder_id, 'project_id', v_b.project_id,
+                                'title', v_label, 'revision', v_b.revision, 'audience_gen', v_b.audience_gen,
+                                'can_write', COALESCE(public.moth_can_write_target('folder', v_b.folder_id), false)),
+    'elements', to_jsonb(v_els), 'next', v_next, 'truncated', v_next IS NOT NULL);
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.board_read(uuid, jsonb) FROM PUBLIC, anon;
+GRANT  EXECUTE ON FUNCTION public.board_read(uuid, jsonb) TO authenticated;
+
+-- Chosen elements of a board, as board_read gives them (a new sticky or picture, a long stroke a message left out).
+CREATE OR REPLACE FUNCTION public.board_read_elements(p_board uuid, p_ids uuid[])
 RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
@@ -599,25 +687,19 @@ SET search_path = public
 AS $$
 DECLARE
   v_b public.boards%ROWTYPE := rabbit_private.board_for(p_board, false);
-  v_label TEXT;
 BEGIN
   IF v_b.id IS NULL THEN
     RAISE EXCEPTION 'board not found' USING ERRCODE = '42501';
   END IF;
-  SELECT fo.label INTO v_label FROM public.folders fo WHERE fo.id = v_b.folder_id;
-  RETURN jsonb_build_object(
-    'board', jsonb_build_object('id', v_b.id, 'folder_id', v_b.folder_id, 'project_id', v_b.project_id,
-                                'title', v_label, 'revision', v_b.revision, 'audience_gen', v_b.audience_gen,
-                                'can_write', COALESCE(public.moth_can_write_target('folder', v_b.folder_id), false)),
-    'elements', COALESCE((SELECT jsonb_agg(rabbit_private.board_element_json(e) ORDER BY e.z, e.id)
-                            FROM (SELECT * FROM public.board_elements x WHERE x.board_id = v_b.id
-                                   ORDER BY x.z, x.id LIMIT 5000) e), '[]'::jsonb),
-    'truncated', (SELECT count(*) > 5000 FROM (SELECT 1 FROM public.board_elements x
-                                                 WHERE x.board_id = v_b.id LIMIT 5001) c));
+  IF p_ids IS NULL OR cardinality(p_ids) = 0 OR cardinality(p_ids) > 200 THEN
+    RAISE EXCEPTION 'One to 200 elements a read.' USING ERRCODE = '22023';
+  END IF;
+  RETURN COALESCE((SELECT jsonb_agg(rabbit_private.board_element_json(e) ORDER BY e.z, e.id)
+                     FROM public.board_elements e WHERE e.board_id = v_b.id AND e.id = ANY (p_ids)), '[]'::jsonb);
 END;
 $$;
-REVOKE EXECUTE ON FUNCTION public.board_read(uuid) FROM PUBLIC, anon;
-GRANT  EXECUTE ON FUNCTION public.board_read(uuid) TO authenticated;
+REVOKE EXECUTE ON FUNCTION public.board_read_elements(uuid, uuid[]) FROM PUBLIC, anon;
+GRANT  EXECUTE ON FUNCTION public.board_read_elements(uuid, uuid[]) TO authenticated;
 
 -- Save elements: each is its whole new state (the client sends what it drew). Last writer wins each element; an
 -- element with "expect" (an undo, or a redo) is saved only over that version, else it is skipped and named in
@@ -637,6 +719,7 @@ DECLARE
   v_conf     JSONB := '[]'::jsonb;
   v_version  BIGINT;
   v_new      INTEGER := 0;
+  v_asked    UUID;
 BEGIN
   IF v_b.id IS NULL THEN
     RAISE EXCEPTION 'board not found or not writable' USING ERRCODE = '42501';
@@ -647,8 +730,13 @@ BEGIN
   IF jsonb_array_length(p_elements) > 500 THEN
     RAISE EXCEPTION 'At most 500 elements a save.' USING ERRCODE = '54000';
   END IF;
-  -- One board's saves in order, so the count below and the versions are each one statement's truth.
+  -- One board's saves in order, so the count below and the versions are each one statement's truth; asked again
+  -- under the lock, so a trash, a move or a member's removal this save waited behind is counted.
   PERFORM 1 FROM public.boards b WHERE b.id = v_b.id FOR NO KEY UPDATE;
+  v_b := rabbit_private.board_for(p_board, true);
+  IF v_b.id IS NULL THEN
+    RAISE EXCEPTION 'board not found or not writable' USING ERRCODE = '42501';
+  END IF;
   PERFORM set_config('wilson.board_batch', 'on', true);
 
   FOR v_el IN SELECT e FROM jsonb_array_elements(p_elements) e LOOP
@@ -656,12 +744,16 @@ BEGIN
       RAISE EXCEPTION 'An element is an object.' USING ERRCODE = '22023';
     END IF;
     v_id := public.fn_try_uuid(v_el ->> 'id');
+    v_asked := NULL;
     IF v_id IS NULL THEN
       v_id := gen_random_uuid();
     END IF;
-    SELECT * INTO v_old FROM public.board_elements x WHERE x.id = v_id FOR UPDATE;
-    IF FOUND AND v_old.board_id IS DISTINCT FROM v_b.id THEN
-      RAISE EXCEPTION 'element not found' USING ERRCODE = '42501';
+    SELECT * INTO v_old FROM public.board_elements x WHERE x.id = v_id AND x.board_id = v_b.id FOR UPDATE;
+    IF NOT FOUND AND EXISTS (SELECT 1 FROM public.board_elements x WHERE x.id = v_id) THEN
+      -- An id this board does not hold is no business of another board's: the element is made under a new id,
+      -- said beside the one asked for, whatever holds that id elsewhere.
+      v_asked := v_id;
+      v_id := gen_random_uuid();
     END IF;
     IF FOUND THEN
       IF v_el ? 'expect' AND (v_el ->> 'expect')::bigint IS DISTINCT FROM v_old.version THEN
@@ -708,11 +800,17 @@ BEGIN
               public.fn_try_uuid(v_el ->> 'to_id'), v_el ->> 'to_anchor')
       RETURNING version INTO v_version;
     END IF;
-    v_saved := v_saved || jsonb_build_object('id', v_id, 'version', v_version);
+    v_saved := v_saved || (jsonb_build_object('id', v_id, 'version', v_version)
+                           || CASE WHEN v_asked IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('asked', v_asked) END);
   END LOOP;
 
   IF v_new > 0 AND (SELECT count(*) FROM public.board_elements x WHERE x.board_id = v_b.id) > 5000 THEN
     RAISE EXCEPTION 'A board holds at most 5,000 elements.' USING ERRCODE = '54000';
+  END IF;
+  IF jsonb_array_length(v_saved) > 0
+     AND (SELECT COALESCE(sum(COALESCE(pg_column_size(x.points), 0) + COALESCE(pg_column_size(x.body), 0)), 0)
+            FROM public.board_elements x WHERE x.board_id = v_b.id) > 67108864 THEN
+    RAISE EXCEPTION 'A board holds at most 64 MB of drawing and words.' USING ERRCODE = '54000';
   END IF;
   IF jsonb_array_length(v_saved) > 0 THEN
     UPDATE public.boards b SET revision = b.revision + 1, updated_at = now(), updated_by = auth.uid()
@@ -743,6 +841,7 @@ DECLARE
   v_conf    JSONB := '[]'::jsonb;
   i         INTEGER;
   v_ver     BIGINT;
+  v_ends    UUID[] := '{}';
 BEGIN
   IF v_b.id IS NULL THEN
     RAISE EXCEPTION 'board not found or not writable' USING ERRCODE = '42501';
@@ -752,6 +851,10 @@ BEGIN
     RAISE EXCEPTION 'At most 500 elements a removal, each with its version when versions are sent.' USING ERRCODE = '22023';
   END IF;
   PERFORM 1 FROM public.boards b WHERE b.id = v_b.id FOR NO KEY UPDATE;
+  v_b := rabbit_private.board_for(p_board, true);
+  IF v_b.id IS NULL THEN
+    RAISE EXCEPTION 'board not found or not writable' USING ERRCODE = '42501';
+  END IF;
   PERFORM set_config('wilson.board_batch', 'on', true);
   FOR i IN 1 .. cardinality(p_ids) LOOP
     SELECT x.version INTO v_ver FROM public.board_elements x
@@ -763,6 +866,8 @@ BEGIN
       v_conf := v_conf || jsonb_build_object('id', p_ids[i], 'version', v_ver);
       CONTINUE;
     END IF;
+    v_ends := v_ends || ARRAY(SELECT c.id FROM public.board_elements c
+                               WHERE c.board_id = v_b.id AND (c.from_id = p_ids[i] OR c.to_id = p_ids[i]));
     DELETE FROM public.board_elements x WHERE x.id = p_ids[i] AND x.board_id = v_b.id;
     v_gone := v_gone || to_jsonb(p_ids[i]);
   END LOOP;
@@ -774,6 +879,10 @@ BEGIN
   IF jsonb_array_length(v_gone) > 0 THEN
     PERFORM rabbit_private.board_announce(v_b.id, 'remove',
       ARRAY(SELECT (g #>> '{}')::uuid FROM jsonb_array_elements(v_gone) g));
+    -- A connector whose end went keeps its other end: said, so every reader frees the same end.
+    PERFORM rabbit_private.board_announce(v_b.id, 'put',
+      ARRAY(SELECT DISTINCT x FROM unnest(v_ends) x
+             WHERE NOT x = ANY (ARRAY(SELECT (g #>> '{}')::uuid FROM jsonb_array_elements(v_gone) g))));
   END IF;
   RETURN jsonb_build_object('removed', v_gone, 'conflicts', v_conf);
 END;
@@ -820,7 +929,9 @@ BEGIN
   IF has_function_privilege('anon', 'public.board_put_elements(uuid,jsonb)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'rabbit_private.board_for(uuid,boolean)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'rabbit_private.board_element_json(public.board_elements)', 'EXECUTE')
-     OR NOT has_function_privilege('authenticated', 'public.board_read(uuid)', 'EXECUTE') THEN
+     OR NOT has_function_privilege('authenticated', 'public.board_read(uuid,jsonb)', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.board_read_elements(uuid,uuid[])', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'rabbit_private.folder_chain_has_entity(uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION '0130 post-condition: the board functions'' grants are not as written';
   END IF;
   -- A board's connectors and its file are held by keys, not only by the functions.

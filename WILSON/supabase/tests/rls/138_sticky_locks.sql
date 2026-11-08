@@ -15,7 +15,7 @@
 -- =============================================================================
 
 BEGIN;
-SELECT plan(41);
+SELECT plan(45);
 
 SELECT * FROM tests.rls_setup();
 
@@ -89,7 +89,7 @@ BEGIN
        WHERE ns.nspname = 'realtime' AND p.proname = 'send') THEN
     RETURN 'vacuous';
   END IF;
-  EXECUTE 'SELECT COALESCE(string_agg(payload ->> ''op'', '' '' ORDER BY inserted_at, id), ''nothing'')
+  EXECUTE 'SELECT COALESCE(string_agg(payload ->> ''op'', '' '' ORDER BY payload ->> ''op''), ''nothing'')
              FROM realtime.messages WHERE topic = $1 AND event = ''sticky''' INTO s USING p_topic;
   RETURN s;
 END;
@@ -129,7 +129,8 @@ INSERT INTO public.boards (id, folder_id) VALUES ('13800000-0000-0000-0000-00000
 INSERT INTO storage.objects (bucket_id, name, owner_id) VALUES
   ('rabbit-files', 'projects/aaaa1380-0000-0000-0000-00000000000a/files/13800000-0000-0000-0000-000000000081/v1-note.md', 'cccccccc-cccc-cccc-cccc-cccccccccccc'),
   ('rabbit-files', 'projects/aaaa1380-0000-0000-0000-00000000000a/files/13800000-0000-0000-0000-000000000081/v2-note.md', 'cccccccc-cccc-cccc-cccc-cccccccccccc'),
-  ('rabbit-files', 'projects/aaaa1380-0000-0000-0000-00000000000a/files/13800000-0000-0000-0000-000000000081/v3-note.md', 'dddddddd-dddd-dddd-dddd-dddddddddddd');
+  ('rabbit-files', 'projects/aaaa1380-0000-0000-0000-00000000000a/files/13800000-0000-0000-0000-000000000081/v3-note.md', 'dddddddd-dddd-dddd-dddd-dddddddddddd'),
+  ('rabbit-files', 'projects/aaaa1380-0000-0000-0000-00000000000a/files/13800000-0000-0000-0000-000000000081/v4-note.md', 'dddddddd-dddd-dddd-dddd-dddddddddddd');
 INSERT INTO public.files (id, project_id, folder_id, name, mime_type, storage_provider, storage_path, tags, is_financial) VALUES
   ('13800000-0000-0000-0000-000000000081', 'aaaa1380-0000-0000-0000-00000000000a', '13800000-0000-0000-0000-0000000000a1', 'note.md', 'text/markdown', 'supabase',
    'projects/aaaa1380-0000-0000-0000-00000000000a/files/13800000-0000-0000-0000-000000000081/v1-note.md', '{}', false);
@@ -226,6 +227,7 @@ SELECT public.t138_age();
 SELECT is((public.sticky_status('13800000-0000-0000-0000-0000000000f1'))::text, '[]', 'an ended turn is nobody''s');
 SELECT is((public.sticky_claim('13800000-0000-0000-0000-000000000e01', 'tab-d-one-0001') ->> 'granted'), 'true', 'the next writer gets it');
 SELECT ok((public.t138_lock()).generation > (SELECT g FROM t138_gen), 'with a new, larger number');
+CREATE TEMP TABLE t138_gen2 AS SELECT (public.t138_lock()).generation AS g;
 SELECT public.t138_c();
 SELECT is((public.sticky_renew('13800000-0000-0000-0000-000000000e01', (SELECT g FROM t138_gen)) ->> 'ok'), 'false', 'the old holder cannot renew it back');
 SELECT is(public.t138_words($$SELECT public.board_sticky_publish('13800000-0000-0000-0000-000000000e01', (SELECT g FROM t138_gen),
@@ -243,16 +245,34 @@ SELECT is(public.t138_words($$SELECT public.board_sticky_publish('13800000-0000-
           'projects/aaaa1380-0000-0000-0000-00000000000a/files/13800000-0000-0000-0000-000000000081/v2-note.md')$$),
   'sticky_turn_ended', 'a turn that ran out saves nothing, even its own holder''s');
 SELECT is((public.sticky_claim('13800000-0000-0000-0000-000000000e01', 'tab-d-one-0001') ->> 'granted'), 'true', 'its holder claims again');
+SELECT is(public.t138_words($$SELECT public.board_sticky_publish('13800000-0000-0000-0000-000000000e01', (SELECT g FROM t138_gen2),
+          'projects/aaaa1380-0000-0000-0000-00000000000a/files/13800000-0000-0000-0000-000000000081/v3-note.md',
+          'projects/aaaa1380-0000-0000-0000-00000000000a/files/13800000-0000-0000-0000-000000000081/v4-note.md')$$),
+  'sticky_turn_ended', 'and even the same holder''s old number saves nothing: the number, not the person, is the turn');
 SELECT ok(public.sticky_release('13800000-0000-0000-0000-000000000e01', (public.t138_lock()).generation), 'and lets it go on blur');
 SELECT ok((public.t138_lock()).element_id IS NULL, 'the turn is gone');
 
 -- ── E. Messages ─────────────────────────────────────────────────────────────
 RESET ROLE;
-SELECT is(pg_temp.heard('moth:board:13800000-0000-0000-0000-0000000000f1:0.0'), pg_temp.want('lock body lock body lock unlock'),
-  'each claim, save and release was said on the board''s channel');
+SELECT is(pg_temp.heard('moth:board:13800000-0000-0000-0000-0000000000f1:0.0'), pg_temp.want('body body lock lock lock renew unlock'),
+  'each claim, renewal, save and release was said on the board''s channel');
 SELECT ok(NOT pg_temp.leaks('moth:board:13800000-0000-0000-0000-0000000000f1:0.0'),
   'and never with a key or a file''s id');
 SELECT ok((SELECT count(*) FROM public.files WHERE id = '13800000-0000-0000-0000-000000000081') = 1, 'the sticky''s file is still one file');
+-- The sticky's file leaves its board's folder (a Files move): it is edited where it is now, not as a sticky.
+UPDATE public.files SET folder_id = NULL WHERE id = '13800000-0000-0000-0000-000000000081';
+SET LOCAL ROLE authenticated;
+SELECT public.t138_d();
+SELECT is((public.sticky_claim('13800000-0000-0000-0000-000000000e01', 'tab-d-one-0001') ->> 'granted'), 'true', 'a turn can still be had');
+SELECT is(public.t138_words($$SELECT public.board_sticky_publish('13800000-0000-0000-0000-000000000e01', (public.t138_lock()).generation,
+          'projects/aaaa1380-0000-0000-0000-00000000000a/files/13800000-0000-0000-0000-000000000081/v3-note.md',
+          'projects/aaaa1380-0000-0000-0000-00000000000a/files/13800000-0000-0000-0000-000000000081/v4-note.md')$$),
+  'This note has left its board: it is edited where it is now.', 'but the board saves nothing of a file that has left it');
+SELECT ok(public.rekey_file_body('13800000-0000-0000-0000-000000000081',
+          'projects/aaaa1380-0000-0000-0000-00000000000a/files/13800000-0000-0000-0000-000000000081/v3-note.md',
+          'projects/aaaa1380-0000-0000-0000-00000000000a/files/13800000-0000-0000-0000-000000000081/v4-note.md', NULL, NULL),
+  'and rekey_file_body edits it where it is now');
+RESET ROLE;
 
 SELECT * FROM finish();
 ROLLBACK;

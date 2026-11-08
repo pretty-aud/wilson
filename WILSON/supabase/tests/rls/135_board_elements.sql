@@ -19,7 +19,7 @@
 -- =============================================================================
 
 BEGIN;
-SELECT plan(53);
+SELECT plan(63);
 
 SELECT * FROM tests.rls_setup();
 
@@ -168,9 +168,11 @@ SELECT lives_ok($$SELECT public.board_put_elements('13500000-0000-0000-0000-0000
             'id', '13500000-0000-0000-0000-000000000e21', 'kind', 'shape', 'shape', 'star')))$$,
   'another member places a star on the other board');
 SELECT public.t135_c();
-SELECT is(public.t135_err($$SELECT public.board_put_elements('13500000-0000-0000-0000-0000000000f1', jsonb_build_array(jsonb_build_object(
-            'id', '13500000-0000-0000-0000-000000000e21', 'x', 1)))$$),
-  '42501', 'an element of another board is never reached through this one');
+SELECT is((public.board_put_elements('13500000-0000-0000-0000-0000000000f1', jsonb_build_array(jsonb_build_object(
+            'id', '13500000-0000-0000-0000-000000000e21', 'kind', 'shape', 'shape', 'oval', 'x', 1))) -> 'saved' -> 0 ->> 'asked'),
+  '13500000-0000-0000-0000-000000000e21', 'an id another board holds is never reached: the element is made under a new id');
+SELECT is((SELECT shape || ':' || x FROM public.board_elements WHERE id = '13500000-0000-0000-0000-000000000e21'), 'star:0',
+  'and the other board''s element is as it was');
 SELECT is(public.t135_err($$SELECT public.board_put_elements('13500000-0000-0000-0000-0000000000f1', jsonb_build_array(jsonb_build_object(
             'kind', 'connector', 'from_id', '13500000-0000-0000-0000-000000000e01', 'to_id', '13500000-0000-0000-0000-000000000e21')))$$),
   '23503', 'a connector never ends on another board''s element');
@@ -223,6 +225,9 @@ SELECT lives_ok($$SELECT public.board_put_elements('13500000-0000-0000-0000-0000
     jsonb_build_object('id', '13500000-0000-0000-0000-000000000e13', 'kind', 'embed', 'file_id', '13500000-0000-0000-0000-000000000083'),
     jsonb_build_object('id', '13500000-0000-0000-0000-000000000e14', 'kind', 'embed', 'file_id', '13500000-0000-0000-0000-000000000086')))$$,
   'a sticky and a picture in the board''s folder, and two embeds from elsewhere');
+SELECT is(public.t135_err($$SELECT public.board_put_elements('13500000-0000-0000-0000-0000000000f1', jsonb_build_array(jsonb_build_object(
+            'kind', 'sticky', 'file_id', '13500000-0000-0000-0000-000000000081')))$$),
+  '23505', 'one sticky a file, so one file has one turn');
 SELECT is(public.t135_words($$SELECT public.board_put_elements('13500000-0000-0000-0000-0000000000f1', jsonb_build_array(jsonb_build_object(
             'kind', 'sticky', 'file_id', '13500000-0000-0000-0000-000000000083')))$$),
   'A sticky or a dropped file lives in the board''s own folder.', 'a sticky''s file sits in the board''s folder');
@@ -254,13 +259,20 @@ SELECT is((SELECT file_id FROM public.board_elements WHERE id = '13500000-0000-0
   '13500000-0000-0000-0000-000000000083'::uuid, 'but never changes its file');
 
 -- ── D. Reading ──────────────────────────────────────────────────────────────
-SELECT is(jsonb_array_length(public.board_read('13500000-0000-0000-0000-0000000000f1') -> 'elements'), 10,
-  'the board''s read gives its ten elements');
+SELECT is(jsonb_array_length(public.board_read('13500000-0000-0000-0000-0000000000f1') -> 'elements'), 11,
+  'the board''s read gives its eleven elements');
+SELECT is(jsonb_typeof(public.board_read('13500000-0000-0000-0000-0000000000f1') -> 'next'), 'null', 'in one page');
+SELECT is(jsonb_array_length(public.board_read('13500000-0000-0000-0000-0000000000f1',
+            jsonb_build_object('z', 0, 'id', 'ffffffff-ffff-ffff-ffff-ffffffffffff')) -> 'elements'), 0,
+  'and a page after the last is empty');
+SELECT is(jsonb_array_length(public.board_read_elements('13500000-0000-0000-0000-0000000000f1',
+            ARRAY['13500000-0000-0000-0000-000000000e01', '13500000-0000-0000-0000-000000000e05', '13500000-0000-0000-0000-000000000e21']::uuid[])), 2,
+  'chosen elements read back, never another board''s');
 SELECT is((public.board_read('13500000-0000-0000-0000-0000000000f1') -> 'board' ->> 'can_write'), 'true', 'and says its reader may change it');
 SELECT public.t135_r();
 SELECT is((public.board_read('13500000-0000-0000-0000-0000000000f1') -> 'board' ->> 'can_write')
           || ':' || jsonb_array_length(public.board_read('13500000-0000-0000-0000-0000000000f1') -> 'elements'),
-  'false:10', 'a reviewer reads all of it and may not change it');
+  'false:11', 'a reviewer reads all of it and may not change it');
 SELECT public.t135_b();
 SELECT is(public.t135_err($$SELECT public.board_read('13500000-0000-0000-0000-0000000000f1')$$), '42501', 'another company reads nothing');
 -- The embedded file goes to the trash: for everyone it is a stop-sign tile, with no id and no name.
@@ -271,7 +283,7 @@ SELECT public.t135_c();
 SELECT is((public.t135_el('13500000-0000-0000-0000-0000000000f1', '13500000-0000-0000-0000-000000000e13') ->> 'missing')
           || ':' || jsonb_typeof(public.t135_el('13500000-0000-0000-0000-0000000000f1', '13500000-0000-0000-0000-000000000e13') -> 'file'),
   'true:null', 'a file in the trash leaves a stop-sign tile with no id or name');
-SELECT is((SELECT count(*)::int FROM public.board_elements WHERE board_id = '13500000-0000-0000-0000-0000000000f1'), 9,
+SELECT is((SELECT count(*)::int FROM public.board_elements WHERE board_id = '13500000-0000-0000-0000-0000000000f1'), 10,
   'and the table''s own read leaves that element out');
 SELECT is((public.t135_el('13500000-0000-0000-0000-0000000000f1', '13500000-0000-0000-0000-000000000e14') -> 'file' ->> 'name'),
   'other.png', 'a file the reader may read is named');
@@ -281,6 +293,20 @@ DELETE FROM public.files WHERE id = '13500000-0000-0000-0000-000000000086';
 SET LOCAL ROLE authenticated;
 SELECT is((public.t135_el('13500000-0000-0000-0000-0000000000f1', '13500000-0000-0000-0000-000000000e14') ->> 'missing'),
   'true', 'a file deleted for good leaves its tile too');
+-- One reader's file is another's stop-sign: user_c embeds a file of their own private project.
+SELECT public.t135_c();
+SELECT lives_ok($$SELECT public.board_put_elements('13500000-0000-0000-0000-0000000000f1', jsonb_build_array(jsonb_build_object(
+            'id', '13500000-0000-0000-0000-000000000e15', 'kind', 'embed', 'file_id', '13500000-0000-0000-0000-0000000000c8')))$$,
+  'its maker embeds a private project''s file');
+SELECT is((public.t135_el('13500000-0000-0000-0000-0000000000f1', '13500000-0000-0000-0000-000000000e15') -> 'file' ->> 'name'),
+  'secret.png', 'and sees it named');
+SELECT public.t135_d();
+SELECT is((public.t135_el('13500000-0000-0000-0000-0000000000f1', '13500000-0000-0000-0000-000000000e15') ->> 'missing')
+          || ':' || jsonb_typeof(public.t135_el('13500000-0000-0000-0000-0000000000f1', '13500000-0000-0000-0000-000000000e15') -> 'file'),
+  'true:null', 'another member of the board sees a stop-sign tile, with no id or name');
+SELECT is((SELECT count(*)::int FROM public.board_elements WHERE id = '13500000-0000-0000-0000-000000000e15'), 0,
+  'and the table''s own read leaves it out for them');
+SELECT public.t135_c();
 
 -- ── E. Removing ─────────────────────────────────────────────────────────────
 SELECT is((public.board_delete_elements('13500000-0000-0000-0000-0000000000f1', ARRAY['13500000-0000-0000-0000-000000000e11']::uuid[]) -> 'removed' ->> 0),
@@ -292,6 +318,8 @@ SELECT lives_ok($$SELECT public.board_delete_elements('13500000-0000-0000-0000-0
   'and, current, removes it');
 SELECT is((SELECT COALESCE(from_id::text, 'free') || ':' || COALESCE(to_id::text, 'free') FROM public.board_elements WHERE id = '13500000-0000-0000-0000-000000000e03'),
   '13500000-0000-0000-0000-000000000e01:free', 'a connector whose end was removed keeps its other end, the removed one free');
+SELECT is((SELECT version FROM public.board_elements WHERE id = '13500000-0000-0000-0000-000000000e03'), 2::bigint,
+  'and counts that as a version, so a stale undo of it is skipped');
 SELECT ok((SELECT revision FROM public.boards WHERE id = '13500000-0000-0000-0000-0000000000f1') >= 8, 'each change counts the board''s revision');
 
 -- ── F. Elements follow their board ──────────────────────────────────────────

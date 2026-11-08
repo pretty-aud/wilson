@@ -13,7 +13,10 @@
 --       brings back that batch and nothing else (a file put in the trash on its own before keeps its own). The
 --       stamp trigger (0014) says who, on folders as on files. A folder trash index.
 --   §2  Guards. fn_folders_trash_guard: a client never writes a folder's trash columns itself (only §4's functions,
---       under wilson.folder_op = 'trash'), and never makes or moves a folder under one in the trash.
+--       under wilson.folder_op = 'trash'), never makes or moves a folder under one in the trash (the parent read
+--       FOR SHARE, so a trash running at the same moment is waited for), and never deletes a folder with anything
+--       of a trash batch below it (that would strand the batch's files). folders_select (0041's) leaves a folder in
+--       the trash out, as every other trashed row is left out of its table's reads.
 --       fn_files_folder_trash_guard: a client never writes a file's batch, never brings back a file that went with
 --       its folder (its folder comes back first, and brings it), and never puts a live file into a folder in the
 --       trash (an upload, a move, a restore of a file whose folder went after it).
@@ -104,6 +107,16 @@ $$;
 REVOKE EXECUTE ON FUNCTION rabbit_private.folder_subtree(uuid) FROM PUBLIC, anon, authenticated;
 
 -- §2 Guards ---------------------------------------------------------------------
+-- Restated from 0041's: a folder in the trash is out of the table's reads (and so out of a client's UPDATE and
+-- DELETE, which see only what they read). Moth's own functions read it as definers.
+DROP POLICY IF EXISTS folders_select ON public.folders;
+CREATE POLICY folders_select ON public.folders
+  FOR SELECT USING (
+    workspace_id = public.current_workspace_id()
+    AND deleted_at IS NULL
+    AND EXISTS (SELECT 1 FROM public.projects p WHERE p.id = folders.project_id)
+  );
+
 CREATE OR REPLACE FUNCTION public.fn_folders_trash_guard()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -116,7 +129,18 @@ DECLARE
   v_parent TIMESTAMPTZ;
 BEGIN
   IF NOT v_bound THEN
-    RETURN NEW;
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+  END IF;
+  IF TG_OP = 'DELETE' THEN
+    -- A client's own delete (a cascade from a project's purge passes) never takes a folder with a trash batch's
+    -- folder or file below it: the batch's files would be left with no folder to come back with.
+    IF pg_trigger_depth() = 1 AND EXISTS (
+         SELECT 1 FROM public.folders fo WHERE fo.id = ANY (rabbit_private.folder_subtree(OLD.id)) AND fo.trash_batch IS NOT NULL
+         UNION ALL
+         SELECT 1 FROM public.files f WHERE f.folder_id = ANY (rabbit_private.folder_subtree(OLD.id)) AND f.trash_batch IS NOT NULL) THEN
+      RAISE EXCEPTION 'Something in this folder is in the trash: bring it back or wait for it to go first.' USING ERRCODE = '42501';
+    END IF;
+    RETURN OLD;
   END IF;
   IF TG_OP = 'INSERT' THEN
     IF NEW.deleted_at IS NOT NULL OR NEW.deleted_by IS NOT NULL OR NEW.trash_batch IS NOT NULL THEN
@@ -127,9 +151,12 @@ BEGIN
              OR NEW.trash_batch IS DISTINCT FROM OLD.trash_batch) THEN
     RAISE EXCEPTION 'A folder goes to the trash through Moth.' USING ERRCODE = '42501';
   END IF;
-  IF NEW.parent_id IS NOT NULL AND NEW.deleted_at IS NULL
+  -- The restore's own rows (wilson.folder_op = 'trash') are not asked: a batch comes back whole, in whatever order
+  -- its rows are visited, and moth_restore_folders asks the batch's top folder's parent itself.
+  IF v_op <> 'trash' AND NEW.parent_id IS NOT NULL AND NEW.deleted_at IS NULL
      AND (TG_OP = 'INSERT' OR NEW.parent_id IS DISTINCT FROM OLD.parent_id OR OLD.deleted_at IS NOT NULL) THEN
-    SELECT par.deleted_at INTO v_parent FROM public.folders par WHERE par.id = NEW.parent_id;
+    -- FOR SHARE: a trash taking this parent at the same moment is waited for, and then read as it committed.
+    SELECT par.deleted_at INTO v_parent FROM public.folders par WHERE par.id = NEW.parent_id FOR SHARE;
     IF v_parent IS NOT NULL THEN
       RAISE EXCEPTION 'That folder is in the trash.' USING ERRCODE = '42501';
     END IF;
@@ -140,7 +167,7 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.fn_folders_trash_guard() FROM PUBLIC, anon, authenticated;
 DROP TRIGGER IF EXISTS trg_folders_trash_guard ON public.folders;
 CREATE TRIGGER trg_folders_trash_guard
-  BEFORE INSERT OR UPDATE OF deleted_at, deleted_by, trash_batch, parent_id ON public.folders
+  BEFORE INSERT OR DELETE OR UPDATE OF deleted_at, deleted_by, trash_batch, parent_id ON public.folders
   FOR EACH ROW EXECUTE FUNCTION public.fn_folders_trash_guard();
 
 CREATE OR REPLACE FUNCTION public.fn_files_folder_trash_guard()
@@ -167,9 +194,9 @@ BEGIN
         USING ERRCODE = '42501';
     END IF;
   END IF;
-  IF NEW.deleted_at IS NULL AND NEW.folder_id IS NOT NULL
+  IF v_op <> 'trash' AND NEW.deleted_at IS NULL AND NEW.folder_id IS NOT NULL
      AND (TG_OP = 'INSERT' OR NEW.folder_id IS DISTINCT FROM OLD.folder_id OR OLD.deleted_at IS NOT NULL) THEN
-    SELECT fo.deleted_at INTO v_folder FROM public.folders fo WHERE fo.id = NEW.folder_id;
+    SELECT fo.deleted_at INTO v_folder FROM public.folders fo WHERE fo.id = NEW.folder_id FOR SHARE;
     IF v_folder IS NOT NULL THEN
       RAISE EXCEPTION 'That folder is in the trash.' USING ERRCODE = '42501';
     END IF;
@@ -329,7 +356,10 @@ DECLARE
   v_f     public.folders%ROWTYPE;
   v_sub   UUID[];
   v_all   UUID[] := '{}';
-  v_batch UUID := gen_random_uuid();
+  v_batch UUID;
+  v_roots JSONB := '[]'::jsonb;
+  v_n     INTEGER;
+  v_cnt   INTEGER;
   v_files INTEGER := 0;
   v_dirs  INTEGER := 0;
 BEGIN
@@ -359,28 +389,39 @@ BEGIN
                 AND f.storage_provider::text = 'network_share') THEN
       RAISE EXCEPTION 'A folder holding files on the office server cannot go to the trash yet.' USING ERRCODE = '22023';
     END IF;
-    IF EXISTS (SELECT 1 FROM public.files f WHERE f.folder_id = ANY (v_sub) AND f.deleted_at IS NULL
-                AND (public.file_row_is_money(f.is_financial, f.storage_path)
-                     OR public.moth_file_row_locked(v_ws, f.project_id, f.id, f.is_financial, f.storage_path, f.tags, f.folder_id))) THEN
-      RAISE EXCEPTION 'This folder cannot go to the trash from here.' USING ERRCODE = '42501';
-    END IF;
     v_all := v_all || v_sub;
+    v_roots := v_roots || jsonb_build_object('root', v_id, 'sub', to_jsonb(v_sub));
   END LOOP;
+  -- The files below, locked before anything is judged, so what is judged is what goes.
+  PERFORM 1 FROM public.files f WHERE f.folder_id = ANY (v_all) AND f.deleted_at IS NULL ORDER BY f.id FOR UPDATE;
   IF (SELECT count(*) FROM public.files f WHERE f.folder_id = ANY (v_all) AND f.deleted_at IS NULL) > 10000 THEN
     RAISE EXCEPTION 'More than 10,000 files would go at once.' USING ERRCODE = '54000';
   END IF;
 
+  -- A money or Legal file below (one Moth never shows) does not go and does not stop the trash: it moves to the
+  -- project's top folder, where those who may see it still do, and nothing here says it was there.
+  UPDATE public.files f SET folder_id = NULL
+   WHERE f.folder_id = ANY (v_all) AND f.deleted_at IS NULL
+     AND (public.file_row_is_money(f.is_financial, f.storage_path)
+          OR public.moth_file_row_locked(v_ws, f.project_id, f.id, f.is_financial, f.storage_path, f.tags, f.folder_id));
   PERFORM set_config('wilson.folder_op', 'trash', true);
-  UPDATE public.folders fo SET deleted_at = now(), deleted_by = auth.uid(), trash_batch = v_batch
-   WHERE fo.id = ANY (v_all) AND fo.deleted_at IS NULL;
-  GET DIAGNOSTICS v_dirs = ROW_COUNT;
-  UPDATE public.files f SET deleted_at = now(), trash_batch = v_batch
+  -- One batch a top folder asked for, so each comes back on its own and each entry counts only its own.
+  FOR v_n IN 0 .. jsonb_array_length(v_roots) - 1 LOOP
+    v_batch := gen_random_uuid();
+    UPDATE public.folders fo SET deleted_at = now(), deleted_by = auth.uid(), trash_batch = v_batch
+     WHERE fo.id = ANY (ARRAY(SELECT (x #>> '{}')::uuid FROM jsonb_array_elements(v_roots -> v_n -> 'sub') x))
+       AND fo.deleted_at IS NULL;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    v_dirs := v_dirs + v_cnt;
+  END LOOP;
+  UPDATE public.files f SET deleted_at = now(),
+         trash_batch = (SELECT fo.trash_batch FROM public.folders fo WHERE fo.id = f.folder_id)
    WHERE f.folder_id = ANY (v_all) AND f.deleted_at IS NULL;
   GET DIAGNOSTICS v_files = ROW_COUNT;
   -- A board in the trash closes to everyone on it (0132's channels are named with this count).
   UPDATE public.boards b SET audience_gen = b.audience_gen + 1 WHERE b.folder_id = ANY (v_all);
   PERFORM set_config('wilson.folder_op', '', true);
-  RETURN jsonb_build_object('batch', v_batch, 'folders', v_dirs, 'files', v_files);
+  RETURN jsonb_build_object('batches', jsonb_array_length(v_roots), 'folders', v_dirs, 'files', v_files);
 END;
 $$;
 REVOKE EXECUTE ON FUNCTION public.moth_trash_folders(uuid[]) FROM PUBLIC, anon;
@@ -543,6 +584,19 @@ BEGIN
     IF EXISTS (SELECT 1 FROM public.folders fo WHERE fo.id = ANY (v_sub) AND fo.kind <> 'custom') THEN
       RAISE EXCEPTION 'This folder holds part of the project''s own layout and stays.' USING ERRCODE = '22023';
     END IF;
+    IF EXISTS (SELECT 1 FROM public.boards b WHERE b.folder_id = ANY (v_sub))
+       AND rabbit_private.folder_chain_has_entity(p_dest_parent) THEN
+      RAISE EXCEPTION 'A board stays in the project''s own folders, not inside a shot''s, a scene''s or an asset''s.'
+        USING ERRCODE = '22023';
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.files f WHERE f.folder_id = ANY (v_sub) AND f.deleted_at IS NULL
+                AND f.storage_provider::text = 'network_share') THEN
+      RAISE EXCEPTION 'A folder holding files on the office server cannot move yet.' USING ERRCODE = '22023';
+    END IF;
+    IF v_dest.kind = 'root' AND public.rabbit_money_segment(v_src.slug) THEN
+      RAISE EXCEPTION 'That name is kept for the project''s own folders.' USING ERRCODE = '22023';
+    END IF;
+    PERFORM 1 FROM public.folders fo WHERE fo.id = ANY (v_sub) ORDER BY fo.id FOR UPDATE;
     IF v_src.parent_id = p_dest_parent THEN
       v_plan := v_plan || jsonb_build_object('id', v_id, 'from', v_src.path, 'to', v_src.path, 'folders', cardinality(v_sub));
       CONTINUE;

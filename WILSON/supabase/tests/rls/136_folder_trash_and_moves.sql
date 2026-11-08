@@ -16,7 +16,7 @@
 -- =============================================================================
 
 BEGIN;
-SELECT plan(54);
+SELECT plan(63);
 
 SELECT * FROM tests.rls_setup();
 
@@ -104,9 +104,17 @@ INSERT INTO public.folders (id, project_id, parent_id, kind, slug, path) VALUES
   ('13600000-0000-0000-0000-0000000000a7', 'aaaa1360-0000-0000-0000-00000000000a', '13600000-0000-0000-0000-0000000000a0', 'custom', 'cash', 'cash'),
   ('13600000-0000-0000-0000-0000000000a8', 'aaaa1360-0000-0000-0000-00000000000a', '13600000-0000-0000-0000-0000000000a0', 'custom', 'nas', 'nas'),
   ('13600000-0000-0000-0000-0000000000a9', 'aaaa1360-0000-0000-0000-00000000000a', '13600000-0000-0000-0000-0000000000a6', 'custom', 'plan', 'keep/plan'),
+  ('13600000-0000-0000-0000-0000000000aa', 'aaaa1360-0000-0000-0000-00000000000a', '13600000-0000-0000-0000-0000000000a0', 'custom', 'two-a', 'two-a'),
+  ('13600000-0000-0000-0000-0000000000ab', 'aaaa1360-0000-0000-0000-00000000000a', '13600000-0000-0000-0000-0000000000a0', 'custom', 'two-b', 'two-b'),
+  ('13600000-0000-0000-0000-0000000000ad', 'aaaa1360-0000-0000-0000-00000000000a', '13600000-0000-0000-0000-0000000000a6', 'custom', 'legal', 'keep/legal'),
   ('13600000-0000-0000-0000-0000000000b0', 'aaaa1360-0000-0000-0000-00000000000b', NULL, 'root', 'second', ''),
   ('13600000-0000-0000-0000-0000000000e0', 'aaaa1360-0000-0000-0000-0000000000e0', NULL, 'root', 'ps-e', ''),
   ('13600000-0000-0000-0000-0000000000e1', 'aaaa1360-0000-0000-0000-0000000000e0', '13600000-0000-0000-0000-0000000000e0', 'custom', 'pitch', 'pitch');
+-- A thing's own folder: the asset Mira's, below ASSETS.
+INSERT INTO public.assets (id, project_id, name) VALUES ('13600000-0000-0000-0000-0000000000c1', 'aaaa1360-0000-0000-0000-00000000000a', 'Mira');
+INSERT INTO public.folders (id, project_id, parent_id, kind, entity_type, asset_id, slug, path) VALUES
+  ('13600000-0000-0000-0000-0000000000ac', 'aaaa1360-0000-0000-0000-00000000000a', '13600000-0000-0000-0000-0000000000a1', 'entity', 'asset',
+   '13600000-0000-0000-0000-0000000000c1', 'mira', 'ASSETS/mira');
 INSERT INTO public.boards (id, folder_id) VALUES
   ('13600000-0000-0000-0000-0000000000f1', '13600000-0000-0000-0000-0000000000a3'),
   ('13600000-0000-0000-0000-0000000000f2', '13600000-0000-0000-0000-0000000000a5'),
@@ -116,7 +124,8 @@ INSERT INTO public.files (id, project_id, folder_id, name, mime_type, storage_pr
   ('13600000-0000-0000-0000-000000000082', 'aaaa1360-0000-0000-0000-00000000000a', '13600000-0000-0000-0000-0000000000a4', 'ref.png', 'image/png', 'supabase', 'projects/aaaa1360-0000-0000-0000-00000000000a/files/13600000-0000-0000-0000-000000000082/ref.png', '{}', false),
   ('13600000-0000-0000-0000-000000000083', 'aaaa1360-0000-0000-0000-00000000000a', '13600000-0000-0000-0000-0000000000a3', 'old.png', 'image/png', 'supabase', 'projects/aaaa1360-0000-0000-0000-00000000000a/files/13600000-0000-0000-0000-000000000083/old.png', '{}', false),
   ('13600000-0000-0000-0000-000000000084', 'aaaa1360-0000-0000-0000-00000000000a', '13600000-0000-0000-0000-0000000000a7', 'receipt.pdf', 'application/pdf', 'supabase', 'projects/aaaa1360-0000-0000-0000-00000000000a/files/13600000-0000-0000-0000-000000000084/receipt.pdf', '{}', true),
-  ('13600000-0000-0000-0000-000000000085', 'aaaa1360-0000-0000-0000-00000000000a', '13600000-0000-0000-0000-0000000000a8', 'cut.mov', 'video/mp4', 'network_share', 'nas:Salt/cut.mov', '{}', false);
+  ('13600000-0000-0000-0000-000000000085', 'aaaa1360-0000-0000-0000-00000000000a', '13600000-0000-0000-0000-0000000000a8', 'cut.mov', 'video/mp4', 'network_share', 'nas:Salt/cut.mov', '{}', false),
+  ('13600000-0000-0000-0000-000000000087', 'aaaa1360-0000-0000-0000-00000000000a', '13600000-0000-0000-0000-0000000000a6', 'keep.txt', 'text/plain', 'supabase', 'projects/aaaa1360-0000-0000-0000-00000000000a/files/13600000-0000-0000-0000-000000000087/keep.txt', '{}', false);
 INSERT INTO public.board_elements (board_id, kind, shape) VALUES ('13600000-0000-0000-0000-0000000000f1', 'shape', 'circle');
 -- old.png was put in the trash on its own, before anything else.
 UPDATE public.files SET deleted_at = now() - interval '1 day' WHERE id = '13600000-0000-0000-0000-000000000083';
@@ -141,8 +150,11 @@ SET LOCAL ROLE authenticated;
 SELECT public.t136_c();
 SELECT is(public.t136_words($$SELECT public.moth_trash_folders(ARRAY['13600000-0000-0000-0000-0000000000a1']::uuid[])$$),
   'This folder is part of the project''s own layout and stays.', 'a project''s own category stays');
-SELECT is(public.t136_words($$SELECT public.moth_trash_folders(ARRAY['13600000-0000-0000-0000-0000000000a7']::uuid[])$$),
-  'This folder cannot go to the trash from here.', 'a folder holding a receipt stays, and says nothing of it');
+SELECT is((public.moth_trash_folders(ARRAY['13600000-0000-0000-0000-0000000000a7']::uuid[]) - 'batches')::text,
+  '{"files": 0, "folders": 1}', 'a folder holding a receipt goes as any other, and says nothing of it');
+SELECT ok((public.t136_file('13600000-0000-0000-0000-000000000084')).deleted_at IS NULL
+          AND (public.t136_file('13600000-0000-0000-0000-000000000084')).folder_id IS NULL,
+  'the receipt stays, at the project''s top, for those who may see it');
 SELECT is(public.t136_words($$SELECT public.moth_trash_folders(ARRAY['13600000-0000-0000-0000-0000000000a8']::uuid[])$$),
   'A folder holding files on the office server cannot go to the trash yet.', 'nor one holding a file on the office server');
 SELECT is(public.t136_err($$SELECT public.moth_trash_folders(ARRAY['13600000-0000-0000-0000-0000000000a2']::uuid[])$$),
@@ -159,11 +171,20 @@ SELECT is(public.t136_err($$SELECT public.moth_trash_folders(ARRAY['13600000-000
 SELECT public.t136_e();
 SELECT is((public.moth_trash_folders(ARRAY['13600000-0000-0000-0000-0000000000e1']::uuid[]) ->> 'folders'), '1',
   'its owner puts a board of their space in the trash');
+SELECT is((SELECT e ->> 'is_board' FROM jsonb_array_elements(public.moth_trashed_folders()) e
+            WHERE e ->> 'id' = '13600000-0000-0000-0000-0000000000e1'), 'true', 'and finds it in their trash');
 SELECT public.t136_c();
-SELECT is((public.moth_trash_folders(ARRAY['13600000-0000-0000-0000-0000000000a3']::uuid[]) - 'batch')::text,
+SELECT is((public.moth_trash_folders(ARRAY['13600000-0000-0000-0000-0000000000a3']::uuid[]) - 'batches')::text,
   '{"files": 2, "folders": 2}', 'a member puts the mood board in the trash: two folders and two live files');
-SELECT is((SELECT count(DISTINCT trash_batch)::int FROM public.folders WHERE id IN ('13600000-0000-0000-0000-0000000000a3', '13600000-0000-0000-0000-0000000000a4')),
-  1, 'all in one batch');
+SELECT ok((public.t136_f('13600000-0000-0000-0000-0000000000a3')).trash_batch IS NOT NULL
+          AND (public.t136_f('13600000-0000-0000-0000-0000000000a3')).trash_batch = (public.t136_f('13600000-0000-0000-0000-0000000000a4')).trash_batch,
+  'all in one batch');
+SELECT is((SELECT count(*)::int FROM public.folders WHERE id IN ('13600000-0000-0000-0000-0000000000a3', '13600000-0000-0000-0000-0000000000a4')),
+  0, 'a folder in the trash is out of the table''s reads');
+SELECT is((public.moth_trash_folders(ARRAY['13600000-0000-0000-0000-0000000000aa', '13600000-0000-0000-0000-0000000000ab']::uuid[]) ->> 'batches'),
+  '2', 'two folders at once are two batches');
+SELECT is((public.moth_restore_folders(ARRAY['13600000-0000-0000-0000-0000000000aa']::uuid[]) ->> 'folders'), '1',
+  'and one comes back without the other');
 SELECT ok((public.t136_file('13600000-0000-0000-0000-000000000083')).trash_batch IS NULL,
   'a file in the trash already keeps its own');
 SELECT is((public.t136_f('13600000-0000-0000-0000-0000000000a3')).deleted_by, 'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid,
@@ -201,8 +222,8 @@ SELECT is(public.t136_words($$INSERT INTO public.folders (project_id, parent_id,
 SELECT is(public.t136_words($$SELECT public.restore_soft_deleted('files', '13600000-0000-0000-0000-000000000081')$$),
   'This file went to the trash with its folder: bring back the folder to bring it back.',
   'a file that went with its folder does not come back alone');
-SELECT is(public.t136_words($$UPDATE public.files SET trash_batch = NULL WHERE id = '13600000-0000-0000-0000-000000000083'$$),
-  'no refusal', 'clearing a batch that is not there is no change');
+SELECT is(public.t136_words($$UPDATE public.files SET trash_batch = gen_random_uuid() WHERE id = '13600000-0000-0000-0000-000000000087'$$),
+  'A file goes to the trash with its folder through Moth.', 'a client writes no file''s batch');
 SELECT is(public.t136_words($$SELECT public.restore_soft_deleted('files', '13600000-0000-0000-0000-000000000083')$$),
   'That folder is in the trash.', 'a file that went alone does not come back into a folder now in the trash');
 SELECT is(public.t136_words($$INSERT INTO public.folders (project_id, parent_id, kind, slug, path)
@@ -211,12 +232,15 @@ SELECT is(public.t136_words($$INSERT INTO public.folders (project_id, parent_id,
 
 -- ── E. Bringing back ────────────────────────────────────────────────────────
 -- keep/plan goes alone first, then keep with it: keep/plan waits for keep.
-SELECT ok((public.moth_trash_folders(ARRAY['13600000-0000-0000-0000-0000000000a9']::uuid[]) ->> 'batch') IS NOT NULL, 'keep/plan goes alone');
-SELECT ok((public.moth_trash_folders(ARRAY['13600000-0000-0000-0000-0000000000a6']::uuid[]) ->> 'batch') IS NOT NULL, 'then keep');
+SELECT is((public.moth_trash_folders(ARRAY['13600000-0000-0000-0000-0000000000a9']::uuid[]) ->> 'batches'), '1', 'keep/plan goes alone');
+SELECT is(public.t136_words($$DELETE FROM public.folders WHERE id = '13600000-0000-0000-0000-0000000000a6'$$),
+  'Something in this folder is in the trash: bring it back or wait for it to go first.',
+  'a client never deletes a folder with something of a trash batch below it');
+SELECT is((public.moth_trash_folders(ARRAY['13600000-0000-0000-0000-0000000000a6']::uuid[]) ->> 'batches'), '1', 'then keep');
 SELECT is(public.t136_words($$SELECT public.moth_restore_folders(ARRAY['13600000-0000-0000-0000-0000000000a9']::uuid[])$$),
   'The folder this one was in is in the trash too: bring that back first.', 'keep/plan waits for keep');
-SELECT is((public.moth_restore_folders(ARRAY['13600000-0000-0000-0000-0000000000a6']::uuid[]) ->> 'folders'), '1',
-  'keep comes back alone, keep/plan still in the trash');
+SELECT is((public.moth_restore_folders(ARRAY['13600000-0000-0000-0000-0000000000a6']::uuid[]) ->> 'folders'), '2',
+  'keep comes back with keep/legal, its batch, and keep/plan still in the trash');
 SELECT is((public.moth_restore_folders(ARRAY['13600000-0000-0000-0000-0000000000a9']::uuid[]) ->> 'folders'), '1', 'then keep/plan');
 SELECT is((public.moth_restore_folders(ARRAY['13600000-0000-0000-0000-0000000000a4']::uuid[]))::text,
   '{"files": 2, "folders": 2}', 'asking for the folder below brings the mood board''s whole batch back');
@@ -243,6 +267,12 @@ SELECT is(public.t136_err($$SELECT public.moth_move_folders(ARRAY['13600000-0000
   '42501', 'never into a money folder');
 SELECT is(public.t136_words($$SELECT public.moth_move_folders(ARRAY['13600000-0000-0000-0000-0000000000a3']::uuid[], '13600000-0000-0000-0000-0000000000b0')$$),
   'cross_project', 'another project is the move between projects''');
+SELECT is(public.t136_words($$SELECT public.moth_move_folders(ARRAY['13600000-0000-0000-0000-0000000000a5']::uuid[], '13600000-0000-0000-0000-0000000000ac')$$),
+  'A board stays in the project''s own folders, not inside a shot''s, a scene''s or an asset''s.', 'a board never into a thing''s own folder');
+SELECT is(public.t136_words($$SELECT public.moth_move_folders(ARRAY['13600000-0000-0000-0000-0000000000a8']::uuid[], '13600000-0000-0000-0000-0000000000a6')$$),
+  'A folder holding files on the office server cannot move yet.', 'nor a folder holding office-server files');
+SELECT is(public.t136_words($$SELECT public.moth_move_folders(ARRAY['13600000-0000-0000-0000-0000000000ad']::uuid[], '13600000-0000-0000-0000-0000000000a0', true)$$),
+  'That name is kept for the project''s own folders.', 'a money or Legal name at the top is refused, even as a plan, before anything is looked up');
 SELECT is(public.t136_words($$SELECT public.moth_move_folders(ARRAY['13600000-0000-0000-0000-0000000000a1']::uuid[], '13600000-0000-0000-0000-0000000000a6')$$),
   'This folder is part of the project''s own layout and stays.', 'a project''s own folder does not move');
 SELECT public.t136_r();
@@ -251,7 +281,7 @@ SELECT is(public.t136_err($$SELECT public.moth_move_folders(ARRAY['13600000-0000
 
 -- ── G. The purge ────────────────────────────────────────────────────────────
 SELECT public.t136_c();
-SELECT ok((public.moth_trash_folders(ARRAY['13600000-0000-0000-0000-0000000000a3']::uuid[]) ->> 'batch') IS NOT NULL, 'the board goes to the trash again');
+SELECT is((public.moth_trash_folders(ARRAY['13600000-0000-0000-0000-0000000000a3']::uuid[]) ->> 'batches'), '1', 'the board goes to the trash again');
 RESET ROLE;
 UPDATE public.folders SET deleted_at = now() - interval '31 days' WHERE trash_batch IS NOT NULL AND project_id = 'aaaa1360-0000-0000-0000-00000000000a';
 UPDATE public.files SET deleted_at = now() - interval '31 days' WHERE trash_batch IS NOT NULL AND project_id = 'aaaa1360-0000-0000-0000-00000000000a';

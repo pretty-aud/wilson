@@ -13,7 +13,7 @@
 -- =============================================================================
 
 BEGIN;
-SELECT plan(39);
+SELECT plan(42);
 
 SELECT * FROM tests.rls_setup();
 
@@ -102,9 +102,15 @@ INSERT INTO public.folders (id, project_id, parent_id, kind, slug, path) VALUES
   ('13400000-0000-0000-0000-0000000000a1', 'aaaa1340-0000-0000-0000-00000000000a', '13400000-0000-0000-0000-0000000000a0', 'category', 'INVOICES', 'INVOICES'),
   ('13400000-0000-0000-0000-0000000000a2', 'aaaa1340-0000-0000-0000-00000000000a', '13400000-0000-0000-0000-0000000000a0', 'custom', 'pitch', 'pitch'),
   ('13400000-0000-0000-0000-0000000000a3', 'aaaa1340-0000-0000-0000-00000000000a', '13400000-0000-0000-0000-0000000000a0', 'category', 'ASSETS', 'ASSETS'),
+  ('13400000-0000-0000-0000-0000000000a4', 'aaaa1340-0000-0000-0000-00000000000a', '13400000-0000-0000-0000-0000000000a0', 'custom', 'legal', 'legal'),
   ('13400000-0000-0000-0000-0000000000b0', 'aaaa1340-0000-0000-0000-00000000000b', NULL, 'root', 'second', ''),
   ('13400000-0000-0000-0000-0000000000c0', 'aaaa1340-0000-0000-0000-00000000000c', NULL, 'root', 'private', ''),
   ('13400000-0000-0000-0000-0000000000e0', 'aaaa1340-0000-0000-0000-0000000000e0', NULL, 'root', 'ps-e', '');
+-- A thing's own folder: the asset Mira's, below ASSETS.
+INSERT INTO public.assets (id, project_id, name) VALUES ('13400000-0000-0000-0000-0000000000b1', 'aaaa1340-0000-0000-0000-00000000000a', 'Mira');
+INSERT INTO public.folders (id, project_id, parent_id, kind, entity_type, asset_id, slug, path) VALUES
+  ('13400000-0000-0000-0000-0000000000a5', 'aaaa1340-0000-0000-0000-00000000000a', '13400000-0000-0000-0000-0000000000a3', 'entity', 'asset',
+   '13400000-0000-0000-0000-0000000000b1', 'mira', 'ASSETS/mira');
 -- user_n leaves once everything is made.
 UPDATE public.workspace_members SET is_active = false
  WHERE workspace_id = '11111111-1111-1111-1111-111111111111' AND user_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
@@ -141,7 +147,11 @@ SELECT is(public.t134_err($$SELECT public.board_create('aaaa1340-0000-0000-0000-
 SELECT is(public.t134_err($$SELECT public.board_create('aaaa1340-0000-0000-0000-00000000000a', '13400000-0000-0000-0000-0000000000a1', 'Receipts')$$),
   '42501', 'never under a money folder');
 SELECT is(public.t134_err($$SELECT public.board_create('aaaa1340-0000-0000-0000-00000000000a', NULL, 'Invoices')$$),
-  '42501', 'nor a board that would itself be a money folder at the top');
+  '22023', 'nor a board named as a money or Legal folder at the top, refused before any folder is looked up');
+SELECT is(public.t134_err($$SELECT public.board_create('aaaa1340-0000-0000-0000-00000000000a', '13400000-0000-0000-0000-0000000000a4', 'Contracts')$$),
+  '42501', 'nor under a Legal folder');
+SELECT is(public.t134_err($$SELECT public.board_create('aaaa1340-0000-0000-0000-00000000000a', '13400000-0000-0000-0000-0000000000a5', 'Looks')$$),
+  '22023', 'nor inside a thing''s own folder, which goes when the thing does');
 SELECT is(public.t134_err($$SELECT public.board_create('aaaa1340-0000-0000-0000-00000000000a', '13400000-0000-0000-0000-0000000000b0', 'Other')$$),
   '42501', 'nor under another project''s folder');
 SELECT ok((public.board_create('aaaa1340-0000-0000-0000-00000000000c', NULL, 'Secret') ->> 'board_id') IS NOT NULL,
@@ -164,6 +174,8 @@ SELECT is(public.t134_err($$SELECT public.board_create('aaaa1340-0000-0000-0000-
 SELECT public.t134_e();
 SELECT ok((public.board_create('aaaa1340-0000-0000-0000-0000000000e0', NULL, 'Pitch ideas') ->> 'board_id') IS NOT NULL,
   'its owner makes a board in their own space');
+SELECT is(public.t134_err($$SELECT public.board_create('aaaa1340-0000-0000-0000-00000000000c', NULL, 'Peek')$$),
+  '42501', 'and none in someone else''s private project');
 
 -- ── C. Seeing a board ───────────────────────────────────────────────────────
 SELECT public.t134_c();
