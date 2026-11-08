@@ -142,8 +142,9 @@ describe('0111\'s classifier, read from the migration', () => {
 
   // MO2 (0122): the seven kinds of item, each its project's, each in this company, the trash keeping three out.
   // MO3 (0124, MO2-09): and a phase or a task set aside by its bid version is no target either.
-  it("the latest gate is 0124's, and each item kind is its project's, in this company, out of the trash", () => {
-    expect(latestFile('_moth_target_eligible')).toBe('0124_moth_corrections.sql')
+  // MO3 (0125, 0126): a workspace note and a typed tag are targets too, a personal one its owner's alone.
+  it("the latest gate is 0126's, and each item kind is its project's, in this company, out of the trash", () => {
+    expect(latestFile('_moth_target_eligible')).toBe('0126_moth_tags.sql')
     const text = latestBody('_moth_target_eligible')
     for (const kind of ['phase', 'asset', 'task', 'scene', 'shot', 'level', 'experience']) expect(text).toContain(`p_kind = '${kind}'`)
     for (const arm of ['a.workspace_id = v_ws', 't.workspace_id = v_ws', 's.workspace_id = v_ws', 'sh.workspace_id = v_ws',
@@ -153,6 +154,11 @@ describe('0111\'s classifier, read from the migration', () => {
     expect(text).toContain('ph.set_aside_at INTO v_project, v_deleted, v_aside')
     expect(text).toContain('t.set_aside_at INTO v_project, v_deleted, v_aside')
     expect(text.match(/v_aside IS NOT NULL/g)).toHaveLength(2)
+    expect(text).toContain("p_kind = 'note'")
+    expect(text).toContain("(v_tier <> 'personal' OR v_owner = auth.uid())")
+    expect(text).toContain("p_kind = 'mtag'")
+    expect(text).toContain("(v_tier = 'company' OR v_owner = auth.uid())")
+    expect(text).toContain('t.canonical_id IS NULL')
   })
 })
 

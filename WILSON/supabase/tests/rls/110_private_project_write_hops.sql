@@ -28,7 +28,7 @@
 
 BEGIN;
 
-SELECT plan(54);
+SELECT plan(56);
 
 SELECT * FROM tests.rls_setup();
 
@@ -184,12 +184,25 @@ SELECT p.tablename, p.policyname
  WHERE p.schemaname = 'public' AND p.permissive = 'PERMISSIVE' AND p.tablename LIKE 'moth\_%'
    AND (has_table_privilege('authenticated', c.oid, 'SELECT') OR has_table_privilege('authenticated', c.oid, 'INSERT')
         OR has_table_privilege('authenticated', c.oid, 'UPDATE') OR has_table_privilege('authenticated', c.oid, 'DELETE'))
+   -- 0126 (MO3): the tag catalogue names no project thing, so the gate has nothing to ask of it; S6b holds it.
+   AND p.tablename NOT IN ('moth_tag_types', 'moth_tags', 'moth_tag_nominations')
    AND COALESCE(p.qual, '') || ' ' || COALESCE(p.with_check, '') !~ 'moth_can_(read|write)_target\('
    AND NOT (COALESCE(p.qual, '') || ' ' || COALESCE(p.with_check, '') ~ 'personal_owner_id = auth\.uid\(\)'
             AND COALESCE(p.qual, '') || ' ' || COALESCE(p.with_check, '') !~ 'current_app_role');
 
 SELECT is((SELECT count(*)::int FROM s6_offenders), 0,
   'S6: every policy of a client-privileged Moth table asks Moth''s gate');
+-- S6b (MO3, 0126): the tag catalogue's policies take no role from the token, and each that reads, changes or
+-- removes a row asks its owner (or its proposer): a person's own types, tags and nominations are theirs alone,
+-- with no admin leg, as S6 asks of the rest.
+CREATE TEMP VIEW s6b_offenders AS
+SELECT p.tablename, p.policyname
+  FROM pg_policies p
+ WHERE p.schemaname = 'public' AND p.tablename IN ('moth_tag_types', 'moth_tags', 'moth_tag_nominations')
+   AND (COALESCE(p.qual, '') || ' ' || COALESCE(p.with_check, '') ~ 'current_app_role'
+        OR (p.cmd IN ('SELECT', 'UPDATE', 'DELETE') AND COALESCE(p.qual, '') !~ '(owner_id|proposer_id) = auth\.uid\(\)'));
+SELECT is((SELECT count(*)::int FROM s6b_offenders), 0,
+  'S6b: the tag catalogue takes no role from the token, and asks a row''s owner before it is read, changed or removed');
 SELECT ok((SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename LIKE 'moth\_%') >= 5,
   'S6 reads the Moth tables there are (views'' four policies, and their places'' one for reading)');
 
@@ -220,6 +233,11 @@ CREATE POLICY moth_views_planted_owner ON public.moth_views FOR SELECT USING (ow
 SELECT is((SELECT count(*)::int FROM s6_offenders WHERE policyname = 'moth_views_planted_owner'), 1,
   'CONTROL: S6 sees a planted Moth policy that does not ask Moth''s gate');
 DROP POLICY moth_views_planted_owner ON public.moth_views;
+
+CREATE POLICY moth_tags_planted_admin ON public.moth_tags FOR SELECT USING (current_app_role() = 'admin');
+SELECT is((SELECT count(*)::int FROM s6b_offenders WHERE policyname = 'moth_tags_planted_admin'), 1,
+  'CONTROL: S6b sees a planted admin leg on the tag catalogue');
+DROP POLICY moth_tags_planted_admin ON public.moth_tags;
 
 
 -- ── 11-12: the creator makes a private project; a sent created_by is ignored ─

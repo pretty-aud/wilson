@@ -22,7 +22,7 @@
 
 BEGIN;
 
-SELECT plan(79);
+SELECT plan(84);
 
 SELECT * FROM tests.rls_setup();
 
@@ -149,8 +149,8 @@ SELECT ok(NOT has_function_privilege('authenticated', 'rabbit_private.moth_view_
 SELECT ok(position('20000' IN (SELECT prosrc FROM pg_proc WHERE oid = 'public.moth_put_positions(uuid,jsonb)'::regprocedure)) > 0
           AND position('pg_advisory_xact_lock' IN (SELECT prosrc FROM pg_proc WHERE oid = 'public.moth_put_positions(uuid,jsonb)'::regprocedure)) > 0,
   'the put counts a view''s places under a lock, at most 20,000 an owner');
-SELECT is((SELECT count(*)::int FROM pg_index WHERE indrelid = 'public.moth_layout_positions'::regclass), 14,
-  'a key, one place a target and owner, one focus, and an index for each of the ten references and for the owner');
+SELECT is((SELECT count(*)::int FROM pg_index WHERE indrelid = 'public.moth_layout_positions'::regclass), 16,
+  'a key, one place a target and owner, one focus, and an index for each of the twelve references (0126: a note''s and a typed tag''s) and for the owner');
 -- 0124 (MO2-12): the two keys and the access the put stands on, by what they are, not by their names.
 SELECT is(pg_get_indexdef('public.moth_layout_positions_target_key'::regclass) || ' | ' || pg_get_indexdef('public.moth_layout_positions_focus_key'::regclass),
   'CREATE UNIQUE INDEX moth_layout_positions_target_key ON public.moth_layout_positions USING btree (view_id, target_type, target_id, target_tag, owner_id) NULLS NOT DISTINCT'
@@ -345,6 +345,30 @@ SELECT ok(public.moth_can_read_target('file', '12600000-0000-0000-0000-000000000
   'another person''s own place in a shared view is not shown, through the table or the read');
 RESET ROLE;
 DELETE FROM public.moth_layout_positions WHERE view_id = '12600000-0000-0000-0000-0000000000a1' AND owner_id = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
+
+-- ── D2. 0126 (MO3): a note's and a typed tag's places ───────────────────────
+RESET ROLE;
+SELECT set_config('request.jwt.claims', '{}', true);
+INSERT INTO public.moth_tag_types (id, workspace_id, tier, name) VALUES ('12600000-0000-0000-0000-0000000000b1', '11111111-1111-1111-1111-111111111111', 'company', 'Character');
+INSERT INTO public.moth_tags (id, workspace_id, type_id, tier, label) VALUES ('12600000-0000-0000-0000-0000000000b2', '11111111-1111-1111-1111-111111111111', '12600000-0000-0000-0000-0000000000b1', 'company', 'Mira');
+INSERT INTO public.notes (id, workspace_id, owner_id, title, tier) VALUES
+  ('12600000-0000-0000-0000-0000000000b3', '11111111-1111-1111-1111-111111111111', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'Harbour light', 'shared'),
+  ('12600000-0000-0000-0000-0000000000b4', '11111111-1111-1111-1111-111111111111', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'Mine alone', 'personal');
+SET LOCAL ROLE authenticated;
+SELECT public.t126_c();
+SELECT is(public.t126_put('12600000-0000-0000-0000-0000000000a1', '[{"t":"mtag","id":"12600000-0000-0000-0000-0000000000b2","x":1,"y":1},{"t":"note","id":"12600000-0000-0000-0000-0000000000b3","x":2,"y":2}]'), 2,
+  'a project''s view keeps the places of a typed tag and a note, which belong to no project (0126)');
+SELECT ok(public.t126_err($$ SELECT public.t126_put('12600000-0000-0000-0000-0000000000a1', '[{"t":"note","id":"12600000-0000-0000-0000-0000000000b4","x":3,"y":3}]') $$) LIKE '23503 %',
+  'someone else''s personal note has no place, refused as one that is not there (0126)');
+SELECT public.t126_r();
+SELECT ok(public.t126_seen('12600000-0000-0000-0000-0000000000a1') LIKE '%mtag:0b2:-%' AND public.t126_seen('12600000-0000-0000-0000-0000000000a1') LIKE '%note:0b3:-%',
+  'P''s reviewer sees the shared places of the company''s tag and the shared note (0126)');
+SELECT public.t126_e();
+SELECT is(public.t126_put('12600000-0000-0000-0000-0000000000a4', '[{"t":"note","id":"12600000-0000-0000-0000-0000000000b4","x":4,"y":4}]'), 1, 'a person places their own note in their personal space''s view (0126)');
+SELECT public.t126_a();
+SELECT is(public.t126_seen('12600000-0000-0000-0000-0000000000a4'), '', 'and an admin sees nothing of it (0126)');
+RESET ROLE;
+DELETE FROM public.moth_layout_positions WHERE target_type IN ('note', 'mtag');
 
 -- ── E. Planted: the read policy without Moth's gate on the target ───────────
 SET LOCAL ROLE authenticated;
