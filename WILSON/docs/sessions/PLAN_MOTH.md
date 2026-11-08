@@ -189,6 +189,8 @@ Exclude financial files/canonical locked-folder descendants, including Legal, fo
 
 ### Session 2 — Graph, glow, HUD and navigation
 
+**Built and merged (the controller, 2026-11-08).** Branch `po/moth2-graph`, 2026-11-07 19:21 to 23:43 UTC, merged into `feat/post-overhaul-edit-versioning` as `f3060a4e` (its tip `7239c3b6`; six CI checks green on both): the graph engine (`po/moth2a-engine`, `b72c77ce`) with its callers, migrations 0122 and 0123 with suites 124 to 126, both applied on wilson-dev the same evening under her standing word for dev (head 0123), the page (graph, glow, HUD, navigation, gestures, previews, adaptive input, tool jumps, trash, looking back), walkthrough 95; two whole-session review rounds on Opus 5.5. **Session 2 is complete.** Not yet: the beta and staging (0122 and 0123 after 0121, 0123 outside working hours, the three reads timed on the largest project there first); her saved local test project is not measured (MO2-01; her answer pending in MO2's chat). The record is `PLAN_TO_1_0.md`'s M.O.T.H. section. **Session 3's brief: `briefs/po-moth3-tags.md` (2026-11-08).**
+
 **Model: Opus 5.5 for build, design and both review rounds. Stop if different.**
 
 **Goal:** editable graph/complete viewing UI over authorized catalogue. Spatial memory, previews, adaptive input and measured scale are acceptance requirements.
