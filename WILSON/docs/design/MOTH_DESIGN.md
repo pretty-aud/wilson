@@ -2127,3 +2127,101 @@ data, not a proof at production scale.
 - A desktop-only project keeps no saved view, place or setting (the signed-out desktop has no table for them).
 - **Before staging and production:** the runbook's 0122 and 0123 rows; time the three reads on the largest project
   there (items, links, a facts page) before the page goes to people, as 0121's measurement was taken.
+
+## 4. Session 3 (MO3), as built (2026-11-08)
+
+Typed tags, links and workspace notes, on `po/moth3-tags`. PLAN_MOTH §5 Session 3 is the scope; her rulings in
+MOTH_PLANNING_BRIEF §5, §6 and §12a are the shape. Six migrations, each through a review round on Opus 5.5 and a second
+look, rolled back on wilson-dev first, planted on a throwaway Actions stack, then applied by the house method.
+
+### 4.1 The database: 0124 to 0129
+
+- **`0124_moth_corrections`** (MO2's five, closing MO2-09 to MO2-12 and MO2-18). A phase or task set aside by a bid
+  version is no target of Moth's gate; the places' writer folds a target named twice before it counts a focus; each
+  view counts its own revisions (the shared sequence dropped); the pre-flight pins `moth_view_access`, the places' two
+  keys, the views' pin and the settings CHECK by what they are; a projection of a row in the trash says `in_trash`.
+- **`0125_workspace_notes`.** A note has a tier: personal (its owner's alone, no admin leg), shared (every active
+  member reads it), or the company standard (only a live admin changes it, and only an admin puts it in the trash).
+  Deleting is the trash: DELETE is revoked, `note_trash`, `note_restore` and `note_trash_list` (an owner's own, and an
+  admin's shared ones), and `purge_trashed_notes` after 30 days. A refused change says why in words, never a silent
+  "no row": the owner stays in the update policy and the guard refuses ("Only a workspace admin changes the company
+  standard."; "Only its owner shares a note, or makes it private again."). Moth's gate and write gate learn notes.
+- **`0126_moth_tags`.** Typed tags: types (company or a person's own; a name, a shape, a colour), tags (a label, its
+  type, its tier, its owner; `canonical_id` once folded into another; retired), assignments (a tag on any of eleven
+  kinds of thing, with its own tier: a person's own use of a company tag is theirs alone), and nominations (a person
+  puts their own tag forward; a live admin approves or turns it down; managers put forward, never decide). Approve,
+  rename, merge and retire act under one catalogue lock, and a fold moves every use to the tag it now stands for
+  (FOR NO KEY UPDATE, so a person's foreign key check is not blocked). The gate learns a typed tag (`mtag`); places
+  learn notes and typed tags.
+- **`0127_moth_relationships`.** Saved links between any two things, both ends through Moth's gate, labelled (at most
+  80 characters), drawn by hand or made inline. An inline link is a token in the words, `[[words|m:key]]`: the key is
+  reserved by its writer for a thing they see (`moth_mention_reserve`, a day's cap), bound to where it is used, and
+  turned into a link by the text triggers on nine tables when the words are saved (`moth_mentions_apply`); a note's
+  keys are sent with the version saved (`moth_note_mentions_sync`), the server reading no Yjs. The picker
+  (`moth_mention_candidates`), a thing's links out and in (`moth_item_links`), and the graph's read
+  (`moth_relationships_read`) each show only links whose both ends the reader may see.
+- **`0128_moth_history_peers`.** The record gains a peer for each side (project, class, owner), a `workspace` class
+  (no project, no owner), the four tables in its entity check, and a check of the peers' shape (a failure's mark keeps
+  its row's peers; no other mark has one); NOT VALID, so the lock is a moment.
+- **`0129_moth_history_s3`.** The three checks validated; notes (title, tier, trash; never a body), typed tags, their
+  assignments and links recorded. Whose a row is: a note or a tag its owner's while personal, the company's otherwise;
+  an assignment the thing tagged, with its own tier as its peer; a link where it starts, with where it ends as its
+  peer. A side shows when its audience and its peer's both pass. A tagging or link with an end in money or Legal is
+  locked as that end is (nothing written, its record blank), and a file or folder that locks blanks the record of the
+  taggings and links still naming it. A removal a purge takes is told to the audience its gone thing last had, from
+  that thing's own record (`_moth_history_end_last`); a gone thing is read by what its record last said
+  (`_moth_history_end_visible`: never a locked one; a note made personal again, its owner only). The window tells a
+  restart only to those its row was for, and one with no project moves its kind's own start. Triggers on the four
+  tables; their marks stamped by the clock after the triggers.
+
+**Seen while building:** a purge's own capture runs before its foreign keys' cascade (the parent's delete row has the
+lower id), so a cascaded tagging or link finds its gone end's last row already written. A private project is read
+by its creator and admins only (0082's privacy arm), so a "private" side and a "shared" one in a private project reach
+the same people.
+
+### 4.2 The client
+
+- **Notes (the Dashboard).** Mine, Shared and Trash; a note's tier (personal, shared, the company standard for an
+  admin); the trash with Undo straight away and Bring back; a note one may not change opens to read, and says why;
+  "Saved as you write. If someone else changes this note too, both changes are kept: they come together when each of
+  you saves. You will not see each other type." A typed link is text in the note, drawn by a decoration (the Yjs
+  binding deletes any node or mark its schema does not know, and saves the deletion), and drawn as a link only when its
+  reader sees what it leads to; a note lists its links and where it is mentioned.
+- **R.A.B.B.I.T.** `[[` (a link) and `#` (a tag on the thing) in the task, asset, scene and shot windows' words, and
+  `[[` in the new-asset and new-task forms; a seen link's words drawn as a link, any other token its words alone; the
+  thing's typed tags above its words, its links out and "Mentioned in" below. A link's code is never shown, searched or
+  sent elsewhere: the tables, cards, searches, filters, the tasks export, the edit history and D.O.G.'s references read
+  the words alone.
+- **M.O.T.H.** Notes and typed tags as dots, saved links as lines, a note's jump to the Dashboard; the typed-tags drawer
+  (make a tag or a type, a duplicate refused, the company's tag offered when it has one; put forward, withdraw; approve
+  or turn down; rename, retire, merge); looking back rewinds notes, typed tags, their uses and links, each kind from
+  its own start (per kind and project for a restart), and says so before it.
+- **The fixtures** (dev builds only): `?fixtures=tags` seeds Session 3, `?as=theo` acts as another pretend person.
+
+### 4.3 Checked
+
+| Change | Review round (Opus 5.5) | Second look | Plants | Applied on wilson-dev (UTC) | md5 read back |
+|---|---|---|---|---|---|
+| 0124 | 16 agents, 1,669,288 tokens | 1 agent, 328,857 | 61: 30 caught, 30 refused, 1 green | 2026-11-08 01:24:48 | `d230c2b7e9f5a9de010e3ebdc9b95acd` |
+| 0125 to 0127 | 30 agents, 3,608,012 tokens | 1 agent, 398,956 | 72: 59 caught, 11 refused, 2 green | 03:38:09, 03:38:34, 03:39:01 | `696595c5…`, `231f836e…`, `f17cd113…` |
+| 0128, 0129 | 28 agents, 3,324,642 tokens | 1 agent, 443,762 | 65: 47 caught, 8 refused, 10 green | 05:39:58, 05:40:23 | `dc1572cb…`, `47a34f47…` |
+
+Every green plant is held by a clause named in the plants' record (the column grants; a pin; the reader's peer rule;
+the observed capture order; a fail-closed default no probe can trip). Rolled back on dev before each apply: the whole
+set with the files prepended (for 0128 and 0129, 127 suites, 6,944 planned = collected, 6,942 passed; the two reds are
+suite 74's, on dev's own old sign-in rows, red without the files); each file alone and twice in one transaction
+(0128 86 ms, then 24 and 15; 0129 93 ms, then 33 and 32); health before and after (24 and 26 connections, no lock
+waits, nothing open past a minute). New suites: 127 to 133 (typed tags, nominations, links, reservations, the record of
+the four: 87 probes).
+
+### 4.4 Not built, and owed
+
+- Moth keeps no place for a note's or a typed tag's dot yet; bound mention keys are kept for ever; looking back to
+  before a note or thing went to the trash brings back its dot but not its links or typed-tag lines; a file under a
+  folder that turns Legal keeps the record of its taggings and links stored (unread by everyone) until it is written or
+  purged; 0127 still makes a link from a money or Legal file's description (never shown, never recorded since 0129).
+  OUTSTANDING holds each.
+- **Before staging and production:** the runbook's 0124 to 0129 rows. 0125 goes only after the client that probes for
+  it (an older build's Delete is refused once DELETE is revoked, and it would list others' shared notes as its own).
+  Time 0129's VALIDATE on the largest moth_history there (a scan; writes go on), and the history reader over a page
+  of gone taggings and links, before the record's Session 3 kinds reach people.

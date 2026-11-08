@@ -1306,6 +1306,9 @@ only matter if someone **replays a migration by hand**:
 
 | If you re-run… | You must then re-run… | Because |
 |---|---|---|
+| `0119` **or** `0124` | `0129` | **(MO3)** 0129 restates `fn_moth_history_capture`, `moth_history_project`, `moth_history_projection_ok`, `_moth_history_entity_visible`, `moth_history_read` and `moth_history_window` from 0119's and 0124's bodies with the four Session 3 tables, their peers and their locks. A replay of either brings back bodies that know nothing of notes, typed tags, their assignments or links (their captures fail and leave only restarts, and the reader shows no peer); 0129's pre-flight accepts the older bodies or its own, so re-run it. **0128 refuses once 0129 has validated its checks**: replay 0128 only on a database where 0129 has not run. |
+| `0125` | `0126` | **(MO3)** 0126 restates `_moth_target_eligible` from 0125's body with the typed tag's arm and `moth_put_positions` with notes and typed tags; a replay of 0125 alone leaves the gate without them. |
+| `0122` **or** `0123` | `0124` | **(MO3)** 0124 restates `_moth_target_eligible` (a set-aside phase or task is no target), `fn_moth_views_pin`, `moth_put_positions`, `moth_history_project` and `moth_history_projection_ok`. **0123 refuses after 0124** (its pre-flight finds the views' pin is not its own); replay it only before 0124. |
 | `0111` **or** `0121` | `0121`, then `0122` | **(MO2)** 0122 restates `_moth_target_eligible` and `moth_can_write_target` from 0121's bodies with the seven item kinds, and its pre-flight accepts 0121's body or its own: after a replay of 0111 re-run 0121 first, then 0122. A replay of either drops the item arms (every item answers false, so Moth shows no item, keeps no item's place and writes none). 0123 needs 0122 (it refuses without `moth_project_items`), and its places ask the same gates. |
 | `0042`, `0053`, `0073` **or** `0114` | `0115` | **(MO1)** 0115 restates the eight base storage policies (0042, 0053), `workspace_petal_committed_bytes` (0073) and three of 0114's helpers (`storage_object_claimed`, `storage_object_current_project`, `file_key_admissible`). Re-running any of those without 0115 puts the key's prefix back in charge of every stored copy, or loses the moved-copies arm or the picture's arm, and 0115's pre-flight pins each by md5. |
 | `0107` **or** `0110` | `0114` | **(MO1)** 0114 restates `fn_same_project_refs_guard` (0107) without its skip, and `fn_projects_owner_guard` (0110) with the id-tied arm. Re-running either without 0114 brings the skip back or loses the arm, and 0114's preflight pins both bodies by md5. |
@@ -5200,6 +5203,36 @@ answered by the shell and by `Rabbit.jsx` through `mothItemTarget`), and looking
 only). Links between things are not saved until Session 3. Development only: `?mothFrames=1` shows a frame readout and
 `?mothReplay=N` maps a generated catalogue of N dots for the measured replays.
 
+**Workspace notes (MO3, 0125).** A note has a tier: personal (its owner's alone, no admin leg), shared (every active
+member reads it) or the company standard (only a live admin changes it or puts it in the trash). Deleting is the trash:
+DELETE is revoked from clients, `note_trash` and `note_restore` move a note in and out, `note_trash_list` lists one's own
+and, for an admin, the company's, and `purge_trashed_notes` (the `wilson-purge-notes` job) removes what has waited 30 days.
+A refused change says why ("Only a workspace admin changes the company standard."), never a silent no-row: the owner stays
+in the update policy and the guard refuses. A note's body is a Yjs snapshot the server never reads; changes merge when
+saved, and no one sees another type. Moth's gate and write gate know notes.
+
+**Typed tags (MO3, 0126).** Types (a company's or a person's own: a name, a shape, a colour), tags (label, type, tier,
+owner; `canonical_id` once folded; retired), assignments (a tag on one of eleven kinds of thing, with its own tier: a
+person's own use of a company tag is theirs alone) and nominations (a person puts their own tag forward; a live admin
+approves or turns it down; managers put forward, never decide). Approve, rename, merge and retire take one catalogue lock
+a company, and a fold moves every use to the tag it now stands for. The gate knows a typed tag (`mtag`), and places
+know notes and typed tags.
+
+**Links (MO3, 0127).** `moth_relationships` holds saved links between any two things, both ends through Moth's gate,
+labelled, drawn by hand or made inline. An inline link is the token `[[words|m:key]]` in a thing's words or a note: the
+key is reserved by its writer for a thing they see (`moth_mention_reserve`), bound where it is used, and made a link by
+the text triggers on nine tables when the words are saved; a note's keys come with the version saved
+(`moth_note_mentions_sync`). `moth_mention_candidates` (the picker), `moth_item_links` (a thing's links out and in) and
+`moth_relationships_read` (the graph's) show only links whose both ends the reader may see. A reader who cannot see a
+link's far end sees its words alone, with nothing to say a link was there.
+
+**The record of Session 3 (MO3, 0128, 0129).** `moth_history` records notes (title, tier, trash; never a body), typed
+tags, their assignments and links. Each side has a peer: an assignment's own tier, a link's far end. A side shows when
+its audience and its peer's both pass. A tagging or link with an end in money or Legal is locked as that end is, and a
+file or folder that locks blanks the record of those still naming it. A removal a purge takes is told to the audience its
+gone thing last had (`_moth_history_end_last`); a gone thing is read by what its own record last said
+(`_moth_history_end_visible`). The window tells a restart only to those its row was for.
+
 ## 14. Who talks to whom
 
 **M.O.T.H.'s arrows (MO1).** Personal spaces and private projects' content are off every workspace realtime topic. `moth_history` is
@@ -5209,6 +5242,8 @@ person's change shows when the list next reads. **A join is judged when it is ma
 hearing a project channel they had joined until their token refreshes or runs out, each of which closes it. A new join is judged afresh.
 
 **M.O.T.H.'s arrows (MO2).** Two more cross-tool events, Moth to R.A.B.B.I.T.: `wilson:open-rabbit-item` `{ projectId, kind, id }` and `wilson:open-project-file` `{ projectId, fileId }`, each sent only after the person says yes to leaving. Views, places and settings are read when a view opens; none is on a channel, and a post-condition of 0123 keeps both tables off every broadcast.
+
+**M.O.T.H.'s arrows (MO3).** One more cross-tool event: `wilson:open-dashboard-note` `{ noteId }`, from Moth's note jump and from a link's words that lead to a note, answered by the Dashboard. A link's words in a R.A.B.B.I.T. window send `wilson:open-rabbit-item` or `wilson:open-project-file` as Moth's jumps do. Notes, typed tags, assignments, links and their record are on no realtime topic: each is read when a page or window opens, and again after a save. D.O.G. reads a note's or a thing's words as their reader sees them (`mentionPlainText`): no link's code reaches a deck.
 
 Every arrow in the system, in prose. Read this section if you read nothing
 else.
@@ -5311,7 +5346,7 @@ else.
 
 ## 15. Testing and verification
 
-**As of MO2 (2026-11-07):** 120 pgTAP suites, 6,511 checks with 0122 and 0123 (by count, after both review rounds) (the whole set read 6,493 on wilson-dev, rolled back, before the 15 probes the planted breakages asked for; the four suites they went into were read again). **As of MO1 (2026-11-07):** 117 pgTAP suites, 6,252 checks with 0120 and 0121, read by running them on wilson-dev, rolled back. The counts just below are dated history.
+**As of MO3 (2026-11-08):** 127 pgTAP suites, 6,944 checks with 0128 and 0129 (by count, after both review rounds and the second look; the whole set read on wilson-dev, rolled back with the two prepended, and again on the applied schema). **As of MO2 (2026-11-07):** 120 pgTAP suites, 6,511 checks with 0122 and 0123 (by count, after both review rounds) (the whole set read 6,493 on wilson-dev, rolled back, before the 15 probes the planted breakages asked for; the four suites they went into were read again). **As of MO1 (2026-11-07):** 117 pgTAP suites, 6,252 checks with 0120 and 0121, read by running them on wilson-dev, rolled back. The counts just below are dated history.
 
 **pgTAP** — 55 suites under `supabase/tests/rls/` (Session 20 added 39–42, one
 per model control-plane table; **Session 24 added 43–47, one per money table;
