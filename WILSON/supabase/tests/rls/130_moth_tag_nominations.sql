@@ -16,7 +16,7 @@
 -- =============================================================================
 
 BEGIN;
-SELECT plan(55);
+SELECT plan(56);
 
 SELECT * FROM tests.rls_setup();
 
@@ -251,6 +251,10 @@ SET LOCAL ROLE authenticated;
 SELECT public.t130_c();
 SELECT is((SELECT count(*)::int FROM public.moth_tag_assignments WHERE tag_id = current_setting('t130.tag')::uuid), 1,
   'the proposer sees their own use of it, and not another''s');
+SELECT is(public.t130_words($$INSERT INTO public.moth_tag_assignments (tag_id, tier, target_type, target_id)
+          VALUES ('13000000-0000-0000-0000-0000000001c1', 'personal', 'task', '13000000-0000-0000-0000-000000000061')$$),
+  'insert or update on table "moth_tag_assignments" violates foreign key constraint "moth_tag_assignments_tag_fk"',
+  'a folded tag tags nothing more: it stands for the company''s now');
 SELECT public.t130_a();
 SELECT is((SELECT count(*)::int FROM public.moth_tag_assignments WHERE tag_id = current_setting('t130.tag')::uuid), 0,
   'and the admin who approved it sees none of them: nothing private travelled');
