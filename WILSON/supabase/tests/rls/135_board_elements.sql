@@ -19,7 +19,7 @@
 -- =============================================================================
 
 BEGIN;
-SELECT plan(63);
+SELECT plan(64);
 
 SELECT * FROM tests.rls_setup();
 
@@ -231,6 +231,9 @@ SELECT is(public.t135_err($$SELECT public.board_put_elements('13500000-0000-0000
 SELECT is(public.t135_words($$SELECT public.board_put_elements('13500000-0000-0000-0000-0000000000f1', jsonb_build_array(jsonb_build_object(
             'kind', 'sticky', 'file_id', '13500000-0000-0000-0000-000000000083')))$$),
   'A sticky or a dropped file lives in the board''s own folder.', 'a sticky''s file sits in the board''s folder');
+SELECT is(public.t135_words($$SELECT public.board_put_elements('13500000-0000-0000-0000-0000000000f1', jsonb_build_array(jsonb_build_object(
+            'kind', 'sticky', 'file_id', '13500000-0000-0000-0000-000000000082')))$$),
+  'A sticky is a markdown note.', 'and is a markdown note, never a picture');
 SELECT is(public.t135_err($$SELECT public.board_put_elements('13500000-0000-0000-0000-0000000000f1', jsonb_build_array(jsonb_build_object(
             'kind', 'sticky', 'body', 'words here', 'file_id', '13500000-0000-0000-0000-000000000081')))$$),
   '22023', 'a sticky''s words are its file''s, never the element''s');

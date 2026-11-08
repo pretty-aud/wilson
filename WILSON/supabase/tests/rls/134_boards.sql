@@ -13,7 +13,7 @@
 -- =============================================================================
 
 BEGIN;
-SELECT plan(42);
+SELECT plan(43);
 
 SELECT * FROM tests.rls_setup();
 
@@ -200,6 +200,9 @@ SELECT is(public.t134_words($$DELETE FROM public.folders WHERE id = '13400000-00
 SELECT is(public.t134_words($$UPDATE public.folders SET parent_id = '13400000-0000-0000-0000-0000000000a3', path = 'ASSETS/mood'
                                WHERE id = public.t134_folder('aaaa1340-0000-0000-0000-00000000000a', 'mood')$$),
   'A board moves through Move to.', 'nor moves a board''s folder by hand');
+SELECT is(public.t134_words($$UPDATE public.folders SET parent_id = '13400000-0000-0000-0000-0000000000a3', path = 'ASSETS/pitch'
+                               WHERE id = '13400000-0000-0000-0000-0000000000a2'$$),
+  'A board moves through Move to.', 'nor moves by hand a folder with a board anywhere below it');
 SELECT lives_ok($$UPDATE public.folders SET label = 'Mood, again' WHERE id = public.t134_folder('aaaa1340-0000-0000-0000-00000000000a', 'mood')$$,
   'renaming a board is renaming its folder');
 SELECT is(public.t134_err($$UPDATE public.boards SET audience_gen = 9$$), '42501', 'a client changes no board row');

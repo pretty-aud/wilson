@@ -351,7 +351,9 @@ SET row_security = off
 AS $$
 DECLARE
   v_ws    UUID := public.current_workspace_id();
-  v_ids   UUID[] := ARRAY(SELECT DISTINCT x FROM unnest(p_ids) x WHERE x IS NOT NULL ORDER BY 1);
+  v_ids   UUID[] := ARRAY(SELECT x FROM (SELECT DISTINCT x FROM unnest(p_ids) x WHERE x IS NOT NULL) d(x)
+                            LEFT JOIN public.folders fo ON fo.id = d.x
+                           ORDER BY COALESCE(char_length(fo.path) - char_length(replace(fo.path, '/', '')), 0), d.x);
   v_id    UUID;
   v_f     public.folders%ROWTYPE;
   v_sub   UUID[];
@@ -386,7 +388,9 @@ BEGIN
       RAISE EXCEPTION 'This folder is part of the project''s own layout and stays.' USING ERRCODE = '22023';
     END IF;
     IF EXISTS (SELECT 1 FROM public.files f WHERE f.folder_id = ANY (v_sub) AND f.deleted_at IS NULL
-                AND f.storage_provider::text = 'network_share') THEN
+                AND f.storage_provider::text = 'network_share'
+                AND NOT public.file_row_is_money(f.is_financial, f.storage_path)
+                AND NOT public.moth_file_row_locked(v_ws, f.project_id, f.id, f.is_financial, f.storage_path, f.tags, f.folder_id)) THEN
       RAISE EXCEPTION 'A folder holding files on the office server cannot go to the trash yet.' USING ERRCODE = '22023';
     END IF;
     v_all := v_all || v_sub;
@@ -413,6 +417,16 @@ BEGIN
        AND fo.deleted_at IS NULL;
     GET DIAGNOSTICS v_cnt = ROW_COUNT;
     v_dirs := v_dirs + v_cnt;
+    -- A folder made below one of these between the subtree's read and its stamp goes too, to a fixed point.
+    LOOP
+      UPDATE public.folders fo SET deleted_at = now(), deleted_by = auth.uid(), trash_batch = v_batch
+       WHERE fo.deleted_at IS NULL
+         AND fo.parent_id IN (SELECT par.id FROM public.folders par WHERE par.trash_batch = v_batch);
+      GET DIAGNOSTICS v_cnt = ROW_COUNT;
+      EXIT WHEN v_cnt = 0;
+      v_dirs := v_dirs + v_cnt;
+      v_all := v_all || ARRAY(SELECT fo.id FROM public.folders fo WHERE fo.trash_batch = v_batch);
+    END LOOP;
   END LOOP;
   UPDATE public.files f SET deleted_at = now(),
          trash_batch = (SELECT fo.trash_batch FROM public.folders fo WHERE fo.id = f.folder_id)
@@ -443,6 +457,7 @@ DECLARE
   v_dirs   INTEGER := 0;
   v_files  INTEGER := 0;
   v_n      INTEGER;
+  v_back   UUID[] := '{}';
 BEGIN
   IF auth.uid() IS NULL OR v_ws IS NULL OR NOT COALESCE(public.has_active_membership(v_ws), false) THEN
     RAISE EXCEPTION 'folder not found or not writable' USING ERRCODE = '42501';
@@ -452,6 +467,7 @@ BEGIN
   END IF;
   PERFORM pg_advisory_xact_lock(hashtextextended('moth-folders:' || v_ws::text, 0));
   FOREACH v_id IN ARRAY v_ids LOOP
+    CONTINUE WHEN v_id = ANY (v_back);
     SELECT * INTO v_f FROM public.folders fo WHERE fo.id = v_id AND fo.workspace_id = v_ws FOR UPDATE;
     IF NOT FOUND OR v_f.deleted_at IS NULL OR v_f.trash_batch IS NULL
        OR v_f.deleted_at < now() - interval '30 days'
@@ -465,6 +481,7 @@ BEGIN
       RAISE EXCEPTION 'The folder this one was in is in the trash too: bring that back first.' USING ERRCODE = '22023';
     END IF;
     PERFORM set_config('wilson.folder_op', 'trash', true);
+    v_back := v_back || ARRAY(SELECT fo.id FROM public.folders fo WHERE fo.trash_batch = v_f.trash_batch);
     UPDATE public.folders fo SET deleted_at = NULL, deleted_by = NULL, trash_batch = NULL
      WHERE fo.trash_batch = v_f.trash_batch;
     GET DIAGNOSTICS v_n = ROW_COUNT;
@@ -482,7 +499,8 @@ REVOKE EXECUTE ON FUNCTION public.moth_restore_folders(uuid[]) FROM PUBLIC, anon
 GRANT  EXECUTE ON FUNCTION public.moth_restore_folders(uuid[]) TO authenticated;
 
 -- What the caller may bring back: each batch by the folder it was put in the trash from.
-CREATE OR REPLACE FUNCTION public.moth_trashed_folders(p_limit integer DEFAULT 200, p_before timestamptz DEFAULT NULL)
+CREATE OR REPLACE FUNCTION public.moth_trashed_folders(p_limit integer DEFAULT 200, p_before timestamptz DEFAULT NULL,
+                                                      p_before_id uuid DEFAULT NULL)
 RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
@@ -508,7 +526,8 @@ BEGIN
      WHERE fo.workspace_id = v_ws
        AND fo.trash_batch IS NOT NULL
        AND fo.deleted_at > now() - interval '30 days'
-       AND (p_before IS NULL OR fo.deleted_at < p_before)
+       AND (p_before IS NULL
+            OR (fo.deleted_at, fo.id) < (p_before, COALESCE(p_before_id, 'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid)))
        AND p.deleted_at IS NULL
        AND (p.personal_owner_id IS NULL OR p.personal_owner_id = auth.uid())
        AND NOT EXISTS (SELECT 1 FROM public.folders par WHERE par.id = fo.parent_id AND par.trash_batch = fo.trash_batch)
@@ -526,8 +545,8 @@ BEGIN
   RETURN v_out;
 END;
 $$;
-REVOKE EXECUTE ON FUNCTION public.moth_trashed_folders(integer, timestamptz) FROM PUBLIC, anon;
-GRANT  EXECUTE ON FUNCTION public.moth_trashed_folders(integer, timestamptz) TO authenticated;
+REVOKE EXECUTE ON FUNCTION public.moth_trashed_folders(integer, timestamptz, uuid) FROM PUBLIC, anon;
+GRANT  EXECUTE ON FUNCTION public.moth_trashed_folders(integer, timestamptz, uuid) TO authenticated;
 
 -- Move folders, with everything below them, under another folder of the same project.
 CREATE OR REPLACE FUNCTION public.moth_move_folders(p_ids uuid[], p_dest_parent uuid, p_plan_only boolean DEFAULT false)
@@ -590,13 +609,18 @@ BEGIN
         USING ERRCODE = '22023';
     END IF;
     IF EXISTS (SELECT 1 FROM public.files f WHERE f.folder_id = ANY (v_sub) AND f.deleted_at IS NULL
-                AND f.storage_provider::text = 'network_share') THEN
+                AND f.storage_provider::text = 'network_share'
+                AND NOT public.file_row_is_money(f.is_financial, f.storage_path)
+                AND NOT public.moth_file_row_locked(v_ws, f.project_id, f.id, f.is_financial, f.storage_path, f.tags, f.folder_id)) THEN
       RAISE EXCEPTION 'A folder holding files on the office server cannot move yet.' USING ERRCODE = '22023';
     END IF;
     IF v_dest.kind = 'root' AND public.rabbit_money_segment(v_src.slug) THEN
       RAISE EXCEPTION 'That name is kept for the project''s own folders.' USING ERRCODE = '22023';
     END IF;
     PERFORM 1 FROM public.folders fo WHERE fo.id = ANY (v_sub) ORDER BY fo.id FOR UPDATE;
+    IF rabbit_private.folder_subtree(v_id) IS DISTINCT FROM v_sub THEN
+      RAISE EXCEPTION 'This folder changed while it was being moved: try again.' USING ERRCODE = '40001';
+    END IF;
     IF v_src.parent_id = p_dest_parent THEN
       v_plan := v_plan || jsonb_build_object('id', v_id, 'from', v_src.path, 'to', v_src.path, 'folders', cardinality(v_sub));
       CONTINUE;

@@ -140,7 +140,7 @@ SELECT is((SELECT string_agg(tgname, ',' ORDER BY tgname) FROM pg_trigger
   'trg_files_folder_trash_guard,trg_folders_soft_delete,trg_folders_trash_guard', 'the three triggers');
 SELECT ok(has_function_privilege('authenticated', 'public.moth_trash_folders(uuid[])', 'EXECUTE')
           AND has_function_privilege('authenticated', 'public.moth_restore_folders(uuid[])', 'EXECUTE')
-          AND has_function_privilege('authenticated', 'public.moth_trashed_folders(integer,timestamptz)', 'EXECUTE')
+          AND has_function_privilege('authenticated', 'public.moth_trashed_folders(integer,timestamptz,uuid)', 'EXECUTE')
           AND NOT has_function_privilege('anon', 'public.moth_move_folders(uuid[],uuid,boolean)', 'EXECUTE')
           AND NOT has_function_privilege('authenticated', 'rabbit_private.folder_subtree(uuid)', 'EXECUTE'),
   'signed-in people call the four; nobody calls the subtree helper');

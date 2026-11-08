@@ -154,9 +154,9 @@ SET search_path = public
 AS $$
   SELECT jsonb_build_object(
     'id', e.id, 'kind', e.kind, 'shape', e.shape, 'x', e.x, 'y', e.y, 'w', e.w, 'h', e.h, 'rotation', e.rotation,
-    'z', e.z, 'style', e.style, 'body', e.body,
-    'points', CASE WHEN e.points IS NULL OR pg_column_size(e.points) <= 4096 THEN e.points END,
-    'points_omitted', e.points IS NOT NULL AND pg_column_size(e.points) > 4096,
+    'z', e.z, 'style', e.style, 'body', CASE WHEN e.bytes <= 4096 THEN e.body END,
+    'points', CASE WHEN e.bytes <= 4096 THEN e.points END,
+    'points_omitted', e.bytes > 4096,
     'has_file', e.kind IN ('sticky', 'media', 'embed'),
     'from_id', e.from_id, 'from_anchor', e.from_anchor, 'to_id', e.to_id, 'to_anchor', e.to_anchor,
     'version', e.version, 'updated_by', e.updated_by);
@@ -200,7 +200,7 @@ BEGIN
   END IF;
   FOR r IN
     SELECT g.chunk, jsonb_agg(rabbit_private.board_element_wire(g.e) ORDER BY (g.e).id) AS els
-      FROM (SELECT e, (row_number() OVER (ORDER BY e.id) - 1) / 50 AS chunk
+      FROM (SELECT e, (row_number() OVER (ORDER BY e.id) - 1) / 25 AS chunk
               FROM public.board_elements e WHERE e.board_id = p_board AND e.id = ANY (p_ids)) g
      GROUP BY g.chunk
   LOOP
@@ -293,7 +293,11 @@ AS $$
 DECLARE
   b RECORD;
 BEGIN
-  IF NOT rabbit_private.board_realtime_ready() THEN
+  -- A project put in the trash narrows its boards' audience to nobody: renamed, as any narrowing.
+  IF NEW.deleted_at IS NOT NULL AND OLD.deleted_at IS NULL THEN
+    UPDATE public.boards x SET audience_gen = x.audience_gen + 1 WHERE x.project_id = NEW.id;
+  END IF;
+  IF NOT rabbit_private.board_realtime_ready() OR NEW.topic_epoch IS NOT DISTINCT FROM OLD.topic_epoch THEN
     RETURN NULL;
   END IF;
   FOR b IN SELECT x.id, x.audience_gen FROM public.boards x WHERE x.project_id = NEW.id LOOP
@@ -309,7 +313,7 @@ REVOKE EXECUTE ON FUNCTION public.fn_projects_board_epoch_moved() FROM PUBLIC, a
 DROP TRIGGER IF EXISTS trg_projects_board_epoch_moved ON public.projects;
 CREATE TRIGGER trg_projects_board_epoch_moved
   AFTER UPDATE ON public.projects
-  FOR EACH ROW WHEN (NEW.topic_epoch IS DISTINCT FROM OLD.topic_epoch)
+  FOR EACH ROW WHEN (NEW.topic_epoch IS DISTINCT FROM OLD.topic_epoch OR NEW.deleted_at IS DISTINCT FROM OLD.deleted_at)
   EXECUTE FUNCTION public.fn_projects_board_epoch_moved();
 
 -- A member leaves, is removed or changes role: every board of that company is renamed, because who reads a

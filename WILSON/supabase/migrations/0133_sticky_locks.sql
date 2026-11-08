@@ -290,13 +290,13 @@ BEGIN
       DETAIL = 'Someone else is writing in this sticky now, or your turn ended: your words were not saved.';
   END IF;
   SELECT * INTO v_f FROM public.files f WHERE f.id = v_e.file_id FOR UPDATE;
-  IF FOUND AND v_f.folder_id IS DISTINCT FROM (SELECT b.folder_id FROM public.boards b WHERE b.id = v_e.board_id) THEN
-    RAISE EXCEPTION 'This note has left its board: it is edited where it is now.' USING ERRCODE = '22023';
-  END IF;
   IF NOT FOUND OR v_f.deleted_at IS NOT NULL
      OR NOT COALESCE(public.moth_can_read_target('file', v_f.id), false)
      OR NOT COALESCE(public.moth_can_write_target('file', v_f.id), false) THEN
     RAISE EXCEPTION 'sticky not found or not writable' USING ERRCODE = '42501';
+  END IF;
+  IF v_f.folder_id IS DISTINCT FROM (SELECT b.folder_id FROM public.boards b WHERE b.id = v_e.board_id) THEN
+    RAISE EXCEPTION 'This note has left its board: it is edited where it is now.' USING ERRCODE = '22023';
   END IF;
   IF v_f.storage_provider::text = 's3' THEN
     RAISE EXCEPTION 's3_sticky_off' USING ERRCODE = 'P0001',
@@ -308,7 +308,7 @@ BEGIN
   IF v_f.storage_path IS DISTINCT FROM p_from_path THEN
     RETURN false;
   END IF;
-  IF p_to_path IS NULL OR p_to_path = v_f.storage_path
+  IF p_to_path IS NULL OR p_to_path = v_f.storage_path OR lower(p_to_path) NOT LIKE '%.md'
      OR NOT COALESCE(rabbit_private.file_key_admissible(
           v_f.storage_provider::text, p_to_path, v_f.project_id, v_f.id, v_f.folder_id, false), false)
      OR public.file_row_is_money(false, p_to_path) THEN

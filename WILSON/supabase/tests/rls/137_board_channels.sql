@@ -14,7 +14,7 @@
 -- =============================================================================
 
 BEGIN;
-SELECT plan(41);
+SELECT plan(42);
 
 SELECT * FROM tests.rls_setup();
 
@@ -284,6 +284,11 @@ SELECT ok((SELECT topic_epoch FROM public.projects WHERE id = 'aaaa1370-0000-000
 SELECT is(pg_temp.heard('moth:board:13700000-0000-0000-0000-0000000000f1:0.4'), pg_temp.want('AUDIENCE/audience'),
   'and its old name hears AUDIENCE');
 UPDATE public.projects SET is_private = false WHERE id = 'aaaa1370-0000-0000-0000-00000000000a';
+-- A project put in the trash narrows its boards' audience to nobody: renamed.
+SELECT set_config('request.jwt.claims', '{}', true);
+UPDATE public.projects SET deleted_at = now() WHERE id = 'aaaa1370-0000-0000-0000-0000000000e0';
+SELECT is(public.t137_gen('13700000-0000-0000-0000-0000000000f3'), 4, 'a project in the trash renames its boards');
+UPDATE public.projects SET deleted_at = NULL WHERE id = 'aaaa1370-0000-0000-0000-0000000000e0';
 
 -- ── D. Messages ─────────────────────────────────────────────────────────────
 SELECT public.t137_as('cccccccc-cccc-cccc-cccc-cccccccccccc', 'user');

@@ -125,6 +125,8 @@ CREATE TABLE IF NOT EXISTS public.board_elements (
   to_id         UUID,
   to_anchor     TEXT,
   version       BIGINT NOT NULL DEFAULT 1,
+  -- The points' and words' size as written (not as stored, which is compressed): every byte bound reads it.
+  bytes         INTEGER NOT NULL DEFAULT 0,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   created_by    UUID,
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -149,7 +151,7 @@ CREATE TABLE IF NOT EXISTS public.board_elements (
   CONSTRAINT board_elements_style_chk CHECK (jsonb_typeof(style) = 'object' AND pg_column_size(style) <= 4096),
   CONSTRAINT board_elements_body_chk CHECK (body IS NULL OR char_length(body) <= 10000),
   CONSTRAINT board_elements_points_chk CHECK (points IS NULL
-    OR (jsonb_typeof(points) = 'array' AND pg_column_size(points) <= 262144)),
+    OR (jsonb_typeof(points) = 'array' AND octet_length(points::text) <= 262144)),
   -- Only a sticky, a medium and an embed hold a file; only a connector has ends. A placed file may later go
   -- (ON DELETE SET NULL): that is the stop-sign tile, so the check asks only that no other kind holds one.
   CONSTRAINT board_elements_file_kind_chk CHECK (file_id IS NULL OR kind IN ('sticky', 'media', 'embed')),
@@ -163,9 +165,6 @@ CREATE TABLE IF NOT EXISTS public.board_elements (
 );
 CREATE INDEX IF NOT EXISTS board_elements_board_idx ON public.board_elements (board_id, z, id);
 CREATE INDEX IF NOT EXISTS board_elements_file_idx ON public.board_elements (file_id) WHERE file_id IS NOT NULL;
--- One sticky a file (0133's turn is the sticky's, so one file has one turn).
-CREATE UNIQUE INDEX IF NOT EXISTS board_elements_sticky_file_uniq ON public.board_elements (file_id)
-  WHERE kind = 'sticky' AND file_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS board_elements_from_idx ON public.board_elements (from_id, board_id) WHERE from_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS board_elements_to_idx ON public.board_elements (to_id, board_id) WHERE to_id IS NOT NULL;
 
@@ -331,6 +330,9 @@ BEGIN
   IF v_ws IS NULL THEN
     RAISE EXCEPTION 'board not found' USING ERRCODE = '42501';
   END IF;
+  IF NEW.kind = 'sticky' AND NEW.body IS NOT NULL THEN
+    RAISE EXCEPTION 'A sticky''s words live in its file.' USING ERRCODE = '22023';
+  END IF;
 
   IF TG_OP = 'UPDATE' THEN
     IF NEW.id IS DISTINCT FROM OLD.id OR NEW.board_id IS DISTINCT FROM OLD.board_id
@@ -364,6 +366,19 @@ BEGIN
           RAISE EXCEPTION 'A sticky or a dropped file lives in the board''s own folder.' USING ERRCODE = '22023';
         END IF;
       END IF;
+      IF NEW.kind = 'sticky' THEN
+        IF NOT EXISTS (SELECT 1 FROM public.files f WHERE f.id = NEW.file_id
+                        AND (f.mime_type = 'text/markdown' OR lower(f.name) LIKE '%.md')) THEN
+          RAISE EXCEPTION 'A sticky is a markdown note.' USING ERRCODE = '22023';
+        END IF;
+        -- One note, one sticky on its board: two placements would be two turns over one file's words. A sticky
+        -- left behind on a board its file has moved from does not count (it saves nothing, 0133).
+        PERFORM pg_advisory_xact_lock(hashtextextended('moth-sticky-file:' || NEW.file_id::text, 0));
+        IF EXISTS (SELECT 1 FROM public.board_elements x JOIN public.boards b ON b.id = x.board_id
+                    WHERE x.file_id = NEW.file_id AND x.kind = 'sticky' AND b.folder_id = v_file_dir) THEN
+          RAISE EXCEPTION 'This note is already a sticky on its board.' USING ERRCODE = '23505';
+        END IF;
+      END IF;
     END IF;
   END IF;
 
@@ -373,9 +388,7 @@ BEGIN
   IF NOT rabbit_private.board_points_ok(NEW.kind, NEW.points) THEN
     RAISE EXCEPTION 'Those points are not a drawing a board knows.' USING ERRCODE = '22023';
   END IF;
-  IF NEW.kind = 'sticky' AND NEW.body IS NOT NULL THEN
-    RAISE EXCEPTION 'A sticky''s words live in its file.' USING ERRCODE = '22023';
-  END IF;
+  NEW.bytes := octet_length(COALESCE(NEW.points::text, '')) + octet_length(COALESCE(NEW.body, ''));
   RETURN NEW;
 END;
 $$;
@@ -415,7 +428,13 @@ BEGIN
   -- 0131's moth_move_folders binds wilson.folder_op = 'move' for its own transaction, after its own checks.
   IF NEW.parent_id IS DISTINCT FROM OLD.parent_id
      AND COALESCE(current_setting('wilson.folder_op', true), '') <> 'move'
-     AND EXISTS (SELECT 1 FROM public.boards b WHERE b.folder_id = OLD.id) THEN
+     AND EXISTS (
+       WITH RECURSIVE below (id, depth) AS (
+         SELECT OLD.id, 1
+         UNION ALL
+         SELECT c.id, below.depth + 1 FROM below JOIN public.folders c ON c.parent_id = below.id WHERE below.depth < 64
+       )
+       SELECT 1 FROM below JOIN public.boards b ON b.folder_id = below.id) THEN
     RAISE EXCEPTION 'A board moves through Move to.' USING ERRCODE = '42501';
   END IF;
   RETURN NEW;
@@ -657,7 +676,7 @@ BEGIN
   FOR e IN SELECT * FROM public.board_elements x
              WHERE x.board_id = v_b.id AND (v_aid IS NULL OR (x.z, x.id) > (v_az, v_aid))
              ORDER BY x.z, x.id LOOP
-    v_size := COALESCE(pg_column_size(e.points), 0) + COALESCE(pg_column_size(e.body), 0) + 256;
+    v_size := e.bytes + 256;
     IF cardinality(v_els) > 0 AND (cardinality(v_els) >= 2000 OR v_bytes + v_size > 8388608) THEN
       v_next := jsonb_build_object('z', v_lz, 'id', v_lid);
       EXIT;
@@ -691,8 +710,8 @@ BEGIN
   IF v_b.id IS NULL THEN
     RAISE EXCEPTION 'board not found' USING ERRCODE = '42501';
   END IF;
-  IF p_ids IS NULL OR cardinality(p_ids) = 0 OR cardinality(p_ids) > 200 THEN
-    RAISE EXCEPTION 'One to 200 elements a read.' USING ERRCODE = '22023';
+  IF p_ids IS NULL OR cardinality(p_ids) = 0 OR cardinality(p_ids) > 50 THEN
+    RAISE EXCEPTION 'One to 50 elements a read.' USING ERRCODE = '22023';
   END IF;
   RETURN COALESCE((SELECT jsonb_agg(rabbit_private.board_element_json(e) ORDER BY e.z, e.id)
                      FROM public.board_elements e WHERE e.board_id = v_b.id AND e.id = ANY (p_ids)), '[]'::jsonb);
@@ -782,7 +801,7 @@ BEGIN
       IF v_el ? 'expect' THEN
         -- An undo of a removal brings an element back only if nobody made another under its id since.
         IF (v_el ->> 'expect')::bigint IS DISTINCT FROM 0 THEN
-          v_conf := v_conf || jsonb_build_object('id', v_id, 'version', NULL);
+          v_conf := v_conf || jsonb_build_object('id', COALESCE(v_asked, v_id), 'version', NULL);
           CONTINUE;
         END IF;
       END IF;
@@ -808,8 +827,7 @@ BEGIN
     RAISE EXCEPTION 'A board holds at most 5,000 elements.' USING ERRCODE = '54000';
   END IF;
   IF jsonb_array_length(v_saved) > 0
-     AND (SELECT COALESCE(sum(COALESCE(pg_column_size(x.points), 0) + COALESCE(pg_column_size(x.body), 0)), 0)
-            FROM public.board_elements x WHERE x.board_id = v_b.id) > 67108864 THEN
+     AND (SELECT COALESCE(sum(x.bytes), 0) FROM public.board_elements x WHERE x.board_id = v_b.id) > 67108864 THEN
     RAISE EXCEPTION 'A board holds at most 64 MB of drawing and words.' USING ERRCODE = '54000';
   END IF;
   IF jsonb_array_length(v_saved) > 0 THEN
