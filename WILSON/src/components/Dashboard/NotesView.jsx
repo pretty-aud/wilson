@@ -50,7 +50,7 @@ import { u8ToB64, b64ToU8, saveWithMerge, toPreview } from './noteSync'
 // DG1: the extension list lives in noteText.js, so D.O.G.'s note reader and
 // this editor are one definition (a note read for a deck is read exactly as
 // it is shown here).
-import { noteEditorExtensions } from './noteText'
+import { noteEditorExtensions, setSeenMentions } from './noteText'
 import {
   Badge, Banner, Button, Dialog, EmptyState, IconButton, Input, Loading,
   Select, useToast,
@@ -59,6 +59,8 @@ import {
 import { useMentionPicker } from '../../tools/rabbit_v0.1.0/components/mentions/useMentionPicker'
 import MentionPicker from '../../tools/rabbit_v0.1.0/components/mentions/MentionPicker'
 import ItemTags from '../../tools/rabbit_v0.1.0/components/mentions/ItemTags'
+import MentionedIn from '../../tools/rabbit_v0.1.0/components/mentions/MentionedIn'
+import { useItemLinks, linksByKey } from '../../tools/rabbit_v0.1.0/components/mentions/useItemLinks'
 import { mentionKeys, mentionPlainText } from '../../tools/rabbit_v0.1.0/state/mentionTokens'
 import { OPEN_DASHBOARD_NOTE, takePendingNote } from '../../tools/rabbit_v0.1.0/state/linkedThings'
 import './dashboard.css'
@@ -647,6 +649,15 @@ function NoteEditor({ note, nb, onDelete }) {
     },
   }, [ydoc])
   useEffect(() => { editor?.setEditable(canChange) }, [editor, canChange])
+  // MO3 (acceptance 5): a typed link is drawn as one only when this reader sees what it leads to; any other is its
+  // words alone, with no hint. Read again after a save sends the body's keys.
+  const itemLinks = useItemLinks(nb.getAdapter, 'note', note.id)
+  const seenKeys = useMemo(() => [...linksByKey(itemLinks.out).keys()].sort().join(','), [itemLinks.out])
+  useEffect(() => {
+    if (editor && docReady) setSeenMentions(editor, seenKeys ? seenKeys.split(',') : [])
+  }, [editor, docReady, seenKeys])
+  const reloadLinksRef = useRef(itemLinks.reload)
+  useEffect(() => { reloadLinksRef.current = itemLinks.reload }, [itemLinks.reload])
   // A pick replaces what was typed from where the asking began, in the block the caret is in.
   pickRef.current = async (index) => {
     if (!editor) return
@@ -713,7 +724,7 @@ function NoteEditor({ note, nb, onDelete }) {
       const said = keys.join(',')
       if (said !== lastKeysRef.current) {
         const sent = await nbRef.current.syncNoteMentions(note.id, res.version, keys)
-        if (sent) lastKeysRef.current = said
+        if (sent) { lastKeysRef.current = said; reloadLinksRef.current?.() }
       }
       if (mountedRef.current) setSaveState('saved')
     } catch {
@@ -994,6 +1005,8 @@ function NoteEditor({ note, nb, onDelete }) {
           <>
             <EditorContent editor={editor} />
             <MentionPicker picker={picker} onPick={(i) => pickRef.current?.(i)} id={`note-picker-${note.id}`} />
+            <MentionedIn links={itemLinks.out} title="Links" />
+            <MentionedIn links={itemLinks.in} />
           </>
         ) : (
           <Loading label="Loading this note" />

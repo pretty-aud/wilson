@@ -31,8 +31,10 @@
 // MO3 (0127): a typed link is TEXT in the body, [[words|m:key]], the form R.A.B.B.I.T.'s fields hold — never a
 // node or a mark. The Yjs binding deletes from the shared document any node or mark its schema does not know, so
 // a mention node would be erased (and the erasure saved) the first time a build without it opened the note; text
-// survives every build, an older one showing the token as typed. NoteMentions draws the words as a link and keeps
-// the brackets and key out of sight; a Backspace or Delete at a token's edge takes the whole token. The reader
+// survives every build, an older one showing the token as typed. NoteMentions draws the words as a link when its
+// reader sees what it leads to (setSeenMentions: the note's links as the server answers them for that reader), and
+// as its words alone otherwise, with no hint a link was there; the brackets and key are out of sight either way, and
+// a Backspace or Delete at a token's edge takes the whole token. The reader
 // gives the words alone (mentionPlainText): D.O.G. reads a note as its reader sees it, with no key.
 
 import * as Y from 'yjs'
@@ -64,19 +66,25 @@ function tokensIn(doc) {
 export const NoteMentions = Extension.create({
   name: 'noteMentions',
   addProseMirrorPlugins() {
-    const draw = (doc) => DecorationSet.create(doc, tokensIn(doc).flatMap(([from, to, wf, wt, key]) => [
+    const draw = (doc, seen) => DecorationSet.create(doc, tokensIn(doc).flatMap(([from, to, wf, wt, key]) => [
       Decoration.inline(from, wf, { class: 'note-mention-syntax' }),
-      Decoration.inline(wf, wt, { class: 'note-mention', 'data-key': key }),
+      Decoration.inline(wf, wt, seen.has(key) ? { class: 'note-mention', 'data-key': key } : { class: 'note-mention-plain' }),
       Decoration.inline(wt, to, { class: 'note-mention-syntax' }),
     ]))
     return [new Plugin({
       key: mentionsKey,
       state: {
-        init: (_, state) => draw(state.doc),
-        apply: (tr, old) => (tr.docChanged ? draw(tr.doc) : old),
+        // Until the reader's links are known, every token is its words alone.
+        init: (_, state) => ({ seen: new Set(), deco: draw(state.doc, new Set()) }),
+        apply: (tr, old) => {
+          const meta = tr.getMeta(mentionsKey)
+          if (!meta && !tr.docChanged) return old
+          const seen = meta?.seen ? new Set(meta.seen) : old.seen
+          return { seen, deco: draw(tr.doc, seen) }
+        },
       },
       props: {
-        decorations: (state) => mentionsKey.getState(state),
+        decorations: (state) => mentionsKey.getState(state)?.deco,
         // A token goes whole: Backspace at its end, or Delete at its start, takes it all.
         handleKeyDown: (view, event) => {
           if (event.key !== 'Backspace' && event.key !== 'Delete') return false
@@ -91,6 +99,15 @@ export const NoteMentions = Extension.create({
     })]
   },
 })
+
+/** MO3: the keys of the links this note's reader sees; every other token is drawn as its words alone. */
+export function setSeenMentions(editor, keys) {
+  try {
+    if (!editor || editor.isDestroyed) return
+    const view = editor.view
+    view.dispatch(view.state.tr.setMeta(mentionsKey, { seen: [...(keys || [])] }).setMeta('addToHistory', false))
+  } catch { /* not mounted yet: the next change of links draws them */ }
+}
 
 /** The note editor's extensions, over one Y.Doc. NotesView and the reader. */
 export function noteEditorExtensions(ydoc) {
