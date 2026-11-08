@@ -11,6 +11,10 @@
 //
 // Each project's read has its number, and only the newest may land: a read that comes back after a newer one
 // (a refresh after a move) is dropped. A failed read is kept apart from an empty one.
+//
+// MO3: the workspace's own rows, read once beside the projects and again on readWorkspace(): its notes (titles
+// and tiers), typed tags with their types' looks, the tag assignments the person sees, and the relationships whose
+// both ends they see (0125 to 0127). Each kind is read alone; a database without it has none of that kind.
 import { mothFileHidden } from './mothEligibility.js'
 import { catalogueSize } from '../engine/model.js'
 
@@ -34,6 +38,10 @@ export function createMothCatalogue({ adapter }) {
   let cachedCatalogue = null
   let cachedVersion = -1
   let destroyed = false
+  let workspace = { notes: [], mtags: [], assignments: [], relationships: [], truncated: false }
+  let workspaceAbsent = { notes: false, tags: false, links: false }
+  let workspaceError = null
+  let workspaceRead = 0
 
   const emit = () => {
     version++
@@ -121,6 +129,43 @@ export function createMothCatalogue({ adapter }) {
     emit()
   }
 
+  // MO3: one kind of the workspace's rows; absent where the database keeps none of it.
+  async function readKind(fn, fallback, kind) {
+    if (typeof fn !== 'function') { workspaceAbsent = { ...workspaceAbsent, [kind]: true }; return fallback }
+    try {
+      const out = await fn()
+      workspaceAbsent = { ...workspaceAbsent, [kind]: false }
+      return out || fallback
+    } catch (err) {
+      if (absent(err)) { workspaceAbsent = { ...workspaceAbsent, [kind]: true }; return fallback }
+      workspaceError = err?.message || String(err)
+      return fallback
+    }
+  }
+  async function readWorkspace() {
+    const asked = ++workspaceRead
+    workspaceError = null
+    const [notes, types, tags, assignments, links] = await Promise.all([
+      readKind(adapter.listMothNotes && (() => adapter.listMothNotes()), [], 'notes'),
+      readKind(adapter.listMothTagTypes && (() => adapter.listMothTagTypes()), [], 'tags'),
+      readKind(adapter.listMothTags && (() => adapter.listMothTags()), [], 'tags'),
+      readKind(adapter.listMothTagAssignments && (() => adapter.listMothTagAssignments()), [], 'tags'),
+      readKind(adapter.listMothRelationships && (() => adapter.listMothRelationships()), { links: [], truncated: false }, 'links'),
+    ])
+    if (destroyed || asked !== workspaceRead) return
+    const typeOf = new Map((types || []).map((ty) => [ty.id, ty]))
+    workspace = {
+      notes: notes || [],
+      mtags: (tags || []).map((tg) => ({ ...tg, shape: typeOf.get(tg.type_id)?.shape ?? 'circle', colour: typeOf.get(tg.type_id)?.colour ?? 'mist',
+        type_name: typeOf.get(tg.type_id)?.name ?? '' })),
+      types: types || [],
+      assignments: assignments || [],
+      relationships: links?.links || [],
+      truncated: links?.truncated === true,
+    }
+    emit()
+  }
+
   async function readMany(ids) {
     const queue = [...ids]
     const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
@@ -142,7 +187,7 @@ export function createMothCatalogue({ adapter }) {
           else if (s === 'failed') failed++
         }
         snapshot = {
-          version, islands, islandsFailed, itemsAbsent,
+          version, islands, islandsFailed, itemsAbsent, workspace, workspaceAbsent, workspaceError,
           ready, failed, total: list.length,
           complete: islands != null && ready + failed === list.length,
           project: (id) => projects.get(id) || null,
@@ -166,6 +211,7 @@ export function createMothCatalogue({ adapter }) {
       }
       if (destroyed) return
       islands = rows
+      readWorkspace()
       const keep = new Set(rows.map((r) => r.id))
       for (const id of [...projects.keys()]) if (!keep.has(id)) projects.delete(id)
       emit()
@@ -177,10 +223,13 @@ export function createMothCatalogue({ adapter }) {
       await readMany([...new Set(ids)].filter((id) => known.has(id)))
     },
     retryProject(id) { return readProject(id) },
+    /** MO3: the notes, typed tags, assignments and relationships, read again (after a link, a tag, a nomination). */
+    readWorkspace() { return readWorkspace() },
     /** The engine's catalogue (model.js), from every project read so far. Memoized per change. */
     catalogue() {
       if (cachedVersion === version && cachedCatalogue) return cachedCatalogue
-      const out = { islands: [], folders: {}, files: {}, items: {}, relations: [] }
+      const out = { islands: [], folders: {}, files: {}, items: {}, relations: [],
+        notes: workspace.notes, mtags: workspace.mtags, assignments: workspace.assignments }
       for (const isle of islands || []) {
         out.islands.push(isle)
         const p = projects.get(isle.id)
@@ -191,6 +240,10 @@ export function createMothCatalogue({ adapter }) {
         for (const l of p.links) {
           out.relations.push({ source: { kind: l.source_kind, id: l.source_id }, target: { kind: l.target_kind, id: l.target_id }, label: l.link ?? null })
         }
+      }
+      for (const l of workspace.relationships) {
+        out.relations.push({ source: { kind: l.source_kind, id: l.source_id }, target: { kind: l.target_kind, id: l.target_id },
+          label: l.label ?? null, relationship: l.id, origin: l.origin ?? null })
       }
       cachedCatalogue = out
       cachedVersion = version

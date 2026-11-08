@@ -70,8 +70,8 @@ BEGIN
       ('public.moth_tag_nominate(uuid,text)', 'da91fca89f14e7326ca1a55fbdecdc1b'),
       ('public.moth_tag_nomination_withdraw(uuid)', '8cb0f57feda72f7959df5ee385da5ea2'),
       ('public.moth_tag_nomination_decide(uuid,boolean,text)', 'cfc995cc96059aa288bc26091de025f4'),
-      ('public.moth_tag_merge(uuid,uuid)', 'e17990a0e83feed17ecc78c93e6b5e72'),
-      ('public.fn_moth_tags_gone()', '5bb42e6a5aa5836d30bafc8110fa7313')
+      ('public.moth_tag_merge(uuid,uuid)', '6dcc0114a77cf19ca8d083dd64bb4875'),
+      ('public.fn_moth_tags_gone()', '1b81c39eb034c22b888c7a5cc6034566')
     ) AS t(sig, now_is)
   LOOP
     IF to_regprocedure(v_fn.sig) IS NOT NULL
@@ -556,17 +556,19 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
-  -- A tag its owner removes takes its open nomination with it, as a withdrawal: the admins see what they would see
-  -- had the person withdrawn it, and nothing of why.
-  UPDATE public.moth_tag_nominations
-     SET status = 'withdrawn', updated_at = now()
-   WHERE tag_id = OLD.id AND workspace_id = OLD.workspace_id AND status = 'open';
-  RETURN OLD;
+  -- A tag its owner removes or retires takes its open nomination with it, as a withdrawal: the admins see what
+  -- they would see had the person withdrawn it, and nothing of why.
+  IF TG_OP = 'DELETE' OR (NEW.retired_at IS NOT NULL AND OLD.retired_at IS NULL) THEN
+    UPDATE public.moth_tag_nominations
+       SET status = 'withdrawn', updated_at = now()
+     WHERE tag_id = OLD.id AND workspace_id = OLD.workspace_id AND status = 'open';
+  END IF;
+  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
 END;
 $$;
 REVOKE EXECUTE ON FUNCTION public.fn_moth_tags_gone() FROM PUBLIC, anon, authenticated;
 DROP TRIGGER IF EXISTS trg_moth_tags_gone ON public.moth_tags;
-CREATE TRIGGER trg_moth_tags_gone BEFORE DELETE ON public.moth_tags
+CREATE TRIGGER trg_moth_tags_gone BEFORE DELETE OR UPDATE OF retired_at ON public.moth_tags
   FOR EACH ROW EXECUTE FUNCTION public.fn_moth_tags_gone();
 
 -- §6 Putting a tag forward, deciding, and merging --------------------------------------------------------
@@ -769,7 +771,9 @@ BEGIN
   -- One approval or merge at a time in a company, taken first, before any row: two of them never interleave, and
   -- never wait on each other in turn.
   PERFORM pg_advisory_xact_lock(hashtextextended('moth_tag_catalogue:' || v_ws::text, 0));
-  PERFORM 1 FROM public.moth_tags t WHERE t.id IN (p_from, p_into) AND t.workspace_id = v_ws ORDER BY t.id FOR UPDATE;
+  -- The two tags held for the merge, as a key share does not wait on: a person's assignment of either, its foreign
+  -- key checked, finishes first, and only then does the fold take the tags' own locks.
+  PERFORM 1 FROM public.moth_tags t WHERE t.id IN (p_from, p_into) AND t.workspace_id = v_ws ORDER BY t.id FOR NO KEY UPDATE;
   IF p_from IS NULL OR p_into IS NULL OR p_from = p_into
      OR (SELECT count(*) FROM public.moth_tags t
           WHERE t.id IN (p_from, p_into) AND t.workspace_id = v_ws AND t.tier = 'company' AND t.canonical_id IS NULL) <> 2
@@ -1075,8 +1079,8 @@ BEGIN
       ('public.moth_tag_nominate(uuid,text)', 'da91fca89f14e7326ca1a55fbdecdc1b', true, 'v'),
       ('public.moth_tag_nomination_withdraw(uuid)', '8cb0f57feda72f7959df5ee385da5ea2', true, 'v'),
       ('public.moth_tag_nomination_decide(uuid,boolean,text)', 'cfc995cc96059aa288bc26091de025f4', true, 'v'),
-      ('public.moth_tag_merge(uuid,uuid)', 'e17990a0e83feed17ecc78c93e6b5e72', true, 'v'),
-      ('public.fn_moth_tags_gone()', '5bb42e6a5aa5836d30bafc8110fa7313', true, 'v'),
+      ('public.moth_tag_merge(uuid,uuid)', '6dcc0114a77cf19ca8d083dd64bb4875', true, 'v'),
+      ('public.fn_moth_tags_gone()', '1b81c39eb034c22b888c7a5cc6034566', true, 'v'),
       ('public._moth_target_eligible(text,uuid,boolean)', 'd698cc503481bb497557ff247b3aab72', true, 's'),
       ('public.moth_put_positions(uuid,jsonb)', '6f1b63f36ec8b0839a8e775517a4aed6', true, 'v')
     ) AS t(sig, now_is, definer, volatility)

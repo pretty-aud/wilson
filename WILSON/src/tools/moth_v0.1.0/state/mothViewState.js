@@ -95,6 +95,8 @@ export function searchCatalogue(catalogue, words, { limit = 20, index = indexCat
 export const DOT_CHOICES = Object.freeze([
   ['project', 'Projects'], ['folder', 'Folders'], ['file', 'Files'], ['tag', 'Tags'],
   ...ITEM_KINDS.map((k) => [k, { phase: 'Phases', asset: 'Assets', task: 'Tasks', scene: 'Scenes', shot: 'Shots', level: 'Levels', experience: 'Experiences' }[k]]),
+  // MO3 (0125, 0126): the workspace's notes and typed tags, which belong to no project.
+  ['note', 'Notes'], ['mtag', 'Typed tags'],
 ])
 export const LINE_CHOICES = Object.freeze([['lives_in', 'Lives in'], ['tagged_with', 'Tagged with'], ['related_to', 'Related to']])
 

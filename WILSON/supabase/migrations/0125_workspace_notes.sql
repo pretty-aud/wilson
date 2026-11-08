@@ -11,20 +11,24 @@
 --   §1  notes.tier, O.T.T.E.R.'s three (0022): 'personal' (every note made before this file, and the default) is
 --       its owner's alone, as 0017 made it: no admin reads it. 'shared' is every active member's to read, and its
 --       owner's and the company's live admins' to change. 'company_standard' is a shared note the admins have made
---       the company's own; only a live admin sets or clears it. notes.deleted_at and deleted_by: the trash.
+--       the company's own; only a live admin sets, clears or changes it. notes.deleted_at and deleted_by: the trash.
 --   §2  fn_notes_guard: who and what a note is never changes (company, owner, maker); a version counts each change
 --       of the body by one, whoever saves, so two people's saves cannot skip or forge one (save-and-merge stays
---       0017's: UPDATE ... WHERE version = the one opened, then merge and retry); the tier moves only as §1 says;
---       the trash's stamp moves only through §4's two functions, and a note in the trash is not changed.
---   §3  The four policies, restated from 0017's: a personal note exactly as before (the owner, no admin leg); a
---       shared or company note to every active member, and while in the trash only to its owner and live admins.
---       A client deletes no note any more: deleting is §4's trash, and the purge is the only hard delete.
---   §4  note_trash(note) and note_restore(note): the owner, or a live admin for a note that is not personal; one
---       refusal for every other case, missing included. purge_trashed_notes(retention) after 30 days, nightly at
---       04:57 ('wilson-purge-notes').
+--       0017's: UPDATE ... WHERE version = the one opened, then merge and retry); the tier moves only as §1 says,
+--       only its owner makes a note private, and the company standard is changed by a live admin alone, each
+--       refusal in words; the trash's stamp moves only through §4's functions, and a note in the trash is not changed.
+--   §3  The four policies, restated from 0017's: a personal note as before (the owner, no admin leg), out of the
+--       trash; a shared or company note to every active member; a note in the trash to no one through the table
+--       (§4's note_trash_list is the trash's own read). Its owner and, once it is not personal, a live admin change a
+--       note, as §2 allows. A client deletes no note any more: deleting is §4's trash; the purge alone hard-deletes.
+--   §4  note_trash(note) and note_restore(note): the owner, or a live admin for a note that is not personal, the
+--       company standard a live admin's alone; one refusal for every other case, missing included. note_trash_list():
+--       what the caller may bring back. purge_trashed_notes(retention) after 30 days, nightly at 04:57
+--       ('wilson-purge-notes').
 --   §5  Moth's gate learns a note (_moth_target_eligible from 0124's body, moth_can_write_target from 0122's): a
 --       note of this company, not in the trash unless a definer asks for one, its owner's alone while personal
---       (no admin leg); changed by its owner, or by a live admin once it is not personal.
+--       (no admin leg); changed by its owner (the company standard by live admins alone), or by a live admin once it
+--       is not personal.
 --   §6  moth_notes(): the notes Moth may draw for the caller, their titles and tiers, never a body.
 --
 -- Notes stay off every realtime topic and out of the company takeout (handbook §14), and out of edit_history
@@ -70,7 +74,7 @@ BEGIN
   -- A function of this file's name already here must be this file's own.
   FOR v_fn IN
     SELECT * FROM (VALUES
-      ('public.fn_notes_guard()', '2ef693b84fbca54e624c3554a87d8a83'),
+      ('public.fn_notes_guard()', '765623b6ed512cb8fd71c306e94d8116'),
       ('public.note_trash(uuid)', '9eddfd55103f47cc8d5bb0676b947bfd'),
       ('public.note_restore(uuid)', 'd712e836803d06c6ccd18db6c2b91a07'),
       ('public.note_trash_list()', '46a3141474cc7f694645dabc2bbe17ef'),
@@ -164,11 +168,19 @@ BEGIN
   IF OLD.deleted_at IS NOT NULL THEN
     RAISE EXCEPTION 'A note in the trash is brought back before it is changed.' USING ERRCODE = '42501';
   END IF;
+  -- The company standard is the live admins' to change: an owner who is not one is told so, in words.
+  IF OLD.tier = 'company_standard' AND NOT public.is_live_workspace_admin(OLD.workspace_id) THEN
+    RAISE EXCEPTION 'Only a workspace admin changes the company standard.' USING ERRCODE = '42501';
+  END IF;
 
   -- One version more for each change of the body, whoever saves it; a change of anything else keeps it.
   NEW.version := CASE WHEN NEW.ydoc_state IS DISTINCT FROM OLD.ydoc_state THEN OLD.version + 1 ELSE OLD.version END;
 
   IF NEW.tier IS DISTINCT FROM OLD.tier THEN
+    -- Only its owner makes a note private: an admin who did would take it from everyone but its owner.
+    IF NEW.tier = 'personal' AND OLD.owner_id IS DISTINCT FROM v_me THEN
+      RAISE EXCEPTION 'Only its owner shares a note, or makes it private again.' USING ERRCODE = '42501';
+    END IF;
     IF 'company_standard' IN (NEW.tier, OLD.tier) THEN
       IF NOT public.is_live_workspace_admin(OLD.workspace_id) THEN
         RAISE EXCEPTION 'Only a workspace admin makes a note the company standard, or takes it back.' USING ERRCODE = '42501';
@@ -209,20 +221,18 @@ CREATE POLICY notes_insert ON public.notes
     AND owner_id = auth.uid()
   );
 
--- The owner changes their own, unless it is the company's standard; a live admin changes any note that is not
--- personal. WITH CHECK asks the same of the new row, so an admin cannot make someone else's note personal (and so
--- their own), and the standard stays the live admins' to change.
+-- The owner changes their own; a live admin changes a note that is not personal. WITH CHECK asks the same of the
+-- new row. The company standard is the live admins' alone to change, and fn_notes_guard says so in words to an
+-- owner who is not one (a policy that left the row out would say nothing: the second look on round A).
 CREATE POLICY notes_update ON public.notes
   FOR UPDATE USING (
     workspace_id = public.current_workspace_id()
     AND public.has_active_membership(workspace_id)
-    AND ((owner_id = auth.uid() AND tier <> 'company_standard')
-         OR (tier <> 'personal' AND public.is_live_workspace_admin(workspace_id)))
+    AND (owner_id = auth.uid() OR (tier <> 'personal' AND public.is_live_workspace_admin(workspace_id)))
   ) WITH CHECK (
     workspace_id = public.current_workspace_id()
     AND public.has_active_membership(workspace_id)
-    AND ((owner_id = auth.uid() AND tier <> 'company_standard')
-         OR (tier <> 'personal' AND public.is_live_workspace_admin(workspace_id)))
+    AND (owner_id = auth.uid() OR (tier <> 'personal' AND public.is_live_workspace_admin(workspace_id)))
   );
 
 -- No DELETE policy, and no DELETE grant: a note goes to the trash (§4), and only the purge removes one.
@@ -541,7 +551,7 @@ DECLARE
 BEGIN
   FOR v_fn IN
     SELECT * FROM (VALUES
-      ('public.fn_notes_guard()', '2ef693b84fbca54e624c3554a87d8a83', false, '{search_path=public}'),
+      ('public.fn_notes_guard()', '765623b6ed512cb8fd71c306e94d8116', false, '{search_path=public}'),
       ('public.note_trash(uuid)', '9eddfd55103f47cc8d5bb0676b947bfd', true, '{search_path=public}'),
       ('public.note_restore(uuid)', 'd712e836803d06c6ccd18db6c2b91a07', true, '{search_path=public}'),
       ('public.note_trash_list()', '46a3141474cc7f694645dabc2bbe17ef', true, '{search_path=public}'),

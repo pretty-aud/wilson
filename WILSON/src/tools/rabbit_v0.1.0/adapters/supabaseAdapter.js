@@ -4433,6 +4433,10 @@ export function supabaseAdapter() {
     },
     // 0125: who may read a note. personal (its owner's alone), shared (every active member's) or company_standard
     // (set, cleared and changed by a live admin only). The guard says no in words, and the words reach the caller.
+    async notesHaveTiers() {
+      const client = await requireClient();
+      try { return await notesTiersAvailable(client); } catch { return false; }
+    },
     async setNoteTier(id, tier) {
       return patchRow('notes', id, { tier });
     },
@@ -4513,13 +4517,20 @@ export function supabaseAdapter() {
     // an option must re-tag the owner's notes or they silently fall out of
     // the renamed filter/group (review finding). RLS owner-scopes the
     // UPDATE for free. Returns the re-tagged note ids.
+    // 0125 (the second look on round A): a subject is its owner's, so only the renamer's own notes are re-tagged,
+    // never another member's shared note an admin may now change; and the company standard is left as it is.
     async retagNoteSubject(oldLabel, newLabel) {
       const client = await requireClient();
-      const { data, error } = await client
+      const tiers = await notesTiersAvailable(client);
+      let q = client
         .from('notes')
         .update({ subject: newLabel })
-        .eq('subject', oldLabel)
-        .select('id');
+        .eq('subject', oldLabel);
+      if (tiers) {
+        const { data: sess } = await client.auth.getSession();
+        q = q.eq('owner_id', sess?.session?.user?.id ?? '00000000-0000-0000-0000-000000000000').neq('tier', 'company_standard');
+      }
+      const { data, error } = await q.select('id');
       if (error) {
         if (error.code === '42P01' || error.code === 'PGRST205') return [];
         lastError = error.message || String(error);

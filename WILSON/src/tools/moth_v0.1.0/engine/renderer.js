@@ -35,7 +35,28 @@ import { TYPE, FONT_SANS, SIGNAL } from '../../../ui/tokens.js'
 const KIND_CODE = Object.freeze({
   project: 0, folder: 1, file: 2, tag: 3,
   phase: 4, asset: 5, task: 6, scene: 7, shot: 8, level: 9, experience: 10,
+  note: 11, mtag: 12,
 })
+// MO3: a dot's outline. Every kind is a circle but a note (a square) and a typed tag (its type's shape).
+const SHAPE_CODE = Object.freeze({ circle: 0, square: 1, diamond: 2, triangle: 3, hexagon: 4, star: 5 })
+
+/** One dot's outline into the current path, from its centre and radius. */
+export function traceShape(ctx, shape, x, y, r) {
+  if (!shape) { ctx.moveTo(x + r, y); ctx.arc(x, y, r, 0, 2 * Math.PI); return }
+  const poly = (pts) => { ctx.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]); ctx.closePath() }
+  const ring = (n, rr, turn = -Math.PI / 2) => Array.from({ length: n }, (_, i) => [x + rr * Math.cos(turn + (2 * Math.PI * i) / n), y + rr * Math.sin(turn + (2 * Math.PI * i) / n)])
+  if (shape === SHAPE_CODE.square) { const s = r * 0.9; poly([[x - s, y - s], [x + s, y - s], [x + s, y + s], [x - s, y + s]]); return }
+  if (shape === SHAPE_CODE.diamond) { poly([[x, y - r * 1.2], [x + r * 1.2, y], [x, y + r * 1.2], [x - r * 1.2, y]]); return }
+  if (shape === SHAPE_CODE.triangle) { poly(ring(3, r * 1.25)); return }
+  if (shape === SHAPE_CODE.hexagon) { poly(ring(6, r * 1.1, 0)); return }
+  if (shape === SHAPE_CODE.star) {
+    const outer = ring(5, r * 1.3)
+    const inner = ring(5, r * 0.55, -Math.PI / 2 + Math.PI / 5)
+    poly(outer.flatMap((pt, i) => [pt, inner[i]]))
+    return
+  }
+  ctx.moveTo(x + r, y); ctx.arc(x, y, r, 0, 2 * Math.PI)
+}
 const CONTAINER = new Set(CONTAINER_KINDS)
 
 /** The defaults the page overrides from its Settings; type and the selection come from the kit. */
@@ -43,7 +64,9 @@ export const DEFAULT_PALETTE = Object.freeze({
   // By KIND_CODE: the hierarchy in whites, a tag in the light's own warmth, and each kind of item a pale tint
   // of its own, so the world stays airy and a dot's kind still reads at a glance.
   dot: Object.freeze(['#ffffff', '#f4f1ea', '#d9d6cf', '#ffd28a',
-    '#c9d6ff', '#ffc9e0', '#c8f0d8', '#ffe3b8', '#ffd9a8', '#d8c8ff', '#bfeff0']),
+    '#c9d6ff', '#ffc9e0', '#c8f0d8', '#ffe3b8', '#ffd9a8', '#d8c8ff', '#bfeff0',
+    // MO3: a note in paper's warm white; a typed tag in its type's colour, this one only when it has none.
+    '#fff7e6', '#dfe6ee']),
   edge: Object.freeze(['rgba(255,255,255,0.22)', 'rgba(255,210,138,0.20)', 'rgba(170,200,255,0.26)']), // by EDGE_CODE
   cluster: 'rgba(244,241,234,0.75)',
   clusterText: '#000000',
@@ -131,7 +154,7 @@ export function createRenderer({
       n: 0, ids: [], index: new Map(), xy: new Float32Array(0), r: new Float32Array(0), placed: new Uint8Array(0),
       kindCode: new Uint8Array(0), container: new Uint8Array(0), collapsed: new Uint8Array(0), dim: new Uint8Array(0),
       label: [], count: new Uint32Array(0), priority: new Float32Array(0),
-      colour: new Uint16Array(0), colours: [],
+      colour: new Uint16Array(0), colours: [], shape: new Uint8Array(0),
       m: 0, ends: new Uint32Array(0), kind: new Uint8Array(0),
     }
   }
@@ -263,8 +286,7 @@ export function createRenderer({
           const i = D.index[d]
           if (scene.colour[i] !== ci || scene.dim[i] !== dim) continue
           if (!any) { ctx.beginPath(); any = true }
-          ctx.moveTo(D.x[d] + D.r[d], D.y[d])
-          ctx.arc(D.x[d], D.y[d], D.r[d], 0, 2 * Math.PI)
+          traceShape(ctx, scene.shape[i], D.x[d], D.y[d], D.r[d])
         }
         if (any) {
           ctx.globalAlpha = dim ? p.dimAlpha : 1
@@ -379,13 +401,14 @@ export function createRenderer({
       kindCode: new Uint8Array(n), container: new Uint8Array(n), collapsed: new Uint8Array(n), dim: new Uint8Array(n),
       label: new Array(n), count: new Uint32Array(n), priority: new Float32Array(n),
       m: 0, ends: null, kind: null,
-      colour: new Uint16Array(n), colours: [],
+      colour: new Uint16Array(n), colours: [], shape: new Uint8Array(n),
     }
     paint(s, graph)
     graph.nodes.forEach((node, i) => {
       s.index.set(node.id, i)
       s.r[i] = radiusOf(node)
       s.kindCode[i] = KIND_CODE[node.kind] ?? KIND_CODE.file
+      s.shape[i] = node.kind === 'note' ? SHAPE_CODE.square : node.kind === 'mtag' ? (SHAPE_CODE[node.shape] ?? 0) : 0
       s.container[i] = CONTAINER.has(node.kind) ? 1 : 0
       s.collapsed[i] = node.collapsed ? 1 : 0
       s.dim[i] = node.dim ? 1 : 0
@@ -431,6 +454,8 @@ export function createRenderer({
     const at = new Map()
     graph.nodes.forEach((node, i) => {
       let c = colourOf ? colourOf(node) : null
+      // A typed tag's own colour (its type's), when colour by gives none.
+      if ((typeof c !== 'string' || !c) && node.kind === 'mtag' && typeof node.colour === 'string') c = node.colour
       if (typeof c !== 'string' || !c) c = palette.dot[KIND_CODE[node.kind] ?? KIND_CODE.file] ?? palette.dot[KIND_CODE.file]
       let k = at.get(c)
       if (k === undefined) { k = colours.length; colours.push(c); at.set(c, k) }

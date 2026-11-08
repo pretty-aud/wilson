@@ -42,7 +42,7 @@ import { useEditor, EditorContent } from '@tiptap/react'
 import {
   Plus, Trash2, Bold, Underline as UnderlineIcon, Heading1, Heading2,
   List, Link2, Link2Off, CloudOff, StickyNote, Settings2, X, Check,
-  AlertTriangle,
+  AlertTriangle, RotateCcw,
 } from 'lucide-react'
 import { useNotes } from './useNotes'
 import { offlineSentence } from '../../cloud/ConnectionLostBanner'
@@ -53,11 +53,50 @@ import { u8ToB64, b64ToU8, saveWithMerge, toPreview } from './noteSync'
 import { noteEditorExtensions } from './noteText'
 import {
   Badge, Banner, Button, Dialog, EmptyState, IconButton, Input, Loading,
-  Select,
+  Select, useToast,
 } from '../../ui'
+// MO3 (0126, 0127): `[[` and `#` in a note, its tags, and a note asked for from elsewhere.
+import { useMentionPicker } from '../../tools/rabbit_v0.1.0/components/mentions/useMentionPicker'
+import MentionPicker from '../../tools/rabbit_v0.1.0/components/mentions/MentionPicker'
+import ItemTags from '../../tools/rabbit_v0.1.0/components/mentions/ItemTags'
+import { mentionKeys, mentionPlainText } from '../../tools/rabbit_v0.1.0/state/mentionTokens'
+import { OPEN_DASHBOARD_NOTE, takePendingNote } from '../../tools/rabbit_v0.1.0/state/linkedThings'
 import './dashboard.css'
 
 const SAVE_DEBOUNCE_MS = 1200
+
+// MO3 (0125): who reads a note, in words.
+const TIER_WORDS = Object.freeze({
+  personal: 'Only me',
+  shared: 'Shared with the company',
+  company_standard: 'Company standard',
+})
+const SCOPES = [['mine', 'Mine'], ['shared', 'Shared'], ['trash', 'Trash']]
+
+// The kit toast stack, or nothing where no ToastProvider is mounted (a test that mounts the tab alone).
+function useOptionalToast() {
+  try { return useToast() } catch { return null }
+}
+
+// May the signed-in person change this note? Its owner may, unless it is the company standard; a live admin may
+// change any note that is not personal. Before 0125 every note listed is one's own.
+export function noteMayChange(note, { tiers, userId, isAdmin }) {
+  if (!tiers) return true
+  const tier = note?.tier || 'personal'
+  const mine = !note?.owner_id || note.owner_id === userId
+  return (mine && tier !== 'company_standard') || (tier !== 'personal' && !!isAdmin)
+}
+
+// The tiers this person may move the note to (its own tier always shown).
+export function tierOptions(note, { userId, isAdmin }) {
+  const tier = note?.tier || 'personal'
+  const mine = !note?.owner_id || note.owner_id === userId
+  const offer = new Set([tier])
+  if (mine && tier !== 'company_standard') { offer.add('personal'); offer.add('shared') }
+  if (isAdmin && (tier !== 'personal' || mine)) { offer.add('shared'); offer.add('company_standard') }
+  if (isAdmin && tier === 'company_standard') offer.add('shared')
+  return ['personal', 'shared', 'company_standard'].filter(x => offer.has(x)).map(value => ({ value, label: TIER_WORDS[value] }))
+}
 
 const SORTS = [
   { value: 'updated_at', label: 'Updated' },
@@ -125,6 +164,21 @@ export default function NotesView() {
   const [manageSubjects, setManageSubjects] = useState(false)
   // The note the delete Dialog is asking about (W9). Null when it is closed.
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
+  const toast = useOptionalToast()
+  // MO3: a note asked for from elsewhere (a typed link, M.O.T.H.): looked for in one's own, then in the shared.
+  const [wantedId, setWantedId] = useState(() => takePendingNote())
+  useEffect(() => {
+    const onOpen = () => { const id = takePendingNote(); if (id) setWantedId(id) }
+    window.addEventListener(OPEN_DASHBOARD_NOTE, onOpen)
+    return () => window.removeEventListener(OPEN_DASHBOARD_NOTE, onOpen)
+  }, [])
+  const { notes: listed, loading: listLoading, scope, setScope, tiers } = nb
+  useEffect(() => {
+    if (!wantedId || listLoading) return
+    if (listed.some(n => n.id === wantedId)) { setSelectedId(wantedId); setWantedId(null); return }
+    if (tiers && scope === 'mine') { setScope('shared'); return }
+    setWantedId(null)
+  }, [wantedId, listed, listLoading, scope, setScope, tiers])
 
   const visible = useMemo(() => {
     let rows = nb.notes
@@ -175,12 +229,28 @@ export default function NotesView() {
   // Dialog, each lane converting its own as it passes. The warning this one
   // carries is not boilerplate — notes have no trash and no history — so the
   // copy is kept word for word and the button takes the danger variant.
+  // MO3 (0125): where the database keeps a trash, deleting is the trash, with an Undo here and a way back from the
+  // Trash scope for 30 days.
   const handleDelete = useCallback(async (id) => {
     try {
       await nb.deleteNote(id)
       setSelectedId(cur => (cur === id ? null : cur))
+      if (nb.tiers) {
+        toast?.push({
+          tone: 'info',
+          title: 'Moved to the trash',
+          body: 'It stays there 30 days.',
+          action: <Button size="sm" onClick={() => { nb.restoreNote(id).catch(() => {}) }}>Undo</Button>,
+        })
+      }
     } catch { /* surfaced via nb.error */ }
-  }, [nb])
+  }, [nb, toast])
+  const handleRestore = useCallback(async (id) => {
+    try {
+      await nb.restoreNote(id)
+      toast?.push({ tone: 'success', title: 'Brought back', body: 'It is with your notes again.' })
+    } catch { /* surfaced via nb.error */ }
+  }, [nb, toast])
 
   if (!nb.cloudReady) {
     return (
@@ -261,6 +331,22 @@ export default function NotesView() {
           />
         </div>
 
+        {nb.tiers && (
+          <div className="dash-notes-scopes" role="group" aria-label="Which notes">
+            {SCOPES.map(([id, label]) => (
+              <Button
+                key={id}
+                size="sm"
+                variant={nb.scope === id ? 'secondary' : 'ghost'}
+                aria-pressed={nb.scope === id ? 'true' : 'false'}
+                onClick={() => { setSelectedId(null); nb.setScope(id) }}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+        )}
+
         {manageSubjects && <SubjectManager nb={nb} />}
 
         {nb.error && (
@@ -281,9 +367,12 @@ export default function NotesView() {
             <EmptyState
               compact
               Icon={StickyNote}
-              title={nb.notes.length === 0 ? 'No notes yet' : 'No matches'}
+              title={nb.notes.length === 0
+                ? (nb.scope === 'trash' ? 'The trash is empty' : nb.scope === 'shared' ? 'No shared notes yet' : 'No notes yet')
+                : 'No matches'}
               body={nb.notes.length === 0
-                ? 'Create one to start writing.'
+                ? (nb.scope === 'trash' ? 'A note you delete waits here 30 days.'
+                  : nb.scope === 'shared' ? 'A note its owner shares with the company shows here.' : 'Create one to start writing.')
                 : 'No note matches the current filter.'}
             />
           ) : groups.map(group => (
@@ -312,6 +401,7 @@ export default function NotesView() {
                     >
                       <span className="dash-note-row-title">{n.title || 'Untitled note'}</span>
                       <span className="dash-note-row-meta">
+                        {nb.tiers && n.tier && n.tier !== 'personal' && <Badge>{TIER_WORDS[n.tier]}</Badge>}
                         {n.subject && <Badge>{n.subject}</Badge>}
                         <span className="dash-note-date">{fmtDate(n.note_date)}</span>
                       </span>
@@ -329,7 +419,18 @@ export default function NotesView() {
 
       {/* ── Right: editor ── */}
       <div className="dash-notes-editor">
-        {selected ? (
+        {selected && nb.scope === 'trash' ? (
+          // A note in the trash is read here and brought back; it is not changed until it is back.
+          <div className="dash-editor dash-note-trashed">
+            <div className="dash-note-head">
+              <span className="dash-note-title-static">{selected.title || 'Untitled note'}</span>
+              <Button size="sm" variant="primary" onClick={() => handleRestore(selected.id)}>
+                <RotateCcw aria-hidden="true" /> Bring back
+              </Button>
+            </div>
+            <p className="dash-note-trashed-preview">{selected.body_preview || 'This note is empty.'}</p>
+          </div>
+        ) : selected ? (
           <NoteEditor
             key={selected.id}
             note={selected}
@@ -348,7 +449,7 @@ export default function NotesView() {
       {confirmDeleteId && (
         <Dialog
           width="confirm"
-          title="Delete this note permanently?"
+          title={nb.tiers ? 'Move this note to the trash?' : 'Delete this note permanently?'}
           onClose={() => setConfirmDeleteId(null)}
           footer={(
             <>
@@ -361,12 +462,12 @@ export default function NotesView() {
                   handleDelete(id)
                 }}
               >
-                Delete note
+                {nb.tiers ? 'Move to trash' : 'Delete note'}
               </Button>
             </>
           )}
         >
-          Notes have no trash.
+          {nb.tiers ? 'You can bring it back from the trash for 30 days.' : 'Notes have no trash.'}
         </Dialog>
       )}
     </div>
@@ -512,14 +613,51 @@ function NoteEditor({ note, nb, onDelete }) {
   // (review finding C6). Route access through a ref instead.
   const nbRef = useRef(nb)
   useEffect(() => { nbRef.current = nb }, [nb])
+  // MO3 (0125): a note one may not change opens to read.
+  const canChange = noteMayChange(note, nb)
+  const tier = note.tier || 'personal'
+  // MO3 (0126, 0127): `[[` and `#` in the body. The picker is read through a ref by the editor's key handler,
+  // which TipTap keeps from the editor's first render.
+  const tagsRef = useRef(null)
+  const picker = useMentionPicker({ getAdapter: nb.getAdapter, target: { kind: 'note', id: note.id }, onTagged: () => tagsRef.current?.reload() })
+  const pickerRef = useRef(picker)
+  useEffect(() => { pickerRef.current = picker }, [picker])
+  const pickRef = useRef(null)
+  const lastKeysRef = useRef(null)
 
   const editor = useEditor({
     // v3 traps (undoRedo off with Collaboration; Underline and Link in the
     // StarterKit) are stated with the list, in noteText.js.
     extensions: noteEditorExtensions(ydoc),
-    editable: true,
+    editable: canChange,
     shouldRerenderOnTransaction: true, // toolbar active-states need it
+    // The picker takes its keys first while its list is open.
+    editorProps: {
+      handleKeyDown: (_view, event) => {
+        const took = pickerRef.current?.keyDown(event)
+        if (took === 'pick') { pickRef.current?.(pickerRef.current.active); return true }
+        return took === 'handled'
+      },
+    },
+    // What is typed just before the caret, for `[[` and `#`.
+    onSelectionUpdate: ({ editor: ed }) => {
+      const { $from, empty } = ed.state.selection
+      if (!empty) { pickerRef.current?.close(); return }
+      pickerRef.current?.update($from.parent.textBetween(0, $from.parentOffset, undefined, '\ufffc'))
+    },
   }, [ydoc])
+  useEffect(() => { editor?.setEditable(canChange) }, [editor, canChange])
+  // A pick replaces what was typed from where the asking began, in the block the caret is in.
+  pickRef.current = async (index) => {
+    if (!editor) return
+    const res = await pickerRef.current.pick(index)
+    if (!res) return
+    const { $from } = editor.state.selection
+    const from = $from.pos - ($from.parentOffset - res.start)
+    const chain = editor.chain().focus().deleteRange({ from, to: $from.pos })
+    if (res.text) chain.insertContent(res.text)
+    chain.run()
+  }
 
   // Load the snapshot AFTER the editor exists, then start listening for
   // local changes. StrictMode-safe: the fetch is idempotent (applyUpdate
@@ -553,7 +691,7 @@ function NoteEditor({ note, nb, onDelete }) {
         encode: () => u8ToB64(Y.encodeStateAsUpdate(ydoc)),
         save: (b64, version) => nbRef.current.saveNoteDoc(note.id, {
           ydocState: b64,
-          bodyPreview: toPreview(editor?.getText?.() || ''),
+          bodyPreview: toPreview(mentionPlainText(editor?.getText?.() || '')),
           expectedVersion: version,
         }),
         fetchRemote: async () => {
@@ -567,8 +705,16 @@ function NoteEditor({ note, nb, onDelete }) {
       nbRef.current.reflectSaved(note.id, {
         version: res.version,
         updated_at: new Date().toISOString(),
-        body_preview: toPreview(editor?.getText?.() || ''),
+        body_preview: toPreview(mentionPlainText(editor?.getText?.() || '')),
       })
+      // 0127: the typed links the body now holds, sent with the version just saved (the server cannot read a
+      // Yjs document). Sent when they change, and once after the note is opened.
+      const keys = mentionKeys(editor?.getText?.() || '')
+      const said = keys.join(',')
+      if (said !== lastKeysRef.current) {
+        const sent = await nbRef.current.syncNoteMentions(note.id, res.version, keys)
+        if (sent) lastKeysRef.current = said
+      }
       if (mountedRef.current) setSaveState('saved')
     } catch {
       if (mountedRef.current) setSaveState('error')
@@ -687,9 +833,18 @@ function NoteEditor({ note, nb, onDelete }) {
           onCommit={() => commitTitle(titleDraft)}
           placeholder="Untitled note"
           aria-label="Note title"
+          disabled={!canChange}
         />
-        <IconButton icon={Trash2} size="sm" danger title="Delete note" onClick={onDelete} />
+        {canChange && <IconButton icon={Trash2} size="sm" danger title={nb.tiers ? 'Move to trash' : 'Delete note'} onClick={onDelete} />}
       </div>
+      {!canChange && (
+        <Banner tone="info">
+          {tier === 'company_standard'
+            ? "This is the company standard. You can read it; the company's admins change it."
+            : "You can read this note. Its owner and the company's admins change it."}
+        </Banner>
+      )}
+      <ItemTags ref={tagsRef} getAdapter={nb.getAdapter} kind="note" id={note.id} canChange={canChange} />
 
       <div className="dash-note-meta">
         <Select
@@ -699,6 +854,7 @@ function NoteEditor({ note, nb, onDelete }) {
           // could only ever swallow a legitimate retry after a failed write
           // (review round 2, finding 2).
           onChange={v => nb.patchNoteMeta(note.id, { subject: v || null }).catch(() => {})}
+          disabled={!canChange}
           placeholder="No subject"
           options={[
             ...nb.subjects.map(s => ({ value: s.label, label: s.label })),
@@ -723,7 +879,19 @@ function NoteEditor({ note, nb, onDelete }) {
             nb.patchNoteMeta(note.id, { note_date: v || null }).catch(() => {})
           }}
           aria-label="Note date"
+          disabled={!canChange}
         />
+        {nb.tiers && (
+          <Select
+            size="sm"
+            value={tier}
+            onChange={v => { if (v && v !== tier) nb.setNoteTier(note.id, v).catch(() => {}) }}
+            options={tierOptions(note, nb)}
+            disabled={tierOptions(note, nb).length < 2}
+            aria-label="Who reads this note"
+            title="Who reads this note"
+          />
+        )}
         <span className="dash-save-state" data-state={saveState}>
           {saveState === 'saving' ? 'Saving…'
             : saveState === 'dirty' ? 'Unsaved'
@@ -777,6 +945,13 @@ function NoteEditor({ note, nb, onDelete }) {
         </span>
       </div>
 
+      {/* MO3 (0125): plainly, what a shared note does when two people change it. */}
+      {nb.tiers && tier !== 'personal' && (
+        <p className="dash-note-merge-words">
+          Saved as you write. If someone else changes this note too, both changes are kept: they come together
+          when each of you saves. You will not see each other type.
+        </p>
+      )}
       {/* inline link URL entry (window.prompt is unavailable in Electron) */}
       {linkPanel !== null && (
         <div className="dash-link-panel" onKeyDownCapture={e => { if (e.key === 'Escape') setLinkPanel(null) }}>
@@ -816,7 +991,10 @@ function NoteEditor({ note, nb, onDelete }) {
             </Button>
           </div>
         ) : docReady ? (
-          <EditorContent editor={editor} />
+          <>
+            <EditorContent editor={editor} />
+            <MentionPicker picker={picker} onPick={(i) => pickRef.current?.(i)} id={`note-picker-${note.id}`} />
+          </>
         ) : (
           <Loading label="Loading this note" />
         )}

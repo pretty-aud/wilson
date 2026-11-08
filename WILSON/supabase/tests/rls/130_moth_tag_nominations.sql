@@ -16,7 +16,7 @@
 -- =============================================================================
 
 BEGIN;
-SELECT plan(52);
+SELECT plan(55);
 
 SELECT * FROM tests.rls_setup();
 
@@ -137,7 +137,8 @@ INSERT INTO public.moth_tags (id, workspace_id, type_id, tier, owner_id, label) 
   ('13000000-0000-0000-0000-0000000002a3', '11111111-1111-1111-1111-111111111111', '13000000-0000-0000-0000-0000000000a1', 'company', NULL, 'Retired'),
   ('13000000-0000-0000-0000-0000000001d1', '11111111-1111-1111-1111-111111111111', '13000000-0000-0000-0000-0000000000a1', 'personal', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'Mira'),
   ('13000000-0000-0000-0000-0000000001c3', '11111111-1111-1111-1111-111111111111', '13000000-0000-0000-0000-0000000000c8', 'personal', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'Harbour'),
-  ('13000000-0000-0000-0000-0000000001c4', '11111111-1111-1111-1111-111111111111', '13000000-0000-0000-0000-0000000000c9', 'personal', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'Mira3');
+  ('13000000-0000-0000-0000-0000000001c4', '11111111-1111-1111-1111-111111111111', '13000000-0000-0000-0000-0000000000c9', 'personal', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'Mira3'),
+  ('13000000-0000-0000-0000-0000000001c5', '11111111-1111-1111-1111-111111111111', '13000000-0000-0000-0000-0000000000c9', 'personal', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'Mira4');
 UPDATE public.moth_tags SET retired_at = now() WHERE id IN ('13000000-0000-0000-0000-0000000002a3', '13000000-0000-0000-0000-0000000001d1');
 INSERT INTO public.moth_tag_assignments (workspace_id, tag_id, tier, owner_id, target_type, target_id) VALUES
   ('11111111-1111-1111-1111-111111111111', '13000000-0000-0000-0000-0000000001c1', 'personal', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'asset', '13000000-0000-0000-0000-000000000051'),
@@ -233,7 +234,7 @@ SELECT is((SELECT label || ' | ' || tier || ' | ' || (type_id = '13000000-0000-0
   'Mira | company | true', 'a company "Mira" of the company type of that name');
 SELECT is((SELECT string_agg(right(id::text, 3) || ':' || COALESCE((canonical_id = current_setting('t130.tag')::uuid)::text, 'own'), ',' ORDER BY id)
              FROM public.moth_tags WHERE tier = 'personal'),
-  '191:own,1c1:true,1c2:own,1c3:own,1c4:own,1d1:own,1e1:true',
+  '191:own,1c1:true,1c2:own,1c3:own,1c4:own,1c5:own,1d1:own,1e1:true',
   'every exact match folds into it, of either type of that name; another label, another type''s name and a tag its owner retired do not');
 SELECT is((SELECT string_agg(owner_id::text || ':' || target_type || ':' || tier, ',' ORDER BY owner_id, target_type) FROM public.moth_tag_assignments
             WHERE tag_id = current_setting('t130.tag')::uuid),
@@ -268,10 +269,14 @@ SELECT throws_ok(format($$SELECT public.moth_tag_nomination_withdraw(%L)$$, publ
   '42501', 'That is not an open nomination of yours.', 'once');
 SELECT ok(public.moth_tag_nominate('13000000-0000-0000-0000-0000000001c4') IS NOT NULL, 'a member puts a third tag forward');
 SELECT lives_ok($$DELETE FROM public.moth_tags WHERE id = '13000000-0000-0000-0000-0000000001c4'$$, 'and deletes it');
+SELECT ok(public.moth_tag_nominate('13000000-0000-0000-0000-0000000001c5') IS NOT NULL, 'puts a fourth forward');
+SELECT lives_ok($$UPDATE public.moth_tags SET retired_at = now() WHERE id = '13000000-0000-0000-0000-0000000001c5'$$, 'and retires it');
 SELECT ok(public.moth_tag_nominate('13000000-0000-0000-0000-0000000001c3') IS NOT NULL, 'and puts a tag of a type of their own forward');
 SELECT public.t130_a();
 SELECT is((SELECT status FROM public.moth_tag_nominations WHERE label = 'Mira3'), 'withdrawn',
   'a deleted tag''s nomination reads as withdrawn, as if its proposer had withdrawn it');
+SELECT is((SELECT status FROM public.moth_tag_nominations WHERE label = 'Mira4'), 'withdrawn',
+  'and so does a retired one''s');
 SELECT set_config('t130.places', public.moth_tag_nomination_decide(public.t130_nom('cccccccc-cccc-cccc-cccc-cccccccccccc', 'Harbour'), true)::text, true);
 SELECT is((SELECT ty.name || ':' || ty.shape || ':' || ty.colour FROM public.moth_tags t JOIN public.moth_tag_types ty ON ty.id = t.type_id
             WHERE t.id = current_setting('t130.places')::uuid),

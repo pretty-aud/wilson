@@ -27,12 +27,70 @@
 // TipTap's default element is a detached <div>, which is enough; nothing is
 // attached to the page, and `injectCSS: false` keeps the reader from adding
 // TipTap's stylesheet to <head>. Browser (renderer) only, like NotesView.
+//
+// MO3 (0127): a typed link is TEXT in the body, [[words|m:key]], the form R.A.B.B.I.T.'s fields hold — never a
+// node or a mark. The Yjs binding deletes from the shared document any node or mark its schema does not know, so
+// a mention node would be erased (and the erasure saved) the first time a build without it opened the note; text
+// survives every build, an older one showing the token as typed. NoteMentions draws the words as a link and keeps
+// the brackets and key out of sight; a Backspace or Delete at a token's edge takes the whole token. The reader
+// gives the words alone (mentionPlainText): D.O.G. reads a note as its reader sees it, with no key.
 
 import * as Y from 'yjs'
 import { Editor } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import Collaboration from '@tiptap/extension-collaboration'
+import { Extension } from '@tiptap/core'
+import { Plugin, PluginKey } from '@tiptap/pm/state'
+import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import { b64ToU8 } from './noteSync'
+import { mentionPlainText } from '../../tools/rabbit_v0.1.0/state/mentionTokens'
+
+const TOKEN = /\[\[([^\][|\u0000-\u001f\u007f]{1,200})\|m:([0-9a-f]{12})\]\]/g
+const mentionsKey = new PluginKey('noteMentions')
+
+// Every whole token in a text node: [from, to, wordsFrom, wordsTo, key], in document positions.
+function tokensIn(doc) {
+  const out = []
+  doc.descendants((node, pos) => {
+    if (!node.isText || !node.text.includes('[[')) return
+    for (const m of node.text.matchAll(TOKEN)) {
+      const from = pos + m.index
+      out.push([from, from + m[0].length, from + 2, from + 2 + m[1].length, m[2]])
+    }
+  })
+  return out
+}
+
+export const NoteMentions = Extension.create({
+  name: 'noteMentions',
+  addProseMirrorPlugins() {
+    const draw = (doc) => DecorationSet.create(doc, tokensIn(doc).flatMap(([from, to, wf, wt, key]) => [
+      Decoration.inline(from, wf, { class: 'note-mention-syntax' }),
+      Decoration.inline(wf, wt, { class: 'note-mention', 'data-key': key }),
+      Decoration.inline(wt, to, { class: 'note-mention-syntax' }),
+    ]))
+    return [new Plugin({
+      key: mentionsKey,
+      state: {
+        init: (_, state) => draw(state.doc),
+        apply: (tr, old) => (tr.docChanged ? draw(tr.doc) : old),
+      },
+      props: {
+        decorations: (state) => mentionsKey.getState(state),
+        // A token goes whole: Backspace at its end, or Delete at its start, takes it all.
+        handleKeyDown: (view, event) => {
+          if (event.key !== 'Backspace' && event.key !== 'Delete') return false
+          const { empty, from } = view.state.selection
+          if (!empty) return false
+          const hit = tokensIn(view.state.doc).find(([a, b]) => (event.key === 'Backspace' ? b === from : a === from))
+          if (!hit) return false
+          view.dispatch(view.state.tr.delete(hit[0], hit[1]))
+          return true
+        },
+      },
+    })]
+  },
+})
 
 /** The note editor's extensions, over one Y.Doc. NotesView and the reader. */
 export function noteEditorExtensions(ydoc) {
@@ -42,11 +100,13 @@ export function noteEditorExtensions(ydoc) {
       link: { openOnClick: false },
     }),
     Collaboration.configure({ document: ydoc }),
+    NoteMentions,
   ]
 }
 
 /**
- * A note's whole text, from its stored Yjs state (`notes.ydoc_state`).
+ * A note's whole text, from its stored Yjs state (`notes.ydoc_state`), as its reader sees it: a typed link reads
+ * as its words alone (0127), with no key.
  * '' for an empty note (a NULL state is an empty document). Throws only if
  * the state is not a Yjs update, which a caller reports as "could not be read".
  *
@@ -63,7 +123,7 @@ export function noteTextFromState(b64) {
   })
   try {
     Y.applyUpdate(ydoc, b64ToU8(b64), 'remote-load')
-    return editor.getText()
+    return mentionPlainText(editor.getText())
   } finally {
     editor.destroy()
     ydoc.destroy()

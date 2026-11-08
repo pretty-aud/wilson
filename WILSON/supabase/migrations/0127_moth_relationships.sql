@@ -59,7 +59,7 @@ BEGIN
       ('rabbit_private.moth_mention_keys(text)', 'aafccce6188514d2f1fb4d8350739914'),
       ('rabbit_private.moth_mentions_apply(uuid,text,uuid,text,text[])', '8534ffe509197ca065a800c4ce82ed5a'),
       ('public.fn_moth_text_mentions()', 'd7abbd7c075bd8c67889463d3bced876'),
-      ('public.moth_mention_reserve(text,uuid)', '742ae84dd1973ef4db352241a45af878'),
+      ('public.moth_mention_reserve(text,uuid)', '9591fa857985d2a54cd4c7b644b327f1'),
       ('public.moth_note_mentions_sync(uuid,integer,text[])', 'e44bb8bf6854e288b12341fbf534d25a'),
       ('rabbit_private.moth_target_name(text,uuid)', 'db99af414ed349291318744aebbe9755'),
       ('public.moth_relationships_read()', 'ed91c90f3773aebf715b8a184e2c5c99'),
@@ -304,8 +304,8 @@ CREATE TABLE IF NOT EXISTS public.moth_mention_reservations (
     OR (used_kind IN ('project', 'phase', 'asset', 'file', 'task', 'scene', 'shot', 'level', 'experience', 'note')
         AND used_id IS NOT NULL AND used_field IN ('description', 'notes', 'body') AND used_at IS NOT NULL))
 );
--- The keys picked and not yet saved: each person's waiting ones, and the company's to clear after their day.
-CREATE INDEX IF NOT EXISTS moth_mention_reservations_by_idx ON public.moth_mention_reservations (created_by, created_at) WHERE used_kind IS NULL;
+-- Each person's keys of the last day (the 500), and the company's waiting ones to clear after their day.
+CREATE INDEX IF NOT EXISTS moth_mention_reservations_by_idx ON public.moth_mention_reservations (created_by, created_at);
 CREATE INDEX IF NOT EXISTS moth_mention_reservations_age_idx ON public.moth_mention_reservations (workspace_id, created_at) WHERE used_kind IS NULL;
 -- No client reads or writes a reservation: moth_mention_reserve makes one, and §3 gives it to the field that first
 -- saves it.
@@ -449,13 +449,14 @@ BEGIN
     RAISE EXCEPTION 'That is not something you can link to.' USING ERRCODE = '42501';
   END IF;
   -- Keys picked and never saved go after their day, a thousand at a time, as new ones are made. A key a field has
-  -- used stays that field's.
+  -- used stays that field's. Every key made in the last day counts against the 500, kept by a field or not, so
+  -- the kept ones grow by 500 a day at most.
   DELETE FROM public.moth_mention_reservations mr
    WHERE mr.ctid IN (SELECT x.ctid FROM public.moth_mention_reservations x
                       WHERE x.workspace_id = v_ws AND x.used_kind IS NULL AND x.created_at < now() - interval '1 day'
                       LIMIT 1000);
   IF (SELECT count(*) FROM public.moth_mention_reservations mr
-       WHERE mr.created_by = auth.uid() AND mr.used_kind IS NULL AND mr.created_at > now() - interval '1 day') >= 500 THEN
+       WHERE mr.created_by = auth.uid() AND mr.created_at > now() - interval '1 day') >= 500 THEN
     RAISE EXCEPTION 'Many links are waiting to be saved; save what you are writing first.' USING ERRCODE = '54000';
   END IF;
   v_key := left(replace(gen_random_uuid()::text, '-', ''), 12);
@@ -739,7 +740,7 @@ BEGIN
       ('rabbit_private.moth_mention_keys(text)', 'aafccce6188514d2f1fb4d8350739914', false),
       ('rabbit_private.moth_mentions_apply(uuid,text,uuid,text,text[])', '8534ffe509197ca065a800c4ce82ed5a', true),
       ('public.fn_moth_text_mentions()', 'd7abbd7c075bd8c67889463d3bced876', true),
-      ('public.moth_mention_reserve(text,uuid)', '742ae84dd1973ef4db352241a45af878', true),
+      ('public.moth_mention_reserve(text,uuid)', '9591fa857985d2a54cd4c7b644b327f1', true),
       ('public.moth_note_mentions_sync(uuid,integer,text[])', 'e44bb8bf6854e288b12341fbf534d25a', true),
       ('rabbit_private.moth_target_name(text,uuid)', 'db99af414ed349291318744aebbe9755', true),
       ('public.moth_relationships_read()', 'ed91c90f3773aebf715b8a184e2c5c99', false),

@@ -19,7 +19,14 @@
 //     items:     { [projectId]: [{ kind, id, name, parent_kind, parent_id,
 //                   updated_at }] },                                           // moth_project_items(p) (0122)
 //     relations: [{ source: { kind, id }, target: { kind, id }, label }],   // moth_project_links(p) (0122)
+//                                                                          // and moth_relationships_read() (0127)
+//     notes:     [{ id, title, tier, is_mine, updated_at }],                // moth_notes() (0125)
+//     mtags:     [{ id, label, tier, shape, colour }],                      // moth_tags with their types (0126)
+//     assignments: [{ tag_id, target_type, target_id, tier }],             // moth_tag_assignments (0126)
 //   }
+//
+// MO3: a workspace note ('note') and a typed tag ('mtag') belong to no project and float free, as a file tag's
+// dot does. A typed tag joins what it tags by a 'tagged with' line; a saved relationship is a 'related to' line.
 //
 // Items (MO2, 0122) are a project's phases, assets, tasks, scenes, shots,
 // levels and experiences. A phase may live in a parent phase and a shot in
@@ -55,7 +62,16 @@
 
 /** A project's own items (0122), in the order the view widget lists them. */
 export const ITEM_KINDS = Object.freeze(['phase', 'asset', 'task', 'scene', 'shot', 'level', 'experience'])
-export const NODE_KINDS = Object.freeze(['project', 'folder', 'file', 'tag', ...ITEM_KINDS])
+export const NODE_KINDS = Object.freeze(['project', 'folder', 'file', 'tag', ...ITEM_KINDS, 'note', 'mtag'])
+/** The dots that belong to no project and float free (layout's loose nodes). */
+export const LOOSE_KINDS = Object.freeze(['tag', 'note', 'mtag'])
+const LOOSE = new Set(LOOSE_KINDS)
+/** A typed tag type's named colours (0126's CHECK), as the world draws them. */
+export const MTAG_COLOURS = Object.freeze({
+  mist: '#dfe6ee', amber: '#ffd28a', rose: '#ffc9e0', violet: '#d8c8ff',
+  sky: '#c9e4ff', teal: '#bfeff0', lime: '#e4f5b8', sand: '#f1e3c8',
+})
+export const MTAG_SHAPES = Object.freeze(['circle', 'square', 'diamond', 'triangle', 'hexagon', 'star'])
 export const EDGE_KINDS = Object.freeze(['lives_in', 'tagged_with', 'related_to'])
 export const FOCUS_MAX_DEPTH = 2
 
@@ -114,6 +130,24 @@ export function indexCatalogue(catalogue) {
       id: nodeId('project', pid), kind: 'project', rowId: pid, projectId: pid,
       label: island.title ?? '', updatedAt: island.updated_at ?? null,
     })
+  }
+
+  // MO3: the workspace's notes and typed tags, each a row of its own with no project. A folded typed tag stands
+  // for another and is not a dot.
+  for (const nt of Array.isArray(catalogue?.notes) ? catalogue.notes : []) {
+    if (!nt || nt.id == null) continue
+    const id = nodeId('note', String(nt.id))
+    if (rows.has(id)) continue
+    rows.set(id, { id, kind: 'note', rowId: String(nt.id), projectId: null, label: nt.title || 'Untitled note',
+      updatedAt: nt.updated_at ?? null, tier: nt.tier ?? null, mine: nt.is_mine === true })
+  }
+  for (const tg of Array.isArray(catalogue?.mtags) ? catalogue.mtags : []) {
+    if (!tg || tg.id == null || tg.canonical_id != null) continue
+    const id = nodeId('mtag', String(tg.id))
+    if (rows.has(id)) continue
+    rows.set(id, { id, kind: 'mtag', rowId: String(tg.id), projectId: null, label: tg.label ?? '', updatedAt: null,
+      tier: tg.tier ?? null, shape: MTAG_SHAPES.includes(tg.shape) ? tg.shape : 'circle',
+      colour: MTAG_COLOURS[tg.colour] ?? MTAG_COLOURS.mist })
   }
 
   for (const pid of [...projectIds].sort()) {
@@ -327,6 +361,8 @@ export function buildGraph(catalogue, view, index = indexCatalogue(catalogue)) {
       updatedAt: row.updatedAt ?? null,
       mime: row.mime ?? null, sizeBytes: row.sizeBytes ?? null, fileKind: row.fileKind ?? null,
       tags: row.tags ?? [],
+      ...(row.kind === 'mtag' ? { shape: row.shape, colour: row.colour, tier: row.tier } : {}),
+      ...(row.kind === 'note' ? { tier: row.tier, mine: row.mine } : {}),
       dim: false,
     })
   }
@@ -364,6 +400,19 @@ export function buildGraph(catalogue, view, index = indexCatalogue(catalogue)) {
         }
         if (v.edgeKinds.has('tagged_with')) addEdge('tagged_with', r, T, null, false)
       }
+    }
+  }
+
+  // MO3: a typed tag joins each thing it tags that has a dot (or its closed container's).
+  if (included('mtag') && v.edgeKinds.has('tagged_with') && Array.isArray(catalogue?.assignments)) {
+    for (const a of catalogue.assignments) {
+      const T = nodeId('mtag', String(a?.tag_id))
+      if (!nodes.has(T)) continue
+      const end = endpoint({ kind: a.target_type, id: a.target_id }, rows, nodes)
+      if (end === undefined) continue
+      const r = LOOSE.has(end.kind) ? end.id : rep(end.id)
+      if (r == null || !nodes.has(r)) continue
+      addEdge('tagged_with', r, T, null, false)
     }
   }
 
@@ -422,7 +471,7 @@ function applyFocus(nodeList, edgeList, nodes, focus) {
 export const EDGE_CODE = Object.freeze({ lives_in: 0, tagged_with: 1, related_to: 2 })
 
 /** A dot's world radius: containers grow with what is inside them. */
-export const defaultRadius = (node) => (node.kind === 'file' ? 3.5 : node.kind === 'tag' ? 5 : 5 + 1.6 * Math.sqrt(node.count || 0))
+export const defaultRadius = (node) => (node.kind === 'file' ? 3.5 : LOOSE.has(node.kind) ? 5 : 5 + 1.6 * Math.sqrt(node.count || 0))
 
 /**
  * The graph as layout input, in the graph's own node order (sorted by id),
@@ -433,7 +482,7 @@ export const defaultRadius = (node) => (node.kind === 'file' ? 3.5 : node.kind =
 export function toLayoutInput(graph, radiusOf = defaultRadius) {
   const index = new Map()
   graph.nodes.forEach((n, i) => index.set(n.id, i))
-  const nodes = graph.nodes.map((n) => ({ id: n.id, parent: n.parent ?? null, r: radiusOf(n), loose: n.kind === 'tag' }))
+  const nodes = graph.nodes.map((n) => ({ id: n.id, parent: n.parent ?? null, r: radiusOf(n), loose: LOOSE.has(n.kind) }))
   const links = []
   for (const e of graph.edges) {
     const s = index.get(e.source)

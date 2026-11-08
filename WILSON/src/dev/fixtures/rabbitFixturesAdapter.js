@@ -1994,6 +1994,7 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
       if (!noteMayChange(n)) throw notFound(id)
       return clone(patch(store.notes, id, { ...safe, updated_by: by }))
     },
+    async notesHaveTiers() { return true },
     // 0125: personal and shared are the owner's to choose; the company standard a live admin's to set or clear.
     async setNoteTier(id, tier) {
       const n = findById(store.notes, id)

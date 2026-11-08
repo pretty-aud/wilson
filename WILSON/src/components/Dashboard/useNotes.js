@@ -11,6 +11,12 @@
 // (see noteSync.js). This hook reflects saved metadata back into the list.
 // Notes never ride a realtime channel (private content) — the list refreshes
 // on load, on tab activation, and after every local mutation.
+//
+// MO3 (0125): a note has a tier — personal (its owner's alone, as before), shared (every active member reads it;
+// its owner and live admins change it) or the company standard (live admins set, change and clear it) — and a
+// trash, 30 days, with its way back. The list has a scope: 'mine' (one's own, of every tier), 'shared' (the
+// company's shared and standard notes) or 'trash' (what one may bring back). A database before 0125 keeps none
+// of it: `tiers` is false and the tab is the one it was.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
@@ -23,6 +29,8 @@ export function useNotes() {
   const getAdapter = rabbit?.getAdapter
 
   const [notes, setNotes] = useState([])
+  const [scope, setScope] = useState('mine')
+  const [tiers, setTiers] = useState(false)
   const [subjects, setSubjects] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -51,11 +59,14 @@ export function useNotes() {
     setLoading(true)
     setError(null)
     try {
+      const hasTiers = typeof a.notesHaveTiers === 'function' ? await a.notesHaveTiers() : false
+      const want = hasTiers ? scope : 'mine'
       const [noteRows, subjectRows] = await Promise.all([
-        a.listNotes(),
+        a.listNotes({ scope: want }),
         typeof a.listNoteSubjects === 'function' ? a.listNoteSubjects() : [],
       ])
       if (!mountedRef.current || seq !== reqSeqRef.current) return
+      setTiers(!!hasTiers)
       setNotes(Array.isArray(noteRows) ? noteRows : [])
       setSubjects(Array.isArray(subjectRows) ? subjectRows : [])
     } catch (err) {
@@ -65,7 +76,7 @@ export function useNotes() {
     } finally {
       if (mountedRef.current && seq === reqSeqRef.current) setLoading(false)
     }
-  }, [adapterMode, adapter])
+  }, [adapterMode, adapter, scope])
 
   // S2 (RECONNECT_DESIGN.md §11.9): and again when a sign-in held at an
   // offline launch is confirmed — the identity does not change then.
@@ -99,6 +110,7 @@ export function useNotes() {
     }
   }, [adapter, load])
 
+  // 0125: to the trash (its way back is restoreNote); before 0125, deleted, as it was.
   const deleteNote = useCallback(async (id) => {
     const a = adapter()
     if (typeof a?.deleteNote !== 'function') return
@@ -112,6 +124,46 @@ export function useNotes() {
       throw err
     }
   }, [adapter, notes])
+
+  const restoreNote = useCallback(async (id) => {
+    const a = adapter()
+    if (typeof a?.restoreNote !== 'function') return false
+    try {
+      const back = await a.restoreNote(id)
+      await load()
+      return back
+    } catch (err) {
+      setError(err.message || String(err))
+      throw err
+    }
+  }, [adapter, load])
+
+  // 0125: who reads the note. The server says no in words, and the words are shown.
+  const setNoteTier = useCallback(async (id, tier) => {
+    const a = adapter()
+    if (typeof a?.setNoteTier !== 'function') return null
+    setNotes(prev => prev.map(n => (n.id === id ? { ...n, tier } : n)))
+    try {
+      return await a.setNoteTier(id, tier)
+    } catch (err) {
+      setError(err.message || String(err))
+      load()
+      throw err
+    }
+  }, [adapter, load])
+
+  // 0127: the keys of the typed links in the body just saved, with that save's version. Quiet on a database
+  // without links: the words are saved either way.
+  const syncNoteMentions = useCallback(async (id, version, keys) => {
+    const a = adapter()
+    if (typeof a?.syncNoteMentions !== 'function') return false
+    try {
+      return await a.syncNoteMentions(id, version, keys)
+    } catch (err) {
+      if (err?.code !== 'moth_absent') setError(err.message || String(err))
+      return false
+    }
+  }, [adapter])
 
   // Editor callback — reflect a landed saveNoteDoc into the list row.
   const reflectSaved = useCallback((id, { version, updated_at, body_preview }) => {
@@ -203,6 +255,12 @@ export function useNotes() {
     // S2: the shell runs on a sign-in held at an offline launch (the view says so in one sentence).
     offline: heldOffline,
     notes,
+    scope,
+    setScope,
+    tiers,
+    userId: perms?.userId ?? null,
+    isAdmin: perms?.role === 'admin',
+    getAdapter: adapter,
     subjects,
     loading,
     error,
@@ -211,6 +269,9 @@ export function useNotes() {
     createNote,
     patchNoteMeta,
     deleteNote,
+    restoreNote,
+    setNoteTier,
+    syncNoteMentions,
     reflectSaved,
     addSubject,
     renameSubject,

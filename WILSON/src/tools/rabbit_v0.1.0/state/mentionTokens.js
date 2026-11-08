@@ -53,3 +53,15 @@ export function mentionToken(words, key) {
 export function mentionPlainText(text) {
   return splitMentions(text).map(p => (p.key ? p.words : p.text)).join('')
 }
+
+// What the person is typing just before the caret: `[[` and words asks for a thing to link (mode 'link'); `#` and a
+// word, at the start or after a space, asks for a tag (mode 'tag'). `start` is where the asking began, so a pick
+// replaces it. Nothing for an open token's own words, a `#` inside a word (shot#12), or more than a line.
+export function mentionTrigger(textBefore) {
+  if (typeof textBefore !== 'string' || textBefore === '') return null
+  const link = /\[\[([^\][|\n\u0000-\u001f\u007f]{0,60})$/.exec(textBefore)
+  if (link) return { mode: 'link', query: link[1], start: link.index }
+  const tag = /(^|\s)#([^\s#[\]|]{0,40})$/.exec(textBefore)
+  if (tag) return { mode: 'tag', query: tag[2], start: tag.index + tag[1].length }
+  return null
+}

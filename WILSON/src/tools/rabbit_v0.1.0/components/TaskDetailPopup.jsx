@@ -21,7 +21,7 @@
 // its section"): each section is its own item's FileManager, so a file added
 // there is filed in that item's folder, named after the task as before.
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import {
   Trash2, DollarSign,
   ChevronDown, ChevronRight, FolderOpen,
@@ -58,6 +58,12 @@ import { pickerRows, otherListRows } from '../views/scenes/linkHomes'
 // read from a Dashboard row's items, as the Dashboard's own column reads them.
 import { priorityTone, itemNamesOf } from '../../../components/Dashboard/dashboardTaskModel'
 import '../views/rabbitTasks.css'
+// MO3 (0126, 0127): `[[` and `#` in the task's words, its tags, its links and what mentions it.
+import MentionTextArea from './mentions/MentionTextArea'
+import MentionText from './mentions/MentionText'
+import MentionedIn from './mentions/MentionedIn'
+import ItemTags from './mentions/ItemTags'
+import { useItemLinks, linksByKey } from './mentions/useItemLinks'
 
 // ── Constants ──
 const TASK_STATUSES = [
@@ -84,6 +90,19 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
   // set the task aside instead (another version holds it); when it has work
   // on it, that is asked first. Anything else runs at once, as it always did.
   const removal = useRemovalAsk(ctx)
+  // MO3: the task's links (the typed ones' keys draw its words as links) and its tags. The server makes a typed
+  // link when the words are saved, so the links are read again a moment after each save of either text.
+  const rabbit = useRabbit()
+  const getAdapter = rabbit?.getAdapter
+  const itemLinks = useItemLinks(getAdapter, 'task', task?.id)
+  const linkKeys = useMemo(() => linksByKey(itemLinks.out), [itemLinks.out])
+  const tagsRef = useRef(null)
+  const reloadLinks = itemLinks.reload
+  useEffect(() => {
+    if (!task?.id) return undefined
+    const timer = setTimeout(() => reloadLinks(), 800)
+    return () => clearTimeout(timer)
+  }, [task?.id, task?.description, task?.notes, reloadLinks])
   const assets = ctx?.assets || []
   const phases = ctx?.phases || []
   const project = ctx?.project
@@ -608,13 +627,17 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
             </PropertyGroup>
 
             {/* Description */}
+            <ItemTags ref={tagsRef} getAdapter={getAdapter} kind="task" id={task.id} canChange={canWrite} />
             <TextField label="Description">
               {editingDesc ? (
-                <textarea
+                <MentionTextArea
                   autoFocus
                   value={descDraft}
                   aria-label="Description"
-                  onChange={e => setDescDraft(e.target.value)}
+                  getAdapter={getAdapter}
+                  target={{ kind: 'task', id: task.id }}
+                  onTagged={() => tagsRef.current?.reload()}
+                  onChange={setDescDraft}
                   onBlur={() => {
                     setEditingDesc(false)
                     if (descDraft !== (task.description || '')) handleUpdate({ description: descDraft })
@@ -630,7 +653,9 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                   className="rb-task-textblock"
                   data-size="lg"
                   data-empty={task.description ? 'false' : 'true'}>
-                  {task.description || 'Click to add a description…'}
+                  {task.description
+                    ? <MentionText text={task.description} links={linkKeys} interactive={false} />
+                    : 'Click to add a description…'}
                 </button>
               )}
             </TextField>
@@ -638,11 +663,14 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
             {/* Notes */}
             <TextField label="Notes">
               {editingNotes ? (
-                <textarea
+                <MentionTextArea
                   autoFocus
                   value={notesDraft}
                   aria-label="Notes"
-                  onChange={e => setNotesDraft(e.target.value)}
+                  getAdapter={getAdapter}
+                  target={{ kind: 'task', id: task.id }}
+                  onTagged={() => tagsRef.current?.reload()}
+                  onChange={setNotesDraft}
                   onBlur={() => {
                     setEditingNotes(false)
                     if (notesDraft !== (task.notes || '')) handleUpdate({ notes: notesDraft })
@@ -656,10 +684,14 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                   className="rb-task-textblock"
                   data-size="md"
                   data-empty={task.notes ? 'false' : 'true'}>
-                  {task.notes || 'Click to add notes…'}
+                  {task.notes
+                    ? <MentionText text={task.notes} links={linkKeys} interactive={false} />
+                    : 'Click to add notes…'}
                 </button>
               )}
             </TextField>
+            <MentionedIn links={itemLinks.out} title="Links" />
+            <MentionedIn links={itemLinks.in} />
           </div>
         </div>
       </Dialog>

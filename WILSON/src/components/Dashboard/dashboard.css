@@ -593,6 +593,18 @@
   }
   .dash-save-state[data-state="error"] { color: var(--color-danger); }
   .dash-save-state[data-state="saved"] { color: var(--color-success); }
+  /* MO3 (0125): which notes the list holds, a note in the trash, and the plain words a shared note says about two
+     people's changes. */
+  .dash-notes-scopes { display: flex; gap: 4px; }
+  .dash-note-trashed { gap: 12px; }
+  .dash-note-title-static { flex: 1; font-weight: 600; color: var(--color-ink); }
+  .dash-note-trashed-preview { margin: 0; color: var(--color-ink-2); white-space: pre-wrap; }
+  .dash-note-merge-words {
+    margin: 0;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
 
   /* Seven identical squares in one run, at Miller's limit, with a
      destructive-ish control inside the constructive ones. Three proximity

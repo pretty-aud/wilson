@@ -14,7 +14,7 @@
 -- De-auth pair before every persona switch: tests schema is runner-only.
 
 BEGIN;
-SELECT plan(69);
+SELECT plan(75);
 
 SELECT * FROM tests.rls_setup();
 
@@ -308,10 +308,10 @@ SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 
 SELECT tests.login_as('cccccccc-cccc-cccc-cccc-cccccccccccc', '11111111-1111-1111-1111-111111111111');
-WITH u AS (UPDATE public.notes SET tier = 'shared' WHERE id = 'da000000-0000-0000-0000-0000000000c2' RETURNING 1)
-SELECT is(count(*)::int, 0, 'its owner, a member, does not take the company standard back') FROM u;
-WITH u AS (UPDATE public.notes SET title = 'C standard, by its owner' WHERE id = 'da000000-0000-0000-0000-0000000000c2' RETURNING 1)
-SELECT is(count(*)::int, 0, 'nor changes its words: the standard is the live admins'' to change') FROM u;
+SELECT throws_ok($$UPDATE public.notes SET tier = 'shared' WHERE id = 'da000000-0000-0000-0000-0000000000c2'$$,
+  '42501', 'Only a workspace admin changes the company standard.', 'its owner, a member, does not take the company standard back');
+SELECT throws_ok($$UPDATE public.notes SET title = 'C standard, by its owner' WHERE id = 'da000000-0000-0000-0000-0000000000c2'$$,
+  '42501', 'Only a workspace admin changes the company standard.', 'nor changes its words, and is told so');
 SELECT throws_ok($$SELECT public.note_trash('da000000-0000-0000-0000-0000000000c2')$$,
   '42501', 'That note is not one you can put in the trash.', 'nor puts it in the trash');
 SELECT ok(NOT public.moth_can_write_target('note', 'da000000-0000-0000-0000-0000000000c2'), '… as Moth''s write gate says');
@@ -369,6 +369,30 @@ SELECT is(public.note_restore('da000000-0000-0000-0000-0000000000c2'), true, 'an
 SELECT is(public.note_restore('da000000-0000-0000-0000-0000000000c2'), false, '… once');
 SELECT throws_ok($$SELECT public.note_restore('da000000-0000-0000-0000-0000000000c1')$$,
   '42501', 'That note is not one you can bring back.', 'and nobody else''s personal one, in the words of a missing one');
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+-- The company standard in the trash: an admin's to put there and bring back, not its owner's (a member).
+SELECT tests.login_as('cccccccc-cccc-cccc-cccc-cccccccccccc', '11111111-1111-1111-1111-111111111111');
+INSERT INTO public.notes (id, title, tier) VALUES ('da000000-0000-0000-0000-0000000000c5', 'C standard', 'shared');
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT tests.login_as('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '11111111-1111-1111-1111-111111111111');
+UPDATE public.notes SET tier = 'company_standard' WHERE id = 'da000000-0000-0000-0000-0000000000c5';
+SELECT is(public.note_trash('da000000-0000-0000-0000-0000000000c5'), true, 'an admin puts a member''s company standard in the trash');
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT tests.login_as('cccccccc-cccc-cccc-cccc-cccccccccccc', '11111111-1111-1111-1111-111111111111');
+SELECT is((SELECT count(*)::int FROM public.note_trash_list() WHERE id = 'da000000-0000-0000-0000-0000000000c5'), 0,
+  'its owner, a member, does not find the standard in their trash list');
+SELECT throws_ok($$SELECT public.note_restore('da000000-0000-0000-0000-0000000000c5')$$,
+  '42501', 'That note is not one you can bring back.', 'nor brings it back');
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT tests.login_as('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '11111111-1111-1111-1111-111111111111');
+SELECT is((SELECT count(*)::int FROM public.note_trash_list() WHERE id = 'da000000-0000-0000-0000-0000000000c5'), 1, 'an admin finds it there');
+SELECT is(public.note_restore('da000000-0000-0000-0000-0000000000c5'), true, 'and brings it back');
+SELECT throws_ok($$UPDATE public.notes SET tier = 'personal' WHERE id = 'da000000-0000-0000-0000-0000000000c5'$$,
+  '42501', 'Only its owner shares a note, or makes it private again.', 'but never makes a member''s standard personal');
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 

@@ -2461,6 +2461,13 @@ export default function App() {
       window.removeEventListener('wilson:open-project-file', toRabbit);
     };
   }, []);
+  // MO3: a note asked for from a typed link or M.O.T.H. (wilson:open-dashboard-note; rabbit_v0.1.0/state/
+  // linkedThings.js). The shell goes to the Dashboard, which opens on its Notes tab; NotesView finds the note.
+  useEffect(() => {
+    const toDashboard = () => { navigateToRef.current('dashboard'); };
+    window.addEventListener('wilson:open-dashboard-note', toDashboard);
+    return () => window.removeEventListener('wilson:open-dashboard-note', toDashboard);
+  }, []);
   useEffect(() => {
     if (!URL_ROUTING_ENABLED) return;
     // Deep links land with no history state — stamp the entry so the first

@@ -319,7 +319,10 @@ SELECT h.id, 'aaaa1310-0000-0000-0000-00000000000c', CASE WHEN h.g <= 250 THEN '
   FROM t131_hidden h;
 INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, is_financial) VALUES
   ('13100000-0000-0000-0000-0000000000d1', 'aaaa1310-0000-0000-0000-00000000000a', 'the kept reel', 'supabase',
-   'projects/aaaa1310-0000-0000-0000-00000000000a/files/13100000-0000-0000-0000-0000000000d1/kept.png', false);
+   'projects/aaaa1310-0000-0000-0000-00000000000a/files/13100000-0000-0000-0000-0000000000d1/kept.png', false),
+  -- Its name holds the task's words without being them, and its id comes first: only the rank puts it second.
+  ('13100000-0000-0000-0000-000000000001', 'aaaa1310-0000-0000-0000-00000000000a', 'Grade the harbour, take 2', 'supabase',
+   'projects/aaaa1310-0000-0000-0000-00000000000a/files/13100000-0000-0000-0000-000000000001/take2.png', false);
 INSERT INTO public.moth_relationships (workspace_id, source_type, source_id, dest_type, dest_id)
 SELECT '11111111-1111-1111-1111-111111111111', 'file', h.id, 'task', '13100000-0000-0000-0000-000000000061'
   FROM t131_hidden h;

@@ -4,15 +4,21 @@
 //   wilson:open-rabbit-item  { projectId, kind, id }   a project, phase, asset, task, scene, shot, level or experience
 //                                                      opens in R.A.B.B.I.T., on its project, at its own tab
 //   wilson:open-project-file { projectId, fileId }     a file opens in R.A.B.B.I.T.'s Files, selected
-// Notes and courses are not dots yet (Session 3 brings workspace notes), so wilson:open-dashboard-note waits for
-// them and wilson:open-otter-course stays the Dashboard's.
+// MO3: a workspace note's dot opens on the Dashboard's Notes tab (wilson:open-dashboard-note, its request kept
+// until the tab takes it: rabbit_v0.1.0/state/linkedThings.js). Courses are no dots, and wilson:open-otter-course
+// stays the Dashboard's.
+import { openDashboardNote } from '../../rabbit_v0.1.0/state/linkedThings.js'
+
 export const OPEN_RABBIT_ITEM = 'wilson:open-rabbit-item'
 export const OPEN_PROJECT_FILE = 'wilson:open-project-file'
-export const JUMP_WORDS = Object.freeze({ rabbit: 'R.A.B.B.I.T.', files: 'Files in R.A.B.B.I.T.' })
+export const JUMP_WORDS = Object.freeze({ rabbit: 'R.A.B.B.I.T.', files: 'Files in R.A.B.B.I.T.', notes: 'Notes on the Dashboard' })
 const RABBIT_KINDS = new Set(['project', 'phase', 'asset', 'task', 'scene', 'shot', 'level', 'experience'])
 
 /** Where a dot can be opened, or null. `go()` sends the event; the page asks first. */
 export function mothJump(node, { target = typeof window !== 'undefined' ? window : null } = {}) {
+  if (node?.kind === 'note' && node.rowId != null) {
+    return { tool: 'notes', label: 'Open in Notes', go: () => openDashboardNote(node.rowId, target) }
+  }
   if (!node || !node.projectId || node.rowId == null) return null
   const send = (type, detail) => () => target?.dispatchEvent(new CustomEvent(type, { detail }))
   if (node.kind === 'file') {

@@ -11,7 +11,7 @@
 // search, a selection and the trash cannot show them. Every control is gated by the same question as the server's,
 // and the server asks again.
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { HelpCircle, Settings as SettingsIcon } from 'lucide-react'
+import { HelpCircle, Settings as SettingsIcon, Tags as TagsIcon } from 'lucide-react'
 import { Banner, Button, Dialog, Drawer, IconButton } from '../../ui'
 import { usePermissions } from '../../permissions/usePermissions'
 import { canOnProject, projectActionDeniedReason } from '../../permissions/projectRoleMatrix'
@@ -44,11 +44,21 @@ import MothFirstVisit from './components/MothFirstVisit.jsx'
 import MothBloom from './components/MothBloom.jsx'
 import MothMoveTo from './components/MothMoveTo.jsx'
 import MothTrashView from './components/MothTrashView.jsx'
+import MothTagPanel from './components/MothTagPanel.jsx'
 import './moth.css'
 
 // An asset's own file on this computer: its asset deletes it, and Moth's batches do not take it.
 export const MANAGED_ROW_SENTENCE = 'This file belongs to an asset. Change it from the asset.'
-const LINKS_LATER = 'Links between things come with the next update of M.O.T.H. Nothing was linked, and the dot is back where it was.'
+// MO3 (0127): a link joins these kinds, from a thing the person may change to one they see.
+const LINK_KINDS = new Set(['project', 'folder', 'file', 'phase', 'asset', 'task', 'scene', 'shot', 'level', 'experience', 'note'])
+const LINKS_ABSENT = 'Links are not on this database yet. Nothing was linked, and the dot is back where it was.'
+function linkWords(err) {
+  if (err?.code === '23505') return 'They are linked already.'
+  if (err?.code === 'moth_absent') return LINKS_ABSENT
+  if (err?.code === '42501') return 'You may not change where this link starts, so nothing was linked.'
+  if (err?.code === '23503') return 'That is not something you can link to.'
+  return err?.message || 'The link could not be saved.'
+}
 const SAVE_PLACES_MS = 1500
 
 // A key pressed in a box that has its own undo. A ticked row's checkbox has none.
@@ -83,6 +93,10 @@ export default function MothPage({ isActive = true, worldFactory }) {
   const [unfinishedMoves, setUnfinishedMoves] = useState(0)
   const [showHelpModal, setShowHelpModal] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [tagsOpen, setTagsOpen] = useState(false)
+  // MO3: a live admin decides what is put forward and links from any shared note; the server asks the
+  // membership row, this only offers the controls.
+  const isAdminHere = perms?.role === 'admin'
   const [bloom, setBloom] = useState(null)
   const [drag, setDrag] = useState(null)
   const [flyTo, setFlyTo] = useState(null)
@@ -459,18 +473,45 @@ export default function MothPage({ isActive = true, worldFactory }) {
       if (row && row.project_id === to.projectId && (row.folder_id ?? null) === into) return { allowed: false, reason: 'It is already there.' }
       return { allowed: true }
     },
-    canLink: (from, to) => (from.id === to.id ? { allowed: false } : { allowed: true, reason: LINKS_LATER }),
-  }), [access, islandOf, fileRow, scrubAt, current.row, views])
+    // MO3 (0127): from a thing the person may change (its project's, or their own note, or any shared note for a
+    // live admin) to a thing on show, of the kinds a link joins. The server asks the same, and says no in words.
+    canLink: (from, to) => {
+      if (from.id === to.id || !LINK_KINDS.has(from.kind) || !LINK_KINDS.has(to.kind)) return { allowed: false }
+      if (from.kind === 'note') {
+        const row = index.rows.get(from.id)
+        const may = (row?.mine && row?.tier !== 'company_standard') || (isAdminHere && row?.tier !== 'personal')
+        return may ? { allowed: true } : { allowed: false, reason: 'Only its owner and the company’s admins link from this note.' }
+      }
+      const src = access(islandOf(from.projectId))
+      if (!src.allowed || !islandOf(from.projectId)?.can_write) return { allowed: false, reason: src.reason || 'You may not change where this link starts.' }
+      return { allowed: true }
+    },
+  }), [access, islandOf, fileRow, scrubAt, current.row, views, index, isAdminHere])
 
   const onDrop = useCallback(({ dragId, targetId, mode }) => {
-    if (mode === 'link') { setNote(LINKS_LATER); return }
+    if (mode === 'link') {
+      const from = index.rows.get(dragId)
+      const to = index.rows.get(targetId)
+      if (!from || !to) return
+      ;(async () => {
+        try {
+          if (typeof adapter?.createMothRelationship !== 'function') throw Object.assign(new Error(LINKS_ABSENT), { code: 'moth_absent' })
+          await adapter.createMothRelationship({ sourceKind: from.kind, sourceId: from.rowId, targetKind: to.kind, targetId: to.rowId })
+          setNote(`Linked “${from.label || 'it'}” to “${to.label || 'it'}”.`)
+          await store?.readWorkspace?.()
+        } catch (err) {
+          setNote(linkWords(err))
+        }
+      })()
+      return
+    }
     const row = fileRow(rowOf(dragId))
     const to = index.rows.get(targetId)
     if (!row || !to) return
     act(() => move([row], row.project_id, to.projectId, to.kind === 'folder' ? to.rowId : null))
     // The move function is Session 1's; its dependencies change with every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileRow, index, act])
+  }, [fileRow, index, act, adapter, store])
 
   const dropFile = useCallback((fid, targetId) => {
     const row = fileRow(fid)
@@ -660,7 +701,8 @@ export default function MothPage({ isActive = true, worldFactory }) {
   const selectedNode = selected.length === 1 ? graph.nodes.find((n) => n.id === selected[0]) ?? index.rows.get(selected[0]) ?? null : null
   // A person's own space never becomes another tool's open project (her PS-8, PSA-08): nothing in it jumps.
   const jumpIsland = selectedNode ? islandOf(selectedNode.projectId) : null
-  const jumpFor = jumpIsland && !jumpIsland.is_personal ? mothJump(selectedNode) : null
+  const jumpFor = selectedNode?.kind === 'note' ? mothJump(selectedNode)
+    : jumpIsland && !jumpIsland.is_personal ? mothJump(selectedNode) : null
 
   return (
     <div className="moth-page" data-moth-page data-input={inputMode} data-calm={calm ? 'true' : undefined}>
@@ -668,6 +710,7 @@ export default function MothPage({ isActive = true, worldFactory }) {
         <span className="moth-strip-title">{current.row?.name ?? QUICK_VIEWS[current.key]?.name ?? 'M.O.T.H.'}</span>
         <div className="moth-strip-right">
           <IconButton size="sm" Icon={HelpCircle} title="Help & documentation" onClick={() => setShowHelpModal(true)} />
+          <IconButton size="sm" Icon={TagsIcon} title="Typed tags" onClick={() => setTagsOpen(true)} />
           <IconButton size="sm" Icon={SettingsIcon} title="M.O.T.H. settings" onClick={() => setSettingsOpen(true)} />
         </div>
       </div>
@@ -798,6 +841,19 @@ export default function MothPage({ isActive = true, worldFactory }) {
           <MothHelp />
         </Dialog>
       )}
+      <Drawer open={tagsOpen} backdrop side="right" width="lg" label="Typed tags" title="Typed tags" onClose={() => setTagsOpen(false)} className="moth-settings-drawer">
+        {tagsOpen && (
+          <MothTagPanel
+            adapter={adapter}
+            store={store}
+            workspace={snap.workspace}
+            absent={snap.workspaceAbsent?.tags === true}
+            isAdmin={isAdminHere}
+            userId={perms?.userId ?? null}
+            selectedNode={selectedNode}
+          />
+        )}
+      </Drawer>
       <Drawer open={settingsOpen} backdrop side="right" width="lg" label="Settings" title="M.O.T.H. settings" onClose={() => setSettingsOpen(false)} className="moth-settings-drawer">
         <MothSettings appearance={appearance} onChange={setAppearance} calm={calm} available={viewSnap?.prefsAvailable !== false} />
       </Drawer>
