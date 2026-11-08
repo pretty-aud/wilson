@@ -8,17 +8,19 @@
 -- C. Seeing a link: both ends seen, through the gate; an admin sees a private project's; someone who has left and
 --    another company see none.
 -- D. Changing and removing a hand-drawn link: its words, by those who may change where it starts; never its ends.
--- E. A typed link in R.A.B.B.I.T. text: a key reserved for a thing the writer sees becomes a link when the words are
---    saved, once; a key of someone else's, or past its day, links nothing; the words' removal removes the link and
---    leaves a hand-drawn one; a writer who cannot see a key's thing keeps its link.
--- F. A note's typed links, from the keys its editor sends; a personal note's links are its owner's alone.
+-- E. A typed link in R.A.B.B.I.T. text: a key reserved for a thing the writer sees becomes a link of the field that
+--    first saves it, and that field's alone: copied elsewhere it links nothing, and an undo brings its link back; a
+--    key of someone else's, or past its day, links nothing; the words' removal removes the link and leaves a
+--    hand-drawn one; a writer who cannot see a key's thing keeps its link.
+-- F. A note's typed links, from the keys its editor sends with the version they were read from; a personal note's
+--    links are its owner's alone.
 -- G. The reads: the graph's, a thing's links and "Mentioned in", and the picker's, each showing only what the caller
---    sees.
+--    sees, and never starved of it by what they cannot see.
 -- H. A link goes with either end.
 -- =============================================================================
 
 BEGIN;
-SELECT plan(57);
+SELECT plan(64);
 
 SELECT * FROM tests.rls_setup();
 
@@ -222,8 +224,10 @@ UPDATE public.assets SET description = 'See [[Grade it|m:' || current_setting('t
 SELECT is(public.t131_all(), '051>061:inline:description,051>061:manual',
   'saving the words with the key makes a typed link of that field, beside the hand-drawn one');
 SELECT is(public.t131_seen(), '051>061:inline,051>061:manual', 'which the writer sees');
-UPDATE public.tasks SET description = 'Copied [[Grade it|m:' || current_setting('t131.k1') || ']] here.' WHERE id = '13100000-0000-0000-0000-000000000061';
-SELECT is(public.t131_all(), '051>061:inline:description,051>061:manual', 'a key is used once: copied, it links nothing');
+UPDATE public.files SET description = 'Copied [[Grade it|m:' || current_setting('t131.k1') || ']] here.' WHERE id = '13100000-0000-0000-0000-000000000081';
+SELECT is(public.t131_all(), '051>061:inline:description,051>061:manual',
+  'a key is the field''s that first saved it: copied into another thing''s words, it links nothing');
+UPDATE public.files SET description = NULL WHERE id = '13100000-0000-0000-0000-000000000081';
 SELECT public.t131_r();
 SELECT set_config('t131.k2', public.moth_mention_reserve('asset', '13100000-0000-0000-0000-000000000051'), true);
 SELECT public.t131_c();
@@ -237,6 +241,9 @@ SELECT throws_ok($$SELECT public.moth_mention_reserve('file', '13100000-0000-000
 SELECT public.t131_c();
 UPDATE public.assets SET description = 'Nothing typed now.' WHERE id = '13100000-0000-0000-0000-000000000051';
 SELECT is(public.t131_all(), '051>061:manual', 'the words'' removal removes the typed link, and leaves the hand-drawn one');
+UPDATE public.assets SET description = 'See [[Grade it|m:' || current_setting('t131.k1') || ']] soon.' WHERE id = '13100000-0000-0000-0000-000000000051';
+SELECT is(public.t131_all(), '051>061:inline:description,051>061:manual', 'an undo brings the words back to their field, and their link with them');
+UPDATE public.assets SET description = 'Nothing typed now.' WHERE id = '13100000-0000-0000-0000-000000000051';
 SELECT set_config('t131.k3', public.moth_mention_reserve('file', '13100000-0000-0000-0000-0000000000c1'), true);
 UPDATE public.assets SET description = 'Shot on [[the secret one|m:' || current_setting('t131.k3') || ']].' WHERE id = '13100000-0000-0000-0000-000000000051';
 SELECT is(public.t131_all(), '051>061:manual,051>0c1:inline:description', 'the creator of the private project types a link into it');
@@ -256,21 +263,24 @@ SELECT is(public.t131_all(), '051>061:manual,051>0c1:inline:description', 'and a
 
 -- ── F. A note's typed links ─────────────────────────────────────────────────
 SELECT set_config('t131.k5', public.moth_mention_reserve('task', '13100000-0000-0000-0000-000000000061'), true);
-SELECT ok(public.moth_note_mentions_sync('13100000-0000-0000-0000-0000000000b1', ARRAY[current_setting('t131.k5')]),
-  'a note''s editor sends the keys in the body it saved');
+SELECT is(public.moth_note_mentions_sync('13100000-0000-0000-0000-0000000000b1', 3, ARRAY[current_setting('t131.k5')]), false,
+  'keys read from a version the note no longer is are not used');
+SELECT is(public.t131_all(), '051>061:manual,051>0c1:inline:description', 'and link nothing');
+SELECT ok(public.moth_note_mentions_sync('13100000-0000-0000-0000-0000000000b1', 0, ARRAY[current_setting('t131.k5')]),
+  'a note''s editor sends the keys in the body it saved, with that version');
 SELECT is(public.t131_all(), '051>061:manual,051>0c1:inline:description,0b1>061:inline:body', 'and the shared note links to the task');
 SELECT set_config('t131.k6', public.moth_mention_reserve('task', '13100000-0000-0000-0000-000000000061'), true);
-SELECT ok(public.moth_note_mentions_sync('13100000-0000-0000-0000-0000000000b2', ARRAY[current_setting('t131.k6')]), 'so does the owner''s personal note');
+SELECT ok(public.moth_note_mentions_sync('13100000-0000-0000-0000-0000000000b2', 0, ARRAY[current_setting('t131.k6')]), 'so does the owner''s personal note');
 SELECT public.t131_d();
 SELECT is(public.t131_seen(), '051>061:manual,0b1>061:inline', 'a manager sees the shared note''s link, and not the personal note''s');
-SELECT throws_ok($$SELECT public.moth_note_mentions_sync('13100000-0000-0000-0000-0000000000b1', ARRAY[]::text[])$$,
+SELECT throws_ok($$SELECT public.moth_note_mentions_sync('13100000-0000-0000-0000-0000000000b1', 0, ARRAY[]::text[])$$,
   '42501', 'That note is not one you can change.', 'and changes no one else''s note''s links');
 SELECT public.t131_a();
 SELECT is(public.t131_seen(), '051>061:manual,051>0c1:inline,0b1>061:inline', 'an admin sees no personal note''s link either');
 SELECT public.t131_c();
-SELECT throws_ok($$SELECT public.moth_note_mentions_sync('13100000-0000-0000-0000-0000000000b1', ARRAY['not a key'])$$,
+SELECT throws_ok($$SELECT public.moth_note_mentions_sync('13100000-0000-0000-0000-0000000000b1', 0, ARRAY['not a key'])$$,
   '22023', NULL, 'a key is twelve hex digits');
-SELECT ok(public.moth_note_mentions_sync('13100000-0000-0000-0000-0000000000b1', ARRAY[]::text[]), 'a body with no key left');
+SELECT ok(public.moth_note_mentions_sync('13100000-0000-0000-0000-0000000000b1', 0, ARRAY[]::text[]), 'a body with no key left');
 SELECT is(public.t131_all(), '051>061:manual,051>0c1:inline:description,0b2>061:inline:body', 'takes its links away');
 
 -- ── G. The reads ────────────────────────────────────────────────────────────
@@ -296,6 +306,41 @@ SELECT is((SELECT string_agg(x ->> 'key', ',') FROM jsonb_array_elements(public.
 SELECT public.t131_a();
 SELECT is((SELECT count(*)::int FROM jsonb_array_elements(public.moth_mention_candidates('pitch', 20))), 0,
   'the picker offers an admin nothing of someone''s personal space');
+RESET ROLE;
+SELECT set_config('request.jwt.claims', '{}', true);
+-- 510 files in the private project, 250 of them named to come before one of P's in the picker (it starts with
+-- the words; P's only holds them), and every one linked to P's task ahead of a link from Q's asset (the same
+-- moment, a lower id). And a folder of P.
+CREATE TEMP TABLE t131_hidden ON COMMIT DROP AS
+SELECT gen_random_uuid() AS id, g FROM generate_series(1, 510) AS g;
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, is_financial)
+SELECT h.id, 'aaaa1310-0000-0000-0000-00000000000c', CASE WHEN h.g <= 250 THEN 'reel hidden ' ELSE 'link hidden ' END || h.g, 'supabase',
+       'projects/aaaa1310-0000-0000-0000-00000000000c/files/' || h.id || '/hidden.png', false
+  FROM t131_hidden h;
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, is_financial) VALUES
+  ('13100000-0000-0000-0000-0000000000d1', 'aaaa1310-0000-0000-0000-00000000000a', 'the kept reel', 'supabase',
+   'projects/aaaa1310-0000-0000-0000-00000000000a/files/13100000-0000-0000-0000-0000000000d1/kept.png', false);
+INSERT INTO public.moth_relationships (workspace_id, source_type, source_id, dest_type, dest_id)
+SELECT '11111111-1111-1111-1111-111111111111', 'file', h.id, 'task', '13100000-0000-0000-0000-000000000061'
+  FROM t131_hidden h;
+INSERT INTO public.moth_relationships (id, workspace_id, source_type, source_id, dest_type, dest_id) VALUES
+  ('ffffffff-ffff-ffff-ffff-fffffffff131', '11111111-1111-1111-1111-111111111111', 'asset', '13100000-0000-0000-0000-000000000052',
+   'task', '13100000-0000-0000-0000-000000000061');
+INSERT INTO public.folders (id, project_id, workspace_id, kind, slug, label, path) VALUES
+  ('13100000-0000-0000-0000-0000000000f0', 'aaaa1310-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111', 'root', 'Salt_Hours', NULL, '');
+INSERT INTO public.folders (id, project_id, workspace_id, parent_id, kind, slug, label, path) VALUES
+  ('13100000-0000-0000-0000-0000000000f1', 'aaaa1310-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111', '13100000-0000-0000-0000-0000000000f0', 'custom', 'Harbour_plates', 'Harbour plates', 'Harbour_plates');
+SET LOCAL ROLE authenticated;
+SELECT public.t131_d();
+SELECT ok(EXISTS (SELECT 1 FROM jsonb_array_elements(public.moth_mention_candidates('reel', 50)) c WHERE c ->> 'id' = '13100000-0000-0000-0000-0000000000d1'),
+  'two hundred and fifty things the caller cannot see, ranked first, do not hide one they can');
+SELECT ok(EXISTS (SELECT 1 FROM jsonb_array_elements(public.moth_item_links('task', '13100000-0000-0000-0000-000000000061') -> 'in') x
+                   WHERE x ->> 'target_id' = '13100000-0000-0000-0000-000000000052'),
+  'nor do five hundred and ten links from things they cannot see hide one in "Mentioned in"');
+SELECT is((SELECT string_agg(c ->> 'kind', ',') FROM jsonb_array_elements(public.moth_mention_candidates('harbour plates', 20)) c), 'folder',
+  'the picker offers a folder by its label');
+SELECT is((SELECT c ->> 'kind' FROM jsonb_array_elements(public.moth_mention_candidates('grade the harbour', 20)) WITH ORDINALITY AS z(c, i) ORDER BY i LIMIT 1),
+  'task', 'and an exact name comes first');
 
 -- ── H. With either end ──────────────────────────────────────────────────────
 RESET ROLE;

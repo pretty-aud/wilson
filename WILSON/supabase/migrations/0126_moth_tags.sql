@@ -51,7 +51,7 @@ BEGIN
   FOR v_fn IN
     SELECT * FROM (VALUES
       ('public._moth_target_eligible(text,uuid,boolean)', '6e73a0aec4791103d0b78e13c0f74a71', 'd698cc503481bb497557ff247b3aab72'),
-      ('public.moth_put_positions(uuid,jsonb)', '6c1b30fc636394581ba8398885113411', '3cfc69fd8cbf9383429ed143ec113443')
+      ('public.moth_put_positions(uuid,jsonb)', '6c1b30fc636394581ba8398885113411', '6f1b63f36ec8b0839a8e775517a4aed6')
     ) AS t(sig, was, now_is)
   LOOP
     SELECT md5(replace(prosrc, chr(13), '')) INTO v_md5 FROM pg_proc WHERE oid = v_fn.sig::regprocedure;
@@ -65,12 +65,13 @@ BEGIN
       ('public.moth_tag_norm(text)', '3e54bf488d3a981a9fbc550e2e3135b5'),
       ('public.fn_moth_tag_types_pin()', '2d2083c7564cf81ac8c53435b4ed0cfa'),
       ('public.fn_moth_tags_pin()', 'aa2f17f5cf2b805ef5a517fffd33bb1a'),
-      ('public.fn_moth_tag_assignments_pin()', 'd5bcf6052c73b84fefb530dc6df8d506'),
-      ('rabbit_private.moth_tag_fold(uuid,uuid,uuid)', '2220e13f3135be04110fcba52d3fb394'),
+      ('public.fn_moth_tag_assignments_pin()', '781a08d35bbe47b17620bd951858600f'),
+      ('rabbit_private.moth_tag_fold(uuid,uuid,uuid)', 'b552317fafb7e1c97eb375ac33a9a7ba'),
       ('public.moth_tag_nominate(uuid,text)', 'da91fca89f14e7326ca1a55fbdecdc1b'),
       ('public.moth_tag_nomination_withdraw(uuid)', '8cb0f57feda72f7959df5ee385da5ea2'),
-      ('public.moth_tag_nomination_decide(uuid,boolean,text)', 'ccbe71185e656b1711f7438ec631a3ec'),
-      ('public.moth_tag_merge(uuid,uuid)', '88b59ac16d77f21870115fdf956e3749')
+      ('public.moth_tag_nomination_decide(uuid,boolean,text)', 'cfc995cc96059aa288bc26091de025f4'),
+      ('public.moth_tag_merge(uuid,uuid)', 'e17990a0e83feed17ecc78c93e6b5e72'),
+      ('public.fn_moth_tags_gone()', '5bb42e6a5aa5836d30bafc8110fa7313')
     ) AS t(sig, now_is)
   LOOP
     IF to_regprocedure(v_fn.sig) IS NOT NULL
@@ -446,6 +447,8 @@ BEGIN
     NEW.created_by   := v_me;
     NEW.created_at   := now();
   END IF;
+  -- A fold of this tag first finishes (its lock, taken shared here).
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('moth_tag:' || NEW.tag_id::text, 0));
   -- The tag as the writer sees it, live, and of the assignment's tier: a company assignment takes a company tag, a
   -- personal one the writer's own or a company tag. Any other, there or not, in the words of a missing one.
   SELECT true INTO v_ok
@@ -546,6 +549,26 @@ REVOKE ALL ON public.moth_tag_nominations FROM authenticated;
 GRANT SELECT ON public.moth_tag_nominations TO authenticated;
 GRANT ALL ON public.moth_tag_nominations TO service_role;
 
+CREATE OR REPLACE FUNCTION public.fn_moth_tags_gone()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  -- A tag its owner removes takes its open nomination with it, as a withdrawal: the admins see what they would see
+  -- had the person withdrawn it, and nothing of why.
+  UPDATE public.moth_tag_nominations
+     SET status = 'withdrawn', updated_at = now()
+   WHERE tag_id = OLD.id AND workspace_id = OLD.workspace_id AND status = 'open';
+  RETURN OLD;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_moth_tags_gone() FROM PUBLIC, anon, authenticated;
+DROP TRIGGER IF EXISTS trg_moth_tags_gone ON public.moth_tags;
+CREATE TRIGGER trg_moth_tags_gone BEFORE DELETE ON public.moth_tags
+  FOR EACH ROW EXECUTE FUNCTION public.fn_moth_tags_gone();
+
 -- §6 Putting a tag forward, deciding, and merging --------------------------------------------------------
 CREATE OR REPLACE FUNCTION rabbit_private.moth_tag_fold(p_ws uuid, p_into uuid, p_from uuid)
 RETURNS void
@@ -553,7 +576,14 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
+DECLARE
+  v_from_tier TEXT;
 BEGIN
+  -- Each tag's lock: whoever tags with either waits until the fold is done (the assignments' pin takes it shared),
+  -- so no assignment lands between its steps.
+  PERFORM pg_advisory_xact_lock(hashtextextended('moth_tag:' || x.id::text, 0))
+     FROM (SELECT unnest(ARRAY[p_into, p_from]) AS id ORDER BY 1) x;
+  SELECT t.tier INTO v_from_tier FROM public.moth_tags t WHERE t.id = p_from AND t.workspace_id = p_ws;
   PERFORM set_config('wilson.moth_tag_fold', 'on', true);
   -- The assignments: one the tag it folds into already has, on the same thing for the same owner, goes; every other
   -- moves, its tier and owner kept, so a person's private tagging stays theirs.
@@ -563,11 +593,14 @@ BEGIN
                   WHERE b.tag_id = p_into AND b.target_type = a.target_type AND b.target_id = a.target_id
                     AND b.owner_id IS NOT DISTINCT FROM a.owner_id);
   UPDATE public.moth_tag_assignments SET tag_id = p_into WHERE tag_id = p_from AND workspace_id = p_ws;
-  -- A place of the folded tag's dot becomes the other's, where that view and owner have none of it yet.
+  -- A place of the folded tag's dot becomes the other's, where that view and owner have none of it yet: a person's
+  -- own place always, a shared one only when the folded tag was the company's (a merge). A person's tag never
+  -- publishes a place.
   INSERT INTO public.moth_layout_positions (view_id, workspace_id, target_type, target_id, owner_id, x, y, pinned, is_open, is_focus)
   SELECT pl.view_id, pl.workspace_id, 'mtag', p_into, pl.owner_id, pl.x, pl.y, pl.pinned, pl.is_open, false
     FROM public.moth_layout_positions pl
    WHERE pl.target_type = 'mtag' AND pl.target_id = p_from AND pl.workspace_id = p_ws
+     AND (pl.owner_id IS NOT NULL OR v_from_tier = 'company')
      AND NOT EXISTS (SELECT 1 FROM public.moth_layout_positions q
                       WHERE q.view_id = pl.view_id AND q.target_type = 'mtag' AND q.target_id = p_into
                         AND q.owner_id IS NOT DISTINCT FROM pl.owner_id);
@@ -649,8 +682,6 @@ DECLARE
   n        RECORD;
   v_type   UUID;
   v_tag    UUID;
-  v_shape  TEXT;
-  v_colour TEXT;
   v_from   RECORD;
 BEGIN
   -- Only a live admin decides: never a manager, and never the token's word alone (is_live_workspace_admin reads the
@@ -661,6 +692,9 @@ BEGIN
   IF p_approve IS NULL OR (p_review_note IS NOT NULL AND char_length(p_review_note) > 1000) THEN
     RAISE EXCEPTION 'A decision is a yes or a no, with a note of 1,000 characters at most.' USING ERRCODE = '22023';
   END IF;
+  -- One approval or merge at a time in a company, taken first, before any row: two of them never interleave, and
+  -- never wait on each other in turn.
+  PERFORM pg_advisory_xact_lock(hashtextextended('moth_tag_catalogue:' || v_ws::text, 0));
   SELECT * INTO n FROM public.moth_tag_nominations
    WHERE id = p_nomination AND workspace_id = v_ws AND status = 'open'
    FOR UPDATE;
@@ -674,18 +708,14 @@ BEGIN
      WHERE id = n.id;
     RETURN NULL;
   END IF;
-  -- One fold at a time for a word in this company.
-  PERFORM pg_advisory_xact_lock(hashtextextended('moth_tag_fold:' || v_ws::text || ':' || public.moth_tag_norm(n.label), 0));
-  -- The company's type of that name, or a new one in the shape and colour of the proposer's, where it is still there.
+  -- The company's type of that name, or a new one in the plain shape and colour: the person put forward a word and
+  -- its type's name, not their own look for it.
   SELECT ty.id INTO v_type
     FROM public.moth_tag_types ty
    WHERE ty.workspace_id = v_ws AND ty.tier = 'company' AND ty.norm = public.moth_tag_norm(n.type_name) AND ty.retired_at IS NULL;
   IF v_type IS NULL THEN
-    SELECT ty.shape, ty.colour INTO v_shape, v_colour
-      FROM public.moth_tags t JOIN public.moth_tag_types ty ON ty.id = t.type_id
-     WHERE t.id = n.tag_id;
     INSERT INTO public.moth_tag_types (workspace_id, tier, name, shape, colour)
-    VALUES (v_ws, 'company', n.type_name, COALESCE(v_shape, 'circle'), COALESCE(v_colour, 'mist'))
+    VALUES (v_ws, 'company', n.type_name, 'circle', 'mist')
     RETURNING id INTO v_type;
   END IF;
   -- The company's tag of that label and type, or a new one.
@@ -698,13 +728,13 @@ BEGIN
     RETURNING id INTO v_tag;
   END IF;
   -- Every person's own tag of the same label, of a type of the same name, folds into it: exact matches in
-  -- moth_tag_norm's form only, never a guess. Each owner's assignments stay that owner's alone, and nothing of
-  -- them is returned to the admin.
+  -- moth_tag_norm's form only, never a guess, and never one its owner has retired. Each owner's assignments stay
+  -- that owner's alone, and nothing of them is returned to the admin.
   FOR v_from IN
     SELECT t.id
       FROM public.moth_tags t
       JOIN public.moth_tag_types ty ON ty.id = t.type_id
-     WHERE t.workspace_id = v_ws AND t.tier = 'personal' AND t.canonical_id IS NULL
+     WHERE t.workspace_id = v_ws AND t.tier = 'personal' AND t.canonical_id IS NULL AND t.retired_at IS NULL
        AND t.norm = public.moth_tag_norm(n.label) AND ty.norm = public.moth_tag_norm(n.type_name)
   LOOP
     PERFORM rabbit_private.moth_tag_fold(v_ws, v_tag, v_from.id);
@@ -716,6 +746,9 @@ BEGIN
    WHERE workspace_id = v_ws AND status = 'open'
      AND (id = n.id OR tag_id IN (SELECT t.id FROM public.moth_tags t WHERE t.canonical_id = v_tag AND t.workspace_id = v_ws));
   RETURN v_tag;
+EXCEPTION WHEN unique_violation THEN
+  -- A key met at the same moment as someone's own change: said in words, with no row of anyone's in its detail.
+  RAISE EXCEPTION 'These tags changed at the same moment; try again.' USING ERRCODE = '40001';
 END;
 $$;
 REVOKE EXECUTE ON FUNCTION public.moth_tag_nomination_decide(uuid, boolean, text) FROM PUBLIC, anon;
@@ -733,7 +766,9 @@ BEGIN
   IF v_ws IS NULL OR NOT public.is_live_workspace_admin(v_ws) THEN
     RAISE EXCEPTION 'Only a workspace admin merges company tags.' USING ERRCODE = '42501';
   END IF;
-  -- Two merges of one tag at once wait for each other.
+  -- One approval or merge at a time in a company, taken first, before any row: two of them never interleave, and
+  -- never wait on each other in turn.
+  PERFORM pg_advisory_xact_lock(hashtextextended('moth_tag_catalogue:' || v_ws::text, 0));
   PERFORM 1 FROM public.moth_tags t WHERE t.id IN (p_from, p_into) AND t.workspace_id = v_ws ORDER BY t.id FOR UPDATE;
   IF p_from IS NULL OR p_into IS NULL OR p_from = p_into
      OR (SELECT count(*) FROM public.moth_tags t
@@ -745,6 +780,9 @@ BEGIN
   UPDATE public.moth_tag_nominations SET result_tag_id = p_into, updated_at = now()
    WHERE result_tag_id = p_from AND workspace_id = v_ws;
   RETURN p_into;
+EXCEPTION WHEN unique_violation THEN
+  -- A key met at the same moment as someone's own change: said in words, with no row of anyone's in its detail.
+  RAISE EXCEPTION 'These tags changed at the same moment; try again.' USING ERRCODE = '40001';
 END;
 $$;
 REVOKE EXECUTE ON FUNCTION public.moth_tag_merge(uuid, uuid) FROM PUBLIC, anon;
@@ -964,6 +1002,21 @@ BEGIN
           AND rabbit_private.moth_target_project(e.v ->> 't', (e.v ->> 'id')::uuid) IS DISTINCT FROM a.o_project) THEN
     RAISE EXCEPTION 'A project''s view keeps the places of that project''s things only.' USING ERRCODE = '23514';
   END IF;
+  -- 0126: a shared layer keeps shared things. A person's own note or typed tag has a place in their own layers only,
+  -- and here is refused in the words of one that is not there.
+  IF a.o_owner IS NULL THEN
+    SELECT e.v ->> 't' AS t, e.v ->> 'tag' AS tag, e.v ->> 'id' AS id INTO v_bad
+      FROM jsonb_array_elements(p_places) AS e(v)
+     WHERE (e.v ->> 't' = 'note' AND EXISTS (SELECT 1 FROM public.notes n
+                                              WHERE n.id = (e.v ->> 'id')::uuid AND n.tier = 'personal'))
+        OR (e.v ->> 't' = 'mtag' AND EXISTS (SELECT 1 FROM public.moth_tags t
+                                              WHERE t.id = (e.v ->> 'id')::uuid AND t.tier = 'personal'))
+     LIMIT 1;
+    IF FOUND THEN
+      RAISE EXCEPTION 'insert or update on table "moth_layout_positions" violates foreign key constraint "moth_layout_positions_%_ref_fk"',
+        v_bad.t USING ERRCODE = '23503';
+    END IF;
+  END IF;
 
   PERFORM pg_advisory_xact_lock(hashtextextended('moth_layout_positions:' || p_view::text || ':' || COALESCE(a.o_owner::text, ''), 0));
   IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_one) AS e(v) WHERE (e.v ->> 'focus') = 'true') THEN
@@ -1017,14 +1070,15 @@ BEGIN
       ('public.moth_tag_norm(text)', '3e54bf488d3a981a9fbc550e2e3135b5', false, 'i'),
       ('public.fn_moth_tag_types_pin()', '2d2083c7564cf81ac8c53435b4ed0cfa', false, 'v'),
       ('public.fn_moth_tags_pin()', 'aa2f17f5cf2b805ef5a517fffd33bb1a', false, 'v'),
-      ('public.fn_moth_tag_assignments_pin()', 'd5bcf6052c73b84fefb530dc6df8d506', false, 'v'),
-      ('rabbit_private.moth_tag_fold(uuid,uuid,uuid)', '2220e13f3135be04110fcba52d3fb394', true, 'v'),
+      ('public.fn_moth_tag_assignments_pin()', '781a08d35bbe47b17620bd951858600f', false, 'v'),
+      ('rabbit_private.moth_tag_fold(uuid,uuid,uuid)', 'b552317fafb7e1c97eb375ac33a9a7ba', true, 'v'),
       ('public.moth_tag_nominate(uuid,text)', 'da91fca89f14e7326ca1a55fbdecdc1b', true, 'v'),
       ('public.moth_tag_nomination_withdraw(uuid)', '8cb0f57feda72f7959df5ee385da5ea2', true, 'v'),
-      ('public.moth_tag_nomination_decide(uuid,boolean,text)', 'ccbe71185e656b1711f7438ec631a3ec', true, 'v'),
-      ('public.moth_tag_merge(uuid,uuid)', '88b59ac16d77f21870115fdf956e3749', true, 'v'),
+      ('public.moth_tag_nomination_decide(uuid,boolean,text)', 'cfc995cc96059aa288bc26091de025f4', true, 'v'),
+      ('public.moth_tag_merge(uuid,uuid)', 'e17990a0e83feed17ecc78c93e6b5e72', true, 'v'),
+      ('public.fn_moth_tags_gone()', '5bb42e6a5aa5836d30bafc8110fa7313', true, 'v'),
       ('public._moth_target_eligible(text,uuid,boolean)', 'd698cc503481bb497557ff247b3aab72', true, 's'),
-      ('public.moth_put_positions(uuid,jsonb)', '3cfc69fd8cbf9383429ed143ec113443', true, 'v')
+      ('public.moth_put_positions(uuid,jsonb)', '6f1b63f36ec8b0839a8e775517a4aed6', true, 'v')
     ) AS t(sig, now_is, definer, volatility)
   LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE oid = v_fn.sig::regprocedure
@@ -1049,6 +1103,7 @@ BEGIN
       ('public.moth_tag_nomination_withdraw(uuid)', true),
       ('public.moth_tag_nomination_decide(uuid,boolean,text)', true),
       ('public.moth_tag_merge(uuid,uuid)', true),
+      ('public.fn_moth_tags_gone()', false),
       ('public._moth_target_eligible(text,uuid,boolean)', false),
       ('public.moth_put_positions(uuid,jsonb)', true)
     ) AS t(sig, open)

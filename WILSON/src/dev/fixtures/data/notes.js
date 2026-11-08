@@ -78,3 +78,26 @@ export const NOTES = NOTE_ROWS.map(([n, title, subject, d, paragraphs], i) => ({
   updated_at: stamp(d, 17, i),
   updated_by: MEMBER_ID.mara,
 }))
+
+// MO3 (0125): a workspace note of Theo's, shared with the company. Mara reads it; as a live admin she may change
+// it too (it is not personal), and with `?fixtures=member` she only reads it.
+const SHARED_PARAGRAPHS = [
+  'Harbour light: every exterior after 4pm is graded warm, the interiors cool, so the cut never asks where we are.',
+  'The lantern is the one warm thing inside. Keep it in frame whenever Mira is in the café.',
+]
+export const SHARED_NOTES = [{
+  id: fid('note', 90),
+  workspace_id: WORKSPACE_ID,
+  owner_id: MEMBER_ID.theo,
+  title: 'Look of the film',
+  subject: null,
+  note_date: day(12),
+  ydoc_state: ydocState(SHARED_PARAGRAPHS),
+  body_preview: toPreview(SHARED_PARAGRAPHS.join('\n')),
+  version: 2,
+  tier: 'shared',
+  created_at: stamp(12, 10, 0),
+  created_by: MEMBER_ID.theo,
+  updated_at: stamp(12, 16, 0),
+  updated_by: MEMBER_ID.theo,
+}]

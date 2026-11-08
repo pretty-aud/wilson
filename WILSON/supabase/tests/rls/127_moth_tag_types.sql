@@ -13,7 +13,7 @@
 -- =============================================================================
 
 BEGIN;
-SELECT plan(38);
+SELECT plan(39);
 
 SELECT * FROM tests.rls_setup();
 
@@ -144,6 +144,11 @@ SELECT is(public.t127_err($$INSERT INTO public.moth_tag_types (tier, name) VALUE
 SELECT public.t127_d();
 SELECT is(public.t127_err($$INSERT INTO public.moth_tag_types (tier, name) VALUES ('company', 'Location')$$), '42501',
   'a workspace manager makes no company type');
+SELECT set_config('request.jwt.claims', jsonb_build_object('sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'role', 'authenticated',
+  'app_metadata', jsonb_build_object('workspace_id', '11111111-1111-1111-1111-111111111111', 'app_role', 'admin'))::text, true);
+SELECT is(public.t127_err($$INSERT INTO public.moth_tag_types (tier, name) VALUES ('company', 'Location')$$), '42501',
+  'nor a member whose token says admin: the membership row decides (round A)');
+SELECT public.t127_d();
 SELECT is((SELECT count(*)::int FROM public.moth_tag_types WHERE name = 'Character'), 1, 'and reads the company''s');
 WITH u AS (UPDATE public.moth_tag_types SET name = 'Persona' WHERE name = 'Character' RETURNING 1)
 SELECT is(count(*)::int, 0, 'and renames none') FROM u;

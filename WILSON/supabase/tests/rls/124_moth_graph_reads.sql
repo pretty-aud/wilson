@@ -275,8 +275,10 @@ SELECT ok(NOT public.moth_can_read_target('asset', '12400000-0000-0000-0000-0000
           AND NOT public.moth_can_read_target('task', '12400000-0000-0000-0000-0000000000e2'),
   'admin: nothing of another person''s personal space (no admin leg)');
 SELECT ok(NOT public.moth_can_read_target('asset', '12400000-0000-0000-0000-0000000000b1'), 'admin: nothing of another company');
-SELECT ok(NOT public.moth_can_read_target('note', '12400000-0000-0000-0000-000000000051')
-          AND NOT public.moth_can_read_target('bin', '12400000-0000-0000-0000-000000000051'),
+SELECT ok(NOT public.moth_can_read_target('milestone', '12400000-0000-0000-0000-000000000051')
+          AND NOT public.moth_can_read_target('bin', '12400000-0000-0000-0000-000000000051')
+          AND NOT public.moth_can_read_target('note', '12400000-0000-0000-0000-000000000051')
+          AND NOT public.moth_can_read_target('mtag', '12400000-0000-0000-0000-000000000051'),
   'a kind still unknown is false, even for an id that exists as another kind');
 SELECT ok(NOT public.moth_can_read_target('asset', '12400000-0000-0000-0000-0000000000ff')
           AND NOT public.moth_can_read_target('asset', NULL), 'an id that does not exist, and none, are false');
@@ -479,10 +481,10 @@ SELECT ok(NOT public.moth_can_read_target('experience', '12400000-0000-0000-0000
           AND NOT public.moth_can_read_target('experience', '12400000-0000-0000-0000-00000000dead')
           AND NOT public.moth_can_read_target('shot', '12400000-0000-0000-0000-00000000dead'),
   'an id asked as another kind, or no row of its kind, is refused where the company holds that kind');
-SELECT ok(NOT public.moth_can_read_target('note', 'aaaa1240-0000-0000-0000-00000000000a')
+SELECT ok(NOT public.moth_can_read_target('milestone', 'aaaa1240-0000-0000-0000-00000000000a')
           AND NOT public.moth_can_read_target('', 'aaaa1240-0000-0000-0000-00000000000a')
           AND NOT public.moth_can_read_target(NULL, 'aaaa1240-0000-0000-0000-00000000000a')
-          AND NOT public.moth_can_write_target('note', 'aaaa1240-0000-0000-0000-00000000000a'),
+          AND NOT public.moth_can_write_target('milestone', 'aaaa1240-0000-0000-0000-00000000000a'),
   'a readable project''s id under a kind the gate does not know is refused');
 SELECT ok(public.moth_can_write_target('phase', '12400000-0000-0000-0000-000000000001') AND public.moth_can_write_target('asset', '12400000-0000-0000-0000-000000000051')
           AND public.moth_can_write_target('task', '12400000-0000-0000-0000-000000000061') AND public.moth_can_write_target('scene', '12400000-0000-0000-0000-000000000011')

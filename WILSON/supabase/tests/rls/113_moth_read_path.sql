@@ -278,7 +278,7 @@ SELECT is(public.moth_can_read_target('file', '11300000-0000-0000-0000-000000000
 SELECT is(public.moth_can_read_target('project', '11300000-0000-0000-0000-0000000001a1'), false, 'a file''s id forged as a project is false');
 SELECT is(public.moth_can_read_target('file', 'aaaa1111-0000-0000-0000-000000001131'), false, 'a project''s id forged as a file is false');
 SELECT is(public.moth_can_read_target('folder', '11300000-0000-0000-0000-0000000001a1'), false, 'a file''s id forged as a folder is false');
-SELECT is(public.moth_can_read_target('note', '11300000-0000-0000-0000-0000000001a1'), false, 'an unknown kind is false');
+SELECT is(public.moth_can_read_target('milestone', '11300000-0000-0000-0000-0000000001a1'), false, 'an unknown kind is false');
 SELECT is(public.moth_can_read_target(NULL, '11300000-0000-0000-0000-0000000001a1'), false, 'a NULL kind is false');
 SELECT is(public.moth_can_read_target('file', NULL), false, 'a NULL id is false');
 SELECT is(public.moth_can_read_target('file', '11300000-dead-dead-dead-000000000000'), false, 'a missing file is false');

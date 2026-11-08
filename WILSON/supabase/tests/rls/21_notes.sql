@@ -14,7 +14,7 @@
 -- De-auth pair before every persona switch: tests schema is runner-only.
 
 BEGIN;
-SELECT plan(62);
+SELECT plan(69);
 
 SELECT * FROM tests.rls_setup();
 
@@ -244,7 +244,7 @@ INSERT INTO public.notes (id, title) VALUES
 SELECT is((SELECT string_agg(DISTINCT tier, ',') FROM public.notes WHERE id::text LIKE 'da000000-0000-0000-0000-0000000000c%'),
   'personal', 'a new note is personal');
 SELECT throws_ok($$INSERT INTO public.notes (id, title, tier) VALUES ('da000000-0000-0000-0000-0000000000c9', 'Standard', 'company_standard')$$,
-  '42501', NULL, 'a member makes no note the company standard');
+  '42501', 'Only a workspace admin makes a note the company standard.', 'a member makes no note the company standard');
 SELECT lives_ok($$UPDATE public.notes SET tier = 'shared' WHERE id IN ('da000000-0000-0000-0000-0000000000c2', 'da000000-0000-0000-0000-0000000000c3', 'da000000-0000-0000-0000-0000000000c4')$$,
   'the owner shares a note');
 -- The server counts the body's versions: a forged number is not taken, and a change of anything else keeps it.
@@ -255,7 +255,16 @@ UPDATE public.notes SET title = 'C shared, renamed' WHERE id = 'da000000-0000-00
 SELECT is((SELECT version FROM public.notes WHERE id = 'da000000-0000-0000-0000-0000000000c2'), 1::bigint,
   'and a change of its title keeps it');
 SELECT throws_ok($$UPDATE public.notes SET tier = 'company_standard' WHERE id = 'da000000-0000-0000-0000-0000000000c2'$$,
-  '42501', NULL, 'its owner, a member, does not make it the company standard');
+  '42501', 'Only a workspace admin makes a note the company standard, or takes it back.', 'its owner, a member, does not make it the company standard');
+-- A30: a token that says admin is not a live admin: the membership row decides.
+SELECT set_config('request.jwt.claims', jsonb_build_object('sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'role', 'authenticated',
+  'app_metadata', jsonb_build_object('workspace_id', '11111111-1111-1111-1111-111111111111', 'app_role', 'admin'))::text, true);
+SELECT throws_ok($$UPDATE public.notes SET tier = 'company_standard' WHERE id = 'da000000-0000-0000-0000-0000000000c1'$$,
+  '42501', 'Only a workspace admin makes a note the company standard, or takes it back.',
+  'nor does a member whose token says admin: the membership row decides');
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT tests.login_as('cccccccc-cccc-cccc-cccc-cccccccccccc', '11111111-1111-1111-1111-111111111111');
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 
@@ -292,15 +301,20 @@ SELECT ok(public.moth_can_write_target('note', 'da000000-0000-0000-0000-00000000
 SELECT throws_ok($$UPDATE public.notes SET owner_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' WHERE id = 'da000000-0000-0000-0000-0000000000c2'$$,
   '42501', 'A note''s company and owner never change.', 'but never gives it to someone else');
 SELECT throws_ok($$UPDATE public.notes SET tier = 'personal' WHERE id = 'da000000-0000-0000-0000-0000000000c2'$$,
-  '42501', NULL, 'nor makes it personal: that is its owner''s call');
+  '42501', 'Only its owner shares a note, or makes it private again.', 'nor makes it personal: that is its owner''s call');
 SELECT lives_ok($$UPDATE public.notes SET tier = 'company_standard' WHERE id = 'da000000-0000-0000-0000-0000000000c2'$$,
   'an admin makes a shared note the company standard');
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 
 SELECT tests.login_as('cccccccc-cccc-cccc-cccc-cccccccccccc', '11111111-1111-1111-1111-111111111111');
-SELECT throws_ok($$UPDATE public.notes SET tier = 'shared' WHERE id = 'da000000-0000-0000-0000-0000000000c2'$$,
-  '42501', NULL, 'its owner, a member, does not take the company standard back');
+WITH u AS (UPDATE public.notes SET tier = 'shared' WHERE id = 'da000000-0000-0000-0000-0000000000c2' RETURNING 1)
+SELECT is(count(*)::int, 0, 'its owner, a member, does not take the company standard back') FROM u;
+WITH u AS (UPDATE public.notes SET title = 'C standard, by its owner' WHERE id = 'da000000-0000-0000-0000-0000000000c2' RETURNING 1)
+SELECT is(count(*)::int, 0, 'nor changes its words: the standard is the live admins'' to change') FROM u;
+SELECT throws_ok($$SELECT public.note_trash('da000000-0000-0000-0000-0000000000c2')$$,
+  '42501', 'That note is not one you can put in the trash.', 'nor puts it in the trash');
+SELECT ok(NOT public.moth_can_write_target('note', 'da000000-0000-0000-0000-0000000000c2'), '… as Moth''s write gate says');
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 SELECT tests.login_as('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '11111111-1111-1111-1111-111111111111');
@@ -328,10 +342,14 @@ RESET ROLE;
 SELECT tests.login_as('cccccccc-cccc-cccc-cccc-cccccccccccc', '11111111-1111-1111-1111-111111111111');
 SELECT is(public.note_trash('da000000-0000-0000-0000-0000000000c2'), true, 'the owner puts a note in the trash');
 SELECT is(public.note_trash('da000000-0000-0000-0000-0000000000c2'), false, '… once');
-SELECT throws_ok($$UPDATE public.notes SET title = 'while in the trash' WHERE id = 'da000000-0000-0000-0000-0000000000c2'$$,
-  '42501', 'A note in the trash is brought back before it is changed.', 'a note in the trash is not changed');
-SELECT throws_ok($$UPDATE public.notes SET deleted_at = NULL, deleted_by = NULL WHERE id = 'da000000-0000-0000-0000-0000000000c2'$$,
-  '42501', 'A note goes to the trash and comes back from it through the trash.', 'nor taken out of it by hand');
+SELECT is((SELECT count(*)::int FROM public.notes WHERE id = 'da000000-0000-0000-0000-0000000000c2'), 0,
+  'a note in the trash is no one''s to read through the table, not even its owner''s: no list shows it as live');
+SELECT is((SELECT string_agg(title || ':' || is_mine::text, ',') FROM public.note_trash_list() WHERE id = 'da000000-0000-0000-0000-0000000000c2'),
+  'C shared, by A:true', 'its owner finds it in the trash list');
+WITH u AS (UPDATE public.notes SET title = 'while in the trash' WHERE id = 'da000000-0000-0000-0000-0000000000c2' RETURNING 1)
+SELECT is(count(*)::int, 0, 'a note in the trash is not changed') FROM u;
+WITH u AS (UPDATE public.notes SET deleted_at = NULL, deleted_by = NULL WHERE id = 'da000000-0000-0000-0000-0000000000c2' RETURNING 1)
+SELECT is(count(*)::int, 0, 'nor taken out of it by hand') FROM u;
 SELECT ok(NOT public.moth_can_read_target('note', 'da000000-0000-0000-0000-0000000000c2'), 'Moth''s gate gives no note in the trash');
 SELECT throws_ok($$DELETE FROM public.notes WHERE id = 'da000000-0000-0000-0000-0000000000c1'$$,
   '42501', NULL, 'no client deletes a note, not even its owner: deleting is the trash');
@@ -340,11 +358,13 @@ RESET ROLE;
 SELECT tests.login_as('dddddddd-dddd-dddd-dddd-dddddddddddd', '11111111-1111-1111-1111-111111111111');
 SELECT is((SELECT count(*)::int FROM public.notes WHERE id = 'da000000-0000-0000-0000-0000000000c2'), 0,
   'a shared note in the trash is gone from a member''s list');
+SELECT is((SELECT count(*)::int FROM public.note_trash_list() WHERE id::text LIKE 'da000000-0000-0000-0000-0000000000c%'), 0,
+  'and a member''s trash list holds none of someone else''s');
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 SELECT tests.login_as('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '11111111-1111-1111-1111-111111111111');
-SELECT is((SELECT count(*)::int FROM public.notes WHERE id = 'da000000-0000-0000-0000-0000000000c2'), 1,
-  '… and a live admin still sees it, to bring it back');
+SELECT is((SELECT count(*)::int FROM public.note_trash_list() WHERE id = 'da000000-0000-0000-0000-0000000000c2'), 1,
+  '… and a live admin finds it in the trash list, to bring it back');
 SELECT is(public.note_restore('da000000-0000-0000-0000-0000000000c2'), true, 'an admin brings a shared note back');
 SELECT is(public.note_restore('da000000-0000-0000-0000-0000000000c2'), false, '… once');
 SELECT throws_ok($$SELECT public.note_restore('da000000-0000-0000-0000-0000000000c1')$$,
@@ -368,6 +388,8 @@ SELECT is((SELECT string_agg(right(id::text, 2), ',' ORDER BY id) FROM public.no
 SELECT throws_ok($$SELECT public.purge_trashed_notes(interval '1 hour')$$, '22023', NULL, 'it keeps a note a day at least');
 SELECT ok(NOT has_function_privilege('authenticated', 'public.purge_trashed_notes(interval)', 'EXECUTE')
           AND has_function_privilege('authenticated', 'public.note_trash(uuid)', 'EXECUTE')
+          AND has_function_privilege('authenticated', 'public.note_trash_list()', 'EXECUTE')
+          AND NOT has_function_privilege('anon', 'public.note_trash_list()', 'EXECUTE')
           AND NOT has_function_privilege('anon', 'public.note_trash(uuid)', 'EXECUTE'),
   'a signed-in person may trash and bring back; only the job purges');
 

@@ -30,7 +30,7 @@ import {
   RATE_CARDS, RATE_CARD_ENTRIES, BUDGET_LINES, BUDGET_ACTUALS, BUDGET_VERSIONS,
   EXPENSES, PROJECT_RATE_OVERRIDES,
 } from './data/money'
-import { NOTES, NOTE_SUBJECTS } from './data/notes'
+import { NOTES, NOTE_SUBJECTS, SHARED_NOTES } from './data/notes'
 import { COURSE, SUBJECTS, PROGRESS, QUIZ_ATTEMPTS, CODING_COURSE, CODING_SUBJECTS } from './data/otter'
 
 export function clone(v) {
@@ -259,6 +259,14 @@ export function createStore() {
     mothViews: [],
     mothPositions: [],
     mothPrefs: {},
+    // MO3 (0126, 0127): typed tags, their nominations, relationships and the picker's reservations. Nothing is
+    // seeded: tags and links are made on the page.
+    mothTagTypes: [],
+    mothTags: [],
+    mothTagAssignments: [],
+    mothTagNominations: [],
+    mothRelationships: [],
+    mothMentionReservations: [],
 
     folders: clone(FOLDERS),
     files: [...clone(FILES), ...clone(PERSONAL_SPACE_FILES)],
@@ -275,7 +283,7 @@ export function createStore() {
     expenses: clone(EXPENSES),
     rateOverrides: clone(PROJECT_RATE_OVERRIDES),
 
-    notes: clone(NOTES),
+    notes: [...clone(NOTES), ...clone(SHARED_NOTES)],
     noteSubjects: clone(NOTE_SUBJECTS),
 
     // S2b: the C# course (a coding language) after the software one.

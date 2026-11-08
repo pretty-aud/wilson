@@ -3,12 +3,13 @@
 --
 -- A. Structure: forced row security and no policy at all; no client reads or writes a reservation.
 -- B. A reservation is its maker's, for a thing they see, with an opaque key of twelve hex digits.
--- C. At most 500 waiting a person; those past their day go as new ones are made.
+-- C. At most 500 waiting a person; those past their day go as new ones are made; a key a field has used is that
+--    field's, kept past its day and never one of the 500 (round A).
 -- D. The token's form, as the text triggers read it.
 -- =============================================================================
 
 BEGIN;
-SELECT plan(16);
+SELECT plan(20);
 
 SELECT * FROM tests.rls_setup();
 
@@ -161,6 +162,23 @@ SELECT ok(public.moth_mention_reserve('asset', '13200000-0000-0000-0000-00000000
 RESET ROLE;
 SELECT is((SELECT count(*)::int FROM public.moth_mention_reservations WHERE created_by = 'cccccccc-cccc-cccc-cccc-cccccccccccc'), 0,
   'and those past their day are gone');
+-- Keys fields have used, long ago: theirs, not waiting.
+INSERT INTO public.moth_mention_reservations (mention_key, workspace_id, created_by, dest_type, dest_id, created_at,
+                                              used_kind, used_id, used_field, used_at)
+SELECT lpad(to_hex(g + 4096), 12, '0'), '11111111-1111-1111-1111-111111111111', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'asset', '13200000-0000-0000-0000-000000000051', now() - interval '40 days',
+       'task', '13200000-0000-0000-0000-000000000061', 'description', now() - interval '40 days'
+  FROM generate_series(1, 500) g;
+SET LOCAL ROLE authenticated;
+SELECT public.t132_c();
+SELECT ok(public.moth_mention_reserve('asset', '13200000-0000-0000-0000-000000000051') IS NOT NULL, 'keys fields keep are not waiting ones: they count for nothing against the 500');
+SELECT public.t132_e();
+SELECT ok(public.moth_mention_reserve('asset', '13200000-0000-0000-0000-000000000051') IS NOT NULL, 'and another person''s reservation clears only waiting keys');
+RESET ROLE;
+SELECT is((SELECT count(*)::int FROM public.moth_mention_reservations WHERE created_by = 'cccccccc-cccc-cccc-cccc-cccccccccccc' AND used_kind IS NOT NULL), 500,
+  'every key a field has used stays, however old');
+SELECT is(public.t132_err($$INSERT INTO public.moth_mention_reservations (mention_key, workspace_id, created_by, dest_type, dest_id, used_kind)
+          VALUES ('bbbbbbbbbbbb', '11111111-1111-1111-1111-111111111111', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'asset', '13200000-0000-0000-0000-000000000051', 'task')$$),
+  '23514', 'a key is a field''s whole, or no field''s');
 
 -- ── D. The token's form ─────────────────────────────────────────────────────
 SELECT is(rabbit_private.moth_mention_keys('a [[One|m:0123456789ab]] b [[Two words|m:ba9876543210]] c'), ARRAY['0123456789ab', 'ba9876543210'],

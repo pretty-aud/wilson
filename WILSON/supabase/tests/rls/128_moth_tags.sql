@@ -12,7 +12,7 @@
 -- =============================================================================
 
 BEGIN;
-SELECT plan(39);
+SELECT plan(41);
 
 SELECT * FROM tests.rls_setup();
 
@@ -165,6 +165,11 @@ SELECT is(public.t128_err($$UPDATE public.moth_tags SET tier = 'personal' WHERE 
 SELECT public.t128_d();
 SELECT is(public.t128_err($$INSERT INTO public.moth_tags (type_id, tier, label) VALUES ('12800000-0000-0000-0000-0000000000a1', 'company', 'Jonah')$$),
   '42501', 'a workspace manager makes no company tag');
+SELECT set_config('request.jwt.claims', jsonb_build_object('sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'role', 'authenticated',
+  'app_metadata', jsonb_build_object('workspace_id', '11111111-1111-1111-1111-111111111111', 'app_role', 'admin'))::text, true);
+SELECT is(public.t128_err($$INSERT INTO public.moth_tags (type_id, tier, label) VALUES ('12800000-0000-0000-0000-0000000000a1', 'company', 'Jonah')$$),
+  '42501', 'nor a member whose token says admin: the membership row decides');
+SELECT public.t128_d();
 WITH u AS (UPDATE public.moth_tags SET label = 'by D' WHERE label = 'Mira Lund' RETURNING 1)
 SELECT is(count(*)::int, 0, 'nor renames one') FROM u;
 SELECT is((SELECT count(*)::int FROM public.moth_tags WHERE tier = 'company'), 1, 'and reads the company''s');
@@ -191,7 +196,7 @@ SELECT lives_ok($$INSERT INTO public.moth_tags (type_id, tier, label) VALUES ('1
   'and may have a "Mira" of their own: two people''s tags never collide');
 SELECT public.t128_a();
 SELECT is((SELECT count(*)::int FROM public.moth_tags WHERE tier = 'personal'), 0, 'an admin reads no one''s own tags: no admin leg');
-WITH d AS (DELETE FROM public.moth_tags WHERE id = public.t128_tag('Blender 5.1', 'cccccccc-cccc-cccc-cccc-cccccccccccc') RETURNING 1)
+WITH d AS (DELETE FROM public.moth_tags WHERE id = public.t128_tag('Blender 5.0', 'cccccccc-cccc-cccc-cccc-cccccccccccc') RETURNING 1)
 SELECT is(count(*)::int, 0, 'nor deletes one') FROM d;
 SELECT public.t128_c();
 WITH u AS (UPDATE public.moth_tags SET label = 'Blender 5.1' WHERE id = public.t128_tag('Blender 5.0', 'cccccccc-cccc-cccc-cccc-cccccccccccc') RETURNING 1)
@@ -217,6 +222,15 @@ SELECT is(public.t128_words($$INSERT INTO public.moth_tags (type_id, tier, label
 SELECT is(public.t128_words($$INSERT INTO public.moth_tags (type_id, tier, label) VALUES ('12800000-0000-0000-0000-00000000dead', 'personal', 'Calm')$$),
   'insert or update on table "moth_tags" violates foreign key constraint "moth_tags_type_fk"',
   'which are these');
+RESET ROLE;
+SELECT set_config('request.jwt.claims', '{}', true);
+INSERT INTO public.moth_tag_types (id, workspace_id, tier, owner_id, name) VALUES
+  ('12800000-0000-0000-0000-0000000000aa', '11111111-1111-1111-1111-111111111111', 'personal', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Admin''s own');
+SET LOCAL ROLE authenticated;
+SELECT public.t128_a();
+SELECT is(public.t128_words($$INSERT INTO public.moth_tags (type_id, tier, label) VALUES ('12800000-0000-0000-0000-0000000000aa', 'company', 'Calm')$$),
+  'insert or update on table "moth_tags" violates foreign key constraint "moth_tags_type_fk"',
+  'a company tag takes a company type: not even the admin''s own personal one');
 RESET ROLE;
 UPDATE public.moth_tag_types SET retired_at = now() WHERE id = '12800000-0000-0000-0000-0000000000a2';
 SET LOCAL ROLE authenticated;

@@ -22,7 +22,7 @@
 
 BEGIN;
 
-SELECT plan(84);
+SELECT plan(86);
 
 SELECT * FROM tests.rls_setup();
 
@@ -353,13 +353,20 @@ INSERT INTO public.moth_tag_types (id, workspace_id, tier, name) VALUES ('126000
 INSERT INTO public.moth_tags (id, workspace_id, type_id, tier, label) VALUES ('12600000-0000-0000-0000-0000000000b2', '11111111-1111-1111-1111-111111111111', '12600000-0000-0000-0000-0000000000b1', 'company', 'Mira');
 INSERT INTO public.notes (id, workspace_id, owner_id, title, tier) VALUES
   ('12600000-0000-0000-0000-0000000000b3', '11111111-1111-1111-1111-111111111111', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'Harbour light', 'shared'),
-  ('12600000-0000-0000-0000-0000000000b4', '11111111-1111-1111-1111-111111111111', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'Mine alone', 'personal');
+  ('12600000-0000-0000-0000-0000000000b4', '11111111-1111-1111-1111-111111111111', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'Mine alone', 'personal'),
+  ('12600000-0000-0000-0000-0000000000b5', '11111111-1111-1111-1111-111111111111', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'C, to herself', 'personal');
+INSERT INTO public.moth_tag_types (id, workspace_id, tier, owner_id, name) VALUES ('12600000-0000-0000-0000-0000000000b6', '11111111-1111-1111-1111-111111111111', 'personal', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'Mine');
+INSERT INTO public.moth_tags (id, workspace_id, type_id, tier, owner_id, label) VALUES ('12600000-0000-0000-0000-0000000000b7', '11111111-1111-1111-1111-111111111111', '12600000-0000-0000-0000-0000000000b6', 'personal', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'Mira');
 SET LOCAL ROLE authenticated;
 SELECT public.t126_c();
 SELECT is(public.t126_put('12600000-0000-0000-0000-0000000000a1', '[{"t":"mtag","id":"12600000-0000-0000-0000-0000000000b2","x":1,"y":1},{"t":"note","id":"12600000-0000-0000-0000-0000000000b3","x":2,"y":2}]'), 2,
   'a project''s view keeps the places of a typed tag and a note, which belong to no project (0126)');
 SELECT ok(public.t126_err($$ SELECT public.t126_put('12600000-0000-0000-0000-0000000000a1', '[{"t":"note","id":"12600000-0000-0000-0000-0000000000b4","x":3,"y":3}]') $$) LIKE '23503 %',
   'someone else''s personal note has no place, refused as one that is not there (0126)');
+SELECT ok(public.t126_err($$ SELECT public.t126_put('12600000-0000-0000-0000-0000000000a1', '[{"t":"note","id":"12600000-0000-0000-0000-0000000000b5","x":3,"y":3}]') $$) LIKE '23503 %',
+  'nor has one''s own personal note a place in a shared view, refused alike (round A)');
+SELECT ok(public.t126_err($$ SELECT public.t126_put('12600000-0000-0000-0000-0000000000a1', '[{"t":"mtag","id":"12600000-0000-0000-0000-0000000000b7","x":3,"y":3}]') $$) LIKE '23503 %',
+  'nor one''s own personal typed tag (round A)');
 SELECT public.t126_r();
 SELECT ok(public.t126_seen('12600000-0000-0000-0000-0000000000a1') LIKE '%mtag:0b2:-%' AND public.t126_seen('12600000-0000-0000-0000-0000000000a1') LIKE '%note:0b3:-%',
   'P''s reviewer sees the shared places of the company''s tag and the shared note (0126)');

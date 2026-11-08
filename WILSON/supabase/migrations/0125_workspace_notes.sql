@@ -47,16 +47,19 @@ BEGIN
   IF NOT (SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user) THEN
     RAISE EXCEPTION '0125 refused: % does not bypass row security', current_user;
   END IF;
-  -- notes as 0017 made it: its columns, its forced row security and its four policies by name (§3 restates them).
+  -- notes as 0017 made it: its columns, its forced row security and its four policies (§3 restates them), or this
+  -- file's three on a second run.
   IF (SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'notes'
          AND column_name IN ('id', 'workspace_id', 'owner_id', 'title', 'ydoc_state', 'body_preview', 'version', 'created_by')) <> 8
      OR NOT (SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE oid = 'public.notes'::regclass)
-     OR (SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename = 'notes') <> 4 THEN
+     OR (SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename = 'notes')
+          <> (CASE WHEN EXISTS (SELECT 1 FROM information_schema.columns
+                                 WHERE table_schema = 'public' AND table_name = 'notes' AND column_name = 'tier') THEN 3 ELSE 4 END) THEN
     RAISE EXCEPTION '0125 refused: notes is not 0017''s';
   END IF;
   FOR v_fn IN
     SELECT * FROM (VALUES
-      ('public.moth_can_write_target(text,uuid)', 'f75ffd2db06f93a4e8d0cbef867a1e4f', 'af3ae61813da7bf7e4ba3506112046f9')
+      ('public.moth_can_write_target(text,uuid)', 'f75ffd2db06f93a4e8d0cbef867a1e4f', 'cebbff6f84c8827799022eea970afcbd')
     ) AS t(sig, was, now_is)
   LOOP
     SELECT md5(replace(prosrc, chr(13), '')) INTO v_md5 FROM pg_proc WHERE oid = v_fn.sig::regprocedure;
@@ -68,8 +71,9 @@ BEGIN
   FOR v_fn IN
     SELECT * FROM (VALUES
       ('public.fn_notes_guard()', '2ef693b84fbca54e624c3554a87d8a83'),
-      ('public.note_trash(uuid)', '73f57160d7fdf1390184bf6e6b6d24e6'),
-      ('public.note_restore(uuid)', 'b292f9324d728bfe3e388de1cef98cc2'),
+      ('public.note_trash(uuid)', '9eddfd55103f47cc8d5bb0676b947bfd'),
+      ('public.note_restore(uuid)', 'd712e836803d06c6ccd18db6c2b91a07'),
+      ('public.note_trash_list()', '46a3141474cc7f694645dabc2bbe17ef'),
       ('public.purge_trashed_notes(interval)', 'e2d4cd20644d9db81ce32c9ff0998ff5'),
       ('public.moth_notes()', '5b7948799f9988d0f80dc7fd70694424')
     ) AS t(sig, now_is)
@@ -104,9 +108,9 @@ CREATE INDEX IF NOT EXISTS notes_shared_idx ON public.notes (workspace_id, updat
 CREATE INDEX IF NOT EXISTS notes_trash_idx ON public.notes (deleted_at) WHERE deleted_at IS NOT NULL;
 
 COMMENT ON COLUMN public.notes.tier IS
-  '0125 (MO3): personal (the owner''s alone, no admin bypass, 0017), shared (every active member reads; the owner and live admins change it) or company_standard (as shared; only a live admin sets or clears it). Moves only as fn_notes_guard allows.';
+  '0125 (MO3): personal (the owner''s alone, no admin bypass, 0017), shared (every active member reads; the owner and live admins change it) or company_standard (every active member reads; only a live admin changes it, sets it or clears it). Moves only as fn_notes_guard allows.';
 COMMENT ON COLUMN public.notes.deleted_at IS
-  '0125 (MO3): in the trash since; set and cleared only by note_trash and note_restore; purged after 30 days by purge_trashed_notes.';
+  '0125 (MO3): in the trash since; set and cleared only by note_trash and note_restore; a note in the trash is read only through note_trash_list; purged after 30 days by purge_trashed_notes.';
 
 -- §2 The guard --------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_notes_guard()
@@ -188,14 +192,14 @@ DROP POLICY IF EXISTS notes_update ON public.notes;
 DROP POLICY IF EXISTS notes_delete ON public.notes;
 
 -- A personal note is its owner's alone, as 0017 made it (no admin leg, and the owner reads it even after leaving).
--- A shared or company note is every active member's to read, and in the trash only its owner's and live admins'.
+-- A shared or company note is every active member's to read. A note in the trash is no one's to read here: its
+-- owner and live admins see the trash through note_trash_list (§4), so no build lists a trashed note as live.
 CREATE POLICY notes_select ON public.notes
   FOR SELECT USING (
     workspace_id = public.current_workspace_id()
+    AND deleted_at IS NULL
     AND (owner_id = auth.uid()
-         OR (tier <> 'personal'
-             AND public.has_active_membership(workspace_id)
-             AND (deleted_at IS NULL OR public.is_live_workspace_admin(workspace_id))))
+         OR (tier <> 'personal' AND public.has_active_membership(workspace_id)))
   );
 
 CREATE POLICY notes_insert ON public.notes
@@ -205,17 +209,20 @@ CREATE POLICY notes_insert ON public.notes
     AND owner_id = auth.uid()
   );
 
--- The owner changes their own; a live admin changes a note that is not personal. WITH CHECK asks the same of the
--- new row, so an admin cannot make someone else's note personal (and so their own).
+-- The owner changes their own, unless it is the company's standard; a live admin changes any note that is not
+-- personal. WITH CHECK asks the same of the new row, so an admin cannot make someone else's note personal (and so
+-- their own), and the standard stays the live admins' to change.
 CREATE POLICY notes_update ON public.notes
   FOR UPDATE USING (
     workspace_id = public.current_workspace_id()
     AND public.has_active_membership(workspace_id)
-    AND (owner_id = auth.uid() OR (tier <> 'personal' AND public.is_live_workspace_admin(workspace_id)))
+    AND ((owner_id = auth.uid() AND tier <> 'company_standard')
+         OR (tier <> 'personal' AND public.is_live_workspace_admin(workspace_id)))
   ) WITH CHECK (
     workspace_id = public.current_workspace_id()
     AND public.has_active_membership(workspace_id)
-    AND (owner_id = auth.uid() OR (tier <> 'personal' AND public.is_live_workspace_admin(workspace_id)))
+    AND ((owner_id = auth.uid() AND tier <> 'company_standard')
+         OR (tier <> 'personal' AND public.is_live_workspace_admin(workspace_id)))
   );
 
 -- No DELETE policy, and no DELETE grant: a note goes to the trash (§4), and only the purge removes one.
@@ -242,7 +249,8 @@ BEGIN
    WHERE n.id = p_note AND n.workspace_id = v_ws;
   -- One refusal for every case: not there, another company's, someone else's personal note, or no right to it.
   IF v_owner IS NULL OR auth.uid() IS NULL OR NOT public.has_active_membership(v_ws)
-     OR NOT (v_owner = auth.uid() OR (v_tier <> 'personal' AND public.is_live_workspace_admin(v_ws))) THEN
+     OR NOT ((v_owner = auth.uid() AND v_tier <> 'company_standard')
+             OR (v_tier <> 'personal' AND public.is_live_workspace_admin(v_ws))) THEN
     RAISE EXCEPTION 'That note is not one you can put in the trash.' USING ERRCODE = '42501';
   END IF;
   IF v_gone IS NOT NULL THEN
@@ -273,7 +281,8 @@ BEGIN
     FROM public.notes n
    WHERE n.id = p_note AND n.workspace_id = v_ws;
   IF v_owner IS NULL OR auth.uid() IS NULL OR NOT public.has_active_membership(v_ws)
-     OR NOT (v_owner = auth.uid() OR (v_tier <> 'personal' AND public.is_live_workspace_admin(v_ws))) THEN
+     OR NOT ((v_owner = auth.uid() AND v_tier <> 'company_standard')
+             OR (v_tier <> 'personal' AND public.is_live_workspace_admin(v_ws))) THEN
     RAISE EXCEPTION 'That note is not one you can bring back.' USING ERRCODE = '42501';
   END IF;
   IF v_gone IS NULL THEN
@@ -287,6 +296,30 @@ END;
 $$;
 REVOKE EXECUTE ON FUNCTION public.note_restore(uuid) FROM PUBLIC, anon;
 GRANT  EXECUTE ON FUNCTION public.note_restore(uuid) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.note_trash_list()
+RETURNS TABLE (id uuid, title text, subject text, tier text, is_mine boolean, body_preview text,
+               deleted_at timestamptz, updated_at timestamptz)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  -- What the caller may bring back, by note_restore's own rule, newest in the trash first. The trash is read here
+  -- alone: notes_select shows no note in the trash.
+  SELECT n.id, left(n.title, 300), n.subject, n.tier, n.owner_id = auth.uid(), n.body_preview, n.deleted_at, n.updated_at
+    FROM public.notes n
+   WHERE n.workspace_id = public.current_workspace_id()
+     AND n.deleted_at IS NOT NULL
+     AND auth.uid() IS NOT NULL
+     AND public.has_active_membership(n.workspace_id)
+     AND ((n.owner_id = auth.uid() AND n.tier <> 'company_standard')
+          OR (n.tier <> 'personal' AND public.is_live_workspace_admin(n.workspace_id)))
+   ORDER BY n.deleted_at DESC, n.id
+   LIMIT 500
+$$;
+REVOKE EXECUTE ON FUNCTION public.note_trash_list() FROM PUBLIC, anon;
+GRANT  EXECUTE ON FUNCTION public.note_trash_list() TO authenticated;
 
 CREATE OR REPLACE FUNCTION public.purge_trashed_notes(p_retention interval DEFAULT interval '30 days')
 RETURNS bigint
@@ -451,11 +484,12 @@ BEGIN
   IF NOT public._moth_target_eligible(p_kind, p_id, false) THEN
     RETURN false;
   END IF;
-  -- 0125: a note is changed by its owner, or by a live admin once it is not personal.
+  -- 0125: a note is changed by its owner (the company's standard by live admins alone), or by a live admin once
+  -- it is not personal.
   IF p_kind = 'note' THEN
     RETURN EXISTS (SELECT 1 FROM public.notes n
                     WHERE n.id = p_id
-                      AND (n.owner_id = auth.uid()
+                      AND ((n.owner_id = auth.uid() AND n.tier <> 'company_standard')
                            OR (n.tier <> 'personal' AND public.is_live_workspace_admin(n.workspace_id))));
   END IF;
   v_project := CASE p_kind
@@ -508,12 +542,13 @@ BEGIN
   FOR v_fn IN
     SELECT * FROM (VALUES
       ('public.fn_notes_guard()', '2ef693b84fbca54e624c3554a87d8a83', false, '{search_path=public}'),
-      ('public.note_trash(uuid)', '73f57160d7fdf1390184bf6e6b6d24e6', true, '{search_path=public}'),
-      ('public.note_restore(uuid)', 'b292f9324d728bfe3e388de1cef98cc2', true, '{search_path=public}'),
+      ('public.note_trash(uuid)', '9eddfd55103f47cc8d5bb0676b947bfd', true, '{search_path=public}'),
+      ('public.note_restore(uuid)', 'd712e836803d06c6ccd18db6c2b91a07', true, '{search_path=public}'),
+      ('public.note_trash_list()', '46a3141474cc7f694645dabc2bbe17ef', true, '{search_path=public}'),
       ('public.purge_trashed_notes(interval)', 'e2d4cd20644d9db81ce32c9ff0998ff5', true, '{search_path=public}'),
       ('public.moth_notes()', '5b7948799f9988d0f80dc7fd70694424', false, '{search_path=public}'),
       ('public._moth_target_eligible(text,uuid,boolean)', '6e73a0aec4791103d0b78e13c0f74a71', true, '{search_path=public}'),
-      ('public.moth_can_write_target(text,uuid)', 'af3ae61813da7bf7e4ba3506112046f9', true, '{search_path=public}')
+      ('public.moth_can_write_target(text,uuid)', 'cebbff6f84c8827799022eea970afcbd', true, '{search_path=public}')
     ) AS t(sig, now_is, definer, cfg)
   LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE oid = v_fn.sig::regprocedure
@@ -528,6 +563,7 @@ BEGIN
       ('public.fn_notes_guard()', false),
       ('public.note_trash(uuid)', true),
       ('public.note_restore(uuid)', true),
+      ('public.note_trash_list()', true),
       ('public.purge_trashed_notes(interval)', false),
       ('public.moth_notes()', true),
       ('public._moth_target_eligible(text,uuid,boolean)', false),
