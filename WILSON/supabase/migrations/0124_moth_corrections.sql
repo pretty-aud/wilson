@@ -91,7 +91,7 @@ BEGIN
   -- nothing but the pin names the sequence §2 drops.
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.moth_views'::regclass AND tgname = 'trg_moth_views_a_pin'
                     AND tgfoid = 'public.fn_moth_views_pin()'::regprocedure AND tgenabled = 'O'
-                    AND tgtype = 23 AND tgattr = ''::int2vector) THEN
+                    AND tgtype = 23 AND tgattr = ''::int2vector AND tgqual IS NULL) THEN
     RAISE EXCEPTION '0124 refused: trg_moth_views_a_pin is not 0123''s';
   END IF;
   IF EXISTS (SELECT 1 FROM pg_proc WHERE prosrc LIKE '%moth_views_revision_seq%' AND oid <> 'public.fn_moth_views_pin()'::regprocedure)
@@ -523,7 +523,7 @@ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.moth_views'::regclass AND tgname = 'trg_moth_views_a_pin'
                     AND tgfoid = 'public.fn_moth_views_pin()'::regprocedure AND tgenabled = 'O'
-                    AND tgtype = 23 AND tgattr = ''::int2vector) THEN
+                    AND tgtype = 23 AND tgattr = ''::int2vector AND tgqual IS NULL) THEN
     RAISE EXCEPTION '0124 post-condition: trg_moth_views_a_pin no longer fires the pin';
   END IF;
 
