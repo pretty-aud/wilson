@@ -4443,3 +4443,40 @@ Each stood against a checker told to refute it. R1 is round 1, R2 round 2 on the
   key is being reserved (a co-editor's change merged into a shared note, say), the editor gives up the splice rather
   than cut the wrong words, and says nothing; the tag of a `#` pick is still put on. INFERRED (whole-session round 2);
   settle with two people in one shared note, one typing above the other's pick.
+
+## MO4 (2026-11-08, M.O.T.H. Session 4 on `po/moth4-boards`, in progress) — left open
+
+From the review round of 0130 to 0133 (12 reviewers, Opus 5.5; each finding read against the code). The rest were
+fixed in `e3730b7c`.
+
+- **MO4-01 · A project writer can overwrite a sticky's stored object at its key, past the turn.** MEASURED by
+  reading: 0115's update arm on `rabbit-files` lets a writer of the claiming file's project UPDATE the object (its own
+  comment says so); 0133's turn fences the files row's key, not the bytes at it. Fix shape: refuse a client's UPDATE
+  of an object a sticky's file claims, or make claimed bodies immutable to clients.
+- **MO4-02 · A move between projects can put back a sticky's older words.** MEASURED by reading: when a move needs a
+  copy, `fn_moth_apply_moves`' commit takes the copy as the key and retires whatever key is there then, without
+  comparing it to the plan's source or asking for the turn; a publish between the plan and the commit is undone.
+  Fix shape: refuse a file with a live turn, and compare the key to the plan's at commit.
+- **MO4-03 · A save racing a removal of a connector's end fails whole with the key's own words** (23503), not in
+  plain words. INFERRED by reading `board_put_elements`.
+- **MO4-04 · Lock order and stale reads.** INFERRED: folder trash takes files then boards, board saves and stickies
+  the other way; `moth_move_folders` and R.A.B.B.I.T.'s entity-folder rename (supabaseAdapter.js, about line 1430)
+  can each write a path from a read the other has made stale. No deadlock or wrong path seen in a run.
+- **MO4-05 · A move's plan can say a path the move itself will not take** when another folder takes the name between
+  the two. INFERRED.
+- **MO4-06 · Message costs, small:** any role change, a promotion included, renames every board of the company in the
+  admin's transaction; element messages carry no board revision and are cut by count, not bytes; a pen's 4 KB cap on
+  the wire measures the stored (compressed) size. INFERRED by reading 0132.
+- **MO4-07 · A save running while its project is made private can land on the old channel name after AUDIENCE went
+  out.** INFERRED: the name is read at send time inside the save's transaction.
+- **MO4-08 · `moth_trash_folders` judges every file below before it applies its 10,000 cap, under the company's
+  folder lock; `moth_trashed_folders` cuts a page by `deleted_at` and can drop entries that share one.** INFERRED.
+- **MO4-09 · A folder can go to the trash while an office-server file in it has a trash pending**, and that trash's
+  failure revert then meets a folder in the trash. INFERRED.
+- **MO4-10 · A sticky whose file left its board's folder stays a sticky element on the board** (shown, its words
+  saved where the file now is, `board_sticky_publish` refusing in words). MEASURED by suite 138.
+- **MO4-11 · Three plants are green by design**, each held by a clause no single-transaction probe can trip: the
+  writers' second permission check under the board's lock (two sessions), the 64 MB board cap (64 MB of rows), and
+  the restore's parent check (rows coming back child first). Named in the plants' record.
+- **MO4-12 · Probes still owed:** a sticky published to a money or Legal key; which boards each person sees, not only
+  how many (suite 134's counts).
