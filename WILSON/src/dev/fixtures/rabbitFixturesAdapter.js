@@ -952,7 +952,6 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
       const personal = !!projectOf(view.project_id)?.personal_owner_id
       const owner = view.scope_kind === 'aggregate' || personal ? userId : null
       if (owner == null && !mothViewWritable(view)) throw tvError('42501', 'Only those who may change this project may move its shared places.')
-      if (places.filter(p => p?.focus === true).length > 1) throw tvError('22023', 'A view has one focus at most.')
       for (const p of places) {
         const bad = !p || typeof p.t !== 'string' || !Number.isFinite(p.x) || !Number.isFinite(p.y)
           || (p.t === 'tag' ? typeof p.tag !== 'string' || 'id' in p : !/^[0-9a-f-]{36}$/i.test(String(p.id ?? '')) || 'tag' in p)
@@ -968,15 +967,22 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
           throw tvError('23514', 'A project\'s view keeps the places of that project\'s things only.')
         }
       }
-      if (places.some(p => p.focus === true)) {
-        for (const r of store.mothPositions) if (r.view_id === viewId && r.owner_id === owner) r.is_focus = false
-      }
+      // 0124 (MO2-10), as the server: a target named twice is one place, the last naming it, folded first; only then
+      // is a focus counted, and the old one cleared.
       const seen = new Set()
-      let written = 0
+      const folded = []
       for (const p of [...places].reverse()) {
         const key = `${p.t}|${String(p.id ?? '').toLowerCase()}|${p.tag ?? ''}`
         if (seen.has(key)) continue
         seen.add(key)
+        folded.push(p)
+      }
+      if (folded.filter(p => p.focus === true).length > 1) throw tvError('22023', 'A view has one focus at most.')
+      if (folded.some(p => p.focus === true)) {
+        for (const r of store.mothPositions) if (r.view_id === viewId && r.owner_id === owner) r.is_focus = false
+      }
+      let written = 0
+      for (const p of folded) {
         const was = store.mothPositions.find(r => r.view_id === viewId && r.owner_id === owner && r.target_type === p.t
           && (r.target_id ?? null) === (p.id ?? null) && (r.target_tag ?? null) === (p.tag ?? null))
         const row = was || { view_id: viewId, target_type: p.t, target_id: p.id ?? null, target_tag: p.tag ?? null, owner_id: owner }

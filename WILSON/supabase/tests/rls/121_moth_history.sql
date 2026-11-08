@@ -13,7 +13,7 @@
 
 BEGIN;
 
-SELECT plan(297);
+SELECT plan(298);
 
 SELECT * FROM tests.rls_setup();
 
@@ -297,6 +297,12 @@ UPDATE public.projects SET status = 'on_hold' WHERE id = 'aaaa1210-0000-0000-000
 SELECT is((public.t121_last('projects', 'aaaa1210-0000-0000-0000-000000000011')).state ->> 'status', 'on_hold', 'a project''s status alone');
 UPDATE public.projects SET deleted_at = now() WHERE id = 'aaaa1210-0000-0000-0000-000000000011';
 SELECT is((public.t121_last('projects', 'aaaa1210-0000-0000-0000-000000000011')).action, 'trash', 'a project trashed');
+-- 0124 (MO2-18): each of the five tables with a trash says so in its after side, not only files.
+SELECT is((SELECT string_agg(h.entity_type || ':' || COALESCE(h.state ->> 'in_trash', '-'), ',' ORDER BY h.entity_type)
+             FROM public.moth_history h
+            WHERE h.action = 'trash' AND h.entity_id IN ('12100000-0000-0000-0000-0000000000b6', '12100000-0000-0000-0000-0000000000b7',
+                                                         '12100000-0000-0000-0000-0000000000b8', 'aaaa1210-0000-0000-0000-000000000011')),
+  'assets:true,phases:true,projects:true,tasks:true', 'a phase, an asset, a task and a project in the trash each say so (0124)');
 DELETE FROM public.levels WHERE id = '12100000-0000-0000-0000-0000000000b3';
 SELECT is((public.t121_last('levels', '12100000-0000-0000-0000-0000000000b3')).action, 'delete', 'a level deleted');
 -- A task taken to another project speaks, though nothing it stores has changed.

@@ -11,7 +11,8 @@
 --   §2  MO2-11. fn_moth_views_pin, restated from 0123's body: a view's revision is its own count, 1 when it is
 --       made and one more at each change of its config. A person reading their own view's revision learns
 --       nothing of anyone else's views, where one sequence for every company told how busy the platform was.
---       That sequence is dropped: nothing else names it.
+--       That sequence is dropped: nothing else names it. A view saved before this file keeps the number the
+--       sequence gave it, and counts on from there; it says no more than it did, and a new view starts at 1.
 --   §3  MO2-10. moth_put_positions, restated from 0123's body: a target named twice is one place, the last naming
 --       it, as before; now that fold comes first, and only then is a focus counted and the old focus cleared.
 --   §4  MO2-18. moth_history_project and moth_history_projection_ok, restated from 0119's bodies: the projection
@@ -70,10 +71,12 @@ BEGIN
   END IF;
   -- The two keys it folds and upserts against, by their definitions.
   IF NOT EXISTS (SELECT 1 FROM pg_index i WHERE i.indexrelid = to_regclass('public.moth_layout_positions_target_key')
-                    AND i.indisunique AND i.indisvalid
+                    AND i.indisunique AND i.indisvalid AND i.indimmediate
+                    AND NOT EXISTS (SELECT 1 FROM pg_constraint k WHERE k.conindid = i.indexrelid)
                     AND pg_get_indexdef(i.indexrelid) = 'CREATE UNIQUE INDEX moth_layout_positions_target_key ON public.moth_layout_positions USING btree (view_id, target_type, target_id, target_tag, owner_id) NULLS NOT DISTINCT')
      OR NOT EXISTS (SELECT 1 FROM pg_index i WHERE i.indexrelid = to_regclass('public.moth_layout_positions_focus_key')
-                       AND i.indisunique AND i.indisvalid
+                       AND i.indisunique AND i.indisvalid AND i.indimmediate
+                       AND NOT EXISTS (SELECT 1 FROM pg_constraint k WHERE k.conindid = i.indexrelid)
                        AND pg_get_indexdef(i.indexrelid) = 'CREATE UNIQUE INDEX moth_layout_positions_focus_key ON public.moth_layout_positions USING btree (view_id, owner_id) NULLS NOT DISTINCT WHERE is_focus') THEN
     RAISE EXCEPTION '0124 refused: the places'' two unique keys are not 0123''s';
   END IF;
@@ -84,9 +87,11 @@ BEGIN
                     AND pg_get_constraintdef(c.oid) = 'CHECK (((jsonb_typeof(moth_prefs) = ''object''::text) AND (octet_length((moth_prefs)::text) <= 32768)))') THEN
     RAISE EXCEPTION '0124 refused: user_settings_moth_prefs_chk is not 0123''s';
   END IF;
-  -- The views' pin fires as 0123 made it, and nothing but the pin names the sequence §2 drops.
+  -- The views' pin fires as 0123 made it (a row trigger, before every insert and update, on no column list), and
+  -- nothing but the pin names the sequence §2 drops.
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.moth_views'::regclass AND tgname = 'trg_moth_views_a_pin'
-                    AND tgfoid = 'public.fn_moth_views_pin()'::regprocedure AND tgenabled = 'O') THEN
+                    AND tgfoid = 'public.fn_moth_views_pin()'::regprocedure AND tgenabled = 'O'
+                    AND tgtype = 23 AND tgattr = ''::int2vector) THEN
     RAISE EXCEPTION '0124 refused: trg_moth_views_a_pin is not 0123''s';
   END IF;
   IF EXISTS (SELECT 1 FROM pg_proc WHERE prosrc LIKE '%moth_views_revision_seq%' AND oid <> 'public.fn_moth_views_pin()'::regprocedure)
@@ -517,7 +522,8 @@ BEGIN
     RAISE EXCEPTION '0124 post-condition: moth_views_revision_seq is still here';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.moth_views'::regclass AND tgname = 'trg_moth_views_a_pin'
-                    AND tgfoid = 'public.fn_moth_views_pin()'::regprocedure AND tgenabled = 'O') THEN
+                    AND tgfoid = 'public.fn_moth_views_pin()'::regprocedure AND tgenabled = 'O'
+                    AND tgtype = 23 AND tgattr = ''::int2vector) THEN
     RAISE EXCEPTION '0124 post-condition: trg_moth_views_a_pin no longer fires the pin';
   END IF;
 
@@ -527,7 +533,11 @@ BEGIN
      OR public.moth_history_project('files', '{"name":"x","deleted_at":"2026-01-01T00:00:00+00:00"}'::jsonb) -> 'in_trash' IS DISTINCT FROM 'true'::jsonb
      OR public.moth_history_project('files', '{"name":"x","deleted_at":null}'::jsonb) ? 'in_trash'
      OR public.moth_history_project('scenes', '{"name":"x","deleted_at":"2026-01-01T00:00:00+00:00"}'::jsonb) ? 'in_trash'
-     OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.moth_history'::regclass AND conname = 'moth_history_f_projection_chk') THEN
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint c JOIN pg_depend d
+                      ON d.classid = 'pg_constraint'::regclass AND d.objid = c.oid
+                     AND d.refclassid = 'pg_proc'::regclass AND d.refobjid = 'public.moth_history_projection_ok(jsonb)'::regprocedure
+                   WHERE c.conrelid = 'public.moth_history'::regclass AND c.conname = 'moth_history_f_projection_chk'
+                     AND c.contype = 'c' AND c.convalidated) THEN
     RAISE EXCEPTION '0124 post-condition: the projection of a row in the trash is not as this file says';
   END IF;
 
