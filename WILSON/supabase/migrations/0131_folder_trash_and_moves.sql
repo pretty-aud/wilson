@@ -28,7 +28,8 @@
 --       each; refused whole if one cannot go (a money or Legal file below, a file on the office server, a project
 --       folder below). moth_restore_folders(ids): a batch back, once the folder above it is live. moth_trashed_folders():
 --       what the caller may bring back, a board marked, nothing of another person's space. moth_move_folders(ids,
---       parent, plan_only): within a project (across projects is 0132's), never into itself or below itself, never
+--       parent, plan_only): within a project (a board or folder stays in its project; its files move with Move to),
+--       never into itself or below itself, never
 --       into the trash or a money or Legal folder, a name made unique, every path below rewritten parent first; under
 --       the company's folder lock, as the trash is.
 --   §5  moth_trash_index (restated from 0118's body) leaves out a file that went with its folder: the folder is the
@@ -591,7 +592,7 @@ BEGIN
     END IF;
     IF v_src.project_id IS DISTINCT FROM v_dest.project_id THEN
       RAISE EXCEPTION 'cross_project' USING ERRCODE = 'P0001',
-        DETAIL = 'A folder moves to another project through the move between projects.';
+        DETAIL = 'A board or folder stays in its project for now: move its files with Move to.';
     END IF;
     v_sub := rabbit_private.folder_subtree(v_id);
     IF p_dest_parent = ANY (v_sub) THEN

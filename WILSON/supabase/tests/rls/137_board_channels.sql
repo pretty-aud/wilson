@@ -307,7 +307,8 @@ SELECT ok(pg_temp.rt_env() <> 'ok'
               AND NOT (pg_temp.payloads(public.t137_name('13700000-0000-0000-0000-0000000000f1', false))::text ~ 'file_id|000000000081')
               AND (SELECT (e ->> 'has_file')::boolean FROM jsonb_array_elements(pg_temp.payloads(public.t137_name('13700000-0000-0000-0000-0000000000f1', false)) -> 0 -> 'elements') e
                     WHERE e ->> 'id' = '13700000-0000-0000-0000-000000000e02')
-              AND (SELECT (e ->> 'points_omitted')::boolean FROM jsonb_array_elements(pg_temp.payloads(public.t137_name('13700000-0000-0000-0000-0000000000f1', false)) -> 0 -> 'elements') e
+              AND (SELECT (e ->> 'points_omitted')::boolean AND jsonb_typeof(e -> 'points') = 'null'
+                     FROM jsonb_array_elements(pg_temp.payloads(public.t137_name('13700000-0000-0000-0000-0000000000f1', false)) -> 0 -> 'elements') e
                     WHERE e ->> 'id' = '13700000-0000-0000-0000-000000000e03')),
   'with the three elements, no file''s id, a sticky marked as holding one, a long pen''s points left out');
 SELECT public.t137_as('cccccccc-cccc-cccc-cccc-cccccccccccc', 'user');
