@@ -19,7 +19,7 @@
 -- =============================================================================
 
 BEGIN;
-SELECT plan(64);
+SELECT plan(65);
 
 SELECT * FROM tests.rls_setup();
 
@@ -176,6 +176,9 @@ SELECT is((SELECT shape || ':' || x FROM public.board_elements WHERE id = '13500
 SELECT is(public.t135_err($$SELECT public.board_put_elements('13500000-0000-0000-0000-0000000000f1', jsonb_build_array(jsonb_build_object(
             'kind', 'connector', 'from_id', '13500000-0000-0000-0000-000000000e01', 'to_id', '13500000-0000-0000-0000-000000000e21')))$$),
   '23503', 'a connector never ends on another board''s element');
+SELECT is(public.t135_err($$SELECT public.board_put_elements('13500000-0000-0000-0000-0000000000f1', jsonb_build_array(jsonb_build_object(
+            'kind', 'connector', 'from_id', '13500000-0000-0000-0000-000000000e21', 'to_id', '13500000-0000-0000-0000-000000000e01')))$$),
+  '23503', 'nor starts on one');
 SELECT is(public.t135_err($$SELECT public.board_put_elements('13500000-0000-0000-0000-0000000000f1', jsonb_build_array(jsonb_build_object(
             'id', '13500000-0000-0000-0000-000000000e07', 'kind', 'connector', 'from_id', '13500000-0000-0000-0000-000000000e07')))$$),
   '23514', 'nor on itself');

@@ -15,7 +15,7 @@
 -- =============================================================================
 
 BEGIN;
-SELECT plan(45);
+SELECT plan(46);
 
 SELECT * FROM tests.rls_setup();
 
@@ -244,6 +244,8 @@ SELECT is(public.t138_words($$SELECT public.board_sticky_publish('13800000-0000-
           'projects/aaaa1380-0000-0000-0000-00000000000a/files/13800000-0000-0000-0000-000000000081/v3-note.md',
           'projects/aaaa1380-0000-0000-0000-00000000000a/files/13800000-0000-0000-0000-000000000081/v2-note.md')$$),
   'sticky_turn_ended', 'a turn that ran out saves nothing, even its own holder''s');
+SELECT is((public.sticky_renew('13800000-0000-0000-0000-000000000e01', (public.t138_lock()).generation) ->> 'ok'), 'false',
+  'nor is it renewed back, even with nobody else on it: a new turn is a new number');
 SELECT is((public.sticky_claim('13800000-0000-0000-0000-000000000e01', 'tab-d-one-0001') ->> 'granted'), 'true', 'its holder claims again');
 SELECT is(public.t138_words($$SELECT public.board_sticky_publish('13800000-0000-0000-0000-000000000e01', (SELECT g FROM t138_gen2),
           'projects/aaaa1380-0000-0000-0000-00000000000a/files/13800000-0000-0000-0000-000000000081/v3-note.md',
