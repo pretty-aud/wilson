@@ -58,13 +58,133 @@ function StaleMoves({ adapter }) {
   )
 }
 
-export default function MothTrashView({ adapter, fileOps, islands, access, refreshKey = 0 }) {
+// MO4 (0131): the server's one refusal for a folder that is gone or not the caller's to change, in words.
+export function folderWords(err) {
+  const m = String(err?.message ?? '')
+  if (err?.code === '42501' && (!m || /not found|not writable/i.test(m))) {
+    return 'This cannot come back: it may have gone for good, or you may not change its project.'
+  }
+  return m || 'It could not be brought back just now.'
+}
+export const FOLDERS_FAILED_SENTENCE = 'Could not look for deleted folders and boards just now.'
+
+// MO4 (0131): the folders and boards in the trash, each batch by the folder it went from, with Bring back. Asked
+// apart from the files, so one that cannot be read does not hide the other; on this computer alone there are none.
+function TrashedFolders({ adapter, islands, access, refreshKey, onRestored, onLoaded, reloadFiles }) {
   const [rows, setRows] = useState(null)
   const [failed, setFailed] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(null)
   const [more, setMore] = useState(false)
   const [loadingOlder, setLoadingOlder] = useState(false)
+
+  const load = useCallback(async () => {
+    setFailed(false)
+    try {
+      const page = await adapter.listTrashedFolders({ limit: PAGE })
+      const list = Array.isArray(page) ? page : []
+      setRows(list)
+      setMore(list.length >= PAGE)
+      onLoaded?.(list.length)
+    } catch (err) {
+      // A database without folder trash yet has none to show.
+      if (err?.code === 'boards_absent' || err?.code === 'moth_absent') { setRows([]); onLoaded?.(0); return }
+      setRows(null)
+      setFailed(true)
+      onLoaded?.(null)
+    }
+    // onLoaded is the parent's setter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adapter])
+  useEffect(() => { load() }, [load, refreshKey])
+
+  const showOlder = async () => {
+    if (loadingOlder || !rows?.length) return
+    setLoadingOlder(true)
+    setError('')
+    try {
+      const last = rows[rows.length - 1]
+      const page = await adapter.listTrashedFolders({ limit: PAGE, before: last.deleted_at ?? null, beforeId: last.id ?? null })
+      const known = new Set(rows.map((row) => row.id))
+      const fresh = (Array.isArray(page) ? page : []).filter((row) => !known.has(row.id))
+      setRows([...rows, ...fresh])
+      setMore(fresh.length > 0 && page.length >= PAGE)
+    } catch (err) {
+      setError(err?.message || String(err))
+    } finally {
+      setLoadingOlder(false)
+    }
+  }
+
+  const bringBack = async (row) => {
+    setBusy(row.id)
+    setError('')
+    try {
+      await adapter.restoreFolders([row.id])
+      await Promise.all([load(), reloadFiles?.()])
+      onRestored?.([row.project_id])
+    } catch (err) {
+      setError(folderWords(err))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  if (failed) {
+    return (
+      <Banner tone="danger" data-moth-trash-folders-failed>
+        {FOLDERS_FAILED_SENTENCE}{' '}
+        <Button variant="ghost" size="sm" onClick={load}>Try again</Button>
+      </Banner>
+    )
+  }
+  if (rows === null) return <p className="moth-quiet">Looking for folders and boards…</p>
+  if (rows.length === 0) return null
+  return (
+    <section className="moth-trash-folders" aria-label="Folders and boards" data-moth-trash-folders>
+      <p className="moth-label">Folders and boards</p>
+      {error && <Banner tone="danger" data-moth-trash-folder-error>{error}</Banner>}
+      <ul className="moth-rows">
+        {rows.map((row) => {
+          const island = islands.find((i) => i.id === row.project_id)
+          const gate = island ? access(island) : { allowed: true, reason: null }
+          const allowed = gate.allowed && row.can_restore !== false
+          const days = daysLeft(row.purges_at)
+          const files = Number(row.files) || 0
+          const what = [
+            row.project_title || island?.title || '',
+            files === 1 ? 'with 1 file' : files > 1 ? `with ${files} files` : '',
+            row.deleted_by_label ? `deleted by ${row.deleted_by_label}` : '',
+            days === null ? '' : `goes in ${days} ${days === 1 ? 'day' : 'days'}`,
+          ].filter(Boolean).join(' · ')
+          return (
+            <li key={row.id} className="moth-row" data-moth-trash-folder={row.is_board ? 'board' : 'folder'}>
+              <span className="moth-row-name"><span className="moth-quiet">{row.is_board ? 'Board' : 'Folder'}</span> {row.name || '(no name)'}</span>
+              <span className="moth-quiet">{what}</span>
+              <GatedAction allowed={allowed} reason={gate.reason || (row.can_restore === false ? 'You may not change this project, so this cannot come back.' : null)}>
+                <Button variant="ghost" onClick={() => bringBack(row)} loading={busy === row.id} loadingLabel="Bringing back…" disabled={!allowed}>
+                  Bring back
+                </Button>
+              </GatedAction>
+            </li>
+          )
+        })}
+      </ul>
+      {more && <Button variant="ghost" onClick={showOlder} loading={loadingOlder} loadingLabel="Looking…" data-moth-trash-folders-older>Show older folders</Button>}
+    </section>
+  )
+}
+
+export default function MothTrashView({ adapter, fileOps, islands, access, refreshKey = 0, localOnly = false, onRestored }) {
+  const [rows, setRows] = useState(null)
+  const [failed, setFailed] = useState(false)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(null)
+  const [more, setMore] = useState(false)
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  // MO4: how many folders and boards the trash holds (null: not known, or could not look). Boards need the cloud.
+  const foldersOffered = !localOnly && typeof adapter.listTrashedFolders === 'function'
+  const [folderCount, setFolderCount] = useState(null)
 
   const load = useCallback(async () => {
     setFailed(false)
@@ -117,20 +237,32 @@ export default function MothTrashView({ adapter, fileOps, islands, access, refre
     }
   }
 
+  const folders = foldersOffered ? (
+    <TrashedFolders adapter={adapter} islands={islands} access={access} refreshKey={refreshKey}
+      onRestored={onRestored} onLoaded={setFolderCount} reloadFiles={load} />
+  ) : null
+
   if (failed) {
     return (
-      <Banner tone="danger" data-moth-trash-failed>
-        Could not look in the trash just now.{' '}
-        <Button variant="ghost" size="sm" onClick={load}>Try again</Button>
-      </Banner>
+      <>
+        <Banner tone="danger" data-moth-trash-failed>
+          Could not look in the trash just now.{' '}
+          <Button variant="ghost" size="sm" onClick={load}>Try again</Button>
+        </Banner>
+        {folders}
+      </>
     )
   }
-  if (rows === null) return <p className="moth-quiet">Looking…</p>
+  if (rows === null) return <><p className="moth-quiet">Looking…</p>{folders}</>
   if (rows.length === 0) {
     return (
       <>
         <StaleMoves adapter={adapter} />
-        <EmptyState Icon={Trash2} title="Nothing here" body="Files you delete stay here for 30 days." />
+        {(!foldersOffered || folderCount === 0) && (
+          <EmptyState Icon={Trash2} title="Nothing here"
+            body={foldersOffered ? 'Files, folders and boards you delete stay here for 30 days.' : 'Files you delete stay here for 30 days.'} />
+        )}
+        {folders}
       </>
     )
   }
@@ -167,6 +299,7 @@ export default function MothTrashView({ adapter, fileOps, islands, access, refre
         })}
       </ul>
       {more && <Button variant="ghost" onClick={showOlder} loading={loadingOlder} loadingLabel="Looking…" data-moth-trash-older>Show older</Button>}
+      {folders}
     </>
   )
 }

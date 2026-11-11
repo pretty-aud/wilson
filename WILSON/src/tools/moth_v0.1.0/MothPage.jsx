@@ -10,10 +10,16 @@
 // each file row passes mothFileHidden as a second look (state/mothCatalogue.js). So the graph, the list, the
 // search, a selection and the trash cannot show them. Every control is gated by the same question as the server's,
 // and the server asks again.
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+//
+// Session 4 (MO4) adds boards: a board is a folder of its own, a dot of its own colour on the graph (listBoards, per
+// project), opened by a click in a panel that expands inside this page (board/BoardPanel.jsx, reached only through
+// React.lazy, and its canvas through another). "New board" is in a folder's menu, and the trash lists folders and
+// boards to bring back. On this computer alone there are no boards, and the menu says why.
+import { Component, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { HelpCircle, Settings as SettingsIcon, Tags as TagsIcon } from 'lucide-react'
 import { Banner, Button, Dialog, Drawer, IconButton } from '../../ui'
 import { usePermissions } from '../../permissions/usePermissions'
+import { useWorkspaceMembers } from '../../components/TeamMembers/useWorkspaceMembers'
 import { canOnProject, projectActionDeniedReason } from '../../permissions/projectRoleMatrix'
 import { useRabbit } from '../rabbit_v0.1.0/state/RabbitProvider'
 import { desktopFileOps } from '../rabbit_v0.1.0/storage/desktopFileOps.js'
@@ -45,10 +51,53 @@ import MothBloom from './components/MothBloom.jsx'
 import MothMoveTo from './components/MothMoveTo.jsx'
 import MothTrashView from './components/MothTrashView.jsx'
 import MothTagPanel from './components/MothTagPanel.jsx'
+import { BOARD_NEEDS_CLOUD, boardWords } from './board/boardPanelState.js'
 import './moth.css'
+
+// MO4: the board panel is a chunk of its own, loaded the first time a board opens.
+const BoardPanel = lazy(() => import('./board/BoardPanel.jsx'))
 
 // An asset's own file on this computer: its asset deletes it, and Moth's batches do not take it.
 export const MANAGED_ROW_SENTENCE = 'This file belongs to an asset. Change it from the asset.'
+// MO4: a board's dot has a colour of its own, whatever Settings colours the rest by.
+export const BOARD_DOT_COLOUR = '#ff7a59'
+const LOOKING_BACK_WORDS = 'Looking back changes nothing. Come back to now to change things.'
+
+// The board panel's chunk that could not be loaded says so, and the way back to the map stays.
+class BoardBoundary extends Component {
+  constructor(props) {
+    super(props)
+    this.state = { failed: false }
+  }
+  static getDerivedStateFromError() { return { failed: true } }
+  componentDidCatch() {}
+  render() {
+    if (!this.state.failed) return this.props.children
+    return (
+      <div className="moth-board-layer" data-size="framed">
+        <div className="moth-board-wait">
+          <Banner tone="danger" data-moth-board-load-failed>
+            The board could not be opened just now.{' '}
+            <Button variant="ghost" size="sm" onClick={this.props.onBack}>Back to the map</Button>
+          </Banner>
+        </div>
+      </div>
+    )
+  }
+}
+
+// The open board, and who is looking at it as the others on it see them: a name, never an email.
+// Its company goes with it: another person, another company or signed out, and the panel lets the board go.
+function OpenBoard({ open, adapter, userId, companyId, inputMode, calm, onSize, onClose }) {
+  const { members } = useWorkspaceMembers() || {}
+  const own = Array.isArray(members) ? members.find((m) => m?.user_id === userId) : null
+  const label = own?.display_name || own?.username || 'Someone'
+  const me = useMemo(() => ({ id: userId ?? null, label }), [userId, label])
+  return (
+    <BoardPanel board={open.board} adapter={adapter} me={me} companyId={companyId ?? null} origin={open.origin}
+      inputMode={inputMode} reducedMotion={calm} onSize={onSize} onClose={onClose} />
+  )
+}
 // MO3 (0127): a link joins these kinds, from a thing the person may change to one they see.
 const LINK_KINDS = new Set(['project', 'folder', 'file', 'phase', 'asset', 'task', 'scene', 'shot', 'level', 'experience', 'note'])
 const LINKS_ABSENT = 'Links are not on this database yet. Nothing was linked, and the dot is back where it was.'
@@ -110,6 +159,17 @@ export default function MothPage({ isActive = true, worldFactory }) {
   const draftTimer = useRef(null)
   const [scrub, setScrub] = useState({ available: null, floor: null, rows: null, since: null, loading: false, error: '', incomplete: false })
   const worldRef = useRef(null)
+  // MO4: the boards (folder id -> { id, folder_id, project_id }), the one open, its size, and a new one being named.
+  const [boardRows, setBoardRows] = useState(() => new Map())
+  const [boardsAsked, setBoardsAsked] = useState(0)
+  const [openBoard, setOpenBoard] = useState(null)
+  const [boardSize, setBoardSize] = useState('framed')
+  const [newBoard, setNewBoard] = useState(null)
+  const openBoardRef = useRef(null)
+  openBoardRef.current = openBoard
+  const selectedRef = useRef(selected)
+  selectedRef.current = selected
+  const makingBoard = useRef(false)
 
   // One stack per account, workspace and adapter, and it survives everything else.
   const scope = `${perms?.userId ?? ''}|${perms?.workspaceId ?? ''}|${rabbit?.adapterMode ?? ''}`
@@ -209,6 +269,37 @@ export default function MothPage({ isActive = true, worldFactory }) {
   }, [perms?.role, perms?.ready, localOnly])
   const islandOf = useCallback((pid) => islands?.find((row) => row.id === pid) ?? null, [islands])
 
+  // ── MO4: the boards, per project ─────────────────────────────────────────────────────────────────────────────
+  // Boards need the cloud: on this computer alone none is asked for. A project whose boards could not be read keeps
+  // the ones it had, so its dots do not change colour on a passing failure.
+  const boardsOffered = !localOnly && typeof adapter?.listBoards === 'function'
+  useEffect(() => {
+    if (!boardsOffered || !islands?.length) {
+      setBoardRows((was) => (was.size ? new Map() : was))
+      return undefined
+    }
+    if (!isActive) return undefined
+    let live = true
+    const asked = islands.map((row) => String(row.id))
+    Promise.all(asked.map((pid) => Promise.resolve().then(() => adapter.listBoards(pid)).catch(() => null)))
+      .then((lists) => {
+        if (!live) return
+        const failed = new Set(asked.filter((_, i) => !Array.isArray(lists[i])))
+        setBoardRows((was) => {
+          const next = new Map()
+          for (const [fid, row] of was) if (failed.has(row.project_id)) next.set(fid, row)
+          lists.forEach((list, i) => {
+            for (const b of Array.isArray(list) ? list : []) {
+              if (b?.id == null || b?.folder_id == null) continue
+              next.set(String(b.folder_id), { id: String(b.id), folder_id: String(b.folder_id), project_id: String(b.project_id ?? asked[i]) })
+            }
+          })
+          return next
+        })
+      })
+    return () => { live = false }
+  }, [boardsOffered, adapter, islands, isActive, boardsAsked])
+
   // ── Views, places and this person's settings ─────────────────────────────────────────────────────────────────
   const views = useMemo(() => (adapter ? createMothViews({ adapter }) : null), [adapter])
   const viewSnap = useSyncExternalStore(views ? views.subscribe : noStore, views ? views.getSnapshot : () => null)
@@ -265,12 +356,16 @@ export default function MothPage({ isActive = true, worldFactory }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [replay, store, snap.version])
   const colourOf = useMemo(() => {
-    const by = colourFor(appearance.colour_by, { editorOf: (n) => store?.editorOf(n.projectId, n.rowId) ?? null })
+    const chosen = colourFor(appearance.colour_by, { editorOf: (n) => store?.editorOf(n.projectId, n.rowId) ?? null })
+    // MO4: a board's dot is its own colour.
+    const by = boardRows.size
+      ? (n) => (n.kind === 'folder' && boardRows.has(String(n.rowId)) ? BOARD_DOT_COLOUR : chosen ? chosen(n) : null)
+      : chosen
     // Looking back, what changed in the week before glows softly, whatever colours the rest.
     if (!scrubbed) return by
     return (n) => (scrubbed.changed.has(n.rowId) ? '#fff4c2' : by ? by(n) : null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [appearance.colour_by, store, snap.version, scrubbed])
+  }, [appearance.colour_by, store, snap.version, scrubbed, boardRows])
   const radiusOf = useMemo(() => radiusFor(appearance.size_by), [appearance.size_by])
   const worldAppearance = useMemo(() => ({ glowColor: appearance.glow, glowSize, colourOf, light: appearance.light, radiusOf }),
     [appearance.glow, glowSize, colourOf, appearance.light, radiusOf])
@@ -341,6 +436,57 @@ export default function MothPage({ isActive = true, worldFactory }) {
     }
   }, [shown, index, views, fileRow])
   const openContainer = useCallback((id) => { views?.toggleOpen(id, openSetRef.current) }, [views])
+
+  // ── MO4: a board, opened over the graph and closed back into it ──────────────────────────────────────────────
+  // The graph's camera and selection as they were when it opened come back when it closes. Looking back opens none:
+  // a board is always as it is now, and looking back changes nothing.
+  const openBoardPanel = useCallback((row, title) => {
+    if (!row) return
+    if (scrubAt != null) { setNote(LOOKING_BACK_WORDS); return }
+    const r = worldRef.current?.renderer
+    const dot = nodeId('folder', row.folder_id)
+    const at = typeof r?.screenOf === 'function' ? r.screenOf(dot) : null
+    const camera = typeof r?.camera === 'function' ? r.camera() : null
+    setBloom(null)
+    setBoardSize('framed')
+    setOpenBoard({
+      board: { id: row.id, folder_id: row.folder_id, project_id: row.project_id, title: title || index.rows.get(dot)?.label || 'Board' },
+      origin: at && Number.isFinite(at.x) && Number.isFinite(at.y) ? { x: at.x, y: at.y } : null,
+      camera: camera ? { ...camera } : null,
+      selected: selectedRef.current,
+    })
+  }, [scrubAt, index])
+  const closeBoard = useCallback((result) => {
+    const was = openBoardRef.current
+    if (!was) return
+    openBoardRef.current = null
+    setOpenBoard(null)
+    setBoardSize('framed')
+    const r = worldRef.current?.renderer
+    if (was.camera && typeof r?.setCamera === 'function') r.setCamera(was.camera)
+    setSelected(was.selected ?? [])
+    if (result?.words) setNote(result.words)
+  }, [])
+  // Leaving the page, or another account, company or adapter: no board of the last one stays open.
+  useEffect(() => { if (!isActive) closeBoard() }, [isActive, closeBoard])
+  useEffect(() => { closeBoard() }, [scope, adapter, closeBoard])
+  // The panel closed: a board put in the trash leaves the graph (its dot, its project read again) and the trash
+  // lists it with Bring back.
+  const boardClosed = useCallback((result) => {
+    const was = openBoardRef.current
+    closeBoard(result)
+    if (result?.how !== 'trashed' || !was) return
+    const folderId = String(was.board.folder_id)
+    const pid = was.board.project_id != null ? String(was.board.project_id) : null
+    setBoardRows((rows) => { if (!rows.has(folderId)) return rows; const next = new Map(rows); next.delete(folderId); return next })
+    setSelected((sel) => sel.filter((id) => id !== nodeId('folder', folderId)))
+    setBoardsAsked((n) => n + 1)
+    setChangeKey((k) => k + 1)
+    if (pid) {
+      notify([pid])
+      Promise.resolve().then(() => store?.refresh([pid])).catch(() => {})
+    }
+  }, [closeBoard, notify, store])
 
   // ── Doing things (Session 1's, kept whole) ───────────────────────────────────────────────────────────────────
   const act = useCallback(async (fn) => {
@@ -627,6 +773,8 @@ export default function MothPage({ isActive = true, worldFactory }) {
       const undoing = key === 'z' && !event.shiftKey
       const redoing = key === 'y' || (key === 'z' && event.shiftKey)
       if (!undoing && !redoing) return
+      // MO4: an open board has its own undo, and the key is the board's.
+      if (openBoardRef.current) return
       event.stopPropagation()
       if (typingIn(event.target)) return
       event.preventDefault()
@@ -717,6 +865,44 @@ export default function MothPage({ isActive = true, worldFactory }) {
   const jumpFor = selectedNode?.kind === 'note' ? mothJump(selectedNode)
     : jumpIsland && !jumpIsland.is_personal ? mothJump(selectedNode) : null
 
+  // ── MO4: the folder's menu, and New board ─────────────────────────────────────────────────────────────────────
+  // Inside a project or one of its folders (never inside a board), the menu offers a board where the person may
+  // change the project. On this computer alone it offers none and says why.
+  const insideKind = inside ? kindOf(inside) : null
+  const insideBoard = insideKind === 'folder' ? boardRows.get(rowOf(inside)) ?? null : null
+  let folderMenu = null
+  if ((insideKind === 'project' || insideKind === 'folder') && !insideBoard && insideProject) {
+    const island = islandOf(insideProject)
+    const g = access(island)
+    if (localOnly || typeof adapter.createBoard !== 'function') folderMenu = [{ header: BOARD_NEEDS_CLOUD }]
+    else if (scrubAt != null) folderMenu = [{ label: 'New board', disabled: true }, { header: LOOKING_BACK_WORDS }]
+    else if (!g.allowed || !island?.can_write) folderMenu = [{ label: 'New board', disabled: true }, { header: g.reason || 'You may not change this project.' }]
+    else {
+      const folderId = insideKind === 'folder' ? rowOf(inside) : null
+      folderMenu = [{ label: 'New board', onClick: () => setNewBoard({ projectId: insideProject, folderId, title: '', busy: false, error: '' }) }]
+    }
+  }
+  const makeBoard = async () => {
+    const asked = newBoard
+    if (!asked || makingBoard.current) return
+    makingBoard.current = true
+    setNewBoard({ ...asked, busy: true, error: '' })
+    try {
+      const out = await adapter.createBoard(asked.projectId, asked.folderId, asked.title.trim() || null)
+      const row = { id: String(out.board_id), folder_id: String(out.folder_id), project_id: String(out.project_id ?? asked.projectId) }
+      setNewBoard(null)
+      setBoardRows((was) => new Map(was).set(row.folder_id, row))
+      setBoardsAsked((n) => n + 1)
+      notify([row.project_id])
+      Promise.resolve().then(() => store.refresh([row.project_id])).catch(() => {})
+      openBoardPanel(row, out.title)
+    } catch (err) {
+      setNewBoard((s) => (s ? { ...s, busy: false, error: boardWords(err, { making: true }) } : s))
+    } finally {
+      makingBoard.current = false
+    }
+  }
+
   return (
     <div className="moth-page" data-moth-page data-input={inputMode} data-calm={calm ? 'true' : undefined}>
       <div className="moth-strip">
@@ -733,7 +919,7 @@ export default function MothPage({ isActive = true, worldFactory }) {
           layout={config.layout}
           saved={viewSnap?.places ?? null}
           savedKey={viewSnap?.placesKey ?? null}
-          active={isActive}
+          active={isActive && !(openBoard && boardSize !== 'framed')}
           appearance={worldAppearance}
           reducedMotion={calm}
           selection={selected}
@@ -741,7 +927,13 @@ export default function MothPage({ isActive = true, worldFactory }) {
           flyTo={flyTo}
           worldRef={worldRef}
           createWorld={worldFactory}
-          onPick={(id, how) => { setBloom(null); select(id, how) }}
+          onPick={(id, how) => {
+            setBloom(null)
+            // MO4: a click on a board's dot opens the board.
+            const board = id && !how?.additive && kindOf(id) === 'folder' ? boardRows.get(rowOf(id)) : null
+            if (board) { openBoardPanel(board); return }
+            select(id, how)
+          }}
           onOpen={openContainer}
           onBloom={setBloom}
           onDrag={setDrag}
@@ -839,6 +1031,11 @@ export default function MothPage({ isActive = true, worldFactory }) {
             openFolder={openFolder}
             filesById={fileRow}
             tagsView={config.nodeKinds.includes('tag') && !config.nodeKinds.includes('folder')}
+            folderMenu={folderMenu}
+            folderMenuTitle={insideKind === 'project' ? 'More for this project' : 'More for this folder'}
+            isBoard={(fid) => boardRows.has(String(fid))}
+            insideBoard={insideBoard}
+            onOpenBoard={(row) => openBoardPanel(row)}
           />
           <MothCards
             selectedId={selected.length === 1 ? selected[0] : null}
@@ -857,6 +1054,52 @@ export default function MothPage({ isActive = true, worldFactory }) {
           <MothBloom at={bloom} node={bloom ? index.rows.get(bloom.id) : null} adapter={adapter} file={bloom && kindOf(bloom.id) === 'file' ? fileRow(rowOf(bloom.id)) : null} onDesktop={onDesktop} />
         </div>
       </div>
+      {/* MO4: the open board, layered inside this page (the kit Dialog does not portal: handbook rule 54). */}
+      {openBoard && (
+        <BoardBoundary key={openBoard.board.id} onBack={() => closeBoard()}>
+          <Suspense fallback={<div className="moth-board-layer" data-size="framed"><p className="moth-quiet moth-board-wait">Opening the board…</p></div>}>
+            <OpenBoard
+              open={openBoard}
+              adapter={adapter}
+              userId={perms?.userId ?? null}
+              companyId={perms?.workspaceId ?? null}
+              inputMode={inputMode}
+              calm={calm}
+              onSize={setBoardSize}
+              onClose={boardClosed}
+            />
+          </Suspense>
+        </BoardBoundary>
+      )}
+      {newBoard && (
+        <Dialog
+          width="confirm"
+          title="New board"
+          onClose={() => { if (!newBoard.busy) setNewBoard(null) }}
+          busy={newBoard.busy}
+          footer={(
+            <>
+              <Button variant="ghost" onClick={() => setNewBoard(null)} disabled={newBoard.busy}>Cancel</Button>
+              <Button onClick={makeBoard} loading={newBoard.busy} loadingLabel="Making…" data-moth-board-make>Make the board</Button>
+            </>
+          )}
+        >
+          <label className="moth-field">
+            Name
+            <input
+              className="moth-search"
+              type="text"
+              value={newBoard.title}
+              maxLength={120}
+              placeholder="Board"
+              disabled={newBoard.busy}
+              onChange={(e) => { const title = e.target.value; setNewBoard((s) => (s ? { ...s, title, error: '' } : s)) }}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); makeBoard() } }}
+            />
+          </label>
+          {newBoard.error && <Banner tone="danger" data-moth-board-make-error>{newBoard.error}</Banner>}
+        </Dialog>
+      )}
 
       {showHelpModal && (
         <Dialog title="Help & documentation" dismissOnBackdrop width="reading" onClose={() => setShowHelpModal(false)}>
@@ -891,7 +1134,19 @@ export default function MothPage({ isActive = true, worldFactory }) {
       )}
       {trashOpen && islands && (
         <Dialog title="Trash" width="reading" onClose={() => setTrashOpen(false)}>
-          <MothTrashView adapter={adapter} fileOps={fileOps} islands={islands} access={access} refreshKey={changeKey} />
+          <MothTrashView
+            adapter={adapter}
+            fileOps={fileOps}
+            islands={islands}
+            access={access}
+            refreshKey={changeKey}
+            localOnly={localOnly}
+            onRestored={(projects) => {
+              notify(projects)
+              Promise.resolve().then(() => store.refresh(projects)).catch(() => {})
+              setBoardsAsked((n) => n + 1)
+            }}
+          />
         </Dialog>
       )}
       {moving && (

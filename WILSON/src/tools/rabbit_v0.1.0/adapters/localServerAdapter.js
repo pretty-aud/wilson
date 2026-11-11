@@ -100,6 +100,16 @@ function mothLocalS3() {
   err.code = 'moth_absent';
   return err;
 }
+// MO4 (0130 to 0133): a board is the cloud's (its elements, its turns and its channels are the database's), so a
+// project kept only on this computer has none and says so, with a code the page reads as "not here". A folder's
+// trash and moves are the cloud's too: nothing is in that trash here.
+export const BOARDS_LOCAL = 'Boards need this project in the cloud.';
+export const FOLDERS_LOCAL = 'Moving a folder or putting it in the trash needs this project in the cloud.';
+function boardsLocalAbsent(words = BOARDS_LOCAL) {
+  const err = new Error(words);
+  err.code = 'boards_absent';
+  return err;
+}
 const MOTH_LOCAL_ITEMS = [['phase', 'phases'], ['asset', 'assets'], ['task', 'tasks'], ['scene', 'scenes'],
   ['shot', 'shots'], ['level', 'levels'], ['experience', 'experiences']];
 
@@ -405,6 +415,29 @@ export function localServerAdapter() {
     async listMothItemRelationships() { throw mothLocalS3(); },
     async reserveMothMention() { throw mothLocalS3(); },
     async listMothMentionCandidates() { throw mothLocalS3(); },
+    // MO4: boards wait for the cloud.
+    async listBoards() { throw boardsLocalAbsent(); },
+    async createBoard() { throw boardsLocalAbsent(); },
+    async readBoard() { throw boardsLocalAbsent(); },
+    async readBoardElements() { throw boardsLocalAbsent(); },
+    async putBoardElements() { throw boardsLocalAbsent(); },
+    async deleteBoardElements() { throw boardsLocalAbsent(); },
+    async boardChannels() { throw boardsLocalAbsent(); },
+    async claimSticky() { throw boardsLocalAbsent(); },
+    async renewSticky() { throw boardsLocalAbsent(); },
+    async releaseSticky() { throw boardsLocalAbsent(); },
+    async stickyStatus() { throw boardsLocalAbsent(); },
+    async readStickyText() { throw boardsLocalAbsent(); },
+    async saveStickyText() { throw boardsLocalAbsent(); },
+    async createSticky() { throw boardsLocalAbsent(); },
+    async createMedia() { throw boardsLocalAbsent(); },
+    async embedFile() { throw boardsLocalAbsent(); },
+    async boardFileUrl() { throw boardsLocalAbsent(); },
+    openBoardChannels() { throw boardsLocalAbsent(); },
+    async trashFolders() { throw boardsLocalAbsent(FOLDERS_LOCAL); },
+    async restoreFolders() { throw boardsLocalAbsent(FOLDERS_LOCAL); },
+    async moveFolders() { throw boardsLocalAbsent(FOLDERS_LOCAL); },
+    async listTrashedFolders() { return []; },
     // Not recorded for projects kept only on this computer (MOTH_DESIGN H2): no rows, and every kind recorded
     // only from now, so the scrub labels everything before as not recorded.
     async fetchMothHistory() { return []; },

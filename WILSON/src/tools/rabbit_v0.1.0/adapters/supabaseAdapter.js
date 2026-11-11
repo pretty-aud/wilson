@@ -2018,6 +2018,125 @@ function unwrapMoth(result, fnName) {
   }
 }
 
+// ── MO4 (0130 to 0133): boards ───────────────────────────────────────────────────────────────────────────────
+// A board's refusals are the server's own words, with its own code: 42501 (not found or not writable, one refusal
+// for both), 22023 (a shape, a style or a drawing the board does not know), 23514 (a CHECK), 23505, 54000 (a limit),
+// and a P0001 whose message is a code and whose DETAIL is the words (sticky_turn_ended, cross_project,
+// s3_sticky_off), which come back as that code and those words. Moth's own trash codes read as mothErrors.js says.
+// A database without a board function says so in words, with the code the page reads as "not on this database".
+export const BOARDS_ABSENT = 'This company\'s database does not have boards yet.';
+export const BOARD_COLUMNS = 'id, folder_id, project_id, audience_gen, revision';
+const BOARD_READ_CHUNK = 50;
+const BOARD_SAVE_CHUNK = 500;
+const BOARD_PAGES_MAX = 64;
+// The words the adapter itself says (the server says the rest).
+export const STICKY_GONE = 'This note is missing — it may have been moved or deleted.';
+export const STICKY_MOVED = 'Someone changed this sticky since you opened it, so your words were not saved.';
+export const STICKY_TURN_ENDED = 'Someone else is writing in this sticky now, or your turn ended: your words were not saved.';
+export const STICKY_S3_OFF = 'A sticky\'s words cannot be saved on the company\'s own storage yet.';
+export const BOARD_FILE_GONE = 'This file is missing — it may have been moved or deleted.';
+// The server's own words (0130's guard) for a placement with no file, said before anything is uploaded.
+export const BOARD_NEEDS_FILE = 'A sticky, a picture or an embed needs its file.';
+const BOARD_NOT_WRITABLE = 'board not found or not writable';
+const STICKY_SIZE = { w: 200, h: 200 };
+const BOARD_FILE_SIZE = { w: 240, h: 180 };
+const BOARD_TOO_LARGE = 'This board is too large to open.';
+const BOARD_REMOVAL_SHAPE = 'At most 500 elements a removal, each with its version when versions are sent.';
+const FALLBACK_BOARD_WORDS = 'WILSON could not do that. Try it again.';
+function boardWordsError(code, words) {
+  const err = new Error(words);
+  err.code = code;
+  return err;
+}
+function boardRefusal(error) {
+  const moth = mothRefusal(error);
+  if (moth) return moth;
+  const detailed = error?.code === 'P0001' && typeof error?.details === 'string' && error.details.trim() !== '';
+  return boardWordsError(
+    detailed ? String(error.message || 'P0001') : (error?.code || null),
+    detailed ? error.details : String(error?.message || FALLBACK_BOARD_WORDS),
+  );
+}
+function unwrapBoard(result, fnName, { table = false } = {}) {
+  const error = result?.error;
+  if (!error) {
+    lastError  = null;
+    lastSyncAt = new Date();
+    return result?.data ?? null;
+  }
+  if (missingFunction(fnName)(error) || (table && (error.code === '42P01' || error.code === 'PGRST205'))) {
+    lastError = BOARDS_ABSENT;
+    throw boardWordsError('boards_absent', BOARDS_ABSENT);
+  }
+  const err = boardRefusal(error);
+  lastError = err.message;
+  throw err;
+}
+function boardChunks(list, size) {
+  const out = [];
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+  return out;
+}
+// Stacking order, as the server reads a board: z, then id.
+function byBoardStack(a, b) {
+  const dz = (Number(a?.z) || 0) - (Number(b?.z) || 0);
+  if (dz) return dz;
+  const x = String(a?.id ?? '');
+  const y = String(b?.id ?? '');
+  return x < y ? -1 : x > y ? 1 : 0;
+}
+// What a save sends of an element: what the client drew, never what only the server writes. A placed file goes as
+// its id (file_id; the server reads nothing else of it), and the points or words a message left out are not sent as
+// nothing (a null would erase them). Connectors go after the elements their ends name, since each element is its own
+// statement and an end must already be there. The fixtures restate this (boardsFixtures.js), held equal by a test.
+const BOARD_SERVER_KEYS = ['file', 'missing', 'version', 'updated_at', 'updated_by', 'created_at', 'created_by',
+  'has_file', 'points_omitted', 'board_id', 'project_id', 'workspace_id', 'bytes'];
+export function boardElementsForSave(elements) {
+  const rows = [];
+  for (const el of Array.isArray(elements) ? elements : []) {
+    if (!el || typeof el !== 'object' || Array.isArray(el)) { rows.push(el); continue; }
+    const row = { ...el };
+    if (row.file_id === undefined && row.file && typeof row.file === 'object' && row.file.id) row.file_id = row.file.id;
+    if (row.points_omitted === true) {
+      if (row.points == null) delete row.points;
+      if (row.body == null) delete row.body;
+    }
+    for (const k of BOARD_SERVER_KEYS) delete row[k];
+    rows.push(row);
+  }
+  return [...rows.filter(r => r?.kind !== 'connector'), ...rows.filter(r => r?.kind === 'connector')];
+}
+// A sticky's file is named from its first line, as a person would name a note.
+export function stickyFileName(text) {
+  const line = String(text ?? '').split(/\r?\n/).map(s => s.replace(/^[\s#>*+-]+/, '').trim()).find(Boolean) || '';
+  const name = line.replace(/[\\/:*?"<>|\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60).trim();
+  return `${name || 'Sticky note'}.md`;
+}
+function boardRandom() {
+  try { return globalThis.crypto.randomUUID(); } catch { /* an old engine */ }
+  return `${Date.now().toString(16)}-${Math.random().toString(16).slice(2, 10)}`;
+}
+// A sticky's new words go to a fresh key under its file's own project (0133: never over an object).
+function stickyKey(projectId, fileId) {
+  return `projects/${projectId}/files/${fileId}/${Date.now()}-${boardRandom().slice(0, 8)}.md`;
+}
+async function blobText(body) {
+  if (body == null) return '';
+  if (typeof body === 'string') return body;
+  if (typeof body.text === 'function') return body.text();
+  if (body instanceof ArrayBuffer || ArrayBuffer.isView(body)) return new TextDecoder().decode(body);
+  return String(body);
+}
+// A placed file's row, read by its id under the caller's own row security: one they may not read reads as gone.
+async function stickyFileRow(client, fileId, gone = STICKY_GONE) {
+  const res = await client.from('files')
+    .select('id, project_id, folder_id, name, mime_type, storage_provider, storage_path')
+    .eq('id', fileId).maybeSingle();
+  if (res.error) throw boardRefusal(res.error);
+  if (!res.data) throw boardWordsError('42501', gone);
+  return res.data;
+}
+
 // S3a review round 2 (R2-3, parity2#2): the unique indexes behind the
 // contract's collision rules answer 23505 with Postgres' own sentence —
 // `duplicate key value violates unique constraint "edits_one_child_key"` —
@@ -2909,7 +3028,41 @@ async function patchRow(table, id, patch) {
 // Adapter factory
 // ───────────────────────────────────────────────────────────────
 export function supabaseAdapter() {
-  return {
+  // MO4: the key each sticky's words were last read from, so a save says "moved" when someone saved since.
+  const stickyKeys = new Map();
+  // MO4: a file placed on a board (a new sticky's note, a dropped file, an embed), then read back as board_read gives
+  // it. `file` is what the answer names when the read back fails. A file this placement uploaded (`made`) goes to
+  // the trash again when the board refuses the placement; an embed's file is someone's own and is never touched.
+  async function placeBoardFile(board, kind, file, placement, made) {
+    const p = placement || {};
+    const size = kind === 'sticky' ? STICKY_SIZE : BOARD_FILE_SIZE;
+    const el = {
+      id: p.id || boardRandom(), kind, file_id: file.id,
+      x: p.x ?? 0, y: p.y ?? 0, w: p.w ?? size.w, h: p.h ?? size.h, rotation: p.rotation ?? 0, z: p.z ?? 0,
+      ...(p.style ? { style: p.style } : {}),
+    };
+    let saved;
+    try {
+      saved = (await adapter.putBoardElements(board.id, [el])).saved[0];
+      if (!saved) throw boardWordsError('42501', BOARD_NOT_WRITABLE);
+    } catch (err) {
+      if (made) {
+        try {
+          const client = await requireClient();
+          await client.rpc('moth_trash_files', { p_ids: [file.id] });
+        } catch { /* the file stays in the board's folder, where Moth shows it */ }
+      }
+      throw err;
+    }
+    let back = null;
+    try { [back] = await adapter.readBoardElements(board.id, [saved.id]); } catch { /* answered below as placed */ }
+    return back || {
+      ...el, id: saved.id, shape: null, style: el.style || {}, body: null, points: null, file,
+      missing: false, from_id: null, from_anchor: null, to_id: null, to_anchor: null,
+      version: saved.version ?? 1, updated_at: null, updated_by: null,
+    };
+  }
+  const adapter = {
     mode: 'supabase',
 
     // ── Status ────────────────────────────────────────────────
@@ -6591,6 +6744,325 @@ export function supabaseAdapter() {
       return unwrapMoth(await client.rpc('moth_trash_index', { p_limit: limit, p_before: before }), 'moth_trash_index') || [];
     },
 
+    // ── MO4 (0130 to 0133): boards ─────────────────────────────────────────────────────────────────────────────
+    // A board is a folder of its own (0130): its stickies and dropped files are files in it. A client reads the
+    // boards table (row security decides which) and changes a board only through its functions.
+    async listBoards(projectId) {
+      const client = await requireClient();
+      return readAllPagesWith(() => client.from('boards').select(BOARD_COLUMNS).eq('project_id', projectId).order('id'),
+        (res) => unwrapBoard(res, 'boards', { table: true }) || []);
+    },
+    // { board_id, folder_id, project_id, title, path }: a custom folder under the parent (the project's top folder
+    // when none is named) and its board.
+    async createBoard(projectId, parentFolderId = null, title = null) {
+      const client = await requireClient();
+      return unwrapBoard(await client.rpc('board_create', { p_project: projectId, p_parent: parentFolderId ?? null, p_title: title ?? null }), 'board_create');
+    },
+    // { board, elements }: every page of board_read, in stacking order. The board is the first page's.
+    async readBoard(boardId) {
+      const client = await requireClient();
+      let board = null;
+      let after = null;
+      const elements = [];
+      for (let page = 0; page < BOARD_PAGES_MAX; page += 1) {
+        const out = unwrapBoard(await client.rpc('board_read', { p_board: boardId, p_after: after }), 'board_read');
+        if (!board) board = out?.board ?? null;
+        if (Array.isArray(out?.elements)) elements.push(...out.elements);
+        const next = out?.next ?? null;
+        if (!next || (after && next.z === after.z && next.id === after.id)) return { board, elements };
+        after = { z: next.z, id: next.id };
+      }
+      throw boardWordsError('54000', BOARD_TOO_LARGE);
+    },
+    // Chosen elements as board_read gives them (a new sticky or picture, a long stroke a message left out), 50 a call.
+    async readBoardElements(boardId, ids) {
+      const want = [...new Set((Array.isArray(ids) ? ids : []).filter(Boolean))];
+      if (!want.length) return [];
+      const client = await requireClient();
+      const out = [];
+      for (const part of boardChunks(want, BOARD_READ_CHUNK)) {
+        out.push(...(unwrapBoard(await client.rpc('board_read_elements', { p_board: boardId, p_ids: part }), 'board_read_elements') || []));
+      }
+      return out.sort(byBoardStack);
+    },
+    // { saved: [{ id, version, asked? }], conflicts: [{ id, version }] }, 500 a call. A call refused after others
+    // saved carries what they saved (err.partial).
+    async putBoardElements(boardId, elements) {
+      const rows = boardElementsForSave(elements);
+      const answer = { saved: [], conflicts: [] };
+      if (!rows.length) return answer;
+      const client = await requireClient();
+      for (const part of boardChunks(rows, BOARD_SAVE_CHUNK)) {
+        let out;
+        try {
+          out = unwrapBoard(await client.rpc('board_put_elements', { p_board: boardId, p_elements: part }), 'board_put_elements');
+        } catch (err) {
+          if (answer.saved.length || answer.conflicts.length) err.partial = answer;
+          throw err;
+        }
+        answer.saved.push(...(out?.saved || []));
+        answer.conflicts.push(...(out?.conflicts || []));
+      }
+      return answer;
+    },
+    // { removed: [id], conflicts: [{ id, version }] }. With versions (an undo of a create), one per id.
+    async deleteBoardElements(boardId, ids, versions = null) {
+      const list = Array.isArray(ids) ? ids : [];
+      const answer = { removed: [], conflicts: [] };
+      if (versions != null && (!Array.isArray(versions) || versions.length !== list.length)) {
+        throw boardWordsError('22023', BOARD_REMOVAL_SHAPE);
+      }
+      if (!list.length) return answer;
+      const client = await requireClient();
+      for (let i = 0; i < list.length; i += BOARD_SAVE_CHUNK) {
+        let out;
+        try {
+          out = unwrapBoard(await client.rpc('board_delete_elements', {
+            p_board: boardId, p_ids: list.slice(i, i + BOARD_SAVE_CHUNK),
+            p_versions: versions == null ? null : versions.slice(i, i + BOARD_SAVE_CHUNK),
+          }), 'board_delete_elements');
+        } catch (err) {
+          if (answer.removed.length || answer.conflicts.length) err.partial = answer;
+          throw err;
+        }
+        answer.removed.push(...(out?.removed || []));
+        answer.conflicts.push(...(out?.conflicts || []));
+      }
+      return answer;
+    },
+    // { topic, live_topic, audience_gen }: the board's two channels, named with who may read it now.
+    async boardChannels(boardId) {
+      const client = await requireClient();
+      return unwrapBoard(await client.rpc('board_channels', { p_board: boardId }), 'board_channels');
+    },
+
+    // A sticky's turn (0133): { granted, generation?, holder_label?, ends_in_ms }, { ok, ends_in_ms }, a boolean, and
+    // [{ element, holder_label, mine, ends_in_ms }].
+    async claimSticky(elementId, sessionId) {
+      const client = await requireClient();
+      return unwrapBoard(await client.rpc('sticky_claim', { p_element: elementId, p_session: sessionId }), 'sticky_claim');
+    },
+    async renewSticky(elementId, generation) {
+      const client = await requireClient();
+      return unwrapBoard(await client.rpc('sticky_renew', { p_element: elementId, p_generation: generation }), 'sticky_renew');
+    },
+    async releaseSticky(elementId, generation) {
+      const client = await requireClient();
+      return unwrapBoard(await client.rpc('sticky_release', { p_element: elementId, p_generation: generation }), 'sticky_release') === true;
+    },
+    async stickyStatus(boardId) {
+      const client = await requireClient();
+      return unwrapBoard(await client.rpc('sticky_status', { p_board: boardId }), 'sticky_status') || [];
+    },
+    // A sticky's words are its markdown file's: read from where its row says, and the key remembered for the save.
+    async readStickyText(file) {
+      const fileId = typeof file === 'string' ? file : file?.id;
+      if (!fileId) throw boardWordsError('42501', STICKY_GONE);
+      const client = await requireClient();
+      const row = await stickyFileRow(client, fileId);
+      const text = await blobText(await resolveFileProvider(row).get(row.storage_path));
+      stickyKeys.set(row.id, row.storage_path);
+      return text;
+    },
+    // The words to a fresh key under the file's own project, then board_sticky_publish over the key they were read
+    // from: { ok: true }, or { ok: false, reason: 'moved' | 'turn_ended', words }. The new object goes again when
+    // the save does not take it. A company's own bucket waits (0133), refused before anything is uploaded there.
+    async saveStickyText(element, generation, text) {
+      const elementId = element?.id;
+      const fileId = element?.file?.id ?? element?.file_id ?? null;
+      if (!elementId || !fileId) throw boardWordsError('42501', STICKY_GONE);
+      const client = await requireClient();
+      const row = await stickyFileRow(client, fileId);
+      if (row.storage_provider === FILE_PROVIDERS.S3) throw boardWordsError('s3_sticky_off', STICKY_S3_OFF);
+      const from = stickyKeys.get(row.id) ?? row.storage_path;
+      const to = stickyKey(row.project_id, row.id);
+      const store = getStorageProvider(row.storage_provider);
+      await store.put(to, new Blob([String(text ?? '')], { type: 'text/markdown' }), { contentType: 'text/markdown' });
+      const res = await client.rpc('board_sticky_publish', { p_element: elementId, p_generation: generation, p_from_path: from, p_to_path: to });
+      if (res.error || res.data !== true) {
+        try { await store.del(to); } catch (err) { console.warn('[supabase] a sticky\'s unsaved copy could not be taken back:', err?.message || err); }
+      }
+      if (res.error) {
+        if (res.error.code === 'P0001' && res.error.message === 'sticky_turn_ended') {
+          return { ok: false, reason: 'turn_ended', words: res.error.details || STICKY_TURN_ENDED };
+        }
+        unwrapBoard(res, 'board_sticky_publish');
+      }
+      // The key read is kept: every save says "moved" until the words are read again.
+      if (res.data !== true) return { ok: false, reason: 'moved', words: STICKY_MOVED };
+      stickyKeys.set(row.id, to);
+      lastError  = null;
+      lastSyncAt = new Date();
+      return { ok: true };
+    },
+    // A new sticky: its words as a markdown file in the board's own folder, through the ordinary upload, then placed.
+    // The element as board_read gives it. A placement the board refuses takes the new note to the trash again.
+    async createSticky(board, text, placement = {}) {
+      if (!board?.id || !board?.project_id || !board?.folder_id) throw boardWordsError('42501', BOARD_NOT_WRITABLE);
+      const words = String(text ?? '');
+      const file = new File([words], stickyFileName(words), { type: 'text/markdown' });
+      const row = await adapter.uploadFile(board.project_id, { folderId: board.folder_id }, file, {});
+      return placeBoardFile(board, 'sticky', {
+        id: row.id, name: row.name, mime_type: row.mime_type ?? 'text/markdown',
+        folder_id: row.folder_id ?? board.folder_id, project_id: row.project_id ?? board.project_id,
+      }, placement, true);
+    },
+    // A dropped file (a picture, a video, anything): uploaded into the board's own folder through the ordinary
+    // upload, so Files shows it like any other, then placed as a medium. A placement the board refuses takes the new
+    // file to the trash again, as a sticky's does.
+    async createMedia(board, file, placement = {}) {
+      if (!board?.id || !board?.project_id || !board?.folder_id) throw boardWordsError('42501', BOARD_NOT_WRITABLE);
+      if (!file || typeof file !== 'object' || typeof file.size !== 'number') throw boardWordsError('22023', BOARD_NEEDS_FILE);
+      const row = await adapter.uploadFile(board.project_id, { folderId: board.folder_id }, file, {});
+      return placeBoardFile(board, 'media', {
+        id: row.id, name: row.name ?? file.name ?? null, mime_type: row.mime_type ?? (file.type || null),
+        folder_id: row.folder_id ?? board.folder_id, project_id: row.project_id ?? board.project_id,
+      }, placement, true);
+    },
+    // A file the person can see, shown on the board where it is: a reference, no copy. The server asks whether the
+    // caller may read it, and a file they may not is refused as a missing one is.
+    async embedFile(board, fileId, placement = {}) {
+      if (!board?.id) throw boardWordsError('42501', BOARD_NOT_WRITABLE);
+      const id = typeof fileId === 'string' ? fileId : fileId?.id;
+      if (!id) throw boardWordsError('22023', BOARD_NEEDS_FILE);
+      return placeBoardFile(board, 'embed', { id, name: null, mime_type: null, folder_id: null, project_id: null }, placement, false);
+    },
+    // A placed file's address. An element names its file ({ id, name, mime_type, folder_id, project_id }) and never
+    // where it is kept, so the row is read by its id under the caller's own row security (a file they may not read
+    // is missing to them), then signed as fileUrl signs it, by the provider the row names.
+    async boardFileUrl(file, opts = {}) {
+      const fileId = typeof file === 'string' ? file : file?.id;
+      if (!fileId) throw boardWordsError('42501', BOARD_FILE_GONE);
+      const client = await requireClient();
+      const row = await stickyFileRow(client, fileId, BOARD_FILE_GONE);
+      return adapter.fileUrl(row, { stream: opts?.stream !== false });
+    },
+
+    // A folder's trash and moves (0131), a board's with it: { batches, folders, files }, { folders, files },
+    // [{ id, project_id, project_title, name, is_board, files, deleted_at, deleted_by_label, purges_at, can_restore }],
+    // and { moved: [{ id, from, to, folders }], plan_only }.
+    async trashFolders(ids) {
+      const client = await requireClient();
+      return unwrapBoard(await client.rpc('moth_trash_folders', { p_ids: ids }), 'moth_trash_folders');
+    },
+    async restoreFolders(ids) {
+      const client = await requireClient();
+      return unwrapBoard(await client.rpc('moth_restore_folders', { p_ids: ids }), 'moth_restore_folders');
+    },
+    async listTrashedFolders({ limit = 200, before = null, beforeId = null } = {}) {
+      const client = await requireClient();
+      return unwrapBoard(await client.rpc('moth_trashed_folders', { p_limit: limit, p_before: before, p_before_id: beforeId }),
+        'moth_trashed_folders') || [];
+    },
+    async moveFolders(ids, destParentId, planOnly = false) {
+      const client = await requireClient();
+      const plan = planOnly && typeof planOnly === 'object' ? !!planOnly.planOnly : !!planOnly;
+      return unwrapBoard(await client.rpc('moth_move_folders', { p_ids: ids, p_dest_parent: destParentId, p_plan_only: plan }),
+        'moth_move_folders');
+    },
+
+    // A board's two private channels (0132), joined as projectTopicName's are: `topic` is the database's (elements,
+    // sticky and AUDIENCE; a client never sends there), `live_topic` is the people's (cursors, drags, who is here;
+    // broadcast with self off). AUDIENCE comes on both and is handed on once: fetch boardChannels again and rejoin.
+    // handlers: onElements(payload), onSticky(payload), onAudience(payload), onLive(event, payload),
+    // onPresence([{ key, ...meta }]), onStatus({ channel: 'topic' | 'live', status }). sendLive answers whether it
+    // went (nothing goes before the live channel is joined: a cursor is worth nothing late).
+    openBoardChannels(names, handlers = {}) {
+      const topic = names?.topic;
+      const liveTopic = names?.live_topic;
+      if (!topic || !liveTopic) throw boardWordsError('22023', 'A board\'s channels need their names.');
+      let cancelled = false;
+      let client = null;
+      let db = null;
+      let live = null;
+      let liveJoined = false;
+      let tracked = null;
+      let heardAudience = false;
+      const call = (name, ...args) => {
+        if (cancelled) return;
+        try { handlers?.[name]?.(...args); } catch (err) { console.warn('[supabase] a board handler failed:', err?.message || err); }
+      };
+      const audience = (payload) => {
+        if (heardAudience) return;
+        heardAudience = true;
+        call('onAudience', payload ?? null);
+      };
+      const ready = (async () => {
+        client = await getClient();
+        if (!client || cancelled) return;
+        try { await client.realtime.setAuth(); } catch { /* non-fatal */ }
+        if (cancelled) return;
+        let key = null;
+        try {
+          const { data } = await client.auth.getSession();
+          key = data?.session?.user?.id ?? null;
+        } catch { /* presence keyed below */ }
+        if (cancelled) return;
+        // The client hands back a channel it still holds under the same name, even one still leaving (a rejoin
+        // under the same names, a page brought back): that one never joins again, so it goes first.
+        for (const name of [topic, liveTopic]) {
+          let old = null;
+          try { old = (client.getChannels?.() || []).find(c => c?.topic === `realtime:${name}`) || null; } catch { /* none */ }
+          if (old) {
+            try { await client.removeChannel(old); } catch { /* already gone */ }
+          }
+        }
+        if (cancelled) return;
+        db = client.channel(topic, { config: { private: true } });
+        db.on('broadcast', { event: 'elements' }, (msg) => call('onElements', msg?.payload ?? null));
+        db.on('broadcast', { event: 'sticky' }, (msg) => call('onSticky', msg?.payload ?? null));
+        db.on('broadcast', { event: 'AUDIENCE' }, (msg) => audience(msg?.payload));
+        db.subscribe((status) => call('onStatus', { channel: 'topic', status }));
+        live = client.channel(liveTopic, {
+          config: { private: true, broadcast: { self: false }, presence: { key: key || boardRandom() } },
+        });
+        live.on('broadcast', { event: '*' }, (msg) => {
+          if (String(msg?.event ?? '').toUpperCase() === 'AUDIENCE') audience(msg?.payload);
+          else call('onLive', msg?.event ?? null, msg?.payload ?? null);
+        });
+        live.on('presence', { event: 'sync' }, () => {
+          let people = [];
+          try {
+            people = Object.entries(live.presenceState() || {}).flatMap(([k, metas]) => (Array.isArray(metas) && metas.length
+              ? [(({ presence_ref: _ref, ...meta }) => ({ key: k, ...meta }))(metas[0])] : []));
+          } catch { /* presence is best-effort */ }
+          call('onPresence', people);
+        });
+        live.subscribe(async (status) => {
+          if (cancelled) return;
+          liveJoined = status === 'SUBSCRIBED';
+          call('onStatus', { channel: 'live', status });
+          if (liveJoined && tracked) {
+            try { await live.track(tracked); } catch { /* best-effort */ }
+          }
+        });
+      })();
+      return {
+        ready,
+        sendLive(event, payload) {
+          if (cancelled || !liveJoined || !live || !event) return false;
+          try {
+            const sent = live.send({ type: 'broadcast', event, payload: payload ?? {} });
+            sent?.catch?.(() => {});
+          } catch { return false; }
+          return true;
+        },
+        async track(meta) {
+          tracked = meta ?? null;
+          if (cancelled || !liveJoined || !live || !tracked) return;
+          try { await live.track(tracked); } catch { /* best-effort */ }
+        },
+        leave() {
+          cancelled = true;
+          for (const ch of [db, live]) {
+            if (!ch) continue;
+            try { ch.unsubscribe(); } catch { /* already down */ }
+            try { client?.removeChannel?.(ch); } catch { /* already gone */ }
+          }
+        },
+      };
+    },
+
     // Who is calling, for the desktop's add route, which asks the auth server (electron/authCheck.cjs).
     async getAccessToken() {
       const client = await requireClient();
@@ -6631,4 +7103,5 @@ export function supabaseAdapter() {
       }), 'network_share_record_added');
     },
   };
+  return adapter;
 }
