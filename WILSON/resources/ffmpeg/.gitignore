@@ -1,0 +1,11 @@
+# The binary itself never enters git — pretty-aud/wilson is PUBLIC and
+# `git add -A` sweeps untracked files into it. See README.md.
+ffmpeg
+ffmpeg.exe
+ffprobe
+ffprobe.exe
+*.dll
+*.so
+*.so.*
+*.dylib
+LICENSE*

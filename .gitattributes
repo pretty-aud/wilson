@@ -1,0 +1,26 @@
+# Line endings.
+#
+# Git for Windows ships `core.autocrlf=true` in its SYSTEM config
+# (C:/Program Files/Git/etc/gitconfig), so every checkout on a Windows
+# machine gets CRLF in the working tree even though every blob here is LF.
+# For most files that is harmless. For a `.mjs` file with a hashbang it is
+# not, and it fails silently:
+#
+#   Vite's SSR transform hoists a module's imports to the top of the body
+#   and strips the `#!/usr/bin/env node` line on its way past — but the
+#   strip only matches an LF-terminated hashbang. With CRLF the hashbang
+#   survives, lands in the MIDDLE of the rewritten body, and `new
+#   AsyncFunction(...)` throws `SyntaxError: Invalid or unexpected token`.
+#
+# `src/ui/typeScale.test.js` imports six hashbanged scripts from
+# `scripts/`, so on a Windows checkout the whole 35-case type guard failed
+# to COLLECT. Vitest reports that as "1 failed suite | 0 failed tests" —
+# the suite count drops from 140 to 139 and the test count from 2858 to
+# 2823, and nothing goes red. Measured on 2026-09-22 (bundle T3);
+# CI is Linux and LF, which is why it never showed there.
+#
+# Pinning `.mjs` to LF fixes it at the checkout. `.sh` and `.py` carry
+# hashbangs too (scripts/probes/issue-session.sh, scripts/tap-hosted.py);
+# they are not imported by Vite and their CRLF breakage is unmeasured, so
+# they are recorded here rather than changed.
+*.mjs text eol=lf

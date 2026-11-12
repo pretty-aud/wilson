@@ -1,0 +1,664 @@
+{
+  "rest": {
+    "cards": [
+      {
+        "title": "1Project documentation & deck context",
+        "collapsed": "false",
+        "note": null,
+        "top": 144,
+        "height": 376,
+        "fields": [
+          {
+            "label": "Project",
+            "hint": "Link a project to include its documents and assets in generation"
+          },
+          {
+            "label": "Upload Documents",
+            "hint": "Source material for generating slide content (max 20 files)"
+          },
+          {
+            "label": "Deck Context & Guidelines",
+            "hint": null
+          }
+        ],
+        "hints": [
+          "Link a project to include its documents and assets in generation",
+          "Source material for generating slide content (max 20 files)",
+          "Set the overall tone, style, and objectives for the deck"
+        ],
+        "placeholders": [
+          {
+            "tag": "textarea",
+            "cls": "dog-context-prompt",
+            "placeholder": "Example: This is a pitch deck for a luxury brand activation. The tone should be sophisticated and aspirational...",
+            "disabled": false
+          }
+        ],
+        "checks": [
+          {
+            "name": "Theme generator",
+            "checked": true,
+            "words": "Theme generator"
+          },
+          {
+            "name": "Use uploaded assets",
+            "checked": false,
+            "words": "Use uploaded assets"
+          },
+          {
+            "name": "Use project assets",
+            "checked": false,
+            "words": "Use project assets"
+          }
+        ],
+        "switches": [
+          {
+            "label": "Full deck",
+            "checked": false,
+            "width": 102
+          }
+        ],
+        "selects": [
+          {
+            "cls": "dog-select dog-project-select",
+            "value": "",
+            "options": [
+              "No project selected",
+              "Salt Hours"
+            ]
+          }
+        ],
+        "buttons": [
+          {
+            "words": "New project",
+            "disabled": false
+          },
+          {
+            "words": "Choose file(PDF, MD, TXT, images)",
+            "disabled": false
+          }
+        ]
+      },
+      {
+        "title": "2Generate page outline",
+        "collapsed": "false",
+        "note": null,
+        "top": 528,
+        "height": 344,
+        "fields": [
+          {
+            "label": "Slide Layout Type",
+            "hint": "Choose how content will be arranged on the slide"
+          },
+          {
+            "label": "Page #",
+            "hint": "Single number or range (e.g. 3-7)"
+          },
+          {
+            "label": "Page Request",
+            "hint": "Describe the specific content you want on this slide"
+          }
+        ],
+        "hints": [
+          "Choose how content will be arranged on the slide",
+          "Single number or range (e.g. 3-7)",
+          "Describe the specific content you want on this slide"
+        ],
+        "placeholders": [
+          {
+            "tag": "input",
+            "cls": "dog-page-number",
+            "placeholder": "5 or 1-10",
+            "disabled": false
+          },
+          {
+            "tag": "textarea",
+            "cls": "dog-page-request",
+            "placeholder": "Example: I need a page listing all the main characters with summaries for each...",
+            "disabled": false
+          }
+        ],
+        "checks": [],
+        "switches": [],
+        "selects": [
+          {
+            "cls": "dog-select",
+            "value": "",
+            "options": [
+              "Select layout...",
+              "Title slide",
+              "Section header",
+              "Title and body",
+              "Title and two columns",
+              "Title and three columns",
+              "Title and four columns",
+              "Title only",
+              "One column text",
+              "Main point",
+              "Section title and description",
+              "Caption",
+              "Big number",
+              "Blank",
+              "Section Header w/Gradient",
+              "Title Page w/Gradient"
+            ]
+          }
+        ],
+        "buttons": [
+          {
+            "words": "Generate page outline",
+            "disabled": true
+          }
+        ]
+      },
+      {
+        "title": "Generated output",
+        "collapsed": null,
+        "note": null,
+        "top": 880,
+        "height": 814,
+        "fields": [],
+        "hints": [],
+        "placeholders": [],
+        "checks": [],
+        "switches": [],
+        "selects": [],
+        "buttons": []
+      }
+    ],
+    "project": null,
+    "banners": []
+  },
+  "project": {
+    "chosen": "Salt Hours",
+    "cards": [
+      {
+        "title": "1Project documentation & deck context",
+        "collapsed": "false",
+        "note": null,
+        "top": 144,
+        "height": 450,
+        "fields": [
+          {
+            "label": "Project",
+            "hint": "Link a project to include its documents and assets in generation"
+          },
+          {
+            "label": "Upload Documents",
+            "hint": "Source material for generating slide content (max 20 files)"
+          },
+          {
+            "label": "Deck Context & Guidelines",
+            "hint": null
+          }
+        ],
+        "hints": [
+          "Link a project to include its documents and assets in generation",
+          "Source material for generating slide content (max 20 files)",
+          "Set the overall tone, style, and objectives for the deck"
+        ],
+        "placeholders": [
+          {
+            "tag": "textarea",
+            "cls": "dog-context-prompt",
+            "placeholder": "Example: This is a pitch deck for a luxury brand activation. The tone should be sophisticated and aspirational...",
+            "disabled": false
+          }
+        ],
+        "checks": [
+          {
+            "name": "Theme generator",
+            "checked": true,
+            "words": "Theme generator"
+          },
+          {
+            "name": "Use uploaded assets",
+            "checked": false,
+            "words": "Use uploaded assets"
+          },
+          {
+            "name": "Use project assets",
+            "checked": false,
+            "words": "Use project assets"
+          }
+        ],
+        "switches": [
+          {
+            "label": "Full deck",
+            "checked": false,
+            "width": 102
+          }
+        ],
+        "selects": [
+          {
+            "cls": "dog-select dog-project-select",
+            "value": "f1c70000-0003-4000-8000-000000000001",
+            "options": [
+              "No project selected",
+              "Salt Hours"
+            ]
+          }
+        ],
+        "buttons": [
+          {
+            "words": "New project",
+            "disabled": false
+          },
+          {
+            "words": "Choose file(PDF, MD, TXT, images)",
+            "disabled": false
+          }
+        ]
+      },
+      {
+        "title": "2Generate page outline",
+        "collapsed": "false",
+        "note": null,
+        "top": 602,
+        "height": 344,
+        "fields": [
+          {
+            "label": "Slide Layout Type",
+            "hint": "Choose how content will be arranged on the slide"
+          },
+          {
+            "label": "Page #",
+            "hint": "Single number or range (e.g. 3-7)"
+          },
+          {
+            "label": "Page Request",
+            "hint": "Describe the specific content you want on this slide"
+          }
+        ],
+        "hints": [
+          "Choose how content will be arranged on the slide",
+          "Single number or range (e.g. 3-7)",
+          "Describe the specific content you want on this slide"
+        ],
+        "placeholders": [
+          {
+            "tag": "input",
+            "cls": "dog-page-number",
+            "placeholder": "5 or 1-10",
+            "disabled": false
+          },
+          {
+            "tag": "textarea",
+            "cls": "dog-page-request",
+            "placeholder": "Example: I need a page listing all the main characters with summaries for each...",
+            "disabled": false
+          }
+        ],
+        "checks": [],
+        "switches": [],
+        "selects": [
+          {
+            "cls": "dog-select",
+            "value": "",
+            "options": [
+              "Select layout...",
+              "Title slide",
+              "Section header",
+              "Title and body",
+              "Title and two columns",
+              "Title and three columns",
+              "Title and four columns",
+              "Title only",
+              "One column text",
+              "Main point",
+              "Section title and description",
+              "Caption",
+              "Big number",
+              "Blank",
+              "Section Header w/Gradient",
+              "Title Page w/Gradient"
+            ]
+          }
+        ],
+        "buttons": [
+          {
+            "words": "Generate page outline",
+            "disabled": true
+          }
+        ]
+      },
+      {
+        "title": "Generated output",
+        "collapsed": null,
+        "note": null,
+        "top": 954,
+        "height": 814,
+        "fields": [],
+        "hints": [],
+        "placeholders": [],
+        "checks": [],
+        "switches": [],
+        "selects": [],
+        "buttons": []
+      }
+    ],
+    "project": {
+      "description": "A fourteen-minute short. Mara returns to the lighthouse her father kept, to close it for the last time, and finds the storm he wrote about in his log has not finished with either of them.",
+      "notes": [
+        "0 attachments"
+      ],
+      "roles": [],
+      "roleChips": []
+    },
+    "banners": []
+  },
+  "fullDeck": {
+    "cards": [
+      {
+        "title": "1Project documentation & deck context",
+        "collapsed": "false",
+        "note": null,
+        "top": 144,
+        "height": 502,
+        "fields": [
+          {
+            "label": "Project",
+            "hint": "Link a project to include its documents and assets in generation"
+          },
+          {
+            "label": "Upload Documents",
+            "hint": "Source material for generating slide content (max 20 files)"
+          },
+          {
+            "label": "Deck Context & Guidelines",
+            "hint": null
+          }
+        ],
+        "hints": [
+          "Link a project to include its documents and assets in generation",
+          "Source material for generating slide content (max 20 files)",
+          "Set the overall tone, style, and objectives for the deck • Include desired page count"
+        ],
+        "placeholders": [
+          {
+            "tag": "textarea",
+            "cls": "dog-context-prompt",
+            "placeholder": "Example: This is a pitch deck for a luxury brand activation. The tone should be sophisticated and aspirational...",
+            "disabled": false
+          }
+        ],
+        "checks": [
+          {
+            "name": "Theme generator",
+            "checked": true,
+            "words": "Theme generator"
+          },
+          {
+            "name": "Use uploaded assets",
+            "checked": false,
+            "words": "Use uploaded assets"
+          },
+          {
+            "name": "Use project assets",
+            "checked": false,
+            "words": "Use project assets"
+          }
+        ],
+        "switches": [
+          {
+            "label": "Full deck",
+            "checked": true,
+            "width": 102
+          }
+        ],
+        "selects": [
+          {
+            "cls": "dog-select dog-project-select",
+            "value": "f1c70000-0003-4000-8000-000000000001",
+            "options": [
+              "No project selected",
+              "Salt Hours"
+            ]
+          }
+        ],
+        "buttons": [
+          {
+            "words": "New project",
+            "disabled": false
+          },
+          {
+            "words": "Choose file(PDF, MD, TXT, images)",
+            "disabled": false
+          },
+          {
+            "words": "Generate full deck outline",
+            "disabled": true
+          }
+        ]
+      },
+      {
+        "title": "2Generate page outline(Disabled in full deck mode)",
+        "collapsed": "true",
+        "note": "(Disabled in full deck mode)",
+        "top": 654,
+        "height": 34,
+        "fields": [],
+        "hints": [],
+        "placeholders": [],
+        "checks": [],
+        "switches": [],
+        "selects": [],
+        "buttons": []
+      },
+      {
+        "title": "Generated output",
+        "collapsed": null,
+        "note": null,
+        "top": 696,
+        "height": 814,
+        "fields": [],
+        "hints": [],
+        "placeholders": [],
+        "checks": [],
+        "switches": [],
+        "selects": [],
+        "buttons": []
+      }
+    ],
+    "project": {
+      "description": "A fourteen-minute short. Mara returns to the lighthouse her father kept, to close it for the last time, and finds the storm he wrote about in his log has not finished with either of them.",
+      "notes": [
+        "0 attachments"
+      ],
+      "roles": [],
+      "roleChips": []
+    },
+    "banners": []
+  },
+  "singlePage": {
+    "cards": [
+      {
+        "title": "1Project documentation & deck context",
+        "collapsed": "false",
+        "note": null,
+        "top": -322,
+        "height": 450,
+        "fields": [
+          {
+            "label": "Project",
+            "hint": "Link a project to include its documents and assets in generation"
+          },
+          {
+            "label": "Upload Documents",
+            "hint": "Source material for generating slide content (max 20 files)"
+          },
+          {
+            "label": "Deck Context & Guidelines",
+            "hint": null
+          }
+        ],
+        "hints": [
+          "Link a project to include its documents and assets in generation",
+          "Source material for generating slide content (max 20 files)",
+          "Set the overall tone, style, and objectives for the deck"
+        ],
+        "placeholders": [
+          {
+            "tag": "textarea",
+            "cls": "dog-context-prompt",
+            "placeholder": "Example: This is a pitch deck for a luxury brand activation. The tone should be sophisticated and aspirational...",
+            "disabled": false
+          }
+        ],
+        "checks": [
+          {
+            "name": "Theme generator",
+            "checked": true,
+            "words": "Theme generator"
+          },
+          {
+            "name": "Use uploaded assets",
+            "checked": false,
+            "words": "Use uploaded assets"
+          },
+          {
+            "name": "Use project assets",
+            "checked": false,
+            "words": "Use project assets"
+          }
+        ],
+        "switches": [
+          {
+            "label": "Full deck",
+            "checked": false,
+            "width": 102
+          }
+        ],
+        "selects": [
+          {
+            "cls": "dog-select dog-project-select",
+            "value": "f1c70000-0003-4000-8000-000000000001",
+            "options": [
+              "No project selected",
+              "Salt Hours"
+            ]
+          }
+        ],
+        "buttons": [
+          {
+            "words": "New project",
+            "disabled": false
+          },
+          {
+            "words": "Choose file(PDF, MD, TXT, images)",
+            "disabled": false
+          }
+        ]
+      },
+      {
+        "title": "2Generate page outline",
+        "collapsed": "false",
+        "note": null,
+        "top": 136,
+        "height": 365,
+        "fields": [
+          {
+            "label": "Slide Layout Type",
+            "hint": "Choose how content will be arranged on the slide"
+          },
+          {
+            "label": "Page #",
+            "hint": "Single number or range (e.g. 3-7)"
+          },
+          {
+            "label": "Page Request",
+            "hint": "Describe the specific content you want on this slide"
+          }
+        ],
+        "hints": [
+          "Choose how content will be arranged on the slide",
+          "Main title with subtitle, centered",
+          "Single number or range (e.g. 3-7)",
+          "Describe the specific content you want on this slide"
+        ],
+        "placeholders": [
+          {
+            "tag": "input",
+            "cls": "dog-page-number",
+            "placeholder": "5 or 1-10",
+            "disabled": false
+          },
+          {
+            "tag": "textarea",
+            "cls": "dog-page-request",
+            "placeholder": "Example: I need a page listing all the main characters with summaries for each...",
+            "disabled": false
+          }
+        ],
+        "checks": [],
+        "switches": [],
+        "selects": [
+          {
+            "cls": "dog-select",
+            "value": "title_slide",
+            "options": [
+              "Select layout...",
+              "Title slide",
+              "Section header",
+              "Title and body",
+              "Title and two columns",
+              "Title and three columns",
+              "Title and four columns",
+              "Title only",
+              "One column text",
+              "Main point",
+              "Section title and description",
+              "Caption",
+              "Big number",
+              "Blank",
+              "Section Header w/Gradient",
+              "Title Page w/Gradient"
+            ]
+          }
+        ],
+        "buttons": [
+          {
+            "words": "Generate page outline",
+            "disabled": true
+          }
+        ]
+      },
+      {
+        "title": "Generated output",
+        "collapsed": null,
+        "note": null,
+        "top": 509,
+        "height": 814,
+        "fields": [],
+        "hints": [],
+        "placeholders": [],
+        "checks": [],
+        "switches": [],
+        "selects": [],
+        "buttons": []
+      }
+    ],
+    "project": {
+      "description": "A fourteen-minute short. Mara returns to the lighthouse her father kept, to close it for the last time, and finds the storm he wrote about in his log has not finished with either of them.",
+      "notes": [
+        "0 attachments"
+      ],
+      "roles": [],
+      "roleChips": []
+    },
+    "banners": []
+  },
+  "notesList": {
+    "count": 4,
+    "rows": [
+      "Notes from the animatic reviewProductionSep 11, 2026Opening works better with the door shot first, the lamp insert second. Sofia to re-time. The café scene runs",
+      "Shoot week one — open questionsProductionSep 10, 2026Cliff path permit: council needs two weeks. Sc 02 and sc 06 move to days 8–9; the storm scenes come forward",
+      "Post schedule (draft)PostSep 5, 2026Assembly by 12 Oct, then two weeks of cutting before Theo's notes. Picture lock 6 Nov. Kenji wants the spray element shoot i",
+      "Festival listFestivalsAug 28, 2026First tier: Clermont-Ferrand (deadline late Oct), Sundance shorts (Sept — missed, next year), SXSW (Oct). Second tier: Encount"
+    ]
+  },
+  "noteOpen": {
+    "words": 49,
+    "chars": 280
+  }
+}

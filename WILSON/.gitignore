@@ -2,3 +2,59 @@ node_modules/
 dist/
 out/
 *.exe
+
+# Env files — never commit. Only .env.example is tracked.
+.env
+.env.*
+!.env.example
+
+# Supabase CLI local artifacts
+.supabase/
+supabase/.temp/
+
+# Local encrypted Supabase access token (created by developer for CLI ops)
+.supabase-access-token
+
+# Sentry native debug symbols
+.sentryclirc
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Per-developer Claude Code config (launch.json, local skills).
+# Not part of the canonical repo.
+.claude/
+
+# Playwright output
+test-results/
+playwright-report/
+
+# Session 12: web build output (base /wilson/), deployed to the test host
+dist-web/
+dist-vercel/
+
+# Session 15: operator console build output (base /wilsonadmin/).
+# dist-vercel/wilsonadmin is already covered above; this is the standalone
+# `npm run build:admin` target.
+dist-web-admin/
+
+# Session 40: electron-builder's output (`npm run dist` / `dist:publish`).
+# 🚨 THIS WAS MISSING AND THE REPO IS PUBLIC. `directories.output` has been
+# "release" since v1.0.0 was prepared, but nobody had run `npm run dist` in a
+# working tree before, so the directory never existed to be noticed — and it
+# holds the whole packaged Electron runtime (~500 MB of DLLs, .pak and .bin)
+# plus the signed installer. `git add -A` would have swept all of it into a
+# public repository. `*.exe` above covers only the installer itself.
+release/
+
+# docs/fixes/ — Audrey's own working briefs for the fix phases (2026-08-12).
+# Deliberately local: "these docs dont need to be pushed its just for me to
+# use. we will remove them eventually." Ignored rather than merely untracked
+# because this repository is PUBLIC and the briefs quote her directly and
+# carry the forward plan — the same `git add -A` hazard the release/ rule
+# above exists for.
+docs/fixes/
+deno.lock

@@ -1,0 +1,227 @@
+# 18 — The local demo folder
+
+**What this is.** One folder on your own disk that holds every R.A.B.B.I.T.
+project you make for the demo — the project data, the project folders with
+their files, and the thumbnail cache. Close the app, reopen it, it is all
+there. Copy the folder to another computer, point WILSON at the copy, same
+demo.
+
+**What it is not.** A way past the sign-in screen. You sign in exactly as
+today (your instruction, 2026-09-10: *"user still needs to login no matter
+what"*); the folder is chosen afterwards, in Settings → Storage.
+
+Written 2026-09-10 against `feat/demo-2026-09-11` at `2ab285f`; revised the
+same night at `b8c2bed` for the two-part Friday demo (next section). Every
+step says what you should see; if you see something else, that is the report.
+
+---
+
+## How Friday runs — your decision, 2026-09-10
+
+Your clarification that night, verbatim: *"local file storage should be
+solely for media and files, database entries and data should still be cloud
+based. only file storage is local with local selected."* That model — rows in
+the cloud, file bodies on a local folder — exists in no mode of the app today
+(the brief's §7 says where the pieces are and what it would take), and it is
+not being built for Friday. You chose **option 1: two parts, nothing new
+built.**
+
+| Part | Storage Backend | What shows | What does not |
+|---|---|---|---|
+| 1 | **Supabase** (Settings → Storage → *Storage Backend*) | your real projects, rate cards and team members from the cloud; files in the Petal cloud bucket | the Local Server features: managed files on disk, thumbnails on disk, the bins, the folder's projects |
+| 2 | **Local Server** | the demo folder (this walkthrough), its projects, and the bins (walkthrough 16) | anything from the cloud — the project list is the folder's, not Supabase's |
+
+The switch is the existing *Storage Backend* buttons. Switching never
+migrates or deletes anything, so both states persist, and the demo folder
+stays remembered across the switch and across relaunches. The rehearsal, on
+top of the numbered steps below:
+
+1. Sign in, online. Settings → Storage → *Storage Backend* → **Supabase** → PROJECTS lists your cloud projects. That is part 1.
+2. Settings → Storage → *Storage Backend* → **Local Server**, then the LOCAL DEMO FOLDER card → **Choose a demo folder…** (steps 1–3 below; choosing a folder pins Local Server anyway). PROJECTS now lists the folder's projects — empty on a fresh folder until **Create demo project** (step 14) or NEW PROJECT. Bins: walkthrough 16 from here. That is part 2.
+3. Back: Settings → Storage → *Storage Backend* → **Supabase** → your cloud projects are back. The folder is still open for the local server and waits for the next switch.
+
+**Added 2026-09-11, inside part 1: a private project** whose database is in
+Supabase and whose media is on this computer — the last section of this
+file, "Private projects". Opening the demo folder no longer switches the
+backend to Local Server, so step 2's "choosing a folder pins Local Server
+anyway" is gone: click **Local Server** yourself for part 2.
+
+Part 1 needs the network throughout; part 2 does not once the app is open.
+A launch while the network stalls waits 15 seconds and then shows the
+sign-in screen instead of an orange window (measured; "The cable pulled").
+
+---
+
+## Before you start
+
+0. **Update your checkout**: `git pull --ff-only` on `feat/demo-2026-09-11`
+   (this revision and the bins' latest are both after `efd4042`, where your
+   checkout stood at 22:50 on 2026-09-10).
+
+1. **Run the desktop app, built against staging** (measured 2026-09-10 —
+   the build that lets you sign in with your own account). From `WILSON\`:
+
+   ```bash
+   npx vite build --mode staging && npx electron .
+   ```
+
+   Not `npm run dev` (the browser build has no local server and no folder
+   dialog). Not `npm run electron:dev` either: that builds against
+   **wilson-dev**, where the username `audrey` belongs to the
+   `admin@petalstudios.co` account and your password is refused
+   (`docs/sessions/SESSION_22_prompt.md` line 79 records the same thing).
+
+2. **Sign in** as usual: company, username `audrey`, your password, TOTP if
+   asked. Staging is only used for the sign-in and your account data; every
+   R.A.B.B.I.T. project in this walkthrough lives in the folder on your disk.
+
+3. **Make an empty folder** somewhere you can find in Explorer, for example
+   `C:\Users\Audrey\Desktop\WILSON Demo`.
+
+---
+
+## The walkthrough
+
+| # | Do | You should see |
+|---|----|----------------|
+| 1 | Menu (≡) → **SYSTEM SETTINGS** → **STORAGE** tab → scroll to *Storage Connections* | A card **LOCAL DEMO FOLDER** with a grey dot: *"No demo folder is open. Projects live in this computer's app data:"* and the app-data path, plus a button **Choose a demo folder…**. Below it, *Project files root* (the old per-machine setting) still shows. |
+| 2 | Click **Choose a demo folder…** → the OS dialog *"Choose the folder that holds this demo"* → pick your empty folder → **Use this folder** | The window reloads (a second of orange) and lands on Home. |
+| 3 | Menu → SYSTEM SETTINGS → STORAGE again | The card has a **green dot**, the folder's **full path**, the line *"Projects, files and thumbnails live in this folder. Copy the whole folder to carry the demo to another computer."* and three buttons: **Change folder…**, **Open in Explorer**, **Close folder**. The *Project files root* line is gone (the folder's `projects\` is the root now). Above the cards, *Storage Backend* shows **Local Server — In use**. |
+| 4 | Click **Open in Explorer** | Explorer opens the folder. It holds `wilson-demo.json`, `projects\` and `.wilson\` (nothing else yet). |
+| 5 | Menu → **PROJECTS** → **NEW PROJECT** → title `Friday Demo` → create | The project opens. In Explorer, `projects\Friday-Demo\` now exists with `ASSETS`, `INVOICES`, `SCENES`, `SHOTS`, `Friday-Demo_DATABASES` and `Friday-Demo_FILES`; `.wilson\rabbit-data\projects\<id>\project.json` is the project's data. |
+| 6 | In the project, add a file to an asset (Assets → add files) | The file lands under `projects\Friday-Demo\ASSETS\<asset>\`, and its thumbnail under `.wilson\rabbit-data\thumbnails\`. Nothing appears in `%APPDATA%\wilson\rabbit-data`. |
+| 7 | **Close the app. Reopen it. Sign in.** | Projects lists `Friday Demo`. Settings → Storage shows the same folder with the green dot. |
+| 8 | Settings → Storage → **Change folder…** → pick a *second* empty folder | Reload. PROJECTS is empty — this is a different demo. Settings → Storage now lists the first folder under **RECENT FOLDERS** with **Open** and **Forget**. |
+| 9 | Under RECENT FOLDERS click **Open** on the first folder | Reload. `Friday Demo` is back. |
+| 10 | **Change folder…** → pick a folder that already has other files in it (a folder of photos) | The card asks: *"This folder already holds N items. Nothing in it is touched. Use it for the demo anyway?"* with **Use this folder** / **Choose another**. Click **Choose another** — nothing was written to that folder. (Choosing *Use this folder* would add `wilson-demo.json`, `projects\`, `.wilson\` beside the photos and leave the photos alone.) |
+| 11 | Close the app. In Explorer, **rename** the demo folder (pretend the drive is unplugged). Reopen, sign in, Settings → Storage | The card says in red *"Your demo folder is not available. Plug the drive in, or point WILSON at it again."* with the old path and two buttons: **Locate it…** and **Forget it**. Projects is empty meanwhile — WILSON did **not** quietly switch to app data. |
+| 12 | Rename the folder back → **Locate it…** → pick it | Reload. `Friday Demo` is back; the folder was **adopted**, not reinitialised (the project is intact). |
+| 13 | Copy the whole folder to another computer (or move it here and rename the original) → **Change folder…** → pick the copy | Reload. Same projects, same files; each project's folder now resolves under the copy. (A project remembers an absolute folder path; while a demo folder is open, a remembered path that **no longer exists** is rebased to `<folder>\projects\<slug>` on read, and the move is written to the project's audit stream. A copy made on the **same** machine while the original still exists keeps pointing at the original's files — deliberate: a pointer to real files is never overwritten.) |
+| 14 | Settings → Storage → **Create demo project** (second row of buttons on the card) | A green line: *Created "Friday Demo" with 2 scenes and 5 shots. Open it from PROJECTS.* PROJECTS lists **Friday Demo**; opening it in R.A.B.B.I.T. shows the **Scenes** tab (scenes and shots are on) with SC01 (three shots) and SC02 (two shots). In Explorer, `projects\Friday-Demo\SCENES\` and `SHOTS\` have a folder per scene and shot. The names are placeholders until you answer question 4. |
+| 15 | Settings → Storage → **Reset demo folder…** | A confirmation that names the folder and exactly what goes: `<folder>\projects` and `<folder>\.wilson\rabbit-data`, *"Nothing outside this folder is touched, and the folder stays open."* Confirm → reload → PROJECTS is empty, the folder is still open, `wilson-demo.json` is still there (now with `last_reset_at`), and any file you had put beside them survives. If the folder already had a `projects\` or a `.wilson\rabbit-data\` of its own before WILSON opened it (step 10's "use it anyway" case), Reset **refuses** with a red sentence and deletes nothing — empty those by hand first. |
+| 15a | While the folder is missing (step 11) open PROJECTS | The list is empty and Settings → Storage → *Storage Backend* shows **Offline — the demo folder is not available: <path> — open Settings → Storage to locate it, forget it, or close it**. WILSON refuses to read or write R.A.B.B.I.T. data until you do one of the three; it never quietly uses app data instead. |
+| 16 | Settings → Storage → **Close folder** → confirm | Reload. The card is back to the grey-dot state; Projects shows whatever lives in app data (an old Local Server install's projects, or nothing). The folder on disk is untouched — closing never deletes. |
+
+---
+
+## The cable pulled
+
+This section is about part 2 (Local Server and the folder); part 1 needs the
+network throughout. Sign in **while online first**, then pull the cable.
+R.A.B.B.I.T. keeps working from the folder — the local server is an in-app Express server on
+127.0.0.1 and never leaves the machine. O.T.T.E.R.'s library is local too.
+Anything that needs the cloud (AI, the pet's account sync, the Admin
+Terminal, cloud storage) reports unavailable rather than hanging.
+
+**The one limit, stated plainly (corrected 2026-09-10):** a LAUNCH needs the
+auth server, however fresh the saved sign-in is. Restoring a saved session asks
+Supabase to confirm the account first (`@supabase/auth-js` 2.101.1,
+`GoTrueClient._setSession`: the `_getUser` request it makes for a token that
+has *not* expired), and offline that request fails (measured 2026-09-10 on
+your saved sign-in: the cancelled `GET /auth/v1/user`, nothing else), so the
+app shows the
+sign-in screen and cannot get past it — a minute after signing in as much as
+a day after. Once the app is OPEN the session lives in memory: R.A.B.B.I.T.
+keeps working from the folder, and after about an hour (when the token can no
+longer be renewed) only the cloud features — AI, account sync, the Admin
+Terminal — report unavailable. So on the demo machine: **sign in while
+online, then pull the cable, and do not close the app** between then and the
+demo. If the app has to be relaunched, reconnect first, launch, sign in, then
+disconnect again. (An offline-tolerant launch — open the shell on a saved,
+unexpired sign-in when the auth server cannot be reached — is a small change
+to `hydrateSupabase` in `src/cloud/auth/supabaseClient.js`; it is a policy
+decision, asked in the hand-off, not built.)
+
+To rehearse without unplugging anything (dev builds only), from `WILSON\` in
+PowerShell:
+
+```powershell
+npx vite build --mode staging; $env:WILSON_DEV_OFFLINE = '1'; npx electron .
+```
+
+Every request that is not to the app's own local server is cancelled before
+it leaves the window. The terminal shows
+`[wilson] WILSON_DEV_OFFLINE=1 — every non-loopback request is cancelled`.
+`Remove-Item Env:\WILSON_DEV_OFFLINE` turns it off again. (In cmd.exe the
+form is `set WILSON_DEV_OFFLINE=1&& npx electron .` with NO space before the
+`&&` — with the space the value becomes `1 ` and the switch does nothing.)
+
+The worse cable, a network that answers nothing: `$env:WILSON_DEV_OFFLINE =
+'stall'` leaves every cloud request pending for ever. With a saved sign-in
+this used to be an all-orange window — the session restore waited on a token
+refresh that never returned, measured on your own app on 2026-09-10 — and it
+is now bounded by the same 15-second ceiling as the sign-in screen's own
+steps. Measured 2026-09-10 22:45 on a staging build at `b8c2bed` with your
+real saved sign-in: the wait ends at exactly 15.0 s after the page loads
+(`session restore timed out after 15000ms` on the console) and the sign-in
+screen is up 4.3 s later, its own reveal; with `WILSON_DEV_OFFLINE = '1'` the
+restore fails in 10 ms and the sign-in screen is up 4.5 s after the page
+loads, the same as a signed-out launch. Never an orange window in either.
+
+---
+
+## What lives where
+
+| Thing | With a demo folder open | With no folder open |
+|---|---|---|
+| Project data (the JSON bundle per project) | `<folder>\.wilson\rabbit-data\projects\<id>\project.json` | `%APPDATA%\wilson\rabbit-data\projects\…` |
+| Project folders and files | `<folder>\projects\<slug>\…` | the *Project files root* (Settings → General) or nowhere |
+| Thumbnail cache | `<folder>\.wilson\rabbit-data\thumbnails\` | `%APPDATA%\wilson\rabbit-data\thumbnails\` |
+| Rate cards, team members, task templates | `<folder>\.wilson\rabbit-data\…` | `%APPDATA%\wilson\rabbit-data\…` |
+| The folder's manifest | `<folder>\wilson-demo.json` (format, created, app version, last opened) | — |
+| Which folder is open, and the recent list | `%APPDATA%\wilson\local-demo.json` | same file, `activeFolder: null` |
+| The pet, O.T.T.E.R. settings, agent skills, **which storage backend is in use** | `%APPDATA%\wilson\otter-data\` — per machine, unchanged | same |
+| Your sign-in | `%APPDATA%\wilson\session.enc` — per machine, unchanged | same |
+
+`%APPDATA%\wilson` is `C:\Users\Audrey\AppData\Roaming\wilson`.
+
+---
+
+## Things to know
+
+- **Opening or closing a folder reloads the window.** R.A.B.B.I.T. loads its
+  project list once per launch; a new root needs a fresh start. You land on
+  Home after the reload.
+- **Choosing a folder switches the Storage Backend to Local Server** if it
+  was on Supabase, and clears the remembered "active project".
+- **A folder made by a newer WILSON is refused** with a sentence, never
+  opened half-way.
+- **Nothing is moved silently.** Projects that already sit in app data stay
+  there; opening a folder does not copy them. (An explicit "adopt existing
+  local projects" action is on the list if you want it — question 3.)
+- The pet you see while working locally is this machine's own pet, saved in
+  app data.
+- **A folder that disappears while WILSON is open** (drive unplugged, folder
+  renamed) is reported as missing on the next action — the same red card as
+  step 11 — and nothing is recreated at the old path.
+
+---
+
+## Private projects — cloud rows, media on this computer (2026-09-11)
+
+Your rule, 2026-09-11: *"all databases need to live in the supabase storage
+at all times. the only thing local storage should be related to is just the
+media files and asset of the project."* Built that night (`4c10387`). It
+lives in **Supabase mode** — part 1 of the rehearsal — and the demo folder is
+only where the media lands.
+
+**Before it can show:** migration 0072 must be on staging (the hand-off's
+"Waiting on Audrey" has the command). Until then the checkbox in P2 is
+simply absent and nothing else is different.
+
+| # | Do | You should see |
+|---|----|----------------|
+| P1 | Settings → Storage → *Storage Backend* → **Supabase**. If you want the media inside your demo folder, open one (LOCAL DEMO FOLDER → **Choose a demo folder…**); the backend now STAYS on Supabase. | The card carries a red-brown line: *For demos only. Nothing stored on this computer can be shared with anyone. Databases stay in Supabase; local storage is for media. In Supabase mode a private project keeps its media here:* followed by the path — `<folder>\media` with a folder open, `%APPDATA%\wilson\rabbit-data\local-media` without. |
+| P2 | PROJECTS → **NEW PROJECT** → title `Private Demo` → tick **Private project** → Create | The project opens. Back in PROJECTS its row carries a **PRIVATE** badge. In Supabase (Table Editor → `projects`) the row exists with `is_private = true`: the database is in the cloud. |
+| P3 | In the project, add a picture or a clip to an asset (Assets → add files) | The tile shows its thumbnail. In Explorer the body is at `<media root>\projects\<project id>\assets\<asset id>\<time>-<name>` and its thumbnail beside it as `<name>.jpg`. Nothing new appears in the Petal bucket (Supabase → Storage → `rabbit-files`). The `files` row says `storage_provider = local_server`. |
+| P4 | Click the clip → preview; then download it | The player streams from the local server (`http://127.0.0.1:<port>/api/rabbit/local-media/…`); the download saves under the file's real name. |
+| P5 | Sign in as another member of the workspace (a second account, or the web app in a browser) | The private project is not in their list and none of its rows are readable to them. A workspace admin sees the project; opening one of its files there says *this file lives on the computer that added it — open WILSON on that computer to see it* — the media is only on your computer. |
+| P6 | Settings → Storage → *Storage Backend* → **Local Server** | The private project is not here: it is a cloud project. The folder's own projects (part 2) are. Switch back to Supabase and it is back. |
+| P7 | Add an invoice to a budget line of the private project | It lands in Supabase, not on disk: financial files never leave the cloud (the money pin). |
+
+**Limits, stated.** A body is never purged from the disk when its row is
+deleted (the blob-GC gap cloud rows already have, now on the desktop too);
+the local server answers whoever can reach 127.0.0.1 on this machine (the
+Local Server stance since S12); and a private project made on this computer
+shows its media only on this computer — that is the point, and the sentence
+above says so wherever else the row is opened.

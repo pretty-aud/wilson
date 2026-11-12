@@ -1,0 +1,287 @@
+// =============================================================================
+// receiptsAreMoney.test.js — Track C, bundle C4.
+//
+// An expense receipt is money, and until this bundle it was not treated as
+// such. `BudgetView`'s upload passed `{ type: 'expense' }`; `scope.type` is
+// read by NOTHING — not supabaseAdapter, not localServerAdapter, not the
+// Express server — so the scope was effectively empty and a receipt landed as
+// an ordinary project-level file, readable by every project member. The
+// `expenses` row pointing at it is manager-only (0037 gates all five money
+// tables on can_access_project_money), so the amount was hidden while the
+// receipt stating it was not. 0038's own comment calls files.is_financial
+// "an invoice or receipt" — the intent was always there; only the receipt
+// half was never wired.
+//
+// WHAT THIS FILE CAN AND CANNOT SEE — stated here rather than discovered
+// later, which is C3's own hardest-won lesson (a measured diff is only ever
+// accurate about what it measured):
+//
+//   * The upload happens inside a handler in a 3000-line component, reached
+//     only through a file <input>. There is no exported seam, so the CALL
+//     SITE is held by a source pin — the same instrument, for the same
+//     reason, as deckAttachmentSource.test.js.
+//   * A source pin proves the key is PASSED. It cannot prove the key is
+//     SPENT. So the two writers that consume it are pinned too, at the exact
+//     lines where each gate is decided, and the pgTAP side (suite 78) is what
+//     proves the database actually refuses a non-manager.
+//   * Nothing here executes an upload. `uploadFile` needs a live client, a
+//     storage provider and a workspace-storage read; every other test in this
+//     tree stops at the same boundary (uploadScope.test.js drives only the
+//     pure helper).
+//
+// 🚨 Every pin normalises CRLF before matching. The working tree is CRLF under
+// core.autocrlf and CI checks out LF, so a multi-line regex that passes here
+// fails in CI — Track C has now hit that in C2 and C3.
+// =============================================================================
+
+import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
+import { toInlineSafeBlob } from '../../lib/inlineSafeBlob'
+
+const HERE = dirname(fileURLToPath(import.meta.url))
+const read = (p) => readFileSync(join(HERE, p), 'utf8').replace(/\r\n/g, '\n')
+
+const BUDGET_VIEW = read('../../tools/rabbit_v0.1.0/views/BudgetView.jsx')
+const INVOICE_ATT = read('./InvoiceAttachment.jsx')
+const SUPA        = read('../../tools/rabbit_v0.1.0/adapters/supabaseAdapter.js')
+const LOCAL       = read('../../tools/rabbit_v0.1.0/adapters/localServerAdapter.js')
+const SERVER      = read('../../../electron/main.cjs')
+// Post-overhaul merge: the local adapter streams every upload down THIS route
+// (demo 2026-09-11); the base64 POST, kept for other callers, sits beside it
+// since S4b's review round 1 (mounted by the same call in main.cjs).
+const STREAM      = read('../../../electron/projectFileStream.cjs')
+const TAGS_CJS    = read('../../../electron/fileTags.cjs')
+
+// ── 1. The call site: a receipt is uploaded as money ─────────────────────────
+
+describe('BudgetView uploads a receipt as money', () => {
+  it('passes financial: true to adapter.uploadFile', () => {
+    expect(BUDGET_VIEW).toMatch(
+      /adapter\.uploadFile\(\s*projectId\s*,\s*\{\s*financial:\s*true\s*\}\s*,\s*file\s*\)/,
+    )
+  })
+
+  it('no longer passes the inert `type` key that made the scope empty', () => {
+    // The exact defect. `scope.type` reaches no reader, so this scope said
+    // nothing at all — not the money flag, not an entity link.
+    expect(BUDGET_VIEW).not.toMatch(/uploadFile\([^)]*\btype:\s*'expense'/)
+  })
+
+  it('has exactly one uploadFile call, so the pin cannot be passing on a twin', () => {
+    // 🚨 A pin that matches SOMEWHERE in a 3000-line file proves nothing if a
+    // second, unfixed call site exists beside it. C3's round 1 found a fix
+    // that had moved to a different path than the one being measured.
+    const calls = BUDGET_VIEW.match(/\.uploadFile\(/g) || []
+    expect(calls).toHaveLength(1)
+  })
+
+  it('does not set is_core_definer while it is in there — C3 polarity', () => {
+    // The C3 lesson, restated at the one call site most likely to repeat it:
+    // this flag says "money" and nothing else. Flipping isCore here would
+    // change D.O.G. generation output for every file on the project.
+    expect(BUDGET_VIEW).not.toMatch(/uploadFile\([^)]*isCoreDefiner/)
+  })
+})
+
+// ── 2. The twin that was already right ───────────────────────────────────────
+
+describe('InvoiceAttachment stays the reference implementation', () => {
+  it('still passes financial: true', () => {
+    // The regression twin. Both call sites now say the same thing, so a future
+    // "unification" of the two has to unify them in the RIGHT direction — the
+    // failure mode being that someone reads the receipt path as the pattern.
+    expect(INVOICE_ATT).toMatch(/uploadFile\([^)]*financial:\s*true/)
+  })
+})
+
+// ── 3. The key is SPENT, on both gates, by both writers ──────────────────────
+
+describe('scope.financial closes both gates in the cloud writer', () => {
+  it('picks the reserved INVOICES path segment — the blob gate', () => {
+    // The four rabbit_files_money_* policies key on the third path segment and
+    // the four base rabbit_files_* policies negate it (0042 — NOT
+    // rabbit_files_invoices_*, which 0042:212-214 dropped). This line is the
+    // only thing that puts a file on the money side of that test.
+    // S4b (0088): Legal's own locked folder comes first in the same line; a
+    // receipt still takes INVOICES.
+    expect(SUPA).toMatch(/const entity\s*=\s*legal\s*\?\s*LEGAL_SEGMENT\s*:\s*scope\.financial\s*\?\s*'INVOICES'\s*:/)
+  })
+
+  it('writes files.is_financial — the row gate', () => {
+    expect(SUPA).toMatch(/is_financial:\s*!!scope\.financial/)
+  })
+
+  it('pins the body to Supabase — the THIRD use, 0050', () => {
+    // 🚨 Review round 1: this file asserted "uploadFile spends it three times"
+    // and pinned TWO. Deleting the provider pin turned no probe here red (it
+    // was caught only over in storageRegistry.test.js), so the file's own
+    // claim outran its own probes. This is the missing third.
+    // S4b (0088): the pin reads `moneyGated`, which is scope.financial OR a
+    // Legal upload — a receipt still pins exactly as before.
+    expect(SUPA).toMatch(/const moneyGated\s*=\s*!!scope\.financial\s*\|\|\s*legal;/)
+    expect(SUPA).toMatch(/fileProviderFor\([^)]*\{\s*financial:\s*moneyGated/)
+  })
+
+  it('keeps the two in one function, so they cannot drift apart', () => {
+    // 0038: "the row and the blob are gated independently, and either one
+    // alone is a way in". One key is only safe BECAUSE one writer spends it
+    // on both. If these ever move into different functions, the "one key"
+    // claim in BudgetView's comment stops being true.
+    const seg = SUPA.indexOf("scope.financial ? 'INVOICES'")
+    const row = SUPA.indexOf('is_financial:     !!scope.financial')
+    expect(seg).toBeGreaterThan(-1)
+    expect(row).toBeGreaterThan(seg)
+    const between = SUPA.slice(seg, row)
+    // No function boundary between them: `async uploadFile(` opens the block
+    // that contains both, and nothing closes and reopens one in between.
+    expect(between).not.toMatch(/\n {4}(async )?[a-zA-Z]+\(.*\)\s*\{/)
+  })
+})
+
+describe('scope.financial reaches the desktop writer too — parity', () => {
+  it('the local adapter forwards the whole scope rather than a chosen subset', () => {
+    // If this ever became `scope: { phaseId, assetId, ... }` the money flag
+    // would be dropped on the desktop only, which is the hardest kind of gap
+    // to notice: the web would be gated and the desktop would not.
+    // Post-overhaul merge (2026-09-30): the local adapter STREAMS the body
+    // (demo 2026-09-11, electron/projectFileStream.cjs) with the scope
+    // serialised WHOLE in the query string — the same invariant, a different
+    // transport. A chosen subset would read `JSON.stringify({ phaseId… })`.
+    expect(LOCAL).toMatch(/uploadFile\(projectId,\s*scope,\s*file,\s*opts = \{\}\)/)
+    expect(LOCAL).toMatch(/scope:\s*JSON\.stringify\(scope \|\| \{\}\)/)
+    expect(LOCAL).not.toMatch(/JSON\.stringify\(\{\s*(phaseId|assetId|taskId|financial)/)
+  })
+
+  // S4b review round 1 (R1-BEH-05): both upload transports — the base64 POST
+  // and the streamed PUT the adapter calls — live in projectFileStream.cjs and
+  // read the scope through ONE check (fileTags.cjs checkLegalUpload), so the
+  // flag is pinned there; the routes themselves are served for real in
+  // projectFileStream.test.js (an invoice to INVOICES, by both).
+  it('the Express server reads it and mirrors is_financial', () => {
+    expect(TAGS_CJS).toMatch(/const isFinancial\s*=\s*!!scope\?\.financial/)
+    expect((STREAM.match(/is_financial:\s*isFinancial/g) || []).length).toBe(2)
+    expect((STREAM.match(/const \{ isLegal, isFinancial \} = placement;/g) || []).length).toBe(2)
+    // main.cjs mounts both, and no longer registers the POST itself.
+    expect(SERVER).not.toContain("expressApp.post('/api/rabbit/projects/:projectId/files', (req, res) => {")
+  })
+
+  it('and routes the body to the invoices directory, not the shared one', () => {
+    // The desktop's equivalent of the path segment: a different directory on
+    // disk, chosen by the same flag — one choice, used by both transports.
+    expect(STREAM).toMatch(
+      /isFinancial\s*\n?\s*\?\s*resolveProjectInvoicesDir/,
+    )
+    expect((STREAM.match(/uploadDirFor\(bundle, req\.params\.projectId, placement\)/g) || []).length).toBe(2)
+  })
+})
+
+// ── 3b. The other half of the gate: the manager can still READ it back ───────
+
+describe('a receipt stays reachable by the person who uploaded it', () => {
+  // Bounded to openFile's own body (round 2): from its declaration to the next
+  // top-level function in the component.
+  const openFileStart = BUDGET_VIEW.indexOf('async function openFile')
+  const openFileBody = BUDGET_VIEW.slice(
+    openFileStart,
+    BUDGET_VIEW.indexOf('function handleSubmit', openFileStart),
+  )
+
+  // 🚨 REVIEW ROUND 1 FOUND THIS MISSING, and it is the regression class the
+  // fix most risks. Marking a receipt financial removes it from BOTH surfaces
+  // that could open a file: FileManager drops every is_financial row, and
+  // ProjectsPage filters them out of the project's file table. So the gate
+  // also took away the manager's only way to open their own receipt, and
+  // walkthrough 16's step A3 asserted the opposite. ExpensePopup now carries
+  // the receipt's own open control, the twin of InvoiceAttachment's.
+  //
+  // Nothing else in the tree pins this. If it is deleted, no other test fails
+  // and a manager silently loses access to their own financial documents.
+
+  it('ExpensePopup can open an attachment, not merely name it', () => {
+    expect(BUDGET_VIEW).toMatch(/async function openFile\s*\(/)
+  })
+
+  it('and it opens the row it re-lists, the way InvoiceAttachment does', () => {
+    // Re-lists rather than trusting state: a freshly uploaded file is only
+    // { id, name, mime_type } from uploadFile's result, and downloadFile needs
+    // the real row. The invoice surface already worked this way.
+    //
+    // 🚨 Round 2 BOUNDED THIS SLICE. It ran to end of file — 300-odd lines of
+    // unrelated code — so these assertions passed on any occurrence anywhere
+    // below. It was only accidentally sound.
+    expect(openFileBody).toMatch(/listFiles\(projectId\)/)
+    expect(openFileBody).toMatch(/downloadFile\(row\)/)
+    expect(openFileBody).toMatch(/createObjectURL/)
+    expect(INVOICE_ATT).toMatch(/createObjectURL/)
+  })
+
+  it('and it re-types the body before a blob: URL is made of it (merge review C-R2-02)', () => {
+    // The stored type is client-chosen (supabaseProvider writes file.type and
+    // rabbit-files has no allowed_mime_types) and a blob: URL runs on THIS
+    // origin — so a receipt uploaded as text/html ran as script in the next
+    // money reader's tab. Both sinks route the body through the one helper,
+    // and the URL is made of the helper's answer, not of the download.
+    expect(openFileBody).toMatch(/const blob = toInlineSafeBlob\(await adapter\.downloadFile\(row\)\)/)
+    expect(openFileBody).toMatch(/createObjectURL\(blob\)/)
+    expect(BUDGET_VIEW).toMatch(/import \{ toInlineSafeBlob \} from '\.\.\/\.\.\/\.\.\/lib\/inlineSafeBlob'/)
+    expect(INVOICE_ATT).toMatch(/const blob = toInlineSafeBlob\(await adapter\.downloadFile\(row\)\)/)
+    expect(INVOICE_ATT).toMatch(/import \{ toInlineSafeBlob \} from '\.\.\/\.\.\/lib\/inlineSafeBlob'/)
+    // …and the helper the pins name actually refuses the class: a source pin
+    // proves the call is made, not what it does (inlineSafeBlob.test.js has
+    // the full list; this is the receipt's own worst case).
+    expect(toInlineSafeBlob(new Blob(['<script>'], { type: 'text/html' })).type).toBe('application/octet-stream')
+    expect(toInlineSafeBlob(new Blob(['<svg/>'], { type: 'image/svg+xml' })).type).toBe('application/octet-stream')
+    const pdf = new Blob(['%PDF'], { type: 'application/pdf' })
+    expect(toInlineSafeBlob(pdf)).toBe(pdf)
+  })
+
+  it('and it does not fail silently the way the invoice bug did', () => {
+    // Round 2: window.open runs after two awaits, so a large receipt loses
+    // transient activation and the tab is blocked — it returns null. And the
+    // missing-capability branch was a bare `return` while the button renders
+    // unconditionally. Both are the silent nothing-happens InvoiceAttachment
+    // exists to have fixed.
+    expect(openFileBody).toMatch(/const\s+opened\s*=\s*window\.open\(/)
+    expect(openFileBody).toMatch(/if\s*\(!opened\)/)
+    // Merge review C-R1-02: the checked call must NOT pass 'noopener'. The
+    // WHATWG window-open steps return null whenever noopener is set, so with
+    // it every SUCCESSFUL open read as blocked, threw, and revoked the blob.
+    // The opener is severed by hand instead, right after the check.
+    expect(openFileBody).not.toMatch(/window\.open\([^)]*noopener/)
+    expect(openFileBody).toMatch(/opened\.opener\s*=\s*null/)
+    expect(openFileBody).not.toMatch(/listFiles\)\s*return\b/)
+    expect(openFileBody).toMatch(/setOpenError\(/)
+  })
+
+  it('and the attachment row actually renders that control', () => {
+    // A handler nothing calls is not an affordance.
+    expect(BUDGET_VIEW).toMatch(/onClick=\{\(\)\s*=>\s*openFile\(f\.id\)\}/)
+  })
+
+  it('and the icon it renders is actually imported', () => {
+    // Round 2: without this, deleting FolderOpen from the import leaves every
+    // other pin here green while the popup throws a ReferenceError on render.
+    const imports = BUDGET_VIEW.slice(0, BUDGET_VIEW.indexOf("from 'lucide-react'"))
+    expect(imports).toMatch(/\bFolderOpen\b/)
+    // Post-overhaul merge (2026-09-30): the busy glyph is the kit Spinner in
+    // the folder's place (InvoiceAttachment's idiom), not lucide's Loader2,
+    // which the overhaul retired from this file. Same pin, the kit's name.
+    const kitImports = BUDGET_VIEW.slice(0, BUDGET_VIEW.indexOf("from '../../../ui'"))
+    expect(kitImports).toMatch(/\bSpinner\b/)
+  })
+})
+
+// ── 4. The consequence D.O.G. depends on ─────────────────────────────────────
+
+describe('a money-gated receipt cannot become a deck attachment', () => {
+  it('the deck attachment contract still rejects a financial row', () => {
+    // C3 pinned this for invoices (commit 6d59fed). Receipts join that set the
+    // moment they carry the flag — so this is the test that says the two
+    // bundles agree, rather than a new rule.
+    const CONTRACT = read('../../tools/rabbit_v0.1.0/deckAttachments.js')
+    // S4b (0088) adds a Legal file to the same refusal, in the same line.
+    expect(CONTRACT).toMatch(/row\.is_financial\s*\|\|\s*isLegalFile\(row\)\)\s*return false/)
+  })
+})

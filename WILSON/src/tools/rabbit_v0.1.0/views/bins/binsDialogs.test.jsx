@@ -1,0 +1,435 @@
+/** @vitest-environment jsdom */
+// =============================================================================
+// binsDialogs.test.jsx — every Bins dialog renders once, on the kit.
+//
+// UI overhaul B6 (2026-09-23) re-pointed binUi at src/ui: its Modal is the
+// kit's Dialog, its Menu the kit's Menu, and `overlayOpen` the kit's. This
+// file renders the six dialogs the Bins tab opens: they mount, register on
+// the kit's modal stack, and answer Escape on the topmost one only — the
+// behaviours the Bins reviews earned (review part 5, risk 3). The last block
+// proves the stack is ONE stack: binUi's `overlayOpen` is the kit's function,
+// a Bins menu and a Bins dialog both hold it up and both let it down, and the
+// inspector's Space — the Bins consumer of it — stands down behind a dialog.
+// =============================================================================
+
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { useState } from 'react'
+import { render, screen, cleanup, fireEvent, act } from '@testing-library/react'
+import { overlayOpen, Btn, IconBtn, Modal, Menu, Toggle, Kbd, Chip, TextInput, Field, EmptyState, Spinner, C } from './binUi'
+import { overlayOpen as kitOverlayOpen, Dialog, Switch, Drawer } from '../../../../ui'
+import BinInspector from './BinInspector'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname } from 'node:path'
+import { binsJsx, stripJs } from './binsGuards'
+import AddFilesDialog from './AddFilesDialog'
+import AssignToShotDialog from './AssignToShotDialog'
+import DeleteBinDialog from './DeleteBinDialog'
+import RelinkBinsDialog from './RelinkBinsDialog'
+import TakePickerDialog from './TakePickerDialog'
+import { ShotTakesDialog } from './ShotTakesPanel'
+
+// The kit's modal stack empties as each dialog unmounts, which cleanup does.
+afterEach(cleanup)
+
+const bins = [
+  { id: 'b1', name: 'Footage', parent_id: null, color: null },
+  { id: 'b2', name: 'Day 1', parent_id: 'b1', color: 'red' },
+]
+const scene = { id: 'sc1', name: 'Scene 1', scene_number: 1 }
+const shot = { id: 'sh1', name: 'Shot 1', shot_number: 1, scene_id: 'sc1', frame_count: 0 }
+
+describe('the Bins dialogs on the kit', () => {
+  it('binUi still exports every name the Bins files import', () => {
+    for (const x of [Btn, IconBtn, Modal, Menu, Toggle, Kbd, Chip, TextInput, Field, EmptyState, Spinner]) {
+      expect(x).toBeTruthy()
+    }
+    expect(C.accent).toBe('#ea580c')
+  })
+
+  it('DeleteBinDialog', () => {
+    const onCancel = vi.fn()
+    render(<DeleteBinDialog bin={bins[1]} bins={bins} files={[]} onConfirm={() => {}} onCancel={onCancel} busy={false} />)
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(overlayOpen()).toBe(true)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(onCancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('AddFilesDialog', () => {
+    render(<AddFilesDialog bin={bins[0]} plan={{ items: [] }} scenes={[scene]} onConfirm={() => {}} onCancel={() => {}} busy={false} progress={null} />)
+    expect(screen.getByRole('dialog')).toBeTruthy()
+  })
+
+  it('AssignToShotDialog', () => {
+    render(<AssignToShotDialog files={[]} binFiles={[]} scenes={[scene]} shots={[shot]} shotTakes={[]} thumbUrlFor={() => null} onConfirm={() => {}} onCancel={() => {}} busy={false} />)
+    expect(screen.getByRole('dialog')).toBeTruthy()
+  })
+
+  it('RelinkBinsDialog', () => {
+    render(<RelinkBinsDialog offlineRows={[]} roots={[]} onPickFolder={() => {}} onScan={() => {}} onApply={() => {}} onClose={() => {}} />)
+    expect(screen.getByRole('dialog')).toBeTruthy()
+  })
+
+  it('TakePickerDialog', () => {
+    render(<TakePickerDialog shot={shot} scene={scene} files={[]} bins={bins} assignedFileIds={[]} hasPrimary={false} thumbUrlFor={() => null} onConfirm={() => {}} onCancel={() => {}} busy={false} />)
+    expect(screen.getByRole('dialog')).toBeTruthy()
+  })
+
+  it('ShotTakesDialog, and only the topmost of two dialogs answers Escape', () => {
+    const closeTakes = vi.fn()
+    const closePicker = vi.fn()
+    render(
+      <>
+        <ShotTakesDialog shot={shot} scene={scene} onClose={closeTakes} entries={[]} fps={24} canWrite thumbUrlFor={() => null} binPathFor={() => ''} />
+        <TakePickerDialog shot={shot} scene={scene} files={[]} bins={bins} assignedFileIds={[]} hasPrimary={false} thumbUrlFor={() => null} onConfirm={() => {}} onCancel={closePicker} busy={false} />
+      </>,
+    )
+    expect(screen.getAllByRole('dialog').length).toBe(2)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(closePicker).toHaveBeenCalledTimes(1)
+    expect(closeTakes).not.toHaveBeenCalled()
+  })
+
+  it('Escape inside a TextInput reverts the edit and does not reach the dialog', () => {
+    const onCancel = vi.fn()
+    const onChange = vi.fn()
+    render(
+      <Modal title="Edit" onClose={onCancel}>
+        <TextInput value="was" onChange={onChange} aria-label="note" />
+      </Modal>,
+    )
+    const i = screen.getByLabelText('note')
+    fireEvent.focus(i, { target: { value: 'was' } })
+    fireEvent.change(i, { target: { value: 'is' } })
+    fireEvent.keyDown(i, { key: 'Escape' })
+    expect(onChange).toHaveBeenLastCalledWith('was')
+    expect(onCancel).not.toHaveBeenCalled()
+  })
+})
+
+describe('W9: no native confirm on the Bins tab — the kit Dialog asks', () => {
+  const code = (rel) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
+
+  it('no Bins file opens a native pop-up — confirm, alert or prompt (comments may still name one)', () => {
+    // Every rendering file, found by walking the folder (round 1: a fixed list
+    // left BinTree, BinFileTable, BinFileGrid, binUi, BinPoster and
+    // ShotTakeChips unguarded, and alert / prompt unchecked).
+    const files = binsJsx(dirname(fileURLToPath(import.meta.url)))
+    expect(Object.keys(files).length).toBeGreaterThanOrEqual(14)
+    for (const [f, src] of Object.entries(files)) {
+      expect(stripJs(src), f).not.toMatch(/\b(?:window\.)?(?:confirm|alert|prompt)\s*\(/)
+    }
+  })
+
+  // The stand-down behind "remove more than five?" is pinned by rendering
+  // BinsView (binsView.test.jsx), not by a regex over its source (round 1).
+
+  it('a worked-on batch asks before it is discarded; Escape closes the question, not the batch', () => {
+    const onCancel = vi.fn()
+    const plan = { items: [{ source_path: 'C:/a.mov', original_name: 'a.mov', display_name: 'a', media_type: 'video', status: 'ok', include: true, size_bytes: 1 }] }
+    render(<AddFilesDialog bin={bins[0]} plan={plan} scenes={[scene]} onConfirm={() => {}} onCancel={onCancel} busy={false} progress={null} />)
+    // The first focus is the first field, where Enter does nothing (round 1:
+    // it was the ✕, and Enter closed an untouched batch).
+    expect(document.activeElement.tagName).toBe('SELECT')
+    fireEvent.change(screen.getByLabelText('Camera (all)'), { target: { value: 'B' } })
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.getByRole('dialog', { name: 'Discard this batch?' })).toBeTruthy()
+    expect(document.activeElement.textContent).toBe('Keep editing')
+    expect(onCancel).not.toHaveBeenCalled()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('dialog', { name: 'Discard this batch?' })).toBeNull()
+    expect(screen.getAllByRole('dialog')).toHaveLength(1)
+    expect(onCancel).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
+    expect(onCancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('an untouched batch closes straight away', () => {
+    const onCancel = vi.fn()
+    render(<AddFilesDialog bin={bins[0]} plan={{ items: [] }} scenes={[scene]} onConfirm={() => {}} onCancel={onCancel} busy={false} progress={null} />)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(onCancel).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('🚨 C1: where focus ends after a Bins dialog closes (review round 1)', () => {
+  // The Bins modal never moved focus; the kit Dialog hands it back to the
+  // opener. binUi's Modal keeps the old outcome: let go after a close from
+  // inside the dialog, kept after Escape, kept inside an outer dialog.
+  const tick = () => act(() => new Promise(r => setTimeout(r, 0)))
+  function Opener({ nested = false }) {
+    const [open, setOpen] = useState(false)
+    const [inner, setInner] = useState(false)
+    return (
+      <>
+        <button type="button" onClick={() => setOpen(true)}>Open</button>
+        {open && (
+          <Modal title="Outer" onClose={() => setOpen(false)} footer={<Btn onClick={() => setOpen(false)}>Done</Btn>}>
+            <button type="button" onClick={() => setInner(true)}>Ask</button>
+            {nested && inner && (
+              <Modal title="Inner" width="confirm" onClose={() => setInner(false)} footer={<Btn onClick={() => setInner(false)}>Keep</Btn>}>
+                <p>question</p>
+              </Modal>
+            )}
+          </Modal>
+        )}
+      </>
+    )
+  }
+  const open = () => {
+    const opener = screen.getByRole('button', { name: 'Open' })
+    opener.focus()
+    fireEvent.click(opener)
+    return opener
+  }
+
+  it('closed from inside with the pointer: the returned focus is let go, as the Bins modal left it', async () => {
+    render(<Opener />)
+    open()
+    const done = screen.getByRole('button', { name: 'Done' })
+    fireEvent.pointerDown(done)
+    fireEvent.click(done)
+    await tick()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).toBe(document.body)
+  })
+
+  it('closed with Enter on a footer button: let go too (the button that had it is gone)', async () => {
+    render(<Opener />)
+    open()
+    const done = screen.getByRole('button', { name: 'Done' })
+    done.focus()
+    fireEvent.keyDown(done, { key: 'Enter' })
+    fireEvent.click(done)
+    await tick()
+    expect(document.activeElement).toBe(document.body)
+  })
+
+  it('closed with Escape: focus is back on the opener, where the Bins modal never moved it from', async () => {
+    render(<Opener />)
+    const opener = open()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    await tick()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).toBe(opener)
+  })
+
+  it('🚨 an Escape the busy lock ignored does not count: closed later in code, focus is let go (round 2)', async () => {
+    // The first version asked "was the last key Escape?" at unmount, so this
+    // exact sequence — Escape during a long add, then the add finishing and the
+    // view closing the dialog — kept focus on the opener, and Space re-opened it.
+    function Busy({ open, busy }) {
+      return (
+        <>
+          <button type="button">Add files</button>
+          {open && <Modal title="Adding" busy={busy} onClose={() => {}}><p>working</p></Modal>}
+        </>
+      )
+    }
+    const { rerender } = render(<Busy open={false} busy={false} />)
+    const opener = screen.getByRole('button', { name: 'Add files' })
+    opener.focus()
+    rerender(<Busy open busy={false} />)          // opens: the kit lands on its close button
+    expect(document.activeElement.getAttribute('aria-label')).toBe('Close')
+    rerender(<Busy open busy />)                  // the job starts
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.getByRole('dialog')).toBeTruthy() // the busy lock held
+    rerender(<Busy open={false} busy={false} />)  // the job finished; the view closes it
+    await tick()
+    expect(document.activeElement).toBe(document.body)
+  })
+
+  it('🚨 Escape from a dialog whose field took focus at open lets go too — as the old modal did (round 2, in the app)', async () => {
+    // The assign dialog and the take picker autofocus their search. With the
+    // old modal, Escape removed that focused field and focus fell to the page,
+    // so Space played the preview. The first fix kept focus on the opener for
+    // every Escape, and Space re-opened the dialog.
+    function Search({ open }) {
+      return (<><button type="button">Assign to shot</button>{open && (
+        <Modal title="Assign" onClose={() => {}}><input autoFocus aria-label="Search shots" /></Modal>
+      )}</>)
+    }
+    const { rerender } = render(<Search open={false} />)
+    const opener = screen.getByRole('button', { name: 'Assign to shot' })
+    opener.focus()
+    rerender(<Search open />)
+    expect(document.activeElement).toBe(screen.getByLabelText('Search shots'))
+    fireEvent.keyDown(document, { key: 'Escape' })
+    rerender(<Search open={false} />) // the parent closes it, as onClose would
+    await tick()
+    expect(document.activeElement).toBe(document.body)
+  })
+
+  it('…and so does Escape after the user moved focus inside (Tab, a click on a field)', async () => {
+    render(<Opener />)
+    open()
+    // The kit landed on its header close; the user then moves to a control inside.
+    expect(document.activeElement.getAttribute('aria-label')).toBe('Close')
+    screen.getByRole('button', { name: 'Ask' }).focus()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    await tick()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).toBe(document.body)
+  })
+
+  it('closed in code with no input at all: let go', async () => {
+    function Plain({ open }) {
+      return (<><button type="button">Opener</button>{open && <Modal title="P" onClose={() => {}}><p>p</p></Modal>}</>)
+    }
+    const { rerender } = render(<Plain open={false} />)
+    screen.getByRole('button', { name: 'Opener' }).focus()
+    rerender(<Plain open />)
+    rerender(<Plain open={false} />)
+    await tick()
+    expect(document.activeElement).toBe(document.body)
+  })
+
+  it('an inner question closed with the pointer hands focus back INSIDE the outer dialog', async () => {
+    render(<Opener nested />)
+    open()
+    const ask = screen.getByRole('button', { name: 'Ask' })
+    ask.focus()
+    fireEvent.click(ask)
+    const keep = screen.getByRole('button', { name: 'Keep' })
+    fireEvent.pointerDown(keep)
+    fireEvent.click(keep)
+    await tick()
+    expect(screen.getAllByRole('dialog')).toHaveLength(1)
+    expect(document.activeElement).not.toBe(document.body)
+    expect(screen.getByRole('dialog').contains(document.activeElement)).toBe(true)
+  })
+})
+
+describe('🚨 one overlay stack, the kit\'s (review part 5, risk 3)', () => {
+  it('binUi re-exports the kit\'s overlayOpen, and its Modal IS the kit Dialog', () => {
+    expect(overlayOpen).toBe(kitOverlayOpen)
+    expect(Toggle).toBe(Switch)
+    render(<Modal title="Probe" onClose={() => {}}><p>body</p></Modal>)
+    // The kit Dialog's own class, so a local copy cannot pass this.
+    expect(document.querySelector('.ui-dialog')).toBeTruthy()
+    expect(Dialog).toBeTruthy()
+  })
+
+  it("a click on the backdrop closes a Bins dialog, as it always did (the kit's default is off)", () => {
+    const onClose = vi.fn()
+    render(<Modal title="Backdrop" onClose={onClose}><p>body</p></Modal>)
+    fireEvent.mouseDown(screen.getByText('body'))
+    expect(onClose).not.toHaveBeenCalled()
+    fireEvent.mouseDown(document.querySelector('.ui-dialog-backdrop'))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('a Bins menu holds the stack up while open and lets it down on unmount', () => {
+    expect(overlayOpen()).toBe(false)
+    const { unmount } = render(<Menu x={10} y={10} items={[{ label: 'One', onClick: () => {} }]} onClose={() => {}} />)
+    expect(overlayOpen()).toBe(true)
+    unmount()
+    expect(overlayOpen()).toBe(false)
+  })
+
+  it('a Bins dialog does the same, and two stacked dialogs count as two', () => {
+    const { unmount } = render(
+      <>
+        <Modal title="Lower" onClose={() => {}}><p>a</p></Modal>
+        <Modal title="Upper" onClose={() => {}}><p>b</p></Modal>
+      </>,
+    )
+    expect(overlayOpen()).toBe(true)
+    unmount()
+    expect(overlayOpen()).toBe(false)
+  })
+
+  it('the inspector\'s Space stands down while a Bins dialog is up, and plays once it closes', () => {
+    const play = vi.fn(() => Promise.resolve())
+    const proto = window.HTMLMediaElement.prototype
+    const saved = { play: proto.play, paused: Object.getOwnPropertyDescriptor(proto, 'paused') }
+    proto.play = play
+    Object.defineProperty(proto, 'paused', { configurable: true, get: () => true })
+    try {
+      const row = { id: 'f1', bin_id: 'b1', display_name: 'Clip', original_name: 'clip.mp4', extension: '.mp4', media_type: 'video', online: true, review_flag: 'unflagged' }
+      const inspector = render(
+        // pageActive: R.A.B.B.I.T. on screen (post-overhaul S4a, R1-UI-03 —
+        // the inspector's Space is closed without it).
+        <BinInspector rows={[row]} scenes={[]} shots={[]} fps={24} canWrite={false} ffmpeg pageActive
+          thumbUrlFor={() => null} streamUrlFor={() => 'blob:clip'} onPatch={() => {}} />,
+      )
+      expect(inspector.container.querySelector('video')).toBeTruthy()
+      const dialog = render(<Modal title="Over the preview" onClose={() => {}}><p>x</p></Modal>)
+      fireEvent.keyDown(document.body, { code: 'Space', key: ' ' })
+      expect(play).not.toHaveBeenCalled()
+      dialog.unmount()
+      fireEvent.keyDown(document.body, { code: 'Space', key: ' ' })
+      expect(play).toHaveBeenCalledTimes(1)
+    } finally {
+      proto.play = saved.play
+      if (saved.paused) Object.defineProperty(proto, 'paused', saved.paused)
+    }
+  })
+
+  it('post-overhaul S4a (R1-UI-03): the inspector\'s Space plays nothing from another page, or under a drawer', () => {
+    const play = vi.fn(() => Promise.resolve())
+    const proto = window.HTMLMediaElement.prototype
+    const saved = { play: proto.play, paused: Object.getOwnPropertyDescriptor(proto, 'paused') }
+    proto.play = play
+    Object.defineProperty(proto, 'paused', { configurable: true, get: () => true })
+    try {
+      const row = { id: 'f1', bin_id: 'b1', display_name: 'Clip', original_name: 'clip.mp4', extension: '.mp4', media_type: 'video', online: true, review_flag: 'unflagged' }
+      const inspector = (pageActive) => (
+        <BinInspector rows={[row]} scenes={[]} shots={[]} fps={24} canWrite={false} ffmpeg pageActive={pageActive}
+          thumbUrlFor={() => null} streamUrlFor={() => 'blob:clip'} onPatch={() => {}} />
+      )
+      const space = () => fireEvent.keyDown(document.body, { code: 'Space', key: ' ' })
+      // She is on D.O.G.: R.A.B.B.I.T. is mounted but not on screen.
+      const { rerender } = render(<>{inspector(false)}</>)
+      expect(space()).toBe(true) // not cancelled: a page's own Space still scrolls
+      expect(play).not.toHaveBeenCalled()
+      // R.A.B.B.I.T.'s settings drawer is open over the view.
+      rerender(<>{inspector(true)}<Drawer open onClose={() => {}} backdrop title="Settings"><p>x</p></Drawer></>)
+      space()
+      expect(play).not.toHaveBeenCalled()
+      // CONTROL: on the page, nothing over it — Space plays.
+      rerender(<>{inspector(true)}</>)
+      space()
+      expect(play).toHaveBeenCalledTimes(1)
+    } finally {
+      proto.play = saved.play
+      if (saved.paused) Object.defineProperty(proto, 'paused', saved.paused)
+    }
+  })
+
+  // Round 2 (R2-TST, M17): the test above fires Space at <body> only, so the
+  // focus-inside half of the gate was never read. A window over the view that
+  // is neither on the kit's stack nor a drawer WITH a backdrop — a drawer
+  // without one, a hand-rolled dialog — is only seen by where focus is.
+  it('…nor with focus inside a window over the view that has no backdrop (a drawer, a hand-rolled dialog)', () => {
+    const play = vi.fn(() => Promise.resolve())
+    const proto = window.HTMLMediaElement.prototype
+    const saved = { play: proto.play, paused: Object.getOwnPropertyDescriptor(proto, 'paused') }
+    proto.play = play
+    Object.defineProperty(proto, 'paused', { configurable: true, get: () => true })
+    try {
+      const row = { id: 'f1', bin_id: 'b1', display_name: 'Clip', original_name: 'clip.mp4', extension: '.mp4', media_type: 'video', online: true, review_flag: 'unflagged' }
+      render(
+        <>
+          <BinInspector rows={[row]} scenes={[]} shots={[]} fps={24} canWrite={false} ffmpeg pageActive
+            thumbUrlFor={() => null} streamUrlFor={() => 'blob:clip'} onPatch={() => {}} />
+          <Drawer open onClose={() => {}} backdrop={false} title="Settings"><div tabIndex={0} data-in-drawer>x</div></Drawer>
+          <div role="dialog" aria-label="Notes"><div tabIndex={0} data-in-dialog>y</div></div>
+        </>,
+      )
+      expect(document.querySelector('.ui-drawer-backdrop')).toBeNull()
+      fireEvent.keyDown(document.querySelector('[data-in-drawer]'), { code: 'Space', key: ' ' })
+      fireEvent.keyDown(document.querySelector('[data-in-dialog]'), { code: 'Space', key: ' ' })
+      expect(play).not.toHaveBeenCalled()
+      // CONTROL: the same page, focus on the page itself — Space plays.
+      fireEvent.keyDown(document.body, { code: 'Space', key: ' ' })
+      expect(play).toHaveBeenCalledTimes(1)
+    } finally {
+      proto.play = saved.play
+      if (saved.paused) Object.defineProperty(proto, 'paused', saved.paused)
+    }
+  })
+})

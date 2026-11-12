@@ -4,6 +4,7 @@ import { parseSlideContent, parsePlacedAssets } from './parser';
 import { getLuminance, getContrastRatio, ensureContrast } from './colorUtils';
 import { PRESET_THEMES } from './constants';
 import VideoThumbnail from './VideoThumbnail';
+import { bareAssetName } from './references/referenceModel';
 
 const LayoutVisualizer = ({ content, compact = false, overrideColors = null, onRefreshColors = null, onCycleTheme = null, themeName = '', themeIndex = 0, themeCount = 0, isGeneratingTheme = false, onContentChange = null, onTextContextMenu = null, placementAssets = [], zoomLevel = 0 }) => {
   const parsed = parseSlideContent(content);
@@ -441,7 +442,7 @@ const LayoutVisualizer = ({ content, compact = false, overrideColors = null, onR
     // For placed assets, use pre-computed native aspect ratio from cache (stable, no re-renders)
     let ratio = aiRatio;
     if (placedAsset && placedAsset.type !== 'video') {
-      const cleanName = (placedAsset.file?.name || '').replace(/^\[Project\]\s*/, '').toLowerCase();
+      const cleanName = bareAssetName(placedAsset.file?.name).toLowerCase();
       if (nativeRatioCache[cleanName]) {
         ratio = nativeRatioCache[cleanName];
       }
@@ -604,7 +605,7 @@ const LayoutVisualizer = ({ content, compact = false, overrideColors = null, onR
     if (!placementAssets || placementAssets.length === 0) return map;
     placementAssets.forEach(f => {
       const name = f.file?.name || '';
-      const cleanName = name.replace(/^\[Project\]\s*/, '');
+      const cleanName = bareAssetName(name);
       map.set(cleanName.toLowerCase(), f);
       map.set(name.toLowerCase(), f);
     });
@@ -620,7 +621,7 @@ const LayoutVisualizer = ({ content, compact = false, overrideColors = null, onR
     let pending = 0;
     placementAssets.forEach(f => {
       if (f.type === 'video') return;
-      const cleanName = (f.file?.name || '').replace(/^\[Project\]\s*/, '').toLowerCase();
+      const cleanName = bareAssetName(f.file?.name).toLowerCase();
       if (!cleanName) return;
       pending++;
       const img = new window.Image();

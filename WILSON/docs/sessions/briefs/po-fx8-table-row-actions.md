@@ -1,0 +1,29 @@
+# Brief — FX8 · the tables' row buttons: one icon to open an item, every button right after the title, the same place in every table, a narrower title column (R.A.B.B.I.T. fixes, 2026-10-12, three of three)
+
+**Model: Claude Opus 5.5.** State it on line one; stop if the picker shows anything else.
+Read first: `src/tools/rabbit_v0.1.0/views/ProjectTasksView.jsx` and `ProjectAssetsView.jsx` (the title cell's buttons: open details as a page icon, delete, and on assets the edit history), `views/ScenesView.jsx` (the scenes' and shots' rows: an eye icon to open, the buttons at the row's far right), `views/EntityListView.jsx`, `LevelsView.jsx`, `ExperiencesView.jsx` (the levels' and experiences' tables: measure where their buttons sit), `views/rabbitTasks.css`, `rabbitFiles.css`, `rabbitScenes.css` and their CSS tests, the kit's table and icon-button rules in `src/index.css` and `src/ui/`, `docs/design/review/r-a-b-b-i-t-part-2.md` and walkthrough 47 (the overhaul's table rules; P1-41, P1-57, P1-59 in `docs/OUTSTANDING.md`), `docs/design/POST_OVERHAUL_PLAN.md` §4, `docs/SYSTEMS_HANDBOOK.md` §17. Load `laws-of-ux` and `design-direction` first.
+
+Branch `po/fx8-table-row-actions` from `origin/feat/post-overhaul-edit-versioning` (`git branch --unset-upstream` after); port **5296**; walkthrough **70**; hand-off `docs/sessions/handoffs/po-fx8-<date>.md`. The dev fixtures (`VITE_DEV_FIXTURES=1`, `VITE_DEV_AUTOLOGIN=tester` in `.env.local`, no database); no migration, no Edge Function, no staging or prod. Two adversarial review rounds, ONE reviewer subagent each on `model: "opus"` (the Fable weekly allowance is spent until 2026-10-14 08:00 UTC), a UX pass with an accessibility check, the second attacking the first's corrections. No waiting for Audrey; no chips; last command `git checkout --detach`. State the `npx vitest run --maxWorkers=4` count you measure (357 files / 8,593 tests, 2 skipped, at the last merge). Locate by identifier, never by line number. Read CI after every push through the public API with `curl`. Screenshots before and after at 1280 and 1440 through the dev server (the `scripts/*-shots.mjs` pattern). The hand-off in protocol §4 order (`docs/sessions/HANDOFF_PROTOCOL.md`); merge into `feat/post-overhaul-edit-versioning` with `--no-ff`, push. The beta now runs this branch (merge `708e93be`, 2026-10-12): your fix reaches it only when the controller merges again on her word. FX6 (the kit's status banner rule) and FX7 (the Timeline's header) run beside you; merge the integration branch before your push and keep their changes.
+
+## Her words (2026-10-12, verbatim)
+
+> right now the tasks and asset table use a page icon for the button to open the details page for the item. but the scenes has an eye icon. lets have uniformity and have the same icon for these since they are essentially the same thing. lets also place the button icons that appear like the page button, trash button, and for assets we have the edit history button. lets move them all closer to the title of the items in the tables. also lets make sure to have this be uniform. some have them in different places like assets and tasks have it all the way to the right of the title but the scenes has it all the way at right end of the row. lets make this more uniform.
+
+> also for the titles in tasks and assets the cell/ssection for the title is sooo wide. lets make it less wide so the buttons can be closer to the title instead of having to go to almost all the way to the right side of the window.
+
+## The work
+
+1. **Measure first** (a table in the hand-off): every R.A.B.B.I.T. table with row buttons (tasks, assets, scenes, shots, levels, experiences, and any other found), which icons it shows, where they sit, when they appear (hover, focus, always), and the title column's width at 1280 and 1440.
+2. **One icon to open an item's window**: the page icon Tasks and Assets use, everywhere (Scenes' eye goes); the same tooltip and accessible name pattern (*Open <name>*).
+3. **The buttons right after the title text**, in the title cell, in one order in every table (open first, then the item's own extras such as the assets' edit history, delete last), the same spacing and the same show-on-hover/focus rule everywhere; the scenes' and shots' buttons move from the row's far end into the title cell.
+4. **A narrower title column** in Tasks and Assets (and wherever else the measurement shows the same gap): sized so a typical title and its buttons sit together, with a sensible maximum and the title's ellipsis past it; the other columns take the space back; nothing reflows into a horizontal scroll at 1280 that did not before.
+5. Keyboard and pointer: the buttons stay reachable by Tab in the row's order, their targets no smaller than today, delete still asks exactly as it does today.
+6. Walkthrough 70 (`docs/walkthroughs/70_table_row_actions.md` + README row, a copy in `C:\Users\Audrey\Desktop\WILSON walkthroughs\Post-overhaul\`), every table before and after, questions in §5 only where the measurement forced a choice; `docs/OUTSTANDING.md` (broken-and-unfixed only).
+
+## Facts that will bite
+
+- Move the untracked `.claude/launch.json` at the worktree root to your scratchpad before the checkout; never delete it.
+- `ScenesView.jsx` (3,500+ lines) is a file the plan calls unsafe to edit as it stands: change the smallest thing; hand off at protocol §1's first trigger.
+- `src/ui/typeScale.test.js` allows weights 400/600 only and refuses an unjudged edge of 2px or more; the CSS tests pin every rule in the views' sheets.
+- A subagent can overwrite your working tree: after each review round, assert the executable form with failing controls before committing its corrections.
+- The Bash tool persists output over ~30 KB to a file; Bash heredocs halve `\\`: files with escapes go through Write/Edit.

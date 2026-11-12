@@ -1,0 +1,234 @@
+/* ═══════════════════════════════════════════════════════════════
+   R.A.B.B.I.T. custom views — the shared piece's sheet
+   post-overhaul VW1d, 2026-10-25 (docs/design/CUSTOM_VIEWS_DESIGN.md §4.1
+   to §4.4, §4.9, §4.11, §6)
+
+   Owns views/tableViews/*.jsx: the Views button and its dropdown, the four
+   cards, the shared filter row and its value picker, the *changed for now*
+   bar and *Create grouping*'s list. Every class is `rb-tv-`; the guards are
+   the lanes' (rabbitCssGuards.js), pointed at this sheet by
+   tableViewsCss.test.js. Every value a kit token: inks 0 new, families 0
+   new, weights 400 and 600 only. Motion is the kit's (the Popover's fade,
+   the state transitions), opacity only; reduced motion stops it in
+   index.css.
+
+   🚨 The `@layer` statement is this file's first rule, as every lane sheet's:
+   it is imported from a component, so the bundler may emit it before
+   index.css, and a layer's place is fixed where it is first named. A rule
+   that overrides a kit rule on the same element is written one class
+   heavier than the kit's.
+   ═══════════════════════════════════════════════════════════════ */
+
+@layer theme, base, components, utilities;
+
+@layer components {
+
+  /* ── The Views button (§4.1): one width, so the toolbar never moves when
+     the view changes; the name cut with "…", the whole name its tooltip and
+     its accessible name. Her Q-P1 (2026-10-25, "Narrower, 136px
+     (Recommended)"): 136px on EVERY table, about 12 letters of the name —
+     VW1d's 160px on Tasks, and the design's 180px for Assets, Levels,
+     Experiences and the Scenes bookmark, are superseded. VW1e measured the
+     toolbars at 1280 and 1440 in the bar's states (scripts/vw1e-shots.mjs).
+     `data-table` keys no rule: it names the table for the pictures and the
+     tests. ── */
+  .rb-tv-anchor { position: relative; display: inline-flex; flex-shrink: 0; }
+  .ui-btn.rb-tv-button { justify-content: flex-start; max-width: none; width: 136px; }
+  .rb-tv-button-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+    font-weight: 400;
+  }
+  .ui-btn.rb-tv-button > .rb-tv-button-chevron { flex-shrink: 0; color: var(--color-ink-3); }
+
+  /* ── The dropdown (§4.2): the kit Popover in place; the card scrolls
+     inside past the room below the button. ── */
+  .ui-popover.rb-tv-pop { padding: 4px 0; }
+  .rb-tv-body { display: flex; flex-direction: column; min-height: 0; }
+  .rb-tv-section-label { padding: 8px 12px 4px; color: var(--color-ink-3); }
+  .rb-tv-rule { height: 1px; margin: 4px 0; background-color: var(--color-rule); flex-shrink: 0; }
+  .rb-tv-list { display: flex; flex-direction: column; }
+
+  /* A row of the views list or the Fields list: 28px, Dense. */
+  .rb-tv-row {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-height: var(--control-sm);
+    padding: 0 4px;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rb-tv-row:hover { background-color: var(--color-hover); }
+  .rb-tv-row[data-over="true"] { box-shadow: inset 0 2px 0 var(--color-signal); }
+  .rb-tv-cell { display: inline-flex; align-items: center; min-width: 0; }
+  .rb-tv-cell-handle { flex-shrink: 0; width: var(--control-sm); }
+  .rb-tv-cell-name { flex: 1 1 auto; }
+  .rb-tv-cell-end { flex-shrink: 0; gap: 2px; }
+  .rb-tv-more { display: inline-flex; }
+  .ui-iconbtn.rb-tv-handle { cursor: grab; }
+
+  .rb-tv-name {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    min-width: 0;
+    height: var(--control-sm);
+    padding: 0 6px;
+    font-family: var(--font-sans);
+    font-size: var(--text-dense);
+    font-weight: 400;
+    color: var(--color-ink);
+    text-align: left;
+    background-color: transparent;
+    border: 0;
+    border-radius: var(--radius-control);
+    cursor: pointer;
+    outline-offset: -2px;
+  }
+  .rb-tv-tick { display: inline-flex; flex-shrink: 0; width: var(--icon-sm); color: var(--color-signal); }
+  .rb-tv-tick > svg { width: var(--icon-sm); height: var(--icon-sm); }
+  .rb-tv-name-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rb-tv-row[data-current="true"] .rb-tv-name-text { font-weight: 600; }
+  .rb-tv-field-name {
+    padding: 0 6px;
+    font-size: var(--text-dense);
+    color: var(--color-ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* A name being typed (Rename, New view, Save as new view). */
+  .rb-tv-field { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0; }
+  .rb-tv-new-field { padding: 2px 12px 4px; }
+  .ui-input.rb-tv-input[data-size="sm"] { width: 100%; }
+  .rb-tv-field-error { font-size: var(--text-caption); color: var(--color-danger); }
+
+  .rb-tv-state {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 12px;
+    font-size: var(--text-dense);
+    color: var(--color-ink-2);
+  }
+  .rb-tv-hint { padding: 4px 12px; font-size: var(--text-caption); color: var(--color-ink-2); }
+
+  /* "This view": the four parts, each a 28px row with its summary. */
+  .rb-tv-parts { display: flex; flex-direction: column; }
+  .rb-tv-part,
+  .rb-tv-new {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: var(--control-sm);
+    padding: 0 12px;
+    font-family: var(--font-sans);
+    font-size: var(--text-dense);
+    color: var(--color-ink);
+    text-align: left;
+    background-color: transparent;
+    border: 0;
+    cursor: pointer;
+    outline-offset: -2px;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rb-tv-part:hover,
+  .rb-tv-new:hover { background-color: var(--color-hover); }
+  .rb-tv-part-name { flex-shrink: 0; }
+  .rb-tv-part-summary {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-ink-2);
+    text-align: right;
+  }
+  .rb-tv-part-chevron,
+  .rb-tv-new > svg { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; color: var(--color-ink-3); }
+
+  /* ── A card (§4.3): its ← and name, then its body. ── */
+  .rb-tv-card-head { display: flex; align-items: center; gap: 4px; padding: 0 8px 4px; border-bottom: 1px solid var(--color-rule); }
+  .rb-tv-card-title { font-size: var(--text-dense); font-weight: 600; color: var(--color-ink); }
+  .rb-tv-card { display: flex; flex-direction: column; gap: 8px; padding: 8px 12px; min-height: 0; }
+  .rb-tv-card-foot { display: flex; align-items: center; gap: 8px; }
+  .rb-tv-sort-row { display: flex; align-items: center; gap: 8px; }
+  .rb-tv-sort-row[data-over="true"] { box-shadow: inset 0 2px 0 var(--color-signal); }
+  .ui-input.rb-tv-sort-field { width: 160px; }
+  .ui-input.rb-tv-sort-dir { width: 128px; }
+  .rb-tv-row-field { display: flex; align-items: center; gap: 8px; }
+  .rb-tv-row-label { width: 80px; flex-shrink: 0; font-size: var(--text-dense); color: var(--color-ink-2); }
+  .rb-tv-row-field > .ui-input.rb-tv-group-field { flex: 1 1 auto; width: auto; }
+  .rb-tv-switch-row { display: flex; align-items: center; min-height: var(--control-sm); }
+
+  /* ── The filter row (§4.3, §4.8): the strip's and the Filters card's. ── */
+  .rb-tv-filter-row { display: flex; align-items: center; gap: 8px; }
+  .rb-tv-filter-where { width: 40px; flex-shrink: 0; color: var(--color-ink-3); }
+  .ui-input.rb-tv-filter-field { width: 128px; }
+  .ui-input.rb-tv-filter-op { width: 136px; }
+  .ui-input.rb-tv-filter-text { width: 160px; }
+  .rb-tv-filter-novalue { width: 160px; flex-shrink: 0; }
+  .ui-input.rb-tv-filter-value {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    width: 160px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .ui-input.rb-tv-filter-value[data-empty="true"] { color: var(--color-ink-3); }
+  .rb-tv-filter-value-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rb-tv-filter-value-icon { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; color: var(--color-ink-3); }
+
+  /* The value picker's list (a child Popover; the item picker's rows, VW1b). */
+  .rb-tv-values { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+  .rb-tv-values-search { position: relative; display: flex; align-items: center; padding: 8px; border-bottom: 1px solid var(--color-rule); }
+  .rb-tv-values-search-icon { position: absolute; left: 16px; width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); pointer-events: none; }
+  .ui-input.rb-tv-values-input[data-size="sm"] { width: 100%; padding-left: 28px; }
+  .rb-tv-values-list { display: flex; flex-direction: column; min-height: 0; padding: 4px 0; overflow-y: auto; overscroll-behavior: contain; }
+  .rb-tv-values-empty { padding: 8px 12px; font-size: var(--text-dense); color: var(--color-ink-2); }
+  .rb-tv-values-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    min-height: var(--row-dense);
+    padding: 0 12px;
+    font-size: var(--text-dense);
+    color: var(--color-ink);
+    cursor: pointer;
+    outline-offset: -2px;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rb-tv-values-row:hover { background-color: var(--color-hover); }
+  .rb-tv-values-row[data-gone="true"] .rb-tv-values-name { color: var(--color-ink-2); font-style: italic; }
+  .rb-tv-values-tick { display: inline-flex; flex-shrink: 0; color: var(--color-ink-3); }
+  .rb-tv-values-tick > svg { width: var(--icon-sm); height: var(--icon-sm); }
+  .rb-tv-values-row[data-ticked="true"] .rb-tv-values-tick { color: var(--color-signal); }
+  .rb-tv-values-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rb-tv-values-apart { flex-shrink: 0; color: var(--color-ink-2); }
+
+  /* ── The bar (§4.4): the kit Banner; its buttons in the one action slot. ── */
+  .ui-banner.rb-tv-bar { flex-shrink: 0; padding-left: var(--spacing-gutter); padding-right: var(--spacing-gutter); }
+  .rb-tv-bar-actions { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .rb-tv-bar-field { max-width: 320px; }
+  .rb-tv-ask { font-size: var(--text-dense); color: var(--color-ink-2); }
+
+  /* ── Create grouping (§4.11): the name as it is made, then the list. ── */
+  .rb-tv-group-name { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .rb-tv-group-name-text { flex: 1 1 auto; min-width: 0; font-size: var(--text-dense); color: var(--color-ink); overflow-wrap: anywhere; }
+  .rb-tv-group-name-text[data-empty="true"] { color: var(--color-ink-3); }
+  .rb-tv-group-list {
+    display: flex;
+    flex-direction: column;
+    height: 320px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+}

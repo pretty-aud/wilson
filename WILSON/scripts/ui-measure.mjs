@@ -1,0 +1,799 @@
+/**
+ * UI overhaul — the in-page measurements, in ONE place.
+ *
+ * `ui-page-check.mjs` (T0-T3's twelve-page check) and `ui-walk.mjs` (V1's
+ * walk of every page AND sub-view) both measure through this module, so a
+ * fix to how a size, a clip or an overflow is counted lands in both at once.
+ * T3's trap 3 is why: "a second implementation of the same parse is a second
+ * place for the same hole".
+ *
+ * `pageCensus` is ui-page-check's census moved here VERBATIM by V1 — the
+ * page check's output is byte-identical before and after the move, so its
+ * numbers still compare with every earlier session's.
+ */
+
+/** Sizes, off-scale text, clipped elements and horizontal overflow for
+ *  whatever is on screen. Runs in the page; pass it to `page.evaluate`. */
+export function pageCensus() {
+  const seen = {};
+  let offScale = 0;
+  let clipped = 0;
+  /* 🚨 A CELL THAT CANNOT SHOW ITS OWN CONTENT (T2, 2026-09-22).
+     This script measured two things and neither was per-element, so the one
+     regression the type pass actually caused — 13px dates in an 80px column,
+     every row reading "Aug 19,…" — was invisible to it and had to be found
+     with a throwaway script. `clipped` counts elements whose text is wider
+     than their box and whose overflow is hidden: the ellipsis case.
+
+     🚨 AND THE FIRST DRAFT WAS BLIND TO HALF THE TABLE IT WAS ADDED FOR.
+     It reused the size census's filter, which skips any element with no
+     DIRECT text-node child — and a cell that wraps its text in a `<span>`
+     has none. Worse, the span itself is INLINE, so `clientWidth` and
+     `scrollWidth` are both 0 and it cannot report clipping either. Narrowing
+     `ProjectFilesTable`'s Kind column to 18px made all 32 rows truncate and
+     the number stayed at **0**: the instrument could not see the very column
+     it had been added to watch. So the clip test walks its own list, with no
+     text-node filter, and falls back to a `Range` when the box is inline.
+
+     ⚠️ IT IS NOT A PASS/FAIL NUMBER. A long file name in a Name column is
+     SUPPOSED to ellipsise. It is a number to COMPARE between runs: if a type
+     change makes it jump, something stopped fitting. */
+  const clips = (el, cs) => {
+    if (cs.overflowX === 'visible') return false;
+    if (el.clientWidth > 0) return el.scrollWidth > el.clientWidth + 1;
+    /* An inline box reports 0/0, so measure the text itself against the
+       nearest ancestor that actually has a width. */
+    const host = el.parentElement;
+    if (!host || host.clientWidth <= 0) return false;
+    const r = document.createRange();
+    r.selectNodeContents(el);
+    return r.getBoundingClientRect().width > host.clientWidth + 1;
+  };
+
+  for (const el of document.querySelectorAll('*')) {
+    if (el.offsetParent === null && el.tagName !== 'BODY') continue;
+    if (!el.textContent || !el.textContent.trim()) continue;
+    const cs = getComputedStyle(el);
+    /* The clip test runs over EVERY visible element with text. The size
+       census below keeps its own filter, because a wrapper's computed
+       font-size is not a text node's. */
+    if (clips(el, cs)) clipped++;
+    if (![...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) continue;
+    const px = Math.round(parseFloat(cs.fontSize) * 10) / 10;
+    seen[px] = (seen[px] || 0) + 1;
+    if (![11, 12, 13, 14, 16, 20].includes(px)) offScale++;
+  }
+  return {
+    sizes: seen, offScale, clipped,
+    measured: Object.values(seen).reduce((a, b) => a + b, 0),
+    overflow: document.documentElement.scrollWidth > window.innerWidth + 2,
+  };
+}
+
+/* ───────────────────────── V1's measurements ─────────────────────────
+   Everything below was added by V1 (visual QA, plan §5 Wave 4), which was
+   asked to "check the chosen face at every step" and "the alignment of every
+   table and toolbar". Nothing above measured either. Each function runs IN
+   THE PAGE (Playwright serialises it), so each is self-contained. */
+
+/**
+ * The type census, one row per visible element that owns text directly.
+ *
+ * It TAGS each row's element with `data-v1p="<i>"` so `renderedFaces` below
+ * can ask Chrome which font actually drew it. Tags from a previous call are
+ * cleared first, so a row index always means this call's element.
+ *
+ * `scope` narrows the census to a subtree (a dialog, say); omitted, it is the
+ * whole document.
+ */
+export function typeCensus(scope) {
+  for (const el of document.querySelectorAll('[data-v1p]')) el.removeAttribute('data-v1p');
+  const root = scope ? document.querySelector(scope) : document.body;
+  if (!root) return [];
+  const rows = [];
+  let i = 0;
+  for (const el of root.querySelectorAll('*')) {
+    if (el.offsetParent === null && getComputedStyle(el).position !== 'fixed') continue;
+    const own = [...el.childNodes].filter((n) => n.nodeType === 3 && n.textContent.trim()).map((n) => n.textContent).join('');
+    if (!own.trim()) continue;
+    const cs = getComputedStyle(el);
+    if (cs.visibility === 'hidden' || Number(cs.opacity) === 0) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) continue;
+    el.setAttribute('data-v1p', String(i++));
+    const cls = (typeof el.className === 'string' ? el.className : '').split(/\s+/).filter(Boolean).slice(0, 3).join('.');
+    const tag = el.tagName.toLowerCase();
+    rows.push({
+      tag, cls, text: own.replace(/\s+/g, ' ').trim().slice(0, 40),
+      /* A form field draws its text inside the browser's own shadow DOM, not
+         through the text-node child tagged here, so the platform-font query
+         returns NOTHING for it (V1 found two <textarea>s in Settings → Agent
+         that way). `renderedFaces` skips these and the walker checks their
+         DECLARED family instead — which cannot see a fallback glyph typed
+         into a field. Stated, not hidden. */
+      form: tag === 'textarea' || tag === 'select' || tag === 'option',
+      family: cs.fontFamily.split(',')[0].replace(/["']/g, '').trim(),
+      px: Math.round(parseFloat(cs.fontSize) * 10) / 10,
+      weight: cs.fontWeight, transform: cs.textTransform,
+      tracking: cs.letterSpacing === 'normal' ? 0 : Math.round(parseFloat(cs.letterSpacing) * 100) / 100,
+    });
+  }
+  return rows;
+}
+
+/**
+ * Which font Chrome ACTUALLY drew each census row in, via the DevTools
+ * protocol — not what the stylesheet asked for.
+ *
+ * 🚨 WHY NOT `getComputedStyle().fontFamily`. The declared family is Geist on
+ * every element in this app whether or not Geist drew a single glyph: if the
+ * woff2 fails to load, or a character is outside the subset's
+ * `unicode-range`, the browser silently falls through the stack to Inter,
+ * then `system-ui` (Segoe UI on Windows). V1 measured exactly that — "Run
+ * Intake →" declares Geist and draws its arrow in Segoe UI Semibold, because
+ * fontsource's Latin subset does not contain U+2192.
+ *
+ * ⚠️ `getPlatformFontsForNode` reports the font's INTERNAL family name
+ * ("Geist"), never an `@font-face` alias, and an EMPTY list means "not laid
+ * out yet", not "no font". Both cost V1 a run of a throwaway probe.
+ *
+ * Returns { tally: {family: glyphs}, off: [row + {used, glyphs}] }.
+ */
+export async function renderedFaces(cdp, rows, allowed = /^Geist( Mono)?$/) {
+  const { root } = await cdp.send('DOM.getDocument', { depth: -1 });
+  const { nodeIds } = await cdp.send('DOM.querySelectorAll', { nodeId: root.nodeId, selector: '[data-v1p]' });
+  const tally = {};
+  const off = [];
+  let unmeasured = 0;
+  /* Pipelined in chunks: two DevTools round trips per text node, one after
+     another, made a dense table ~30s a screen and a full walk over an hour.
+     The protocol answers requests in flight concurrently. */
+  const one = async (nodeId) => {
+    const { attributes } = await cdp.send('DOM.getAttributes', { nodeId });
+    const idx = Number(attributes[attributes.indexOf('data-v1p') + 1]);
+    try { return { idx, fonts: (await cdp.send('CSS.getPlatformFontsForNode', { nodeId })).fonts }; }
+    catch { return { idx, fonts: [] }; }
+  };
+  const missed = [];
+  let formRows = 0;
+  for (let i = 0; i < nodeIds.length; i += 50) {
+    for (const { idx, fonts } of await Promise.all(nodeIds.slice(i, i + 50).map(one))) {
+      if (rows[idx]?.form) { formRows++; continue; }
+      if (!fonts.length) { unmeasured++; missed.push(rows[idx]); continue; }
+      for (const f of fonts) {
+        tally[f.familyName] = (tally[f.familyName] || 0) + f.glyphCount;
+        if (!allowed.test(f.familyName)) off.push({ ...rows[idx], used: f.familyName, glyphs: f.glyphCount });
+      }
+    }
+  }
+  return { tally, off, unmeasured, missed, formRows, probed: nodeIds.length };
+}
+
+/**
+ * §3.1's rules that a size census cannot see, applied to census rows.
+ *
+ *   weight   400 or 600 only (Q3: the faces are declared 400-600)
+ *   case     uppercase only at the Label step (11px), plus Home's 16px
+ *            capitals, which Audrey ruled in W4 ("make sure its all capitals
+ *            in the home page") — `homeCaps` turns that exemption on
+ *   tracking zero, except the Label step (+0.06em) and H1 (+0.01em)
+ */
+export function typeRules(rows, { homeCaps = false } = {}) {
+  const homeCap = (r) => homeCaps && r.px === 16 && r.transform === 'uppercase' && r.weight === '600';
+  /* Tracking is checked against the RULE, in BOTH directions. Round one:
+     "any tracking at 11px" let +0.2em pass as a Label. Round two: a bare
+     `tracking === 0` passed at every size, so a Label that LOST its
+     tracking stayed green. §3.1: the Label step's capitals carry +0.06em
+     and nothing else; an H1 +0.01em and nothing else; Home's W4
+     capitals +0.06em; lower-case 11px text 0 or the Label's +0.06em;
+     everything else 0. Tolerances: five thousandths of an em on +0.06em,
+     two on H1's +0.01em. Measured across eleven pages on 2026-09-23: all
+     175 capitals at 11px carry 0.66px exactly, all 148 H1s 0.2px. */
+  const em = (r) => r.tracking / r.px;
+  const near = (r, target, tol) => Math.abs(em(r) - target) <= tol;
+  const trackingOk = (r) => {
+    if (homeCap(r)) return near(r, 0.06, 0.005);
+    if (r.px === 11 && r.transform === 'uppercase') return near(r, 0.06, 0.005);
+    /* H1 is a ROLE — the page title, an <h1> — not a size: the kit's Stat
+       numerals are 20px / 600 with no tracking, which is right for figures
+       and not a page title (V1's own first strict run flagged three). */
+    if (r.tag === 'h1') return near(r, 0.01, 0.002);
+    if (r.px === 20) return r.tracking === 0 || near(r, 0.01, 0.002);
+    if (r.px === 11) return r.tracking === 0 || near(r, 0.06, 0.005);
+    return r.tracking === 0;
+  };
+  return {
+    weight: rows.filter((r) => r.weight !== '400' && r.weight !== '600'),
+    upper: rows.filter((r) => r.transform === 'uppercase' && r.px !== 11 && !homeCap(r)),
+    tracking: rows.filter((r) => !trackingOk(r)),
+  };
+}
+
+/**
+ * Which of the two page classes this screen is on (plan §2 Q1): the light
+ * ground `#f4a261`, or the dark `paper` family. Samples three points across
+ * the middle of the field and walks up from each to the first opaque
+ * background, so a transparent wrapper does not answer for the page.
+ */
+export function pageGround() {
+  // See `stopPointCensus` for why a colour is read through a canvas.
+  const cv = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+  const rgba = (c) => { if (!c || c === 'transparent') return null; cv.clearRect(0, 0, 1, 1); cv.fillStyle = '#000'; cv.fillStyle = c; cv.fillRect(0, 0, 1, 1); const d = cv.getImageData(0, 0, 1, 1).data; return d[3] ? [d[0], d[1], d[2], d[3] / 255] : null; };
+  const opaque = (el) => {
+    for (let e = el; e && e !== document.documentElement; e = e.parentElement) {
+      const c = rgba(getComputedStyle(e).backgroundColor);
+      if (c && c[3] >= 0.95) return c.slice(0, 3);
+    }
+    return null;
+  };
+  const name = (c) => {
+    if (!c) return 'none';
+    const hex = '#' + c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('');
+    const known = { '#f4a261': 'light', '#1c1917': 'paper', '#232020': 'paper-raised', '#0c0a09': 'paper-recessed', '#dd9155': 'surface-light-solid' };
+    return known[hex] || hex;
+  };
+  const y = Math.round(innerHeight * 0.6);
+  return [0.2, 0.5, 0.8].map((fx) => name(opaque(document.elementFromPoint(Math.round(innerWidth * fx), y))));
+}
+
+/**
+ * The open dialog, if there is one: where it sits and what it is made of.
+ *
+ * A kit `Dialog` carries `role="dialog"`; about sixty hand-rolled overlays do
+ * not (plan §1), so the fallback is the top-most fixed layer that covers most
+ * of the viewport — the backdrop — and its largest opaque descendant, the
+ * panel. `fits` is §3.3's 1280x700 question: is every edge of the panel on
+ * screen?
+ */
+export function openDialog() {
+  /* ⚠️ Two things that are fixed layers and are NOT a dialog's panel, both of
+     which V1's first full walk reported as one: the dev-fixtures badge (a
+     249x24 fixed pill at z200, on #232020 — six overlays "measured" as that
+     badge), and an opaque element inside a scrolled panel whose box sits
+     below the viewport (R.A.B.B.I.T. settings "off screen" at y=1343). The
+     badge is excluded by its test id; a panel candidate must intersect the
+     viewport. */
+  const badge = document.querySelector('[data-testid="dev-fixtures-badge"]');
+  const onScreen = (e) => { const r = e.getBoundingClientRect(); return r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth; };
+  const vis = (e) => { if (badge && badge.contains(e)) return false; const cs = getComputedStyle(e); const r = e.getBoundingClientRect(); return cs.display !== 'none' && cs.visibility !== 'hidden' && r.width > 0 && r.height > 0 && onScreen(e); };
+  // See `stopPointCensus` for why a colour is read through a canvas.
+  const cv = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+  const rgba = (c) => { if (!c || c === 'transparent') return null; cv.clearRect(0, 0, 1, 1); cv.fillStyle = '#000'; cv.fillStyle = c; cv.fillRect(0, 0, 1, 1); const d = cv.getImageData(0, 0, 1, 1).data; return d[3] ? [d[0], d[1], d[2], d[3] / 255] : null; };
+  const opaqueBg = (e) => { const c = rgba(getComputedStyle(e).backgroundColor); return c && c[3] >= 0.95 ? c.slice(0, 3) : null; };
+  let panel = [...document.querySelectorAll('[role="dialog"], [aria-modal="true"]')].filter(vis).pop() || null;
+  let kind = panel ? 'role' : null;
+  if (!panel) {
+    const layers = [...document.querySelectorAll('body *')].filter((e) => {
+      const cs = getComputedStyle(e);
+      if (cs.position !== 'fixed' || !vis(e) || Number(cs.zIndex || 0) < 10) return false;
+      const r = e.getBoundingClientRect();
+      return r.width * r.height >= innerWidth * innerHeight * 0.6;
+    });
+    /* A BACKDROP is translucent or transparent — never opaque. Round two:
+       the asset modal is an opaque fixed layer covering 76% of a 1280x700
+       window, came after the real backdrop in the DOM, and was taken for
+       it; its 320px left column then became the "panel" and `fits` and
+       `scrolls` were measured on that column. An opaque big layer is a
+       panel candidate below, not a backdrop. */
+    const backdrop = layers.filter((e) => !opaqueBg(e)).pop();
+    if (!backdrop) return null;
+    const area = (e) => { const r = e.getBoundingClientRect(); return r.width * r.height; };
+    const inner = [...backdrop.querySelectorAll('*')].filter((e) => vis(e) && opaqueBg(e)).sort((a, b) => area(b) - area(a));
+    /* ⚠️ Not every overlay nests its panel. R.A.B.B.I.T.'s New task, task
+       details and asset popups render the backdrop and the panel as two
+       SIBLING fixed layers at the same z-index — measured by V1's discovery
+       pass as "div z50 1280x700; div z50 512x527" — so a panel search inside
+       the backdrop finds nothing. Fall back to the largest opaque fixed layer
+       that is not full-screen and sits at or above the backdrop. */
+    const bz = Number(getComputedStyle(backdrop).zIndex || 0);
+    const siblings = [...document.querySelectorAll('body *')].filter((e) => {
+      const cs = getComputedStyle(e);
+      return e !== backdrop && cs.position === 'fixed' && vis(e) && opaqueBg(e) && Number(cs.zIndex || 0) >= bz
+        && area(e) < innerWidth * innerHeight * 0.95;
+    }).sort((a, b) => area(b) - area(a));
+    // The larger of the two candidates is the panel.
+    panel = [inner[0], siblings[0]].filter(Boolean).sort((a, b) => area(b) - area(a))[0] || null;
+    if (!panel) return null;
+    kind = backdrop.contains(panel) ? 'overlay' : 'overlay-sibling';
+  }
+  const r = panel.getBoundingClientRect();
+  const cs = getComputedStyle(panel);
+  const bg = opaqueBg(panel);
+  const hex = bg ? '#' + bg.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('') : cs.backgroundColor;
+  const title = [...panel.querySelectorAll('.ui-dialog-title,h1,h2,h3,h4,[class*="text-h2"],[class*="text-h3"]')].find(vis);
+  const tcs = title ? getComputedStyle(title) : null;
+  /* ⚠️ `fits` alone cannot fail for a panel CAPPED at a share of the viewport
+     (TaskDetailPopup is `maxHeight: 85vh`, and three dialogs measured exactly
+     0.85 x 700 = 595 tall): the box always fits because its body scrolls.
+     Round one caught V1 reporting "the task pop-up now fits" as news. So
+     `scrolls` names every scroll container inside the panel whose content is
+     taller than its box — a dialog that fits AND scrolls is a dialog whose
+     content does not fit the window. */
+  const scrolls = [panel, ...panel.querySelectorAll('*')].filter((e) => {
+    const s = getComputedStyle(e);
+    return /(auto|scroll)/.test(s.overflowY) && e.scrollHeight > e.clientHeight + 1 && e.clientHeight > 0;
+  }).map((e) => `${e.clientHeight}/${e.scrollHeight}`);
+  /* V2 review round one: a panel CAPPED to fit can still fail to hold its
+     content — drop the body's `overflow-y: auto` and the Timeline editor's
+     fields paint on over its footer while `fits` stays true. `spills` says
+     the panel's content is taller than its box and the PANEL does not scroll
+     it: visible (it paints over what follows) or hidden (it is cut off —
+     review round two: the usual rounded-corner `overflow: hidden` would
+     otherwise hide the same fault). A panel that scrolls is in `scrolls`. */
+  const spills = !/(auto|scroll)/.test(cs.overflowY) && panel.scrollHeight > panel.clientHeight + 1;
+  return {
+    kind, bg: hex, radius: cs.borderRadius, border: `${cs.borderTopWidth} ${cs.borderTopStyle}`,
+    box: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)],
+    fits: r.top >= -0.5 && r.left >= -0.5 && r.bottom <= innerHeight + 0.5 && r.right <= innerWidth + 0.5,
+    scrolls,
+    spills,
+    // What the panel SAYS, so a proof can name which dialog it expects —
+    // round two: `dialog: true` proved "a dialog", not "the dialog".
+    panelText: (panel.innerText || '').replace(/\s+/g, ' ').slice(0, 400),
+    title: title ? { text: title.textContent.trim().slice(0, 40), px: parseFloat(tcs.fontSize), weight: tcs.fontWeight, color: tcs.color, transform: tcs.textTransform } : null,
+  };
+}
+
+/**
+ * Header-to-column alignment in every visible real `<table>` (plan §4's
+ * Table is one; nineteen-odd hand-built grids are not and are left to the
+ * screenshots).
+ *
+ * Two defects, per column: the header and the body disagree about
+ * `text-align` (a left label over right-aligned figures), or they agree and
+ * the header's TEXT still starts somewhere else — a sort-icon slot or a
+ * padding mismatch pushing the label off its column. Measured on the text
+ * itself through a Range, because a cell's box always lines up.
+ */
+export function tableAlignment() {
+  /* The column's CONTENT, not its first text node: a Member cell leads with an
+     avatar and a Status cell with a dot, and a header label is meant to line
+     up with those, not with the name after them. V1's first run reported the
+     Team table's avatar as a 32px misalignment. So the box is the union of
+     the cell's text and its drawn things — an svg, an img, or a small element
+     that paints a background or a border. */
+  const drawn = (e) => {
+    if (e.matches('svg, img, canvas')) return true;
+    const cs = getComputedStyle(e); const r = e.getBoundingClientRect();
+    if (!r.width || r.width > 40) return false;
+    return (cs.backgroundColor !== 'rgba(0, 0, 0, 0)' && cs.backgroundColor !== 'transparent') || parseFloat(cs.borderTopWidth) > 0;
+  };
+  const contentBox = (cell) => {
+    let left = Infinity, right = -Infinity;
+    const w = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT, { acceptNode: (n) => n.textContent.trim() ? 1 : 3 });
+    for (let n = w.nextNode(); n; n = w.nextNode()) {
+      const rg = document.createRange(); rg.selectNodeContents(n);
+      const r = rg.getBoundingClientRect(); if (!r.width) continue;
+      left = Math.min(left, r.left); right = Math.max(right, r.right);
+    }
+    for (const e of cell.querySelectorAll('*')) {
+      if (e.offsetParent === null && !e.matches('svg, svg *')) continue;
+      if (!drawn(e)) continue;
+      const r = e.getBoundingClientRect(); if (!r.width) continue;
+      left = Math.min(left, r.left); right = Math.max(right, r.right);
+    }
+    return left === Infinity ? null : { left, right };
+  };
+  const side = (cs) => (cs.textAlign === 'start' || cs.textAlign === 'left' || cs.textAlign === '-webkit-left') ? 'left'
+    : (cs.textAlign === 'end' || cs.textAlign === 'right' || cs.textAlign === '-webkit-right') ? 'right' : cs.textAlign;
+  const textBox = (cell) => {
+    const w = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT, { acceptNode: (n) => n.textContent.trim() ? 1 : 3 });
+    const n = w.nextNode();
+    if (!n) return null;
+    const rg = document.createRange(); rg.selectNodeContents(n);
+    const r = rg.getBoundingClientRect();
+    return r.width ? r : null;
+  };
+  const out = { tables: 0, columns: 0, alignMismatch: [], offset: [] };
+  for (const t of document.querySelectorAll('table')) {
+    if (t.offsetParent === null) continue;
+    const head = t.tHead?.rows[0];
+    const body = [...(t.tBodies[0]?.rows || [])].filter((r) => r.offsetParent !== null).slice(0, 12);
+    if (!head || !body.length) continue;
+    out.tables++;
+    [...head.cells].forEach((th, c) => {
+      const tds = body.map((r) => r.cells[c]).filter((td) => td && td.colSpan === 1 && contentBox(td));
+      const label = th.textContent.trim();
+      if (!tds.length || !label) return;
+      out.columns++;
+      const hs = side(getComputedStyle(th));
+      const sides = tds.map((td) => side(getComputedStyle(td)));
+      const bs = sides.sort((a, b) => sides.filter((x) => x === b).length - sides.filter((x) => x === a).length)[0];
+      if (hs !== bs) { out.alignMismatch.push(`"${label.slice(0, 24)}" th ${hs} / td ${bs}`); return; }
+      const hb = textBox(th);
+      if (!hb) return;
+      const deltas = tds.map((td) => { const b = contentBox(td); return hs === 'right' ? b.right - hb.right : b.left - hb.left; });
+      const worst = deltas.reduce((m, d) => Math.abs(d) > Math.abs(m) ? d : m, 0);
+      if (Math.abs(worst) > 2) out.offset.push(`"${label.slice(0, 24)}" ${hs} ${worst > 0 ? '+' : ''}${Math.round(worst)}px`);
+    });
+  }
+  return out;
+}
+
+/**
+ * One baseline per toolbar (§4 `Toolbar`: "every child 28px so the row has
+ * one baseline"). A toolbar is taken to be any horizontal flex row with three
+ * or more visible children that are controls; the check is the spread of
+ * their vertical CENTRES, which is what the eye reads as "not lined up".
+ * Heights that differ are listed separately and are not a defect by
+ * themselves — an icon button and a field can differ and still share a
+ * centre line.
+ */
+export function toolbarAlignment() {
+  const isCtl = (e) => e.matches('button, input, select, textarea, [role="button"], [role="tab"], a') || (e.children.length === 1 && e.firstElementChild.matches('button, input, select, [role="button"]'));
+  const rows = [];
+  for (const el of document.querySelectorAll('body *')) {
+    if (el.offsetParent === null) continue;
+    const cs = getComputedStyle(el);
+    if (!cs.display.includes('flex') || cs.flexDirection !== 'row' || cs.flexWrap === 'wrap') continue;
+    const kids = [...el.children].filter((k) => k.offsetParent !== null && k.getBoundingClientRect().width > 0 && isCtl(k));
+    if (kids.length < 3) continue;
+    const rs = kids.map((k) => k.getBoundingClientRect());
+    const centres = rs.map((r) => r.top + r.height / 2);
+    const spread = Math.max(...centres) - Math.min(...centres);
+    if (spread > 1.5) rows.push({ spread: Math.round(spread * 10) / 10, heights: [...new Set(rs.map((r) => Math.round(r.height)))].join('/'), labels: kids.slice(0, 4).map((k) => (k.textContent || k.getAttribute('aria-label') || k.getAttribute('title') || k.tagName).trim().slice(0, 14)).join(' · ') });
+  }
+  return rows.sort((a, b) => b.spread - a.spread);
+}
+
+/**
+ * Controls with no name at all: a visible button (or role=button) with no
+ * text, no `aria-label`, no `title` and no `aria-labelledby`. §3.3: "Icon-only
+ * buttons carry both `aria-label` and `title`". V1's dry run of every page
+ * found them on D.O.G., and on R.A.B.B.I.T.'s Tasks, Budget, Assets and Scenes
+ * — a screen reader announces each one as "button" and nothing else, and a
+ * mouse user gets no tooltip.
+ *
+ * Returns a short description of each: the icon's lucide class if it has one,
+ * and the nearest labelled neighbour, which is how a person finds it.
+ */
+export function unnamedControls() {
+  const vis = (e) => e.offsetParent !== null && e.getBoundingClientRect().width > 0;
+  const named = (e) => (e.textContent || '').trim() || e.getAttribute('aria-label') || e.getAttribute('title') || e.getAttribute('aria-labelledby');
+  return [...document.querySelectorAll('button, [role="button"]')].filter((e) => vis(e) && !named(e)).map((e) => {
+    const icon = e.querySelector('svg[class*="lucide-"]')?.getAttribute('class')?.match(/lucide-([a-z0-9-]+)/g)?.pop() || 'no-icon';
+    let near = '';
+    for (let s = e.previousElementSibling; s && !near; s = s.previousElementSibling) near = (s.textContent || s.getAttribute('aria-label') || '').trim().slice(0, 24);
+    return `${icon} after "${near}"`;
+  });
+}
+
+/**
+ * Is the tab (or section, or segmented control) named `label` now the
+ * SELECTED one? Kit `Tabs` sets `aria-selected` and `data-active`; the Admin
+ * Terminal's section nav sets `aria-current` and `data-active`; a toggle sets
+ * `aria-pressed`. Any of the four counts.
+ *
+ * 🚨 WHY THIS EXISTS (V1). ui-page-check's `--tabs` pass printed "NOT OPENED"
+ * only when it could not FIND the button. When the click landed and the tab
+ * had not switched within its wait, it measured the PREVIOUS tab under the
+ * new tab's name: V1 caught a run whose "Intake" row carried Summary's census
+ * digit for digit (13px:260, 11px:36, 20px:18…). A tab's label is on screen
+ * whichever tab is showing, so no text-based proof can tell them apart; the
+ * selection state can.
+ */
+export function selectedControl(label) {
+  /* Round one of V1's review, three holes, all closed here:
+       - PREFIX matching: "Agent" is a prefix of Settings' "Agent skills". The
+         label must match EXACTLY, allowing only a trailing count ("Shared
+         with me1", "Requests 2") — digits, nothing else.
+       - `aria-current="false"` is what React writes for `aria-current={false}`,
+         and `hasAttribute` counted it as selected.
+       - the SHELL: the nav strip's "O.T.T.E.R." carries aria-current on the
+         page it names, so a click that wrongly navigated there proved itself.
+         Nothing inside `.wilson-chrome` or the dev badge can answer. */
+  const outside = (el) => !el.closest('.wilson-chrome, [data-testid="dev-fixtures-badge"]');
+  const vis = (el) => el.offsetParent !== null && el.getBoundingClientRect().width > 0;
+  const esc = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const named = new RegExp(`^${esc}\\s*\\d*$`);
+  const current = (v) => v !== null && v !== 'false';
+  return [...document.querySelectorAll('button, [role="tab"], a')].some((el) => vis(el) && outside(el)
+    && named.test((el.textContent || '').replace(/\s+/g, ' ').trim())
+    && (el.getAttribute('aria-selected') === 'true' || el.getAttribute('data-active') === 'true'
+      || current(el.getAttribute('aria-current')) || el.getAttribute('aria-pressed') === 'true'));
+}
+
+/**
+ * Visible text-owning elements OUTSIDE the shell and the dev badge. The
+ * "did this page render?" floor used `pageCensus().measured`, which counts
+ * the shell too — and the shell and the badge alone produce 18 text nodes,
+ * so a page whose body rendered NOTHING cleared a floor of 10 (round one).
+ */
+export function bodyTextCount() {
+  let n = 0;
+  for (const el of document.querySelectorAll('body *')) {
+    if (el.closest('.wilson-chrome, [data-testid="dev-fixtures-badge"]')) continue;
+    if (el.offsetParent === null && getComputedStyle(el).position !== 'fixed') continue;
+    if (![...el.childNodes].some((c) => c.nodeType === 3 && c.textContent.trim())) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width > 0 && r.height > 0) n++;
+  }
+  return n;
+}
+
+/**
+ * For a tab bar that marks its active tab ONLY in inline style (R.A.B.B.I.T.'s
+ * Budget views, and ViewTabs until V1): is `label` the one button among its
+ * siblings whose ink, fill, underline or weight differs from all the others?
+ * Weaker than `selectedControl` — it proves "this one looks selected", not
+ * "this one is selected" — so the walker uses it only where a bar exposes no
+ * selection state at all, and says so in the registry.
+ */
+export function styledActive(label) {
+  const vis = (el) => el.offsetParent !== null && el.getBoundingClientRect().width > 0;
+  const hit = [...document.querySelectorAll('button')].find((b) => vis(b) && (b.textContent || '').replace(/\s+/g, ' ').trim() === label);
+  if (!hit || !hit.parentElement) return false;
+  const sig = (b) => { const cs = getComputedStyle(b); return [cs.color, cs.backgroundColor, cs.borderBottomColor, cs.borderBottomWidth, cs.fontWeight].join('|'); };
+  const peers = [...hit.parentElement.children].filter((e) => e.tagName === 'BUTTON' && vis(e));
+  if (peers.length < 2) return false;
+  const mine = sig(hit);
+  return peers.filter((p) => sig(p) === mine).length === 1;
+}
+
+/**
+ * Plan §5 defines stop point 1 as "one face (Geist), one scale, one case, one
+ * border, [two radii], no white". The walk's other columns check the first
+ * three. This checks the rest, plus the contrast rule behind C6, on whatever
+ * is on screen:
+ *
+ *   border   any visible edge 2px or wider (§3.3: one 1px hairline; the
+ *            18 judged stylesheet borders and LayoutVisualizer's are the
+ *            known exceptions, and appear here to be matched against them)
+ *   radius   any corner that is not 0, 3px, 6px or fully round (Q5)
+ *   white    any opaque surface whose relative luminance is above 0.75 —
+ *            C9, "no white or near-white backgrounds". The light ground
+ *            `#f4a261` is 0.47 and `#dd9155` 0.37; `#f5efe6`, the cream C9
+ *            names, is 0.86
+ *   contrast text whose ink against its COMPOSITED background is under
+ *            4.5:1, or 3:1 at 19px/600 and above or 24px (§3.2, C6). A
+ *            translucent layer is composited over the first opaque one
+ *            beneath it; text inside a disabled control or under an
+ *            opacity below 1 is counted apart as `faded` (WCAG 1.4.3
+ *            exempts inactive components), never as a failure
+ *
+ * Each list holds short descriptions so a caller can de-duplicate a repeated
+ * row across a table.
+ */
+export function stopPointCensus() {
+  /* 🚨 A COLOUR IS READ THROUGH A CANVAS, NOT A REGEX (V1). Tailwind v4
+     computes its PALETTE as `oklch(...)` — `bg-stone-800` is
+     "oklch(0.268 0.007 34.298)", `bg-black/50` is "oklab(0 0 0 / 0.5)" — and
+     only @theme's hex tokens and inline styles come back as `rgb()`. The first
+     draft of this census parsed `rgb()` alone, so every palette colour was
+     silently skipped: the settings slide-outs' `bg-stone-800` panels read as
+     transparent, and the contrast list held only inline hex. Painting the
+     value onto a 1x1 canvas and reading the pixel back lets the browser do the
+     conversion for any syntax it can render. `fillStyle` IGNORES a value it
+     cannot parse, so it is reset to black first and an unparseable colour
+     reads as black rather than as the previous one. */
+  const cv = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+  const parse = (c) => {
+    if (!c || c === 'transparent') return null;
+    cv.clearRect(0, 0, 1, 1); cv.fillStyle = '#000'; cv.fillStyle = c; cv.fillRect(0, 0, 1, 1);
+    const d = cv.getImageData(0, 0, 1, 1).data;
+    return d[3] ? { r: d[0], g: d[1], b: d[2], a: d[3] / 255 } : null;
+  };
+  const lin = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+  const lum = (c) => 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b);
+  const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+  const over = (top, under) => ({ r: top.r * top.a + under.r * (1 - top.a), g: top.g * top.a + under.g * (1 - top.a), b: top.b * top.a + under.b * (1 - top.a), a: 1 });
+  const hex = (c) => '#' + [c.r, c.g, c.b].map((v) => Math.round(v).toString(16).padStart(2, '0')).join('');
+  const vis = (e) => { const r = e.getBoundingClientRect(); const cs = getComputedStyle(e); return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && (e.offsetParent !== null || cs.position === 'fixed'); };
+  const name = (e) => `${e.tagName.toLowerCase()}${(typeof e.className === 'string' && e.className.trim()) ? '.' + e.className.trim().split(/\s+/).slice(0, 2).join('.') : ''}`;
+  const badge = document.querySelector('[data-testid="dev-fixtures-badge"]');
+
+  /* The background a piece of text actually sits on: walk up collecting
+     translucent fills until an opaque one, then composite back down. A
+     background IMAGE (a gradient, a thumbnail) cannot be reduced to one
+     colour, so such text is reported as unknown rather than guessed. */
+  const ground = (el) => {
+    const layers = [];
+    for (let e = el; e; e = e.parentElement) {
+      const cs = getComputedStyle(e);
+      if (cs.backgroundImage && cs.backgroundImage !== 'none') return null;
+      const c = parse(cs.backgroundColor);
+      if (c && c.a > 0) { layers.push(c); if (c.a >= 0.999) break; }
+    }
+    let base = { r: 255, g: 255, b: 255, a: 1 };
+    if (layers.length && layers[layers.length - 1].a >= 0.999) base = layers.pop();
+    for (let i = layers.length - 1; i >= 0; i--) base = over(layers[i], base);
+    return base;
+  };
+  /* WCAG 1.4.3 exempts INACTIVE components — disabled ones — and nothing
+     else. The first draft also skipped anything under an opacity below 1,
+     which round one showed hid live text: the LIVE pill (.85), the task
+     popup (.85), the edit-history drawer (.9), struck-through paths (.7),
+     Timeline labels (.4-.7), dimmed nav items (.35). Opacity is now
+     multiplied into the ink instead (`opacityOf`), which is how it paints. */
+  const faded = (el) => !!el.closest('button:disabled, [aria-disabled="true"], input:disabled, select:disabled, fieldset:disabled');
+  /* The translucent LAYER an element paints inside: the outermost ancestor
+     with opacity below 1, and the product of every opacity on the way. Round
+     two: multiplying opacity into the INK alone reported the Resources nav
+     column — opacity 0, inside a closed strip — as "1.00 #ea580c on
+     #ea580c" on every screen (442 of 2,547 contrast rows), and scored the
+     LIVE pill against a ground it does not paint on. So: under 0.05 the text
+     is HIDDEN and not counted at all; otherwise ink AND ground are both
+     composited through the layer onto what lies behind it. */
+  const layerOf = (el) => {
+    let layer = null, op = 1;
+    for (let e = el; e; e = e.parentElement) { const o = Number(getComputedStyle(e).opacity); if (o < 1) { layer = e; op *= o; } }
+    return { layer, op };
+  };
+
+  /* A single token broken across lines. V1 found R.A.B.B.I.T.'s Tasks table
+     printing its start dates as "2026-11-" over "06": the type pass took the
+     mono from ~10.5px to 13px and the column did not grow. Nothing measured
+     it — a wrapped cell is not a clipped one, so `clipped` read 0 — and it
+     doubles the row height of every key-date row. A token here is text with
+     no whitespace, four characters or more, whose own text lays out on more
+     than one line box. */
+  const brokenToken = (el, own) => {
+    if (own.length < 4 || /\s/.test(own)) return false;
+    const n = [...el.childNodes].find((c) => c.nodeType === 3 && c.textContent.trim());
+    if (!n) return false;
+    const rg = document.createRange(); rg.selectNodeContents(n);
+    const tops = new Set([...rg.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top)));
+    return tops.size > 1;
+  };
+
+  /* Capitals TYPED into the text, which `text-transform` cannot see —
+     round one found "NO RATE CARD YET." at the Dense step. Two or more
+     words, six or more letters, no lower-case letter, not the Label step.
+     Dotted names (D.O.G.) and short codes (USD, PDF) mostly fall under the
+     letter floor; what is left is reported, not failed, because an acronym
+     is legitimately all capitals. */
+  const typedCaps = (own, px) => {
+    if (px === 11) return false;
+    const words = own.split(/\s+/).filter((w) => /[A-Za-z]/.test(w) && !/^([A-Z]\.)+$/.test(w));
+    const letters = words.join('').replace(/[^A-Za-z]/g, '');
+    return words.length >= 2 && letters.length >= 6 && letters === letters.toUpperCase();
+  };
+
+  const out = { border: [], radius: [], white: [], contrast: [], broken: [], typedCaps: [], faded: 0, unknown: 0, hidden: 0 };
+  for (const el of document.querySelectorAll('body *')) {
+    if (badge && badge.contains(el)) continue;
+    if (!vis(el)) continue;
+    const { layer, op } = layerOf(el);
+    if (op < 0.05) { out.hidden++; continue; }   // painted, but invisible
+    const cs = getComputedStyle(el);
+    const r = el.getBoundingClientRect();
+
+    /* A TRANSPARENT side is not a border anyone sees: every inactive
+       R.A.B.B.I.T. tab reserves `2px solid transparent` for its underline,
+       and round one showed each screen's b2 was just its tab count. */
+    const sides = ['Top', 'Right', 'Bottom', 'Left'].filter((s) => cs[`border${s}Style`] !== 'none' && parseFloat(cs[`border${s}Width`]) >= 1.5
+      && (parse(cs[`border${s}Color`])?.a ?? 0) > 0);
+    if (sides.length) out.border.push(`${name(el)} ${sides.map((s) => s[0] + parseFloat(cs[`border${s}Width`])).join(' ')} ${cs[`border${sides[0]}Style`]}`);
+
+    const radii = ['TopLeft', 'TopRight', 'BottomRight', 'BottomLeft'].map((k) => parseFloat(cs[`border${k}Radius`]) || 0);
+    const full = Math.min(r.width, r.height) / 2 - 0.5;
+    const offRadius = radii.filter((v) => v !== 0 && v !== 3 && v !== 6 && v < full && !cs.borderTopLeftRadius.includes('%'));
+    if (offRadius.length) out.radius.push(`${name(el)} ${[...new Set(radii)].join('/')}px`);
+
+    const bg = parse(cs.backgroundColor);
+    if (bg && bg.a >= 0.95 && lum(bg) > 0.75 && r.width * r.height > 200) out.white.push(`${name(el)} ${hex(bg)} ${Math.round(r.width)}x${Math.round(r.height)}`);
+
+    const own = [...el.childNodes].filter((n) => n.nodeType === 3 && n.textContent.trim()).map((n) => n.textContent).join('').trim();
+    if (!own) continue;
+    if (brokenToken(el, own)) out.broken.push(`<${name(el)}> "${own.slice(0, 24)}" ${parseFloat(cs.fontSize)}px ${cs.fontFamily.split(',')[0].replace(/["']/g, '')} in ${Math.round(r.width)}px`);
+    if (typedCaps(own, parseFloat(cs.fontSize))) out.typedCaps.push(`<${name(el)}> "${own.replace(/\s+/g, ' ').slice(0, 30)}" ${parseFloat(cs.fontSize)}px`);
+    if (faded(el)) { out.faded++; continue; }
+    const g = ground(el);
+    if (!g) { out.unknown++; continue; }
+    const fg0 = parse(cs.color);
+    if (!fg0) continue;
+    // Inside the layer: the ink over its own ground.
+    let fg = fg0.a < 1 ? over(fg0, g) : fg0;
+    let gr = g;
+    // Then the whole layer — ink and ground alike — at its opacity, over
+    // whatever lies behind the layer.
+    if (layer && op < 1) {
+      const behind = ground(layer.parentElement) || { r: 255, g: 255, b: 255, a: 1 };
+      fg = over({ ...fg, a: op }, behind);
+      gr = over({ ...g, a: op }, behind);
+    }
+    const px = parseFloat(cs.fontSize);
+    const large = px >= 24 || (px >= 19 && Number(cs.fontWeight) >= 600);
+    const cr = ratio(fg, gr);
+    if (cr < (large ? 3 : 4.5)) out.contrast.push(`${cr.toFixed(2)} ${hex(fg)} on ${hex(gr)} ${px}px/${cs.fontWeight} <${name(el)}> "${own.replace(/\s+/g, ' ').slice(0, 28)}"`);
+  }
+  return out;
+}
+
+/**
+ * Every visible form field and the family it DECLARES. A field draws its
+ * value inside the browser's own shadow DOM, so the platform-font query in
+ * `renderedFaces` cannot see it, and a <select> or <input> has no text node
+ * for `typeCensus` to pick up at all — round two found 30 selects on the Rate
+ * Card ("Production", "tier_1") that no check had looked at. This is the
+ * DECLARED family only; it cannot see a fallback glyph typed into a field.
+ */
+export function formFields() {
+  const skip = new Set(['hidden', 'checkbox', 'radio', 'range', 'color', 'file', 'image', 'submit', 'reset', 'button']);
+  return [...document.querySelectorAll('input, select, textarea')].filter((e) => {
+    if (e.tagName === 'INPUT' && skip.has((e.type || 'text').toLowerCase())) return false;
+    const r = e.getBoundingClientRect();
+    return e.offsetParent !== null && r.width > 0 && r.height > 0;
+  }).map((e) => ({
+    tag: e.tagName.toLowerCase(),
+    family: getComputedStyle(e).fontFamily.split(',')[0].replace(/["']/g, '').trim(),
+    value: (e.tagName === 'SELECT' ? (e.selectedOptions[0]?.textContent || '') : (e.value || e.placeholder || '')).trim().slice(0, 30),
+  }));
+}
+
+/**
+ * Buttons nested inside buttons, counted in the DOM. React warns about a
+ * `<button>` inside a `<button>` ONCE per tag pair per page load, so an
+ * excused console warning cannot tell the filed nesting from a new one
+ * (round two). The count can.
+ */
+export function nestedButtons() {
+  return [...document.querySelectorAll('button button, button [role="button"], [role="button"] button')]
+    .filter((e) => e.offsetParent !== null).length;
+}
+
+/**
+ * V2 (2026-09-27): what the pet covers. C5 keeps the pet where it is, so this
+ * is a RECORD for Audrey (walkthrough 45's question 33), never a gate. The
+ * sprite is the fixed `div.fixed.right-4.z-30` PetCompanion draws at the
+ * bottom right. A text run, or a control with no text of its own, counts
+ * only where it is actually DRAWN under the sprite: its box clipped by every
+ * ancestor that clips (so a row scrolled out of its scroller is not
+ * "covered"), and the element visible — `checkVisibility` with opacity and
+ * visibility, so a hover-only action at opacity 0 is not "covered" either
+ * (V2 review round one: hit testing counted those, and missed text under
+ * `pointer-events: none`). `underDialog` says a dialog or drawer was open,
+ * so whatever is covered is behind its backdrop anyway.
+ */
+export function petOverlap() {
+  const pet = [...document.querySelectorAll('div.fixed.right-4.z-30')].find((e) => e.getBoundingClientRect().width > 0);
+  if (!pet) return null;
+  const p = pet.getBoundingClientRect();
+  /* The part of a box that is drawn: clipped along its CONTAINING-BLOCK
+     chain only (review round two). A text run is clipped by its own element
+     first (`fromSelf`: a truncated cell hides its tail); an absolutely
+     positioned box escapes every static ancestor until its containing block;
+     a fixed one escapes them all. */
+  const drawn = (el, r, fromSelf) => {
+    let [l, t, rr, b] = [r.left, r.top, r.right, r.bottom];
+    const clipBy = (a) => {
+      const s = getComputedStyle(a);
+      if (s.overflowX !== 'visible' || s.overflowY !== 'visible') {
+        const ar = a.getBoundingClientRect();
+        l = Math.max(l, ar.left); t = Math.max(t, ar.top); rr = Math.min(rr, ar.right); b = Math.min(b, ar.bottom);
+      }
+      return s.position;
+    };
+    let pos = fromSelf ? clipBy(el) : getComputedStyle(el).position;
+    for (let a = el.parentElement; a && a !== document.body && pos !== 'fixed'; a = a.parentElement) {
+      if (pos === 'absolute' && getComputedStyle(a).position === 'static') continue;
+      pos = clipBy(a);
+    }
+    return Math.min(rr, p.right) - Math.max(l, p.left) >= 1 && Math.min(b, p.bottom) - Math.max(t, p.top) >= 1;
+  };
+  const shown = (el) => (typeof el.checkVisibility === 'function'
+    ? el.checkVisibility({ opacityProperty: true, visibilityProperty: true })
+    : getComputedStyle(el).visibility !== 'hidden');
+  const out = new Set();
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const text = n.textContent.replace(/\s+/g, ' ').trim();
+    const el = n.parentElement;
+    if (!text || !el || pet.contains(el) || el.closest('.wilson-chrome') || !shown(el)) continue;
+    const range = document.createRange();
+    range.selectNodeContents(n);
+    if ([...range.getClientRects()].some((r) => drawn(el, r, true))) out.add(`"${text.slice(0, 32)}"`);
+  }
+  for (const el of document.querySelectorAll('button, select, input, textarea')) {
+    if (pet.contains(el) || el.closest('.wilson-chrome') || el.textContent.trim() || !shown(el)) continue;
+    if (drawn(el, el.getBoundingClientRect(), false)) {
+      const name = el.getAttribute('aria-label') || el.getAttribute('title') || el.getAttribute('placeholder') || el.value || el.name || '';
+      out.add(`<${el.tagName.toLowerCase()} ${String(name).slice(0, 24)}>`);
+    }
+  }
+  return {
+    box: [Math.round(p.left), Math.round(p.top), Math.round(p.width), Math.round(p.height)],
+    covers: [...out],
+    underDialog: !!document.querySelector('[role="dialog"], [aria-modal="true"], .ui-drawer'),
+  };
+}
