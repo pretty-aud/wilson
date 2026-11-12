@@ -336,7 +336,7 @@ test('a board is live between two windows: shapes, a sticky and its turn, the po
       expect(sent / moved).toBeLessThanOrEqual(10.5)
       expect(sent).toBeGreaterThan(moved * 5)
       expect(still).toBe(0)
-      lap('pointer')
+      lap('pointer measured')
     })
 
     await test.step('7. a window whose network went and came back has what it missed', async () => {
