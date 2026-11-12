@@ -273,6 +273,25 @@ test('a board is live between two windows: shapes, a sticky and its turn, the po
       lap('forged save dropped')
     })
 
+    await test.step('3c. the board\'s background chosen in one window is the other window\'s too', async () => {
+      // The background is the board's (0136): a new board is on the dotted grid, and a change is told by the
+      // database on the board's own channel, as a save is. No window sends it.
+      const paper = (page: Page) => board(page).locator('[data-moth-board-canvas]')
+      await expect(paper(a)).toHaveAttribute('data-background', 'dots')
+      await expect(paper(b)).toHaveAttribute('data-background', 'dots')
+      const heard = wireB.got.board ?? 0
+      await board(a).locator('[data-board-background-toggle]').click()
+      await board(a).locator('[data-board-background-picker] [data-background="lines"]').click()
+      await expect(paper(a)).toHaveAttribute('data-background', 'lines')
+      await expect(paper(b)).toHaveAttribute('data-background', 'lines', { timeout: 20_000 })
+      seen.background = { heardByB: (wireB.got.board ?? 0) - heard, sentByAClient: (wireA.sent.board ?? 0) + (wireB.sent.board ?? 0) }
+      expect((wireB.got.board ?? 0) - heard).toBeGreaterThan(0)
+      expect((wireA.sent.board ?? 0) + (wireB.sent.board ?? 0)).toBe(0)
+      expect(await count(a)).toBe(n)
+      expect(await count(b)).toBe(n)
+      lap('background across')
+    })
+
     await test.step('4. a sticky\'s words typed in one window are read in the other', async () => {
       await tool(a, 'Sticky note (N)')
       const at = await spot(a, 0.25, 0.72)

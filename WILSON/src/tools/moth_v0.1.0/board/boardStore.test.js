@@ -533,6 +533,245 @@ describe('boardStore: the server\'s answers', () => {
   })
 })
 
+describe('boardStore: the board\'s background (0136)', () => {
+  const WITH_BG = { ...BOARD_ROW, background: 'dots', background_version: 0 }
+  // A server that knows backgrounds: board_set_background as A1 and A1b say it answers, counting the version, and
+  // board_read reading the pair it keeps. `theirs(kind)` is another person's change: kept, and its message answered.
+  function withBackground(board = WITH_BG) {
+    const adapter = fakeServer([], board)
+    let kept = board.background
+    let version = board.background_version
+    adapter.setBoardBackground = vi.fn(async (_b, kind) => {
+      const changed = kind !== kept
+      if (changed) { kept = kind; if (version != null) version += 1 }
+      return { board_id: BOARD, background: kind, ...(version != null ? { version } : {}), changed }
+    })
+    if ('background' in board) {
+      adapter.readBoard = vi.fn(async () => ({ board: { ...board, background: kept, ...(version != null ? { background_version: version } : {}) }, elements: [] }))
+    }
+    adapter.kept = () => kept
+    adapter.version = () => version
+    adapter.theirs = (kind) => { kept = kind; version += 1; return { board: BOARD, op: 'background', background: kind, version } }
+    return adapter
+  }
+  async function open(adapter) {
+    const store = createBoardStore({ adapter, boardId: BOARD })
+    const events = []
+    store.subscribe((e) => events.push(e))
+    await store.load()
+    return { store, events, boards: () => events.filter((e) => e.type === 'board').length, notices: () => events.filter((e) => e.type === 'notice').map((e) => e.words) }
+  }
+  const gate = () => { let open; const p = new Promise((r) => { open = r }); return { p, open } }
+
+  it('the server\'s background is drawn and may be chosen; a choice is drawn at once, then saved, and said as a board event', async () => {
+    const adapter = withBackground({ ...WITH_BG, background: 'lines' })
+    const { store, boards } = await open(adapter)
+    expect(store.getBackground()).toBe('lines')
+    expect(store.canSetBackground()).toBe(true)
+    const before = boards()
+    const saving = store.setBackground('blank')
+    expect(store.getBackground()).toBe('blank')
+    expect(boards()).toBe(before + 1)
+    expect(await saving).toBe(true)
+    expect(adapter.setBoardBackground).toHaveBeenCalledWith(BOARD, 'blank')
+    expect(store.getBoard().background).toBe('blank')
+    expect(store.getBackground()).toBe('blank')
+    // Not an undo step, not an element.
+    expect(store.canUndo()).toBe(false)
+    expect(adapter.putBoardElements).not.toHaveBeenCalled()
+    // The same again asks nothing; an unknown kind is never sent.
+    expect(await store.setBackground('blank')).toBe(true)
+    expect(await store.setBackground('stripes')).toBe(false)
+    expect(adapter.setBoardBackground).toHaveBeenCalledTimes(1)
+  })
+
+  it('refused: the earlier choice is drawn again and the server\'s words are said', async () => {
+    const adapter = withBackground()
+    adapter.setBoardBackground = vi.fn(async () => { throw Object.assign(new Error('[supabase] board not found or not writable'), { code: '42501' }) })
+    const { store, notices, boards } = await open(adapter)
+    // The load said the board may now be chosen on.
+    expect(boards()).toBe(1)
+    const saving = store.setBackground('lines')
+    expect(store.getBackground()).toBe('lines')
+    expect(await saving).toBe(false)
+    expect(store.getBackground()).toBe('dots')
+    expect(notices()).toEqual(['board not found or not writable'])
+    // Drawn once, drawn back once.
+    expect(boards()).toBe(3)
+  })
+
+  it('not able to reach the server: drawn back as it was, and said in the store\'s own words', async () => {
+    const adapter = withBackground()
+    adapter.setBoardBackground = vi.fn(async () => { throw new TypeError('Failed to fetch') })
+    const { store, notices } = await open(adapter)
+    expect(await store.setBackground('blank')).toBe(false)
+    expect(store.getBackground()).toBe('dots')
+    expect(notices()).toEqual([BOARD_WORDS.refused])
+  })
+
+  it('the latest of two quick choices wins: one save at a time, the second sent after the first', async () => {
+    const adapter = withBackground()
+    const first = gate()
+    const real = adapter.setBoardBackground
+    adapter.setBoardBackground = vi.fn(async (b, kind) => { if (kind === 'lines') await first.p; return real(b, kind) })
+    const { store } = await open(adapter)
+    const a = store.setBackground('lines')
+    const b = store.setBackground('blank')
+    expect(store.getBackground()).toBe('blank')
+    expect(adapter.setBoardBackground).toHaveBeenCalledTimes(1)
+    first.open()
+    await a
+    await b
+    expect(adapter.setBoardBackground.mock.calls.map((c) => c[1])).toEqual(['lines', 'blank'])
+    expect(adapter.kept()).toBe('blank')
+    // The first's answer never drew 'lines' over the later choice.
+    expect(store.getBackground()).toBe('blank')
+  })
+
+  it('a refusal of a choice already replaced says nothing: the later one decides', async () => {
+    const adapter = withBackground()
+    const first = gate()
+    const real = adapter.setBoardBackground
+    adapter.setBoardBackground = vi.fn(async (b, kind) => {
+      if (kind === 'lines') { await first.p; throw Object.assign(new Error('A board\'s background is dotted, blank or lined.'), { code: '22023' }) }
+      return real(b, kind)
+    })
+    const { store, notices } = await open(adapter)
+    store.setBackground('lines')
+    const later = store.setBackground('blank')
+    first.open()
+    expect(await later).toBe(true)
+    expect(store.getBackground()).toBe('blank')
+    expect(notices()).toEqual([])
+  })
+
+  it('another person\'s choice, from the channel, is drawn by its version; another board\'s is not', async () => {
+    const { store, boards } = await open(withBackground())
+    store.applyBoard({ board: 'b-other', op: 'background', background: 'lines', version: 5 })
+    expect(store.getBackground()).toBe('dots')
+    store.applyBoard({ board: BOARD, op: 'background', background: 'nonsense', version: 5 })
+    expect(store.getBackground()).toBe('dots')
+    const before = boards()
+    store.applyBoard({ board: BOARD, op: 'background', background: 'lines', version: 1 })
+    expect(store.getBackground()).toBe('lines')
+    expect(store.getBoard().background_version).toBe(1)
+    expect(boards()).toBe(before + 1)
+    // The same version twice is nothing, and says nothing, whatever it carries.
+    store.applyBoard({ board: BOARD, op: 'background', background: 'blank', version: 1 })
+    expect(store.getBackground()).toBe('lines')
+    expect(boards()).toBe(before + 1)
+    // A message with no version, once a version is held, is not taken (a server that sends none should not exist).
+    store.applyBoard({ board: BOARD, op: 'background', background: 'blank' })
+    store.applyBoard({ board: BOARD, op: 'background', background: 'blank', version: 1.5 })
+    expect(store.getBackground()).toBe('lines')
+    expect(boards()).toBe(before + 1)
+  })
+
+  it('with nothing with a version held, a channel message with none is taken', async () => {
+    const { store } = await open(withBackground({ ...BOARD_ROW, background: 'dots' }))
+    store.applyBoard({ board: BOARD, op: 'background', background: 'lines' })
+    expect(store.getBackground()).toBe('lines')
+  })
+
+  // Rewritten for A1b: this case used to keep my own choice drawn after its answer. Another person's later change,
+  // heard BEFORE my answer arrives, now stays drawn once my answer lands: its version is higher.
+  it('another person\'s later change heard before my own answer stays drawn once the answer lands', async () => {
+    const adapter = withBackground()
+    const hold = gate()
+    const real = adapter.setBoardBackground
+    let answer = null
+    adapter.setBoardBackground = vi.fn(async (b, kind) => { answer = await real(b, kind); await hold.p; return answer })
+    const { store, boards } = await open(adapter)
+    const saving = store.setBackground('blank')
+    await Promise.resolve()
+    expect(answer).toMatchObject({ background: 'blank', version: 1 })
+    // Theirs is made after mine on the server (version 2), and its message reaches this window first.
+    store.applyBoard(adapter.theirs('lines'))
+    // Mine is still on its way, so mine stays drawn until its answer.
+    expect(store.getBackground()).toBe('blank')
+    const before = boards()
+    hold.open()
+    expect(await saving).toBe(true)
+    expect(store.getBackground()).toBe('lines')
+    expect(store.getBoard()).toMatchObject({ background: 'lines', background_version: 2 })
+    expect(boards()).toBe(before + 1)
+  })
+
+  it('another person\'s earlier change (a lower version) heard after my answer is ignored', async () => {
+    const adapter = withBackground({ ...WITH_BG, background_version: 3 })
+    const { store, boards } = await open(adapter)
+    expect(await store.setBackground('blank')).toBe(true)
+    expect(store.getBoard()).toMatchObject({ background: 'blank', background_version: 4 })
+    const before = boards()
+    store.applyBoard({ board: BOARD, op: 'background', background: 'lines', version: 3 })
+    expect(store.getBackground()).toBe('blank')
+    expect(boards()).toBe(before)
+  })
+
+  it('a read: a lower version keeps the pair held, a higher one is drawn; the rest of the read is taken', async () => {
+    const adapter = withBackground()
+    const { store, boards } = await open(adapter)
+    store.applyBoard({ board: BOARD, op: 'background', background: 'lines', version: 4 })
+    adapter.readBoard = vi.fn(async () => ({ board: { ...WITH_BG, title: 'Renamed', background: 'dots', background_version: 2 }, elements: [] }))
+    const before = boards()
+    await store.load()
+    expect(store.getBackground()).toBe('lines')
+    expect(store.getBoard()).toMatchObject({ title: 'Renamed', background: 'lines', background_version: 4 })
+    expect(boards()).toBe(before)
+    adapter.readBoard = vi.fn(async () => ({ board: { ...WITH_BG, background: 'blank', background_version: 5 }, elements: [] }))
+    await store.load()
+    expect(store.getBackground()).toBe('blank')
+    expect(store.getBoard().background_version).toBe(5)
+    expect(boards()).toBe(before + 1)
+  })
+
+  it('a choice of mine on its way stays drawn over a read of the board until its answer', async () => {
+    const adapter = withBackground()
+    const hold = gate()
+    const real = adapter.setBoardBackground
+    adapter.setBoardBackground = vi.fn(async (b, kind) => { await hold.p; return real(b, kind) })
+    const { store } = await open(adapter)
+    const saving = store.setBackground('blank')
+    await store.load()
+    expect(store.getBackground()).toBe('blank')
+    hold.open()
+    expect(await saving).toBe(true)
+    expect(store.getBoard()).toMatchObject({ background: 'blank', background_version: 1 })
+  })
+
+  it('refused after another person\'s change was heard: theirs is drawn back, not the one before it', async () => {
+    const adapter = withBackground()
+    const hold = gate()
+    adapter.setBoardBackground = vi.fn(async () => { await hold.p; throw Object.assign(new Error('board not found or not writable'), { code: '42501' }) })
+    const { store, notices } = await open(adapter)
+    const saving = store.setBackground('blank')
+    store.applyBoard({ board: BOARD, op: 'background', background: 'lines', version: 1 })
+    hold.open()
+    expect(await saving).toBe(false)
+    expect(store.getBackground()).toBe('lines')
+    expect(notices()).toEqual(['board not found or not writable'])
+  })
+
+  it('no choice on a server without backgrounds (no key), or for a person who may only read', async () => {
+    const plain = await open(withBackground(BOARD_ROW))
+    expect(plain.store.getBackground()).toBe('dots')
+    expect(plain.store.canSetBackground()).toBe(false)
+    expect(await plain.store.setBackground('lines')).toBe(false)
+    expect(plain.store.getBackground()).toBe('dots')
+
+    const reader = await open(withBackground({ ...WITH_BG, background: 'lines', can_write: false }))
+    expect(reader.store.getBackground()).toBe('lines')
+    expect(reader.store.canSetBackground()).toBe(false)
+    const adapter = withBackground({ ...WITH_BG, can_write: false })
+    const r = await open(adapter)
+    expect(await r.store.setBackground('blank')).toBe(false)
+    expect(adapter.setBoardBackground).not.toHaveBeenCalled()
+    expect(r.notices()).toEqual([BOARD_WORDS.readOnly])
+    // Not loaded yet: nothing to choose on.
+    expect(createBoardStore({ adapter: withBackground(), boardId: BOARD }).canSetBackground()).toBe(false)
+  })
+})
+
 describe('boardStore: words', () => {
   it('a refusal\'s words, without the adapter\'s tag; a P0001\'s detail', () => {
     expect(wordsOf(new Error('[supabase] A board holds at most 5,000 elements.'))).toBe('A board holds at most 5,000 elements.')

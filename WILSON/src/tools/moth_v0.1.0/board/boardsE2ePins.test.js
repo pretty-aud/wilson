@@ -41,6 +41,16 @@ const PINS = [
   ["'[data-moth-board-people]", `${MOTH}/board/BoardPanel.jsx`, 'data-moth-board-people'],
   ["find('.cursor')", `${MOTH}/board/BoardCanvas.jsx`, "name: 'cursor'"],
   ['name: /set up later/i', 'src/cloud/auth/MfaSection.jsx', 'Set up later'],
+  // The board's background (0136): the button, the list, the choice, what the board's own wrapper says of it, and
+  // the event the database says it on.
+  ["'[data-moth-board-canvas]'", `${MOTH}/board/BoardCanvas.jsx`, 'data-moth-board-canvas'],
+  ["'data-background', 'lines'", `${MOTH}/board/BoardCanvas.jsx`, 'data-background={background}'],
+  ["'[data-board-background-toggle]'", `${MOTH}/board/BoardToolbar.jsx`, 'data-board-background-toggle'],
+  ['[data-board-background-picker] [data-background="lines"]', `${MOTH}/board/BoardToolbar.jsx`, 'data-board-background-picker'],
+  ['[data-background="lines"]', `${MOTH}/board/BoardToolbar.jsx`, 'data-background={kind}'],
+  ["'data-background', 'dots'", `${MOTH}/board/background.js`, "DEFAULT_BACKGROUND = 'dots'"],
+  ['wireB.got.board', 'src/tools/rabbit_v0.1.0/adapters/supabaseAdapter.js', "{ event: 'board' }"],
+  ['wireA.sent.board', 'supabase/migrations/0136_board_background.sql', "'board', public.board_topic(v_b.id, false), true"],
   // The channel's name as the server makes it, and the client's wire format the spec counts broadcasts in.
   ['realtime:moth:board:', 'supabase/migrations/0132_board_channels.sql', "'moth:board:'"],
   ['buf[0] === 3', 'node_modules/@supabase/realtime-js/dist/module/lib/serializer.js', 'this.KINDS = { userBroadcastPush: 3, userBroadcast: 4 }'],

@@ -4,7 +4,9 @@
 // shows a value when the selection shares it, blank when it does not. A change is a patch of style keys
 // (onStyle); a null value puts that key back to the kind's default. The shape itself changes through onShape, the
 // drawing order through onStack ('forward', 'backward', 'front', 'back'), and Delete removes the selection.
-import { ArrowDown, ArrowUp, BringToFront, SendToBack, Trash2, AlignLeft, AlignCenter, AlignRight } from 'lucide-react'
+// "Frame selection" (onFrame) is offered when something selected is not a connector, and "Remove the frame only"
+// (onFrameOnly) when every selected thing is a frame.
+import { ArrowDown, ArrowUp, BringToFront, SendToBack, Trash2, AlignLeft, AlignCenter, AlignRight, Frame, Ungroup } from 'lucide-react'
 import { IconButton, Select } from '../../../ui'
 import { SHAPES, SHAPE_LABELS, styleKeysFor, resolveStyle } from './shapes.js'
 
@@ -98,8 +100,11 @@ function Row({ label, children }) {
   )
 }
 
-export default function StylePanel({ elements = [], canWrite = false, inputMode = 'mouse', onStyle, onShape, onStack, onRemove }) {
+export default function StylePanel({ elements = [], canWrite = false, inputMode = 'mouse', onStyle, onShape, onStack, onRemove, onFrame, onFrameOnly }) {
   if (!canWrite || !elements.length) return null
+  // Frame selection needs something that is not a connector; "Remove the frame only" needs every one a frame.
+  const canFrame = elements.some((el) => el.kind !== 'connector')
+  const allFrames = elements.every((el) => el.kind === 'frame')
   const touch = inputMode === 'touch'
   const swatch = touch ? 30 : 20
   const size = touch ? 'md' : 'sm'
@@ -127,6 +132,24 @@ export default function StylePanel({ elements = [], canWrite = false, inputMode 
         boxShadow: '0 4px 16px rgba(0,0,0,0.12)', color: 'var(--color-ink, #1F2933)',
       }}
     >
+      {/* First, so what acts on the selection (its order, a frame around it, Delete) is in view however long the
+          rows of style below grow: on a small board the panel scrolls, and these were under its fold. */}
+      <Row label="Arrange">
+        <div style={{ display: 'flex', gap: 2 }}>
+          <IconButton size={size} Icon={ArrowUp} title="Bring forward" onClick={() => onStack?.('forward')} />
+          <IconButton size={size} Icon={ArrowDown} title="Send backward" onClick={() => onStack?.('backward')} />
+          <IconButton size={size} Icon={BringToFront} title="Bring to front" onClick={() => onStack?.('front')} />
+          <IconButton size={size} Icon={SendToBack} title="Send to back" onClick={() => onStack?.('back')} />
+          {canFrame && (
+            <IconButton size={size} Icon={Frame} title="Frame selection (Ctrl+G)" data-action="frame-selection" onClick={() => onFrame?.()} />
+          )}
+          {allFrames && (
+            <IconButton size={size} Icon={Ungroup} title="Remove the frame only (Ctrl+Shift+G)" data-action="frame-only" onClick={() => onFrameOnly?.()} />
+          )}
+          <span style={{ flex: 1 }} />
+          <IconButton size={size} Icon={Trash2} title="Delete" danger onClick={() => onRemove?.()} />
+        </div>
+      </Row>
       {allShapes && (
         <Row label="Shape">
           <Select
@@ -219,16 +242,6 @@ export default function StylePanel({ elements = [], canWrite = false, inputMode 
           <input type="range" aria-label="Corners" min="0" max="64" step="1" value={Math.min(64, corner ?? 0)} onChange={(e) => set('corner', Number(e.target.value))} />
         </Row>
       )}
-      <Row label="Arrange">
-        <div style={{ display: 'flex', gap: 2 }}>
-          <IconButton size={size} Icon={ArrowUp} title="Bring forward" onClick={() => onStack?.('forward')} />
-          <IconButton size={size} Icon={ArrowDown} title="Send backward" onClick={() => onStack?.('backward')} />
-          <IconButton size={size} Icon={BringToFront} title="Bring to front" onClick={() => onStack?.('front')} />
-          <IconButton size={size} Icon={SendToBack} title="Send to back" onClick={() => onStack?.('back')} />
-          <span style={{ flex: 1 }} />
-          <IconButton size={size} Icon={Trash2} title="Delete" danger onClick={() => onRemove?.()} />
-        </div>
-      </Row>
     </aside>
   )
 }

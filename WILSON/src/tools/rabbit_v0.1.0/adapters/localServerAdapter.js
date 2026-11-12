@@ -423,6 +423,7 @@ export function localServerAdapter() {
     async putBoardElements() { throw boardsLocalAbsent(); },
     async deleteBoardElements() { throw boardsLocalAbsent(); },
     async boardChannels() { throw boardsLocalAbsent(); },
+    async setBoardBackground() { throw boardsLocalAbsent(); },
     async claimSticky() { throw boardsLocalAbsent(); },
     async renewSticky() { throw boardsLocalAbsent(); },
     async releaseSticky() { throw boardsLocalAbsent(); },

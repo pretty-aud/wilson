@@ -12,6 +12,17 @@
 // redo, pan and zoom (wheel, the hand, Space, a middle button, one finger on empty board, two-finger pinch). The
 // targets grow the moment a finger or a pen touches (inputMode, as state/mothInputMode.js decides it).
 //
+// Frames group as Figma's do (frames.js works out what a frame holds from positions; nothing of it is stored): a
+// frame around the selection in one action (Ctrl or Cmd + G), a frame dragged or nudged carries what it holds, the
+// frame under a drag is outlined and what is dropped into it is stacked above it, stacking a frame takes its things
+// along, and deleting a frame removes what it holds in the same undo step ("Remove the frame only" leaves them).
+// Ctrl or Cmd + a drag that begins on a frame selects by rectangle, so things inside a frame can be picked.
+//
+// Under everything, the board's background (background.js: a dotted grid, blank, or a lined grid) on a layer of its
+// own that takes no presses. It is painted again only when the camera, the size of the view or the background
+// changes, never when an element does. The background is the board's (boardStore's getBackground), chosen in the
+// foot bar by whoever may change the board, where the server knows backgrounds.
+//
 // How it talks: to the board's state only through boardStore's API (add, update, remove, undo, redo; a drag, a
 // resize or a turn is drawn by the canvas itself while the hand is on it and saved once, update(..., { settled: true
 // }), when it lets go, never every frame); to the room through boardLive (sendPointer only while the pointer moves,
@@ -37,10 +48,12 @@ import {
   routeBounds, routePoints, toBoard as localToBoard, trimForHeads,
 } from './connectors.js'
 import {
-  boardToScreen, bottomZ, boundsOf, boxFrom, byStack, contains, fitCamera, grow, intersects, marqueeHits, nextZ,
+  boardToScreen, bottomZ, boundsOf, boxFrom, byStack, fitCamera, grow, intersects, marqueeHits, nextZ,
   normRotation, pickCandidates, pinchCamera, restack, screenToBoard, snapBox, snapPoint, strokeRecord, unionBounds,
   viewRect, zoomAt,
 } from './snapping.js'
+import { backgroundOf, paintBackground } from './background.js'
+import { frameBoxAround, frameHolds, frameTaking, heldBy, raisePlan } from './frames.js'
 import { TYPE, FONT_SANS } from '../../../ui/tokens.js'
 
 export const READ_ONLY_WORDS = 'You can look at this board but not change it.'
@@ -49,6 +62,7 @@ export const UNREADABLE_WORDS = 'The words on this sticky could not be read just
 export const NO_STICKY_WORDS = 'Stickies need this project in the cloud.'
 export const NO_FILES_WORDS = 'Pictures and files on a board need this project in the cloud.'
 export const DROP_WORDS = 'Drop to add to the board'
+export const FRAME_REMOVED_WORDS = 'The frame was removed with what it held. Undo brings it all back.'
 export const writingWords = (label) => `${label || 'Someone'} is writing on this sticky.`
 export const addingWords = (n) => (n === 1 ? 'Adding the file to the board…' : `Adding ${n} files to the board…`)
 
@@ -172,9 +186,30 @@ export function mountBoard(host, init) {
 
   const measure = () => ({ w: host.clientWidth || 800, h: host.clientHeight || 600 })
   let view = measure()
+  // Before the stage: adding the background's layer paints it at once, through the camera.
+  let cam = { x: view.w / 2, y: view.h / 2, scale: 1 }
   const stage = new Konva.Stage({ container: host, width: view.w, height: view.h })
-  const content = new Konva.Layer()
-  const overlay = new Konva.Layer()
+  // The background's layer, under the elements. Its one shape paints in screen pixels (the stage's camera is set
+  // aside for it), so its lines stay on whole pixels at every zoom.
+  let backgroundKind = backgroundOf(store.getBackground?.())
+  const backdrop = new Konva.Layer({ listening: false, name: 'backdrop' })
+  backdrop.add(new Konva.Shape({
+    name: 'board-background',
+    listening: false,
+    perfectDrawEnabled: false,
+    sceneFunc: (context) => {
+      const ctx = context?._context
+      if (!ctx) return
+      const ratio = context.canvas?.getPixelRatio?.() ?? 1
+      ctx.save()
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
+      paintBackground(ctx, { kind: backgroundKind, cam, view })
+      ctx.restore()
+    },
+  }))
+  const content = new Konva.Layer({ name: 'content' })
+  const overlay = new Konva.Layer({ name: 'overlay' })
+  stage.add(backdrop)
   stage.add(content)
   stage.add(overlay)
   const guides = new Konva.Group({ listening: false })
@@ -199,7 +234,6 @@ export function mountBoard(host, init) {
   overlay.add(handles)
   overlay.add(cursorsG)
 
-  let cam = { x: view.w / 2, y: view.h / 2, scale: 1 }
   let fitted = false
   const nodes = new Map() // id -> { group, el, sig, box, ends, labelAt }
   const overrides = new Map() // id -> geometry while a gesture runs
@@ -237,6 +271,7 @@ export function mountBoard(host, init) {
     drawCursors()
     if (editor) pushEditor()
     ui.onCamera?.({ ...cam })
+    backdrop.batchDraw()
     content.batchDraw()
     overlay.batchDraw()
   }
@@ -795,6 +830,12 @@ export function mountBoard(host, init) {
       lastDown = dbl ? null : { id, t: now }
       if (dbl) { beginEdit(id); return }
       let clickSelect = null
+      // Ctrl or Cmd on a frame: a drag selects by rectangle (things inside a frame can be picked); a press that does
+      // not move toggles the frame when it lets go.
+      if ((evt.metaKey || evt.ctrlKey) && !evt.shiftKey && all().get(id)?.kind === 'frame') {
+        begin({ type: 'marquee', start: p, screen, add: true, base: [...selected], toggle: id, moved: false }, evt)
+        return
+      }
       if (evt.shiftKey || evt.metaKey || evt.ctrlKey) {
         const next = new Set(selected)
         if (next.has(id)) next.delete(id)
@@ -813,7 +854,10 @@ export function mountBoard(host, init) {
   }
 
   const tiedEnds = (el) => (el.from_id && all().has(el.from_id)) || (el.to_id && all().has(el.to_id))
-  function startMove(p, screen, evt, clickSelect) {
+  const framesIn = (ids, els = all()) => [...ids].filter((id) => els.get(id)?.kind === 'frame')
+  // What a move of the selection moves: the selection (a connector tied to an element follows its ends instead),
+  // and what its frames hold. Frames first, so the room hears them first while the drag is capped.
+  function carried() {
     const els = all()
     const moving = new Set()
     for (const id of selected) {
@@ -821,22 +865,61 @@ export function mountBoard(host, init) {
       if (!el || (el.kind === 'connector' && tiedEnds(el))) continue
       moving.add(id)
     }
-    // A frame carries what lies wholly inside it.
-    for (const id of [...moving]) {
-      const el = els.get(id)
-      if (el?.kind !== 'frame') continue
-      const fb = boundsOf(el)
-      for (const [oid, o] of els) {
-        if (oid === id || moving.has(oid) || o.kind === 'connector') continue
-        if (contains(fb, boundsOf(o))) moving.add(oid)
-      }
-    }
+    for (const id of heldBy(els.values(), framesIn(moving, els))) moving.add(id)
+    const frames = [...moving].filter((id) => els.get(id)?.kind === 'frame')
+    return [...frames, ...[...moving].filter((id) => els.get(id)?.kind !== 'frame')]
+  }
+  function startMove(p, screen, evt, clickSelect) {
+    const els = all()
+    const moving = new Set(carried())
     if (!moving.size) return
     const starts = new Map([...moving].map((id) => { const g = geom(id); return [id, { x: num(g.x), y: num(g.y) }] }))
     const box0 = unionBounds([...moving].map((id) => boxOf(id)))
     const candidates = pickCandidates(snapEntries(moving), moving, viewRect(cam, view))
     const touching = [...connectorsTouching(els.values(), moving)].filter((id) => !moving.has(id))
-    begin({ type: 'move', start: p, screen, starts, box0, candidates, touching, moved: false, clickSelect }, evt)
+    begin({ type: 'move', start: p, screen, starts, moving, box0, candidates, touching, moved: false, clickSelect, frame: null }, evt)
+  }
+
+  // The frame under a drag, outlined in the select colour on the overlay; let go of with the drag (finish clears
+  // the preview), or when the pointer leaves every frame.
+  function outlineFrame(a, frame) {
+    const id = frame?.id ?? null
+    if (id === a.frame) return
+    a.frame = id
+    preview.find('.frame-target').forEach((n) => n.destroy())
+    if (!frame) return
+    const b = boundsOf(frame)
+    preview.add(new Konva.Rect({
+      x: b.x, y: b.y, width: b.w, height: b.h, stroke: SELECT_COLOUR, strokeWidth: 2, strokeScaleEnabled: false,
+      name: 'frame-target', listening: false,
+    }))
+  }
+
+  // A frame just added at the top: what it holds (and any `also`) re-stacked above it, in their own order. Called
+  // in the same run as the add, so it is the same undo step. `made` stands in for the frame until the store has it.
+  function raiseAbove(frameId, made, also = []) {
+    const list = [...all().values()]
+    if (!all().has(frameId)) list.push({ ...made, id: frameId })
+    const held = heldBy(list, [frameId])
+    for (const id of also) if (id !== frameId) held.add(id)
+    for (const p of raisePlan(list, frameId, held)) store.update(p.id, { z: p.z }, { settled: true })
+  }
+
+  // At a drop: each moved thing a frame now holds but that is stacked below that frame goes above it, with what
+  // it holds itself, in their own order. Called in the same run as the move, so it is the same undo step.
+  function raiseIntoFrames(movedIds) {
+    const list = [...all().values()]
+    const frames = list.filter((el) => el.kind === 'frame')
+    if (!frames.length) return
+    const below = new Set()
+    for (const id of movedIds) {
+      const el = all().get(id)
+      if (!el || el.kind === 'connector') continue
+      if (frames.some((f) => frameHolds(f, el) && byStack(el, f) < 0)) below.add(id)
+    }
+    if (!below.size) return
+    for (const id of heldBy(list, framesIn(below))) below.add(id)
+    for (const p of raisePlan(list, null, below)) store.update(p.id, { z: p.z }, { settled: true })
   }
 
   function step(evt) {
@@ -847,6 +930,10 @@ export function mountBoard(host, init) {
       return
     }
     if (a.type === 'marquee') {
+      if (a.toggle && !a.moved) {
+        if (Math.hypot(num(evt.clientX) - a.screen.x, num(evt.clientY) - a.screen.y) < sizes.slop) return
+        a.moved = true
+      }
       const r = boxFrom(a.start, p)
       marquee.setAttrs({ x: r.x, y: r.y, width: r.w, height: r.h, visible: true })
       overlay.batchDraw()
@@ -903,6 +990,9 @@ export function mountBoard(host, init) {
     }
     for (const cid of a.touching) { const rec = nodes.get(cid); if (rec) build(rec) }
     drawGuides(found)
+    // What is outlined is the frame the drop would put a selected thing in (by the thing's middle, as frames hold
+    // things), not the frame the pointer happens to be over: a thing held by its corner says the truth.
+    outlineFrame(a, frameTaking(all().values(), [...selected].filter((id) => a.starts.has(id)).map((id) => geom(id)), a.moving))
     if (tr.nodes().length) tr.forceUpdate?.()
     drawHandles()
     let sent = 0
@@ -928,11 +1018,20 @@ export function mountBoard(host, init) {
       const done = [...a.starts.keys()].map((id) => [id, overrides.get(id)])
       for (const [id] of done) overrides.delete(id)
       for (const [id, o] of done) if (o) store.update(id, { x: o.x, y: o.y }, { settled: true })
+      if (canWrite) raiseIntoFrames(done.map(([id]) => id))
       finish()
       reconcileNow()
       return
     }
     if (a.type === 'marquee') {
+      if (a.toggle && !a.moved) {
+        finish()
+        const next = new Set(a.base)
+        if (next.has(a.toggle)) next.delete(a.toggle)
+        else next.add(a.toggle)
+        setSelection([...next])
+        return
+      }
       const r = boxFrom(a.start, p)
       finish()
       const entries = [...nodes].filter(([, rec]) => rec.group.visible()).map(([id, rec]) => ({ id, box: rec.box ?? boundsOf(rec.el) }))
@@ -1032,9 +1131,14 @@ export function mountBoard(host, init) {
       box = { x: round2(r.x), y: round2(r.y), w: round2(Math.max(4, r.w)), h: round2(Math.max(4, r.h)) }
       if (kind === 'shape' && keepsRatio(shapeKind)) { const s = Math.max(box.w, box.h); box.w = s; box.h = s }
     }
-    const id = kind === 'frame'
-      ? store.add({ kind: 'frame', ...box, rotation: 0, z: bottomZ(els), style: { ...NEW_STYLE.frame }, body: 'Frame' })
-      : store.add({ kind: 'shape', shape: shapeKind, ...box, rotation: 0, z: nextZ(els), style: { ...NEW_STYLE.shape } })
+    let id
+    if (kind === 'frame') {
+      // A frame goes beneath everything, unless it would lie hidden under another frame's fill: then it takes the
+      // top, and what it holds is raised above it.
+      const over = els.some((el) => el.kind === 'frame' && intersects(boundsOf(el), box))
+      id = store.add({ kind: 'frame', ...box, rotation: 0, z: over ? nextZ(els) : bottomZ(els), style: { ...NEW_STYLE.frame }, body: 'Frame' })
+      if (over && id) raiseAbove(id, { kind: 'frame', ...box, rotation: 0, z: nextZ(els) })
+    } else id = store.add({ kind: 'shape', shape: shapeKind, ...box, rotation: 0, z: nextZ(els), style: { ...NEW_STYLE.shape } })
     setTool('select')
     reconcileNow()
     setSelection([id])
@@ -1440,12 +1544,56 @@ export function mountBoard(host, init) {
   }
   function stack(dir) {
     if (!canWrite || !selected.size) return
-    for (const p of restack([...all().values()], [...selected], dir)) store.update(p.id, { z: p.z }, { settled: true })
+    // A frame takes what it holds along, so it never lands on top of its own things.
+    const els = all()
+    const ids = new Set(selected)
+    for (const id of heldBy(els.values(), framesIn(selected, els))) ids.add(id)
+    for (const p of restack([...els.values()], [...ids], dir)) store.update(p.id, { z: p.z }, { settled: true })
     reconcileNow()
+  }
+  // Frame selection: a frame named "Frame" around the selected things (not connectors), at the top, with them and
+  // what they hold re-stacked above it; the new frame becomes the selection. One run of the code: one undo step.
+  const canFrame = () => canWrite && [...selected].some((id) => { const el = all().get(id); return !!el && el.kind !== 'connector' })
+  function frameSelection() {
+    if (!canFrame()) return null
+    const els = all()
+    const picked = [...selected].filter((id) => { const el = els.get(id); return !!el && el.kind !== 'connector' })
+    const b = frameBoxAround(picked.map((id) => boundsOf(els.get(id))))
+    if (!b) return null
+    const box = { x: round2(b.x), y: round2(b.y), w: round2(b.w), h: round2(b.h) }
+    const z = nextZ(els.values())
+    const also = [...picked, ...heldBy(els.values(), framesIn(picked, els))]
+    const made = { kind: 'frame', ...box, rotation: 0, z, style: { ...NEW_STYLE.frame }, body: 'Frame' }
+    const id = store.add(made)
+    if (!id) return null
+    raiseAbove(id, made, also)
+    reconcileNow()
+    setSelection([id])
+    return id
   }
   function removeSelection() {
     if (!canWrite || !selected.size) return
+    // A frame goes with what it holds (Figma's), in the same undo step, and the board says so once.
+    const els0 = all()
     const gone = new Set(selected)
+    let withFrame = false
+    for (const id of heldBy(els0.values(), framesIn(selected, els0))) { if (!gone.has(id)) withFrame = true; gone.add(id) }
+    removeIds(gone)
+    if (withFrame) say(FRAME_REMOVED_WORDS)
+  }
+  // Remove the frame only (Figma's ungroup): the selected frames go, what they held stays and becomes the selection.
+  function removeFrameOnly() {
+    if (!canWrite) return
+    const els = all()
+    const frames = framesIn(selected, els)
+    if (!frames.length) return
+    const held = heldBy(els.values(), frames)
+    const inner = heldBy(els.values(), framesIn(held, els))
+    const left = [...held].filter((id) => !inner.has(id))
+    removeIds(new Set(frames))
+    setSelection(left)
+  }
+  function removeIds(gone) {
     const els = all()
     // A connector tied to what goes keeps its end where it was drawn (the server frees that end).
     for (const cid of connectorsTouching(els.values(), gone)) {
@@ -1465,10 +1613,10 @@ export function mountBoard(host, init) {
   function nudge(dx, dy) {
     if (!canWrite) return
     const els = all()
-    for (const id of selected) {
+    // A frame carries what it holds, as a drag does.
+    for (const id of carried()) {
       const el = els.get(id)
-      if (!el || (el.kind === 'connector' && tiedEnds(el))) continue
-      store.update(id, { x: round2(num(el.x) + dx), y: round2(num(el.y) + dy) }, { settled: true })
+      if (el) store.update(id, { x: round2(num(el.x) + dx), y: round2(num(el.y) + dy) }, { settled: true })
     }
     reconcileNow()
   }
@@ -1493,6 +1641,13 @@ export function mountBoard(host, init) {
     if (mod && (k === 'y' || k === 'Y')) { if (canWrite) { store.redo(); reconcileNow() } return true }
     if (mod && (k === 'a' || k === 'A')) { setSelection([...nodes.keys()]); return true }
     if ((k === 'Delete' || k === 'Backspace') && selected.size) { removeSelection(); return true }
+    // Ctrl or Cmd + G (and Figma's Ctrl or Cmd + Alt + G) frames the selection; with Shift it removes the frame only.
+    // Taken always, so the browser's own Ctrl+G never runs over the board.
+    if (mod && (k === 'g' || k === 'G' || e.code === 'KeyG')) {
+      if (e.shiftKey) removeFrameOnly()
+      else frameSelection()
+      return true
+    }
     if (mod && (k === ']' || k === '}')) { stack(e.shiftKey ? 'front' : 'forward'); return true }
     if (mod && (k === '[' || k === '{')) { stack(e.shiftKey ? 'back' : 'backward'); return true }
     if (mod && (k === '=' || k === '+')) { zoomBy(1.25); return true }
@@ -1630,6 +1785,8 @@ export function mountBoard(host, init) {
   const storeOff = store.subscribe?.((evt) => {
     if (evt && evt.type === 'notice') { say(evt.words); return }
     if (evt && evt.type === 'renamed') { renamed(evt.from, evt.to); return }
+    // The board's own fields: the background is the component's to hand over (setBackground); no element moved.
+    if (evt && evt.type === 'board') return
     scheduleReconcile()
   })
 
@@ -1694,6 +1851,7 @@ export function mountBoard(host, init) {
     view = next
     stage.size({ width: view.w, height: view.h })
     cull()
+    backdrop.batchDraw()
     content.batchDraw()
     overlay.batchDraw()
   }
@@ -1711,6 +1869,14 @@ export function mountBoard(host, init) {
     tool: () => tool,
     setTool,
     setShape(shape) { if (shape) shapeKind = shape },
+    background: () => backgroundKind,
+    // The background drawn: painted again only when it is another.
+    setBackground(kind) {
+      const next = backgroundOf(kind)
+      if (next === backgroundKind || destroyed) return
+      backgroundKind = next
+      backdrop.batchDraw()
+    },
     setLive: attachLive,
     setTurns: attachTurns,
     setAdapter(next) { adapter = next ?? null },
@@ -1732,6 +1898,8 @@ export function mountBoard(host, init) {
     applyShape,
     stack,
     removeSelection,
+    frameSelection,
+    removeFrameOnly,
     undo() { if (canWrite) { store.undo(); reconcileNow() } },
     redo() { if (canWrite) { store.redo(); reconcileNow() } },
     beginEdit,
@@ -1846,6 +2014,8 @@ export default function BoardCanvas({ store, live = null, turns = null, adapter 
   const [busy, setBusy] = useState(false)
   const [embedOpen, setEmbedOpen] = useState(false)
   const [dropOn, setDropOn] = useState(false)
+  const [background, setBackground] = useState(() => backgroundOf(store?.getBackground?.()))
+  const [canSetBackground, setCanSetBackground] = useState(() => !!store?.canSetBackground?.())
   const fileInputRef = useRef(null)
   const initRef = useRef(null)
   initRef.current = { live, turns, adapter, writable, inputMode }
@@ -1882,6 +2052,20 @@ export default function BoardCanvas({ store, live = null, turns = null, adapter 
     ctlRef.current = ctl
     return () => { ctl.destroy(); ctlRef.current = null }
   }, [store])
+
+  // The board's background, and whether it may be chosen here: read again when the store says the board changed or
+  // was read.
+  useEffect(() => {
+    if (!store) return undefined
+    const read = () => {
+      setBackground(backgroundOf(store.getBackground?.()))
+      setCanSetBackground(!!store.canSetBackground?.())
+    }
+    read()
+    const off = store.subscribe?.((evt) => { if (evt?.type === 'board' || evt?.loaded) read() })
+    return () => { if (typeof off === 'function') off() }
+  }, [store])
+  useEffect(() => { ctlRef.current?.setBackground(background) }, [background])
 
   useEffect(() => { ctlRef.current?.setLive(live) }, [live])
   useEffect(() => { ctlRef.current?.setTurns(turns) }, [turns])
@@ -1948,6 +2132,7 @@ export default function BoardCanvas({ store, live = null, turns = null, adapter 
       data-moth-board-canvas
       data-input={inputMode}
       data-tool={tool}
+      data-background={background}
       data-dropping={dropOn ? '' : undefined}
       role="region"
       aria-label="Board"
@@ -2002,6 +2187,9 @@ export default function BoardCanvas({ store, live = null, turns = null, adapter 
         onPickFiles={pickFiles}
         onEmbed={() => setEmbedOpen((v) => !v)}
         embedOpen={embedOpen}
+        background={background}
+        canSetBackground={writable && canSetBackground}
+        onBackground={(kind) => { store?.setBackground?.(kind) }}
       />
       {embedOpen && writable && (
         <EmbedPicker
@@ -2021,6 +2209,8 @@ export default function BoardCanvas({ store, live = null, turns = null, adapter 
         onShape={(s) => ctlRef.current?.applyShape(s)}
         onStack={(dir) => ctlRef.current?.stack(dir)}
         onRemove={() => ctlRef.current?.removeSelection()}
+        onFrame={() => ctlRef.current?.frameSelection()}
+        onFrameOnly={() => ctlRef.current?.removeFrameOnly()}
       />
       {editor && (
         <WordsEditor

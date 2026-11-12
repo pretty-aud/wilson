@@ -17,6 +17,13 @@
 //
 // A refusal comes back in the server's words and is said; what it refused is read again so the drawing matches the
 // server. A save that could not reach the server at all is kept and tried again.
+//
+// The board's background (0136) is the board's, not an element's, and not an undo step. A choice is drawn at once
+// and saved, one save at a time, so the latest choice is the one the server keeps. Every word the server says of it
+// carries a version that only goes up, and the highest heard is what is drawn. Refused, or not able to reach
+// the server, the earlier one is drawn again and said. A server whose board has no `background` key does not know
+// backgrounds: the dotted grid is drawn and no choice is offered (canSetBackground).
+import { BACKGROUNDS, backgroundOf } from './background.js'
 
 const DEBOUNCE_MS = 150
 const MAX_WAIT_MS = 1000
@@ -60,12 +67,17 @@ export function isRefusal(err) {
 const same = (a, b) => a === b
   || (a != null && b != null && typeof a === 'object' && typeof b === 'object' && JSON.stringify(a) === JSON.stringify(b))
 const newId = () => globalThis.crypto.randomUUID()
+// A background version as the server sends it (a bigint in JSON): a whole number from 0, else none.
+const versionNumber = (v) => {
+  const n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v
+  return Number.isSafeInteger(n) && n >= 0 ? n : null
+}
 const versionOf = (el) => Number(el?.version ?? 0)
 
 /**
  * @param {{ adapter: object, boardId: string, now?: () => number, delay?: number }} options
- * Subscribers hear { type: 'change', ids }, { type: 'notice', words } and { type: 'renamed', from, to } (an id the
- * server gave instead of the one asked for).
+ * Subscribers hear { type: 'change', ids }, { type: 'notice', words }, { type: 'renamed', from, to } (an id the
+ * server gave instead of the one asked for) and { type: 'board' } (the background drawn changed).
  */
 export function createBoardStore({ adapter, boardId, now = Date.now, delay = DEBOUNCE_MS } = {}) {
   let board = null
@@ -98,6 +110,10 @@ export function createBoardStore({ adapter, boardId, now = Date.now, delay = DEB
   // dispose({ save: false }): what was waiting is dropped, and nothing more goes to the adapter, not even what a
   // save already on its way would have sent or read next.
   let dropped = false
+  // The background: the latest choice made here and not yet answered, and the save on its way. What the server last
+  // said of it is held in `board` as the pair (background, background_version).
+  let bgWanted = null
+  let bgSaving = null
 
   const emit = (event) => {
     if (closing) return
@@ -723,9 +739,87 @@ export function createBoardStore({ adapter, boardId, now = Date.now, delay = DEB
     redraw([el.id])
   }
 
+  // ── The background ────────────────────────────────────────────────────────────────────────────────────────────
+  /** The background drawn: the latest choice on its way, else the server's, else the dotted grid. */
+  function getBackground() {
+    return backgroundOf(bgWanted ?? board?.background)
+  }
+  /** Whether this person may choose it here: a board they may change, on a server that knows backgrounds. */
+  function canSetBackground() {
+    return !closing && !!board && board.can_write !== false && typeof board.background === 'string'
+      && typeof adapter?.setBoardBackground === 'function'
+  }
+  // Tells listeners when what is drawn, or whether it may be chosen, moved.
+  function backgroundTurn(fn) {
+    const shown = getBackground()
+    const could = canSetBackground()
+    fn()
+    if (getBackground() !== shown || canSetBackground() !== could) emit({ type: 'board' })
+  }
+  // The server's word on it (a save's answer, the channel's message, a read), each carrying the board's background
+  // version (0136), a number that only goes up. A word is taken only when its version is higher than the one held:
+  // the three reach this window on different roads, in no fixed order, and the highest is the latest.
+  function heardBackground(kind, version, { channel = false } = {}) {
+    if (!board || !BACKGROUNDS.includes(kind)) return
+    const held = versionNumber(board.background_version)
+    const v = versionNumber(version)
+    if (v == null) {
+      // For a server that sends no version, which should not exist: a save's answer is taken as before, a channel
+      // message only while nothing with a version is held.
+      if (channel && held != null) return
+      board = { ...board, background: kind }
+      return
+    }
+    if (held != null && v <= held) return
+    board = { ...board, background: kind, background_version: v }
+  }
+
+  async function saveBackground() {
+    while (bgWanted != null) {
+      if (closing || dropped) return false
+      const kind = bgWanted
+      let answer
+      try {
+        answer = await adapter.setBoardBackground(boardId, kind)
+      } catch (err) {
+        // A later choice is waiting: it is sent next, and its answer decides.
+        if (bgWanted !== kind) continue
+        backgroundTurn(() => { bgWanted = null })
+        say(isRefusal(err) ? wordsOf(err, BOARD_WORDS.refused) : BOARD_WORDS.refused)
+        return false
+      }
+      // Answered: the choice is no longer on its way, and what is drawn is the highest word heard (someone else's
+      // later change, heard first, stays).
+      backgroundTurn(() => {
+        heardBackground(BACKGROUNDS.includes(answer?.background) ? answer.background : kind, answer?.version)
+        if (bgWanted === kind) bgWanted = null
+      })
+    }
+    return true
+  }
+
+  /** Choose the board's background: drawn at once, then saved. Answers whether the latest choice was saved. */
+  function setBackground(kind) {
+    if (!BACKGROUNDS.includes(kind)) return Promise.resolve(false)
+    if (board?.can_write === false) { writable(); return Promise.resolve(false) }
+    if (!canSetBackground()) return Promise.resolve(false)
+    if (bgWanted == null && kind === board.background) return Promise.resolve(true)
+    backgroundTurn(() => { bgWanted = kind })
+    if (!bgSaving) bgSaving = saveBackground().finally(() => { bgSaving = null })
+    return bgSaving
+  }
+
+  /** A `board` message from the board's channel: { board, op: 'background', background, version }. */
+  function applyBoard(payload) {
+    if (!payload || closing || (payload.board && payload.board !== boardId)) return
+    if (payload.op != null && payload.op !== 'background') return
+    if (!BACKGROUNDS.includes(payload.background)) return
+    backgroundTurn(() => heardBackground(payload.background, payload.version, { channel: true }))
+  }
+
   // ── Loading ───────────────────────────────────────────────────────────────────────────────────────────────────
   // A second load (after the channels were renamed) keeps this window's unsaved changes and anything newer it heard
-  // while the read was on its way.
+  // while the read was on its way, a background chosen here and still on its way among them.
   async function load() {
     const marker = { puts: new Set(), removes: new Set() }
     loading = marker
@@ -736,7 +830,17 @@ export function createBoardStore({ adapter, boardId, now = Date.now, delay = DEB
       if (loading === marker) loading = null
     }
     if (closing) return
-    board = res?.board ?? null
+    const shown = getBackground()
+    const could = canSetBackground()
+    let next = res?.board ?? null
+    // The background by the one rule: a read whose version is not higher than the one held keeps the pair held (the
+    // rest of the read's board is taken). A read with no version is taken as before.
+    const held = versionNumber(board?.background_version)
+    const read = versionNumber(next?.background_version)
+    if (next && held != null && read != null && read <= held && typeof board.background === 'string') {
+      next = { ...next, background: board.background, background_version: board.background_version }
+    }
+    board = next
     const fresh = new Map((Array.isArray(res?.elements) ? res.elements : []).filter((el) => el?.id).map((el) => [el.id, el]))
     for (const id of new Set([...base.keys(), ...fresh.keys()])) {
       const f = fresh.get(id)
@@ -751,6 +855,7 @@ export function createBoardStore({ adapter, boardId, now = Date.now, delay = DEB
     drawn = new Map()
     for (const id of ids) { const el = compute(id); if (el) drawn.set(id, el) }
     emit({ type: 'change', ids: [...ids], loaded: true })
+    if (getBackground() !== shown || canSetBackground() !== could) emit({ type: 'board' })
   }
 
   async function flush() {
@@ -794,6 +899,10 @@ export function createBoardStore({ adapter, boardId, now = Date.now, delay = DEB
     canUndo: () => undoStack.length > 0,
     canRedo: () => redoStack.length > 0,
     applyRemote,
+    getBackground,
+    canSetBackground,
+    setBackground,
+    applyBoard,
     preview,
     adopt,
     flush,

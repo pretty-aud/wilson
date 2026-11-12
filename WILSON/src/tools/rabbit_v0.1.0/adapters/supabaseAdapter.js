@@ -6835,6 +6835,14 @@ export function supabaseAdapter() {
       const client = await requireClient();
       return unwrapBoard(await client.rpc('board_channels', { p_board: boardId }), 'board_channels');
     },
+    // A board's background (0136): 'dots' | 'blank' | 'lines', answered { board_id, background, version, changed }
+    // (the version goes up by one with each change; a window keeps the highest it hears). board_read carries the
+    // pair as board.background and board.background_version where the server has 0136 (the boards table is never
+    // asked for them: a server without the columns would refuse the whole read).
+    async setBoardBackground(boardId, background) {
+      const client = await requireClient();
+      return unwrapBoard(await client.rpc('board_set_background', { p_board: boardId, p_background: background }), 'board_set_background');
+    },
 
     // A sticky's turn (0133): { granted, generation?, holder_label?, ends_in_ms }, { ok, ends_in_ms }, a boolean, and
     // [{ element, holder_label, mine, ends_in_ms }].
@@ -6962,9 +6970,10 @@ export function supabaseAdapter() {
     },
 
     // A board's two private channels (0132), joined as projectTopicName's are: `topic` is the database's (elements,
-    // sticky and AUDIENCE; a client never sends there), `live_topic` is the people's (cursors, drags, who is here;
-    // broadcast with self off). AUDIENCE comes on both and is handed on once: fetch boardChannels again and rejoin.
-    // handlers: onElements(payload), onSticky(payload), onAudience(payload), onLive(event, payload),
+    // sticky, board (0136) and AUDIENCE; a client never sends there), `live_topic` is the people's (cursors, drags,
+    // who is here; broadcast with self off). AUDIENCE comes on both and is handed on once: fetch boardChannels again
+    // and rejoin.
+    // handlers: onElements(payload), onSticky(payload), onBoard(payload), onAudience(payload), onLive(event, payload),
     // onPresence([{ key, ...meta }]), onStatus({ channel: 'topic' | 'live', status }). sendLive answers whether it
     // went (nothing goes before the live channel is joined: a cursor is worth nothing late).
     openBoardChannels(names, handlers = {}) {
@@ -7011,6 +7020,7 @@ export function supabaseAdapter() {
         db = client.channel(topic, { config: { private: true } });
         db.on('broadcast', { event: 'elements' }, (msg) => call('onElements', msg?.payload ?? null));
         db.on('broadcast', { event: 'sticky' }, (msg) => call('onSticky', msg?.payload ?? null));
+        db.on('broadcast', { event: 'board' }, (msg) => call('onBoard', msg?.payload ?? null));
         db.on('broadcast', { event: 'AUDIENCE' }, (msg) => audience(msg?.payload));
         db.subscribe((status) => call('onStatus', { channel: 'topic', status }));
         live = client.channel(liveTopic, {

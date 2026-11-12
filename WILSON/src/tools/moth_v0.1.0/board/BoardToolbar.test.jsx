@@ -137,6 +137,91 @@ describe('BoardToolbar', () => {
     expect(new Set(keys).size).toBe(keys.length)
   })
 
+  describe('the background', () => {
+    const bg = (more = {}) => mount({ canSetBackground: true, background: 'dots', onBackground: vi.fn(), ...more })
+    const list = () => screen.queryByRole('group', { name: 'Board background' })
+    const toggle = () => document.querySelector('[data-board-background-toggle]')
+
+    it('"Background" in the foot bar opens the three choices, each a drawn swatch and its name, the current one pressed', () => {
+      bg({ background: 'lines' })
+      expect(toggle().closest('[data-moth-board-view]')).toBeTruthy()
+      expect(toggle().getAttribute('title')).toBe('Background')
+      expect(toggle().getAttribute('aria-expanded')).toBe('false')
+      expect(list()).toBeNull()
+      fireEvent.click(toggle())
+      expect(toggle().getAttribute('aria-expanded')).toBe('true')
+      const picker = list()
+      expect(picker.hasAttribute('data-board-background-picker')).toBe(true)
+      const choices = [...picker.querySelectorAll('[data-background]')]
+      expect(choices.map((c) => c.getAttribute('data-background'))).toEqual(['dots', 'blank', 'lines'])
+      expect(choices.map((c) => c.textContent)).toEqual(['Dotted grid', 'Blank', 'Lined grid'])
+      expect(choices.map((c) => c.getAttribute('aria-pressed'))).toEqual(['false', 'false', 'true'])
+      // Each swatch draws its own pattern: dots, nothing, lines.
+      expect(choices[0].querySelectorAll('svg[data-swatch="dots"] circle').length).toBeGreaterThan(0)
+      expect(choices[1].querySelectorAll('svg[data-swatch="blank"] circle, svg[data-swatch="blank"] line')).toHaveLength(0)
+      expect(choices[2].querySelectorAll('svg[data-swatch="lines"] line').length).toBeGreaterThan(0)
+    })
+
+    it('a choice is handed on and closes the list; the current one again asks nothing', () => {
+      const { props } = bg()
+      fireEvent.click(toggle())
+      fireEvent.click(screen.getByText('Lined grid'))
+      expect(props.onBackground).toHaveBeenCalledWith('lines')
+      expect(list()).toBeNull()
+      fireEvent.click(toggle())
+      fireEvent.click(screen.getByText('Dotted grid'))
+      expect(props.onBackground).toHaveBeenCalledTimes(1)
+      expect(list()).toBeNull()
+    })
+
+    it('takes Escape first while open, before anything under it, and lets go when it closes', () => {
+      const escape = fakeEscape()
+      const under = vi.fn(() => true)
+      escape.push(under)
+      bg({ escape })
+      fireEvent.click(toggle())
+      expect(escape.stack).toHaveLength(2)
+      act(() => { expect(escape.press()).toBe(true) })
+      expect(list()).toBeNull()
+      expect(under).not.toHaveBeenCalled()
+      expect(escape.stack).toHaveLength(1)
+    })
+
+    it('a press elsewhere closes it; a press on its own button only toggles it', () => {
+      bg()
+      fireEvent.click(toggle())
+      fireEvent.pointerDown(toggle())
+      expect(list()).toBeTruthy()
+      fireEvent.pointerDown(document.body)
+      expect(list()).toBeNull()
+    })
+
+    it('not offered to a person who may only read, nor where the server does not know backgrounds', () => {
+      const { again } = bg({ canWrite: false })
+      expect(toggle()).toBeNull()
+      again({ canWrite: true, canSetBackground: false })
+      expect(toggle()).toBeNull()
+      again({ canWrite: true, canSetBackground: true })
+      fireEvent.click(toggle())
+      expect(list()).toBeTruthy()
+      // Taken away while open: gone, and not open again when offered again.
+      again({ canWrite: false, canSetBackground: true })
+      expect(list()).toBeNull()
+      again({ canWrite: true, canSetBackground: true })
+      expect(list()).toBeNull()
+    })
+
+    it('larger targets under a finger or a pen', () => {
+      const { again } = bg({ inputMode: 'mouse' })
+      expect(toggle().getAttribute('data-size')).toBe('sm')
+      fireEvent.click(toggle())
+      expect(list().querySelector('[data-background]').getAttribute('data-size')).toBe('sm')
+      again({ inputMode: 'touch' })
+      expect(toggle().getAttribute('data-size')).toBe('md')
+      expect(list().querySelector('[data-background]').getAttribute('data-size')).toBe('md')
+    })
+  })
+
   it('larger targets under a finger or a pen', () => {
     const { again } = mount({ inputMode: 'mouse' })
     expect(screen.getByTitle('Pen (P)').getAttribute('data-size')).toBe('sm')
@@ -149,7 +234,7 @@ describe('BoardToolbar', () => {
 describe('🚨 Konva stays in the board\'s own chunk', () => {
   const dir = path.join(process.cwd(), 'src', 'tools', 'moth_v0.1.0', 'board')
   const KONVA = /(?:from\s*|import\s*\(?\s*)['"]konva(?:\/[^'"]*)?['"]/
-  const mine = ['shapes.js', 'connectors.js', 'snapping.js', 'BoardToolbar.jsx', 'StylePanel.jsx', 'EmbedPicker.jsx', 'BoardCanvas.jsx']
+  const mine = ['shapes.js', 'connectors.js', 'snapping.js', 'background.js', 'BoardToolbar.jsx', 'StylePanel.jsx', 'EmbedPicker.jsx', 'BoardCanvas.jsx']
   it('only BoardCanvas.jsx imports Konva; the geometry and the panels stay free of it', () => {
     const importing = mine.filter((f) => KONVA.test(fs.readFileSync(path.join(dir, f), 'utf8')))
     expect(importing).toEqual(['BoardCanvas.jsx'])

@@ -46,7 +46,7 @@ describe('boardLive: joining', () => {
     const { adapter, conn } = await joined()
     expect(adapter.boardChannels).toHaveBeenCalledWith(BOARD)
     expect(conn().topics).toEqual({ topic: adapter.names.topic, live_topic: adapter.names.live_topic })
-    expect(Object.keys(conn().handlers).sort()).toEqual(['onAudience', 'onElements', 'onLive', 'onPresence', 'onStatus', 'onSticky'])
+    expect(Object.keys(conn().handlers).sort()).toEqual(['onAudience', 'onBoard', 'onElements', 'onLive', 'onPresence', 'onStatus', 'onSticky'])
     expect(conn().track).toHaveBeenCalledWith({ user_id: 'u-mara', label: 'Mara Okonkwo', colour: personColour('u-mara') })
 
     const other = fakeAdapter()
@@ -140,6 +140,30 @@ describe('boardLive: receiving', () => {
     expect(store.applyRemote).toHaveBeenCalledWith(put)
     expect(turns.applyMessage).toHaveBeenCalledWith(lock)
     expect(live.stats()).toMatchObject({ received: 3, receivedByEvent: { elements: 2, sticky: 1 } })
+  })
+
+  it('a change of the board\'s background goes to the store, counted as board, only for this board and while joined', async () => {
+    const { store, live, conn, adapter } = await joined()
+    store.applyBoard = vi.fn()
+    const msg = { board: BOARD, op: 'background', background: 'lines' }
+    conn().handlers.onBoard(msg)
+    conn().handlers.onBoard({ board: 'another', op: 'background', background: 'blank' })
+    expect(store.applyBoard).toHaveBeenCalledTimes(1)
+    expect(store.applyBoard).toHaveBeenCalledWith(msg)
+    expect(live.stats()).toMatchObject({ received: 2, receivedByEvent: { board: 2 } })
+    // A connection this window has left behind (renamed channels) is not heard.
+    const old = conn().handlers
+    adapter.names = { ...adapter.names, topic: `moth:board:${BOARD}:0.1`, live_topic: `moth:board-live:${BOARD}:0.1` }
+    old.onAudience({ board: BOARD, op: 'audience' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(adapter.opened).toHaveLength(2)
+    old.onBoard(msg)
+    expect(store.applyBoard).toHaveBeenCalledTimes(1)
+    conn().handlers.onBoard(msg)
+    expect(store.applyBoard).toHaveBeenCalledTimes(2)
+    live.leave()
+    conn().handlers.onBoard(msg)
+    expect(store.applyBoard).toHaveBeenCalledTimes(2)
   })
 
   it('another person\'s cursor glides to each new place; our own never comes back', async () => {

@@ -8,13 +8,18 @@
 // Below the tools, two that act at once rather than wait for a press on the board: "Picture or file" opens the file
 // chooser (what is chosen is uploaded into the board's own folder and placed), and "Embed a file" opens the list of
 // the project's files to show one where it is.
+//
+// At the end of the foot bar, "Background" opens a small list of the board's three backgrounds, each drawn as a
+// swatch beside its name, the current one pressed. It closes on a choice, on Escape (first, as the shape picker) and
+// on a press elsewhere. Offered only to those who may change the board, where the server knows backgrounds.
 import { useEffect, useRef, useState } from 'react'
 import {
-  ChevronDown, FileSymlink, Frame, Hand, ImagePlus, MousePointer2, Pencil, Redo2, Scan, Shapes, Spline, StickyNote, Type,
-  Undo2, ZoomIn, ZoomOut,
+  ChevronDown, FileSymlink, Frame, Grid3x3, Hand, ImagePlus, MousePointer2, Pencil, Redo2, Scan, Shapes, Spline,
+  StickyNote, Type, Undo2, ZoomIn, ZoomOut,
 } from 'lucide-react'
-import { IconButton } from '../../../ui'
+import { Button, IconButton } from '../../../ui'
 import { SHAPES, SHAPE_LABELS, shapePath } from './shapes.js'
+import { BACKGROUNDS, BACKGROUND_LABELS, DOT_COLOUR } from './background.js'
 
 export const TOOLS = [
   { id: 'select', label: 'Select', key: 'v', Icon: MousePointer2, writes: false },
@@ -59,6 +64,23 @@ export function ShapeIcon({ shape, size = 20 }) {
   )
 }
 
+/** A background drawn small: the board's page colour with its dots, its lines, or nothing. */
+export function BackgroundSwatch({ kind, size = 20 }) {
+  const marks = [size / 4, size / 2, (size * 3) / 4]
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true" focusable="false" data-swatch={kind}>
+      <rect x="0.5" y="0.5" width={size - 1} height={size - 1} rx="3" fill="#F7F8FA" stroke="var(--color-rule, rgba(0,0,0,0.15))" />
+      {kind === 'dots' && marks.flatMap((x) => marks.map((y) => <circle key={`${x}-${y}`} cx={x} cy={y} r="1.1" fill={DOT_COLOUR} />))}
+      {kind === 'lines' && marks.map((p) => (
+        <g key={p}>
+          <line x1={p} y1="1" x2={p} y2={size - 1} stroke={DOT_COLOUR} strokeWidth="1" />
+          <line x1="1" y1={p} x2={size - 1} y2={p} stroke={DOT_COLOUR} strokeWidth="1" />
+        </g>
+      ))}
+    </svg>
+  )
+}
+
 const bar = (touch) => ({
   position: 'absolute',
   display: 'flex',
@@ -75,12 +97,30 @@ const bar = (touch) => ({
 export default function BoardToolbar({
   tool = 'select', shape = 'rectangle', onTool, onShape, canWrite = false, inputMode = 'mouse',
   canUndo = false, canRedo = false, onUndo, onRedo, zoom = 1, onZoomIn, onZoomOut, onFit, escape,
-  onPickFiles, onEmbed, embedOpen = false,
+  onPickFiles, onEmbed, embedOpen = false, background = 'dots', canSetBackground = false, onBackground,
 }) {
   const touch = inputMode === 'touch'
   const size = touch ? 'md' : 'sm'
   const [picking, setPicking] = useState(false)
   const pickerRef = useRef(null)
+  const [choosingBg, setChoosingBg] = useState(false)
+  const bgRef = useRef(null)
+  const bgOpen = choosingBg && canWrite && canSetBackground
+
+  // The background list takes Escape first while it is open, and closes on a press outside it and its button.
+  useEffect(() => {
+    if (!bgOpen || !escape?.push) return undefined
+    const pop = escape.push(() => { setChoosingBg(false); return true })
+    return () => { if (typeof pop === 'function') pop() }
+  }, [bgOpen, escape])
+  useEffect(() => {
+    if (!bgOpen) return undefined
+    const away = (e) => { if (bgRef.current && !bgRef.current.contains(e.target)) setChoosingBg(false) }
+    document.addEventListener('pointerdown', away, true)
+    return () => document.removeEventListener('pointerdown', away, true)
+  }, [bgOpen])
+  // No longer offered (the board turned read-only): closed, so it does not come back open.
+  useEffect(() => { if (!(canWrite && canSetBackground)) setChoosingBg(false) }, [canWrite, canSetBackground])
 
   // The picker takes Escape first while it is open.
   useEffect(() => {
@@ -187,6 +227,49 @@ export default function BoardToolbar({
         </span>
         <IconButton size={size} Icon={ZoomIn} title="Zoom in" onClick={() => onZoomIn?.()} />
         <IconButton size={size} Icon={Scan} title="Show the whole board" onClick={() => onFit?.()} />
+        {canWrite && canSetBackground && (
+          <div ref={bgRef} style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+            <IconButton
+              size={size}
+              Icon={Grid3x3}
+              title="Background"
+              active={bgOpen}
+              aria-expanded={bgOpen}
+              onClick={() => setChoosingBg((v) => !v)}
+              data-board-background-toggle
+            />
+            {bgOpen && (
+              <div
+                role="group"
+                aria-label="Board background"
+                data-board-background-picker
+                style={{
+                  ...bar(touch), position: 'absolute', bottom: '100%', right: 0, marginBottom: 8, flexDirection: 'column',
+                  alignItems: 'stretch', width: 'max-content',
+                }}
+              >
+                {/* The current one in the kit's one active treatment (IconButton's): the signal as a tint and an edge. */}
+                {BACKGROUNDS.map((kind) => (
+                  <Button
+                    key={kind}
+                    variant="ghost"
+                    size={size}
+                    aria-pressed={kind === background ? 'true' : 'false'}
+                    data-background={kind}
+                    onClick={() => { setChoosingBg(false); if (kind !== background) onBackground?.(kind) }}
+                    style={{
+                      justifyContent: 'flex-start', gap: 8,
+                      ...(kind === background ? { background: 'var(--color-signal-tint)', borderColor: 'var(--color-signal)' } : {}),
+                    }}
+                  >
+                    <BackgroundSwatch kind={kind} size={touch ? 24 : 20} />
+                    {BACKGROUND_LABELS[kind]}
+                  </Button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </>
   )

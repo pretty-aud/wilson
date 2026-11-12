@@ -8,9 +8,10 @@ import { render, screen, fireEvent, cleanup, act, waitFor } from '@testing-libra
 import Konva from 'konva'
 import BoardCanvas, {
   READ_ONLY_WORDS, TURN_ENDED_WORDS, targetSizes, elementIdOf, writingWords, NO_FILES_WORDS, DROP_WORDS, addingWords, mediaBox,
-  dragHasFiles,
+  dragHasFiles, FRAME_REMOVED_WORDS,
 } from './BoardCanvas.jsx'
 import { MISSING_WORDS, shapePath } from './shapes.js'
+import { createBoardStore } from './boardStore.js'
 
 const METHODS = ['arc', 'arcTo', 'beginPath', 'bezierCurveTo', 'clearRect', 'clip', 'closePath', 'drawImage', 'ellipse', 'fill',
   'fillRect', 'fillText', 'lineTo', 'moveTo', 'putImageData', 'quadraticCurveTo', 'rect', 'restore', 'rotate', 'save', 'scale',
@@ -114,6 +115,7 @@ const OTHER = { id: 'b', kind: 'shape', shape: 'circle', x: 300, y: 0, w: 80, h:
 const stageNow = () => Konva.stages[Konva.stages.length - 1]
 const groupOf = (id) => stageNow().findOne((n) => n.attrs.elementId === id)
 const named = (name) => stageNow().find((n) => n.name() === name)
+const layer = (name) => stageNow().getLayers().find((l) => l.name() === name)
 const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 40)) })
 
 function pointerEvent(type, init = {}) {
@@ -153,7 +155,7 @@ describe('BoardCanvas — drawing every kind', () => {
     expect(a.findOne('Path').data()).toBe(shapePath('rectangle', 100, 50, {}))
     expect(a.findOne('Text').text()).toBe('Hello')
     // Drawn in z order, as the server pages.
-    expect(stageNow().getLayers()[0].getChildren().map((g) => g.attrs.elementId)).toEqual(['a', 'b'])
+    expect(layer('content').getChildren().map((g) => g.attrs.elementId)).toEqual(['a', 'b'])
   })
 
   it('frames with names, pen strokes, text, files, a missing file\'s stop sign', async () => {
@@ -254,7 +256,7 @@ describe('BoardCanvas — select, move, snap', () => {
     const to = toScreen({ x: 150, y: 100 })
     press(stageNow(), from)
     moveTo(to)
-    expect(stageNow().getLayers()[1].find('Rect').some((r) => r.visible() && r.width() === 170 && r.height() === 120)).toBe(true)
+    expect(layer('overlay').find('Rect').some((r) => r.visible() && r.width() === 170 && r.height() === 120)).toBe(true)
     release(to)
     await settle()
     expect(stageNow().findOne('Transformer').nodes().map((n) => n.attrs.elementId)).toEqual(['a'])
@@ -780,6 +782,112 @@ describe('BoardCanvas — the view', () => {
   })
 })
 
+describe('BoardCanvas: the board\'s background', () => {
+  // A store that knows backgrounds, as boardStore keeps one: getBackground, canSetBackground, setBackground, and the
+  // `board` event.
+  function storeWithBackground(kind = 'dots', { can = true } = {}) {
+    const store = fakeStore([RECT, OTHER])
+    let bg = kind
+    const subs = new Set()
+    const subscribe = store.subscribe
+    store.subscribe = vi.fn((fn) => { subs.add(fn); const off = subscribe(fn); return () => { subs.delete(fn); off() } })
+    store.getBackground = () => bg
+    store.canSetBackground = () => can
+    store.setBackground = vi.fn(async (next) => { bg = next; for (const fn of [...subs]) fn({ type: 'board' }); return true })
+    store.tellBackground = (next) => { bg = next; for (const fn of [...subs]) fn({ type: 'board' }) }
+    return store
+  }
+  // What the backdrop's one shape paints, on its own canvas's stand-in context.
+  function painted() {
+    const back = layer('backdrop')
+    const ctx = back.getCanvas()._canvas.getContext('2d')
+    const calls = { rect: 0, moveTo: 0 }
+    const was = { rect: ctx.rect, moveTo: ctx.moveTo }
+    ctx.rect = () => { calls.rect += 1 }
+    ctx.moveTo = () => { calls.moveTo += 1 }
+    back.draw()
+    Object.assign(ctx, was)
+    return calls
+  }
+
+  it('a layer of its own under the elements, taking no presses, with one shape that paints the grid', async () => {
+    await mount()
+    const layers = stageNow().getLayers()
+    expect(layers.map((l) => l.name())).toEqual(['backdrop', 'content', 'overlay'])
+    const back = layer('backdrop')
+    expect(back.listening()).toBe(false)
+    expect(back.getChildren()).toHaveLength(1)
+    expect(back.findOne('.board-background').listening()).toBe(false)
+    // Nothing of the elements is on it.
+    expect(back.find((n) => n.attrs.elementId)).toHaveLength(0)
+    // A store with no word on backgrounds draws the dotted grid.
+    expect(region().getAttribute('data-background')).toBe('dots')
+    expect(painted().rect).toBeGreaterThan(0)
+  })
+
+  it('painted again when the camera moves or the view is zoomed, never when an element changes', async () => {
+    const { store } = await mount()
+    const back = layer('backdrop')
+    const redraw = vi.spyOn(back, 'batchDraw')
+    act(() => store.update('a', { x: 40 }))
+    act(() => store.put({ ...OTHER, id: 'c', x: 600 }))
+    await settle()
+    expect(groupOf('c')).toBeTruthy()
+    expect(redraw).not.toHaveBeenCalled()
+    fireEvent.wheel(host(), { deltaY: 50, deltaX: 0 })
+    const afterPan = redraw.mock.calls.length
+    expect(afterPan).toBeGreaterThan(0)
+    fireEvent.click(screen.getByTitle('Zoom in'))
+    expect(redraw.mock.calls.length).toBeGreaterThan(afterPan)
+    // And after both, an element's change still does not.
+    const settled = redraw.mock.calls.length
+    act(() => store.update('b', { y: 90 }))
+    await settle()
+    expect(redraw.mock.calls.length).toBe(settled)
+  })
+
+  it('follows the store: its board event repaints it and the wrapper says which one is drawn', async () => {
+    const store = storeWithBackground('dots')
+    await mount({ store })
+    const back = layer('backdrop')
+    const redraw = vi.spyOn(back, 'batchDraw')
+    act(() => store.tellBackground('lines'))
+    expect(region().getAttribute('data-background')).toBe('lines')
+    expect(redraw).toHaveBeenCalledTimes(1)
+    const lines = painted()
+    expect(lines.moveTo).toBeGreaterThan(0)
+    expect(lines.rect).toBe(0)
+    act(() => store.tellBackground('blank'))
+    expect(region().getAttribute('data-background')).toBe('blank')
+    expect(painted()).toEqual({ rect: 0, moveTo: 0 })
+    // The board event moves no element: the drawing is not reconciled for it.
+    expect(store.getElements().size).toBe(2)
+  })
+
+  it('the foot bar offers it where the store allows and hands the choice to the store', async () => {
+    const store = storeWithBackground('dots')
+    await mount({ store })
+    fireEvent.click(document.querySelector('[data-board-background-toggle]'))
+    const picker = document.querySelector('[data-board-background-picker]')
+    expect(picker.querySelector('[data-background="dots"]').getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(screen.getByText('Lined grid'))
+    expect(store.setBackground).toHaveBeenCalledWith('lines')
+    await settle()
+    expect(region().getAttribute('data-background')).toBe('lines')
+    expect(document.querySelector('[data-board-background-picker]')).toBeNull()
+  })
+
+  it('not offered where the store says no, nor on a board this person may only read; still drawn', async () => {
+    await mount({ store: storeWithBackground('lines', { can: false }) })
+    expect(document.querySelector('[data-board-background-toggle]')).toBeNull()
+    expect(region().getAttribute('data-background')).toBe('lines')
+    cleanup()
+    await mount({ store: storeWithBackground('lines'), canWrite: false })
+    expect(document.querySelector('[data-board-background-toggle]')).toBeNull()
+    expect(painted().moveTo).toBeGreaterThan(0)
+  })
+})
+
 describe('BoardCanvas — pictures, dropped files and embeds', () => {
   // A drag from the desktop as the window hands one on: where it is, and what it carries.
   function dragEvent(type, { files = [], types = ['Files'], at = { x: 0, y: 0 }, relatedTarget = null } = {}) {
@@ -1039,6 +1147,287 @@ describe('BoardCanvas — pictures, dropped files and embeds', () => {
     expect(dragHasFiles({})).toBe(false)
     expect(addingWords(1)).toBe('Adding the file to the board…')
     expect(NO_FILES_WORDS).not.toMatch(/[_{}]/)
+  })
+})
+
+describe('BoardCanvas: frames like Figma\'s', () => {
+  const FR = { id: 'fr', kind: 'frame', x: 0, y: 0, w: 400, h: 300, z: 0, body: 'Ideas' }
+  // Half over the frame's right edge, its middle inside; over the edge with its middle outside; wider than the frame.
+  const HALF = { id: 'half', kind: 'shape', shape: 'rectangle', x: 360, y: 20, w: 60, h: 40, z: 1 }
+  const OUTSIDE = { id: 'outside', kind: 'shape', shape: 'rectangle', x: 390, y: 100, w: 60, h: 20, z: 2 }
+  const WIDE = { id: 'wide', kind: 'shape', shape: 'rectangle', x: -50, y: 200, w: 500, h: 20, z: 3 }
+  const FAR = { id: 'far', kind: 'shape', shape: 'rectangle', x: 700, y: 0, w: 50, h: 50, z: 4 }
+
+  // The board's own store over a server stand-in that takes every save, so undo is the store's own.
+  async function realStore(elements) {
+    const rows = new Map(elements.map((e) => [e.id, {
+      rotation: 0, style: {}, body: null, points: null, file: null, missing: false, from_id: null, from_anchor: null,
+      to_id: null, to_anchor: null, shape: null, version: 1, ...e,
+    }]))
+    const adapter = {
+      readBoard: vi.fn(async () => ({ board: { id: 'b1', folder_id: 'f1', project_id: 'p1', title: 'Plans', can_write: true }, elements: [...rows.values()] })),
+      readBoardElements: vi.fn(async () => []),
+      putBoardElements: vi.fn(async (_b, list) => ({ saved: list.map((e) => ({ id: e.id, version: (rows.get(e.id)?.version ?? 0) + 1 })), conflicts: [] })),
+      deleteBoardElements: vi.fn(async (_b, ids) => ({ removed: ids, conflicts: [] })),
+    }
+    const store = createBoardStore({ adapter, boardId: 'b1' })
+    await store.load()
+    return store
+  }
+  const snapshot = (store) => [...store.getElements().values()].map((e) => `${e.id}:${e.x},${e.y},${e.z}`).sort()
+  const pick = (id, extra = {}) => {
+    const g = groupOf(id)
+    const node = g.findOne('Path') || g.findOne('Rect') || g.findOne('Line')
+    const r = node.getClientRect()
+    const at = { x: r.x + r.width / 2, y: r.y + r.height / 2 }
+    press(node, at, extra)
+    release(at, extra)
+  }
+  const selection = () => stageNow().findOne('Transformer').nodes().map((n) => n.attrs.elementId)
+  const order = () => layer('content').getChildren().map((g) => g.attrs.elementId)
+  const ctrlG = (extra = {}) => fireEvent.keyDown(region(), { key: 'g', code: 'KeyG', ctrlKey: true, ...extra })
+  // Apart in time, so no two presses make a double press (which opens the words).
+  const later = () => act(async () => { await new Promise((r) => setTimeout(r, 400)) })
+
+  it('Frame selection: a frame named Frame around the selection, under it, the things on top, the frame selected', async () => {
+    const { store } = await mount()
+    pick('a')
+    pick('b', { shiftKey: true })
+    fireEvent.click(screen.getByTitle('Frame selection (Ctrl+G)'))
+    // a is 0..100 by 0..50, b 300..380 by 0..80: their bounds grown by 24.
+    expect(store.add).toHaveBeenCalledWith({
+      kind: 'frame', x: -24, y: -24, w: 428, h: 128, rotation: 0, z: 3, body: 'Frame',
+      style: { fill: '#FFFFFF', stroke: '#C9D1DB', width: 1 },
+    })
+    expect(store.update).toHaveBeenCalledWith('a', { z: 4 }, { settled: true })
+    expect(store.update).toHaveBeenCalledWith('b', { z: 5 }, { settled: true })
+    await settle()
+    expect(order()).toEqual(['new-1', 'a', 'b'])
+    expect(selection()).toEqual(['new-1'])
+    expect(named('frame-title').map((t) => t.text())).toEqual(['Frame'])
+  })
+
+  it('Frame selection by each key, the browser\'s own Ctrl+G kept off', async () => {
+    const { store } = await mount()
+    pick('a')
+    expect(ctrlG()).toBe(false) // false: the event's default was prevented
+    expect(selection()).toEqual(['new-1'])
+    expect(fireEvent.keyDown(region(), { key: 'g', code: 'KeyG', metaKey: true })).toBe(false)
+    // Figma's Ctrl or Cmd + Alt + G; on a Mac, Alt turns the letter into another, so the key's place is read.
+    expect(fireEvent.keyDown(region(), { key: '©', code: 'KeyG', metaKey: true, altKey: true })).toBe(false)
+    expect(store.add.mock.calls.filter(([el]) => el.kind === 'frame')).toHaveLength(3)
+    // The frame of a frame takes it and what it holds above it.
+    await settle()
+    expect(order()).toEqual(['b', 'new-3', 'new-2', 'new-1', 'a'])
+  })
+
+  it('ONE undo takes back the frame and its re-stacking together', async () => {
+    const store = await realStore([RECT, OTHER])
+    const before = snapshot(store)
+    await mount({ store })
+    pick('a')
+    pick('b', { shiftKey: true })
+    ctrlG()
+    await settle()
+    expect(store.getElements().size).toBe(3)
+    expect(snapshot(store)).not.toEqual(before)
+    fireEvent.keyDown(region(), { key: 'z', ctrlKey: true })
+    await settle()
+    expect(snapshot(store)).toEqual(before)
+    expect(store.canUndo()).toBe(false)
+  })
+
+  it('nothing to frame: connectors only, or a board this person may only read', async () => {
+    const line = { id: 'c', kind: 'connector', x: 0, y: 100, w: 200, h: 1, z: 3, points: [0, 100, 200, 100] }
+    const { store } = await mount({ store: fakeStore([RECT, line]) })
+    act(() => { groupOf('c').findOne('.connector-line').fire('pointerdown', { evt: { button: 0, pointerId: 1, pointerType: 'mouse', clientX: 0, clientY: 0 } }, true) })
+    release({ x: 0, y: 0 })
+    expect(stageNow().findOne('Transformer').nodes()).toHaveLength(0)
+    await settle()
+    expect(screen.getByRole('complementary', { name: 'Style' })).toBeTruthy()
+    expect(document.querySelector('[data-action="frame-selection"]')).toBeNull()
+    expect(ctrlG()).toBe(false)
+    expect(store.add).not.toHaveBeenCalled()
+    cleanup()
+    const ro = fakeStore([RECT, OTHER], { canWrite: false })
+    await mount({ store: ro, canWrite: false })
+    pick('a')
+    expect(ctrlG()).toBe(false)
+    expect(fireEvent.keyDown(region(), { key: 'G', code: 'KeyG', ctrlKey: true, shiftKey: true })).toBe(false)
+    expect(ro.add).not.toHaveBeenCalled()
+    expect(ro.remove).not.toHaveBeenCalled()
+    expect(document.querySelector('[data-action="frame-selection"]')).toBeNull()
+  })
+
+  it('a dragged frame carries what it holds: the middle inside moves, the middle outside and the too large stay', async () => {
+    const live = fakeLive()
+    const { store } = await mount({ store: fakeStore([FR, HALF, OUTSIDE, WIDE, FAR]), live })
+    // The thing it holds selected first, then the frame added by a press on its name.
+    pick('half')
+    const title = groupOf('fr').findOne('.frame-title')
+    const at = title.getClientRect()
+    const from = { x: at.x + 5, y: at.y + at.height / 2 }
+    press(title, from, { shiftKey: true })
+    moveTo({ x: from.x + 40, y: from.y + 30 }, { altKey: true })
+    // The frame first among what the room hears.
+    expect(live.sendDrag.mock.calls[0][0]).toBe('fr')
+    release({ x: from.x + 40, y: from.y + 30 }, { altKey: true })
+    const moved = store.update.mock.calls.map(([id]) => id)
+    expect(moved.sort()).toEqual(['fr', 'half'])
+    const to = (id) => store.update.mock.calls.find(([which]) => which === id)[1]
+    expect(to('fr').x).toBeGreaterThan(0)
+    expect(to('half').x - to('fr').x).toBeCloseTo(360, 1)
+    expect(to('half').y - to('fr').y).toBeCloseTo(20, 1)
+  })
+
+  it('a nudged frame carries what it holds', async () => {
+    const { store } = await mount({ store: fakeStore([FR, HALF, OUTSIDE, WIDE, FAR]) })
+    pick('fr')
+    fireEvent.keyDown(region(), { key: 'ArrowRight', shiftKey: true })
+    expect(store.update).toHaveBeenCalledWith('fr', { x: 10, y: 0 }, { settled: true })
+    expect(store.update).toHaveBeenCalledWith('half', { x: 370, y: 20 }, { settled: true })
+    expect(store.update.mock.calls.map(([id]) => id).sort()).toEqual(['fr', 'half'])
+  })
+
+  it('the frame under a drag is outlined, and let go of when the pointer leaves it, at Escape, and at the drop', async () => {
+    await mount({ store: fakeStore([FR, FAR]) })
+    const start = toScreen({ x: 725, y: 25 })
+    press(groupOf('far').findOne('Path'), start)
+    moveTo(toScreen({ x: 200, y: 150 }), { altKey: true })
+    const outline = named('frame-target')
+    expect(outline).toHaveLength(1)
+    expect(outline[0].getLayer().name()).toBe('overlay')
+    expect([outline[0].x(), outline[0].y(), outline[0].width(), outline[0].height()]).toEqual([0, 0, 400, 300])
+    moveTo(toScreen({ x: 900, y: 150 }), { altKey: true })
+    expect(named('frame-target')).toHaveLength(0)
+    moveTo(toScreen({ x: 100, y: 100 }), { altKey: true })
+    expect(named('frame-target')).toHaveLength(1)
+    fireEvent.keyDown(region(), { key: 'Escape' })
+    expect(named('frame-target')).toHaveLength(0)
+    await later()
+    press(groupOf('far').findOne('Path'), start)
+    moveTo(toScreen({ x: 100, y: 100 }), { altKey: true })
+    expect(named('frame-target')).toHaveLength(1)
+    release(toScreen({ x: 100, y: 100 }), { altKey: true })
+    expect(named('frame-target')).toHaveLength(0)
+  })
+
+  it('the outline says what the drop will do: by the dragged thing\'s middle, not by where the pointer is', async () => {
+    await mount({ store: fakeStore([FR, FAR]) })
+    // Held by its top left corner: the pointer is inside the frame (398 of 400) while the thing's middle (421) is not.
+    press(groupOf('far').findOne('Path'), toScreen({ x: 702, y: 2 }))
+    moveTo(toScreen({ x: 398, y: 100 }), { altKey: true })
+    expect(named('frame-target')).toHaveLength(0)
+    // 28 further in, its middle (393) is inside.
+    moveTo(toScreen({ x: 370, y: 100 }), { altKey: true })
+    expect(named('frame-target')).toHaveLength(1)
+    release(toScreen({ x: 370, y: 100 }), { altKey: true })
+    cleanup()
+    // Held by its bottom right corner: the pointer is outside the frame (405) while the thing's middle (382) is in.
+    await mount({ store: fakeStore([FR, FAR]) })
+    press(groupOf('far').findOne('Path'), toScreen({ x: 748, y: 48 }))
+    moveTo(toScreen({ x: 405, y: 148 }), { altKey: true })
+    expect(named('frame-target')).toHaveLength(1)
+    release(toScreen({ x: 405, y: 148 }), { altKey: true })
+    expect(named('frame-target')).toHaveLength(0)
+  })
+
+  it('a thing dropped into a frame stacked above it is raised above the frame', async () => {
+    const { store } = await mount({ store: fakeStore([{ ...FR, z: 5 }, { ...FAR, z: 1 }]) })
+    press(groupOf('far').findOne('Path'), toScreen({ x: 725, y: 25 }))
+    moveTo(toScreen({ x: 200, y: 150 }), { altKey: true })
+    release(toScreen({ x: 200, y: 150 }), { altKey: true })
+    expect(store.update).toHaveBeenCalledWith('far', { x: 175, y: 125 }, { settled: true })
+    expect(store.update).toHaveBeenCalledWith('far', { z: 6 }, { settled: true })
+    await settle()
+    expect(order()).toEqual(['fr', 'far'])
+  })
+
+  it('a frame drawn by hand inside another frame goes on top of it, what it holds above it', async () => {
+    const inner = { id: 'inner', kind: 'shape', shape: 'rectangle', x: 20, y: 20, w: 50, h: 50, z: 1 }
+    const { store } = await mount({ store: fakeStore([FR, inner, FAR]) })
+    fireEvent.click(screen.getByTitle('Frame (F)'))
+    press(stageNow(), toScreen({ x: 10, y: 10 }))
+    moveTo(toScreen({ x: 200, y: 200 }))
+    release(toScreen({ x: 200, y: 200 }))
+    expect(store.add).toHaveBeenCalledWith(expect.objectContaining({ kind: 'frame', x: 10, y: 10, w: 190, h: 190, z: 5 }))
+    expect(store.update).toHaveBeenCalledWith('inner', { z: 6 }, { settled: true })
+    await settle()
+    expect(order()).toEqual(['fr', 'far', 'new-1', 'inner'])
+  })
+
+  it('Ctrl and a drag from a frame\'s surface selects by rectangle; Ctrl and a press toggles the frame', async () => {
+    const inner = { id: 'inner', kind: 'shape', shape: 'rectangle', x: 20, y: 20, w: 50, h: 50, z: 1 }
+    const { store } = await mount({ store: fakeStore([FR, inner, FAR]) })
+    const from = toScreen({ x: 10, y: 10 })
+    press(groupOf('fr').findOne('Rect'), from, { ctrlKey: true })
+    moveTo(toScreen({ x: 100, y: 100 }), { ctrlKey: true })
+    const near = (v, to) => Math.abs(v - to) < 0.01
+    expect(layer('overlay').find('Rect').some((r) => r.visible() && near(r.width(), 90) && near(r.height(), 90))).toBe(true)
+    release(toScreen({ x: 100, y: 100 }), { ctrlKey: true })
+    expect(selection()).toEqual(['inner'])
+    expect(store.update).not.toHaveBeenCalled()
+    await later()
+    press(groupOf('fr').findOne('Rect'), toScreen({ x: 300, y: 250 }), { ctrlKey: true })
+    release(toScreen({ x: 300, y: 250 }), { ctrlKey: true })
+    expect(selection().sort()).toEqual(['fr', 'inner'])
+    await later()
+    press(groupOf('fr').findOne('Rect'), toScreen({ x: 300, y: 250 }), { metaKey: true })
+    release(toScreen({ x: 300, y: 250 }), { metaKey: true })
+    expect(selection()).toEqual(['inner'])
+  })
+
+  it('Delete on a frame removes what it holds too, says so once, and frees a line tied to what went', async () => {
+    const line = { id: 'c', kind: 'connector', x: 0, y: 0, w: 1, h: 1, z: 9, points: [0, 0, 1, 1], from_id: 'half', from_anchor: 'right', to_id: 'far', to_anchor: 'left', style: { end_head: 'none' } }
+    const { store } = await mount({ store: fakeStore([FR, HALF, OUTSIDE, FAR, line]) })
+    pick('fr')
+    fireEvent.keyDown(region(), { key: 'Delete' })
+    expect(store.remove).toHaveBeenCalledTimes(1)
+    expect([...store.remove.mock.calls[0][0]].sort()).toEqual(['fr', 'half'])
+    expect(store.update).toHaveBeenCalledWith('c', expect.objectContaining({ from_id: null, from_anchor: null }), { settled: true })
+    expect(screen.getByRole('status').textContent).toBe(FRAME_REMOVED_WORDS)
+    expect(store.getElements().has('outside')).toBe(true)
+  })
+
+  it('ONE undo brings a removed frame and all it held back', async () => {
+    const store = await realStore([FR, HALF, OUTSIDE, FAR])
+    const before = snapshot(store)
+    await mount({ store })
+    pick('fr')
+    fireEvent.keyDown(region(), { key: 'Delete' })
+    await settle()
+    expect([...store.getElements().keys()].sort()).toEqual(['far', 'outside'])
+    fireEvent.keyDown(region(), { key: 'z', ctrlKey: true })
+    await settle()
+    expect(snapshot(store)).toEqual(before)
+  })
+
+  it('Remove the frame only, by its key and by its button, leaves what it held', async () => {
+    const { store } = await mount({ store: fakeStore([FR, HALF, OUTSIDE, FAR]) })
+    pick('fr')
+    expect(fireEvent.keyDown(region(), { key: 'G', code: 'KeyG', ctrlKey: true, shiftKey: true })).toBe(false)
+    expect(store.remove).toHaveBeenCalledWith(['fr'])
+    expect(store.getElements().has('half')).toBe(true)
+    expect(selection()).toEqual(['half'])
+    expect(screen.queryByText(FRAME_REMOVED_WORDS)).toBeNull()
+    cleanup()
+    const other = fakeStore([FR, HALF])
+    await mount({ store: other })
+    pick('fr')
+    await settle()
+    fireEvent.click(document.querySelector('[data-action="frame-only"]'))
+    expect(other.remove).toHaveBeenCalledWith(['fr'])
+    expect(other.getElements().has('half')).toBe(true)
+  })
+
+  it('bringing a frame to the front keeps its things above it', async () => {
+    const { store } = await mount({ store: fakeStore([FR, HALF, FAR]) })
+    pick('fr')
+    fireEvent.click(screen.getByTitle('Bring to front'))
+    expect(store.update).toHaveBeenCalledWith('fr', { z: 5 }, { settled: true })
+    expect(store.update).toHaveBeenCalledWith('half', { z: 6 }, { settled: true })
+    await settle()
+    expect(order()).toEqual(['far', 'fr', 'half'])
   })
 })
 

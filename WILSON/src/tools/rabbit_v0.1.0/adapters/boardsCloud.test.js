@@ -280,6 +280,27 @@ describe('a board\'s saves', () => {
     await expect(adapter.moveFolders(['f'], 'g')).rejects.toMatchObject({ code: 'cross_project', message: 'A board or folder stays in its project for now: move its files with Move to.' })
     await expect(adapter.listTrashedFolders()).rejects.toMatchObject({ code: 'not_a_workspace_member', message: 'You are not a member of this company.' })
   })
+
+  it('setBoardBackground calls board_set_background by its own parameter names and hands on its answer and refusals', async () => {
+    const client = makeClient({ rpc: {
+      board_set_background: (args, n) => (n < 1
+        ? { data: { board_id: args.p_board, background: args.p_background, version: 1, changed: true }, error: null }
+        : pgError('22023', 'A board\'s background is dotted, blank or lined.')),
+    } })
+    globalThis.__testSupabase = client
+    expect(await adapter.setBoardBackground(BOARD, 'lines')).toEqual({ board_id: BOARD, background: 'lines', version: 1, changed: true })
+    // Neither 0136 column is read from the table.
+    expect(BOARD_COLUMNS).not.toContain('background_version')
+    expect(rpcCalls(client, 'board_set_background')).toEqual([{ p_board: BOARD, p_background: 'lines' }])
+    await expect(adapter.setBoardBackground(BOARD, 'stripes')).rejects.toMatchObject({ code: '22023', message: 'A board\'s background is dotted, blank or lined.' })
+    // Never a direct write to the table, and never a read of the column there.
+    expect(client.calls.filter(c => c.table)).toEqual([])
+    expect(BOARD_COLUMNS).not.toContain('background')
+    // A server without 0136 says so as any missing board function does.
+    globalThis.__testSupabase = makeClient()
+    resetSupabaseAdapter()
+    await expect(adapter.setBoardBackground(BOARD, 'dots')).rejects.toMatchObject({ code: 'boards_absent', message: BOARDS_ABSENT })
+  })
 })
 
 describe('a sticky\'s words', () => {
@@ -488,7 +509,7 @@ describe('a board\'s two channels (0132)', () => {
     const [db, live] = client.channels
     expect(db.name).toBe(NAMES.topic)
     expect(db.config).toEqual({ config: { private: true } })
-    expect(db.handlers.map(h => `${h.kind}:${h.event}`).sort()).toEqual(['broadcast:AUDIENCE', 'broadcast:elements', 'broadcast:sticky'])
+    expect(db.handlers.map(h => `${h.kind}:${h.event}`).sort()).toEqual(['broadcast:AUDIENCE', 'broadcast:board', 'broadcast:elements', 'broadcast:sticky'])
     expect(live.name).toBe(NAMES.live_topic)
     expect(live.config).toEqual({ config: { private: true, broadcast: { self: false }, presence: { key: ME } } })
     // Nothing goes before the live channel is joined.
@@ -528,6 +549,26 @@ describe('a board\'s two channels (0132)', () => {
     expect(ch.sendLive('cursor', {})).toBe(false)
   })
 
+  it('the database\'s `board` message (0136) reaches onBoard; the same event on the live channel is only a live one', async () => {
+    const client = makeClient()
+    globalThis.__testSupabase = client
+    const heard = []
+    const ch = adapter.openBoardChannels(NAMES, {
+      onBoard: (p) => heard.push(['board', p]), onElements: (p) => heard.push(['elements', p]), onLive: (e, p) => heard.push(['live', e, p]),
+    })
+    await ch.ready
+    const [db, live] = client.channels
+    db.hear('board', { board: BOARD, op: 'background', background: 'lines', version: 3 })
+    live.hear('board', { board: BOARD, op: 'background', background: 'blank', version: 4 })
+    expect(heard).toEqual([
+      ['board', { board: BOARD, op: 'background', background: 'lines', version: 3 }],
+      ['live', 'board', { board: BOARD, op: 'background', background: 'blank', version: 4 }],
+    ])
+    ch.leave()
+    db.hear('board', { board: BOARD, op: 'background', background: 'dots' })
+    expect(heard).toHaveLength(2)
+  })
+
   it('a channel the client still holds under the same name (one still leaving) goes before the new one is made', async () => {
     const client = makeClient()
     const leaving = { topic: `realtime:${NAMES.live_topic}` }
@@ -554,7 +595,7 @@ describe('a board\'s two channels (0132)', () => {
 
 describe('the Local Server adapter: a board needs the cloud', () => {
   const BOARD_METHODS = ['listBoards', 'createBoard', 'readBoard', 'readBoardElements', 'putBoardElements', 'deleteBoardElements',
-    'boardChannels', 'claimSticky', 'renewSticky', 'releaseSticky', 'stickyStatus', 'readStickyText', 'saveStickyText', 'createSticky',
+    'boardChannels', 'setBoardBackground', 'claimSticky', 'renewSticky', 'releaseSticky', 'stickyStatus', 'readStickyText', 'saveStickyText', 'createSticky',
     'createMedia', 'embedFile', 'boardFileUrl']
   const FOLDER_METHODS = ['trashFolders', 'restoreFolders', 'moveFolders']
 

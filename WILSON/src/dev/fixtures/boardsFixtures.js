@@ -6,14 +6,14 @@
 // words), answering what the database answers and refusing what it refuses,
 // in its words and with its codes: board_create, board_read (paged as 0130
 // pages it), board_read_elements, board_put_elements, board_delete_elements,
-// board_channels, the sticky turn (0133) and the sticky's save, and 0131's
-// folder trash and moves. A refusal of a whole statement writes nothing, as a
+// board_channels, the sticky turn (0133) and the sticky's save, 0131's
+// folder trash and moves, and board_set_background (0136). A refusal of a whole statement writes nothing, as a
 // transaction rolls back.
 //
 // The channels are an in-process bus, one for the whole page (module scope),
 // so two fixture people on one store (two adapters, `?as=`) hear each other:
-// the database's channel carries `elements`, `sticky` and AUDIENCE as 0132 and
-// 0133 send them (wire elements: no file, has_file, nothing long past 4 KB);
+// the database's channel carries `elements`, `sticky`, `board` and AUDIENCE as
+// 0132, 0133 and 0136 send them (wire elements: no file, has_file, nothing long past 4 KB);
 // the live channel carries the people's broadcasts (self off) and presence.
 // A join is refused (CHANNEL_ERROR) for a name the person may not read, or one
 // the board has moved on from.
@@ -87,6 +87,10 @@ export const BOARD_WORDS = Object.freeze({
   namesThere: 'Too many folders of that name there.',
 })
 const W = BOARD_WORDS
+// 0136's words for a background it does not know (board_set_background raises them with 22023). Kept apart from
+// BOARD_WORDS, which are each found in 0130 to 0133; boardsFixtures.test.js finds these in 0136 once it is there.
+export const BACKGROUND_WORDS = 'A board\'s background is dotted, blank or lined.'
+const BACKGROUNDS = ['dots', 'blank', 'lines']
 // The cloud adapter's own words (supabaseAdapter.js), restated.
 export const FIXTURE_STICKY_GONE = 'This note is missing — it may have been moved or deleted.'
 export const FIXTURE_STICKY_MOVED = 'Someone changed this sticky since you opened it, so your words were not saved.'
@@ -302,6 +306,9 @@ export function createBoardsFixtures(store, ctx) {
   const boardJson = (b) => ({
     id: b.id, folder_id: b.folder_id, project_id: b.project_id, title: folderOf(b.folder_id)?.label ?? null,
     revision: b.revision, audience_gen: b.audience_gen, can_write: !!mothMayChange('folder', b.folder_id),
+    // 0136: the columns' defaults fill a board made before them.
+    background: b.background ?? 'dots',
+    background_version: b.background_version ?? 0,
   })
   // rabbit_private.folder_chain_has_entity.
   const chainHasEntity = (folderId) => {
@@ -724,7 +731,7 @@ export function createBoardsFixtures(store, ctx) {
       }
       const board = {
         id: crypto.randomUUID(), workspace_id: workspaceId, project_id: projectId, folder_id: folder.id,
-        audience_gen: 0, revision: 0, created_at: at, created_by: userId, updated_at: at, updated_by: userId,
+        audience_gen: 0, revision: 0, background: 'dots', background_version: 0, created_at: at, created_by: userId, updated_at: at, updated_by: userId,
       }
       S().boards.push(board)
       return { board_id: board.id, folder_id: folder.id, project_id: projectId, title: name, path }
@@ -793,6 +800,22 @@ export function createBoardsFixtures(store, ctx) {
       const b = boardFor(boardId, false)
       if (!b) throw pgError('42501', W.boardNotFound)
       return { topic: topicName(b, false), live_topic: topicName(b, true), audience_gen: b.audience_gen }
+    },
+    // board_set_background (0136): the board's own field, not an element; revision and audience_gen stay. A change
+    // counts one more background_version and is one `board` message on the board's database channel; the same value
+    // again changes nothing, says nothing, and answers the version as it is.
+    async setBoardBackground(boardId, background) {
+      const b = boardFor(boardId, true)
+      if (!b) throw pgError('42501', W.boardNotWritable)
+      if (typeof background !== 'string' || !BACKGROUNDS.includes(background)) throw pgError('22023', BACKGROUND_WORDS)
+      const version = b.background_version ?? 0
+      if ((b.background ?? 'dots') === background) return { board_id: b.id, background, version, changed: false }
+      b.background = background
+      b.background_version = version + 1
+      b.updated_at = now()
+      b.updated_by = userId
+      busSay(topicName(b, false), 'board', { board: b.id, op: 'background', background, version: b.background_version })
+      return { board_id: b.id, background, version: b.background_version, changed: true }
     },
 
     // The sticky's turn (0133), by the clock the page has.
@@ -971,8 +994,8 @@ export function createBoardsFixtures(store, ctx) {
       return moveFolders(ids, destParentId, plan)
     },
 
-    // The board's two channels on the page's bus. handlers as the cloud adapter's: onElements, onSticky, onAudience
-    // (once), onLive(event, payload), onPresence([{ key, ...meta }]), onStatus({ channel, status }).
+    // The board's two channels on the page's bus. handlers as the cloud adapter's: onElements, onSticky, onBoard,
+    // onAudience (once), onLive(event, payload), onPresence([{ key, ...meta }]), onStatus({ channel, status }).
     openBoardChannels(names, handlers = {}) {
       const topic = names?.topic
       const liveTopic = names?.live_topic
@@ -994,6 +1017,7 @@ export function createBoardsFixtures(store, ctx) {
         deliver(event, payload) {
           if (event === 'elements') call('onElements', payload)
           else if (event === 'sticky') call('onSticky', payload)
+          else if (event === 'board') call('onBoard', payload)
           else if (event === 'AUDIENCE') audience(payload)
         },
       }

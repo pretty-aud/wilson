@@ -1,7 +1,7 @@
 // boardLive.js — MO4 (Session 4): one window's place on a board's two live channels (0132). Pure JS: no React.
 //
-// The database's channel (`topic`) brings others' saves to the store and the stickies' turns to stickyTurn; this
-// window only listens there. The live channel (`live_topic`) carries what the database never sees: where each
+// The database's channel (`topic`) brings others' saves to the store, a change of the board's background to the
+// store, and the stickies' turns to stickyTurn; this window only listens there. The live channel (`live_topic`) carries what the database never sees: where each
 // person's pointer is, a drag on its way, and who is here (presence: a name and a colour, never an email).
 //
 // A pointer and a drag are each sent at most ten times a second and only while they move: a still pointer sends
@@ -219,6 +219,12 @@ export async function joinBoard({ adapter, boardId, me, store, turns, onClosed =
         if (!current()) return
         tally('received', 'sticky')
         if (forThisBoard(payload)) turns?.applyMessage?.(payload)
+      },
+      // The board's own fields (0136: its background), changed by someone.
+      onBoard(payload) {
+        if (!current()) return
+        tally('received', 'board')
+        if (forThisBoard(payload)) quietly(() => store?.applyBoard?.(payload))
       },
       onAudience(payload) {
         if (!current()) return

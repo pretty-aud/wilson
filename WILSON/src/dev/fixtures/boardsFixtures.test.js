@@ -2,11 +2,11 @@
 // refuses in its words and with its codes, and carries a board's two channels on an in-process bus, so two fixture
 // people on one store see each other's changes, cursors, presence and sticky turns.
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { buildDevFixtures } from './install'
 import { createRabbitFixturesAdapter } from './rabbitFixturesAdapter'
-import { BOARD_WORDS, FIXTURE_FILE_GONE } from './boardsFixtures'
+import { BACKGROUND_WORDS, BOARD_WORDS, FIXTURE_FILE_GONE } from './boardsFixtures'
 import { PROJECT_ID } from './data/project'
 import { MEMBER_ID, WORKSPACE_ID } from './data/workspace'
 
@@ -33,12 +33,13 @@ async function newBoard(a, title = 'Lookbook', parent = null) {
 }
 // A channel's ears: every message it is handed, by handler.
 function ears() {
-  const heard = { elements: [], sticky: [], audience: [], live: [], presence: [], status: [] }
+  const heard = { elements: [], sticky: [], board: [], audience: [], live: [], presence: [], status: [] }
   return {
     heard,
     handlers: {
       onElements: (p) => heard.elements.push(p),
       onSticky: (p) => heard.sticky.push(p),
+      onBoard: (p) => heard.board.push(p),
       onAudience: (p) => heard.audience.push(p),
       onLive: (event, p) => heard.live.push({ event, p }),
       onPresence: (people) => heard.presence.push(people),
@@ -62,7 +63,7 @@ describe('a board is made as board_create makes it', () => {
     expect(listed).toHaveLength(3)
     expect(Object.keys(listed[0]).sort()).toEqual(['audience_gen', 'folder_id', 'id', 'project_id', 'revision'])
     const { board, elements } = await mara.readBoard(made.board_id)
-    expect(board).toEqual({ id: made.board_id, folder_id: made.folder_id, project_id: PROJECT_ID, title: 'Look book', revision: 0, audience_gen: 0, can_write: true })
+    expect(board).toEqual({ id: made.board_id, folder_id: made.folder_id, project_id: PROJECT_ID, title: 'Look book', revision: 0, audience_gen: 0, can_write: true, background: 'dots', background_version: 0 })
     expect(elements).toEqual([])
   })
 
@@ -348,6 +349,58 @@ describe('the board\'s channels on the page\'s bus', () => {
     await flush()
     expect(t.heard.status.map(s => s.status)).toEqual(['CHANNEL_ERROR', 'CHANNEL_ERROR'])
     expect(await theo.listBoards(space.id)).toEqual([])
+  })
+})
+
+describe('a board\'s background, as board_set_background keeps it (0136)', () => {
+  it('a new board is on the dotted grid; a writer changes it, everyone on the board hears one board message', async () => {
+    const { mara, theo } = company()
+    const { board } = await newBoard(mara)
+    expect(board).toMatchObject({ background: 'dots', background_version: 0 })
+    const m = ears()
+    const t = ears()
+    const mc = mara.openBoardChannels(await mara.boardChannels(board.id), m.handlers)
+    const tc = theo.openBoardChannels(await theo.boardChannels(board.id), t.handlers)
+    await flush()
+    expect(await mara.setBoardBackground(board.id, 'lines')).toEqual({ board_id: board.id, background: 'lines', version: 1, changed: true })
+    await flush()
+    expect(t.heard.board).toEqual([{ board: board.id, op: 'background', background: 'lines', version: 1 }])
+    expect(m.heard.board).toHaveLength(1)
+    // Not an element's change: no elements message, and the board's revision and channels' names stay.
+    expect(t.heard.elements).toEqual([])
+    const read = (await theo.readBoard(board.id)).board
+    expect(read).toMatchObject({ background: 'lines', background_version: 1, revision: 0, audience_gen: 0 })
+    // The same value again changes nothing, says nothing, and answers the version as it is.
+    expect(await theo.setBoardBackground(board.id, 'lines')).toEqual({ board_id: board.id, background: 'lines', version: 1, changed: false })
+    await flush()
+    expect(t.heard.board).toHaveLength(1)
+    expect((await mara.readBoard(board.id)).board.background_version).toBe(1)
+    // The next change counts one more, in the answer, the message and the read.
+    expect(await theo.setBoardBackground(board.id, 'blank')).toEqual({ board_id: board.id, background: 'blank', version: 2, changed: true })
+    await flush()
+    expect(m.heard.board.at(-1)).toEqual({ board: board.id, op: 'background', background: 'blank', version: 2 })
+    expect((await mara.readBoard(board.id)).board).toMatchObject({ background: 'blank', background_version: 2 })
+    mc.leave()
+    tc.leave()
+  })
+
+  it('refuses what board_set_background refuses, in its words and codes', async () => {
+    const { mara, dev } = company()
+    const { board } = await newBoard(mara)
+    await expect(mara.setBoardBackground(board.id, 'stripes')).rejects.toEqual(refusal('22023', BACKGROUND_WORDS))
+    await expect(mara.setBoardBackground(board.id, null)).rejects.toEqual(refusal('22023', BACKGROUND_WORDS))
+    // A person who may read the board but not change it, and a board that is not there, are one refusal.
+    await expect(dev.setBoardBackground(board.id, 'blank')).rejects.toEqual(refusal('42501', W.boardNotWritable))
+    await expect(mara.setBoardBackground(uuid(), 'blank')).rejects.toEqual(refusal('42501', W.boardNotWritable))
+    // Not writable is said before a bad value.
+    await expect(dev.setBoardBackground(board.id, 'stripes')).rejects.toEqual(refusal('42501', W.boardNotWritable))
+    expect((await dev.readBoard(board.id)).board.background).toBe('dots')
+  })
+
+  it('its words are the design\'s, and 0136\'s own once that file is here', () => {
+    expect(BACKGROUND_WORDS).toBe('A board\'s background is dotted, blank or lined.')
+    const file = join(__dirname, '../../../supabase/migrations', '0136_board_background.sql')
+    if (existsSync(file)) expect(readFileSync(file, 'utf8')).toContain(`'${BACKGROUND_WORDS.replace(/'/g, "''")}'`)
   })
 })
 

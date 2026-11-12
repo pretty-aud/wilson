@@ -84,6 +84,33 @@ describe('StylePanel', () => {
     expect(p.onRemove).toHaveBeenCalled()
   })
 
+  it('Frame selection when something selected is not a connector; Remove the frame only when every one is a frame', () => {
+    const frameEl = (id) => ({ id, kind: 'frame', style: {} })
+    const line = { id: 'c', kind: 'connector', style: {} }
+    const offers = () => [
+      !!document.querySelector('[data-action="frame-selection"]'),
+      !!document.querySelector('[data-action="frame-only"]'),
+    ]
+    const p = mount([frameEl('f'), frameEl('g')], { onFrame: vi.fn(), onFrameOnly: vi.fn() })
+    expect(offers()).toEqual([true, true])
+    fireEvent.click(screen.getByTitle('Frame selection (Ctrl+G)'))
+    expect(p.onFrame).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByTitle('Remove the frame only (Ctrl+Shift+G)'))
+    expect(p.onFrameOnly).toHaveBeenCalledTimes(1)
+    cleanup()
+    mount([shape()])
+    expect(offers()).toEqual([true, false])
+    cleanup()
+    mount([frameEl('f'), shape()])
+    expect(offers()).toEqual([true, false])
+    cleanup()
+    mount([line])
+    expect(offers()).toEqual([false, false])
+    cleanup()
+    mount([line, frameEl('f')])
+    expect(offers()).toEqual([true, false])
+  })
+
   it('the swatches have names a person reads', () => {
     for (const s of SWATCHES) {
       expect(s.label).toMatch(/^[A-Z][a-z ]+$/)
