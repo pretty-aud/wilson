@@ -474,6 +474,41 @@ describe('🚨 leaving cleanly', () => {
     expect(h.stores[0].flush).toHaveBeenCalledTimes(1)
     expect(h.stores[0].dispose.mock.calls[0]).toEqual([])
   })
+  // A store whose close is still trying (its changes have not reached the server), until `done` is called.
+  const stillTrying = () => {
+    let done = () => {}
+    const s0 = h.makeStore
+    h.makeStore = (opts) => {
+      const s = s0(opts)
+      if (h.stores.length === 1) s.dispose = vi.fn((o) => (o?.save === false ? undefined : new Promise((r) => { done = r })))
+      return s
+    }
+    return { done: () => act(async () => { done() }) }
+  }
+  it('the same board opened again while its last close is still trying: that is sent first, then the board is read', async () => {
+    const trying = stillTrying()
+    const first = await open()
+    first.view.unmount()
+    await waitFor(() => expect(h.stores[0].dispose).toHaveBeenCalledTimes(1))
+    h.lives.length = 0
+    await open()
+    expect(h.stores).toHaveLength(2)
+    expect(h.stores[0].flush).toHaveBeenCalledTimes(2)
+    expect(h.stores[0].flush.mock.invocationCallOrder[1]).toBeLessThan(h.stores[1].load.mock.invocationCallOrder[0])
+    expect(h.stores[0].dispose).toHaveBeenCalledTimes(1)
+    await trying.done()
+  })
+  it('🚨 another person opening a board while a close is still trying: that close drops what was waiting', async () => {
+    const trying = stillTrying()
+    const first = await open()
+    first.view.unmount()
+    await waitFor(() => expect(h.stores[0].dispose).toHaveBeenCalledTimes(1))
+    h.lives.length = 0
+    await open({ me: { id: 'u2', label: 'Theo Lindqvist' } })
+    expect(h.stores[0].dispose).toHaveBeenLastCalledWith({ save: false })
+    expect(h.stores[0].flush).toHaveBeenCalledTimes(1)
+    await trying.done()
+  })
   it('the same person under a new name is no change: nothing is left', async () => {
     const { onClose, rerender } = await mount()
     rerender({ me: { id: 'u1', label: 'Mara O.' } })

@@ -29,6 +29,8 @@ const DEBOUNCE_MS = 150
 const MAX_WAIT_MS = 1000
 const UNDO_DEPTH = 200
 const RETRY_MS = [1000, 2000, 5000, 10000, 30000]
+// How many times a closed board's waiting changes are sent before it lets them go (about two minutes on RETRY_MS).
+const CLOSE_TRIES = 8
 
 // What board_put_elements reads of an element (file_id is added for a file's kinds; `expect` for undo and redo).
 const SENT_KEYS = Object.freeze(['kind', 'shape', 'x', 'y', 'w', 'h', 'rotation', 'z', 'style', 'body', 'points',
@@ -110,6 +112,10 @@ export function createBoardStore({ adapter, boardId, now = Date.now, delay = DEB
   // dispose({ save: false }): what was waiting is dropped, and nothing more goes to the adapter, not even what a
   // save already on its way would have sent or read next.
   let dropped = false
+  // An ordinary close still trying: its timer, how to end it, and the promise dispose answers with.
+  let closeTimer = null
+  let endClose = null
+  let closeDone = null
   // The background: the latest choice made here and not yet answered, and the save on its way. What the server last
   // said of it is held in `board` as the pair (background, background_version).
   let bgWanted = null
@@ -342,6 +348,13 @@ export function createBoardStore({ adapter, boardId, now = Date.now, delay = DEB
       if (e.mode === 'patch' && v === 1) { again.push(id); continue }
       const cur = base.get(id)
       if (mark(id) !== (marks.get(asked) ?? 0) || (e.mode === 'patch' && !cur)) { reread.push(id); continue }
+      // A part saved over a version this window never heard (someone else's save came between): it is drawn over
+      // what is held, at the version held, and the element is read again, so the messages between are still taken.
+      if (e.mode === 'patch' && v > versionOf(cur) + 1) {
+        base.set(id, { ...cur, ...e.fields, id, version: versionOf(cur) })
+        reread.push(id)
+        continue
+      }
       if (!cur || v >= versionOf(cur)) base.set(id, { ...(e.mode === 'patch' ? cur : {}), ...e.fields, id, version: v })
     }
     let skipped = 0
@@ -868,15 +881,42 @@ export function createBoardStore({ adapter, boardId, now = Date.now, delay = DEB
     }
   }
 
-  // An ordinary close saves what is waiting first. { save: false } (another person or company now) drops it
-  // instead, with its timer, and asks the adapter nothing more: a waiting save never goes out under the next account.
+  // After an ordinary close, what could not reach the server is tried again on the same back-off, until it is saved
+  // or CLOSE_TRIES have gone; nothing new is taken and nobody hears anything meanwhile.
+  function saveOnClose() {
+    return new Promise((resolve) => {
+      let tries = 0
+      endClose = () => {
+        if (closeTimer) { clearTimeout(closeTimer); closeTimer = null }
+        endClose = null
+        resolve()
+      }
+      const attempt = () => {
+        closeTimer = null
+        flush().catch(() => {}).then(() => {
+          if (!endClose) return
+          tries += 1
+          if (!hasWork() || tries >= CLOSE_TRIES) { endClose(); return }
+          closeTimer = setTimeout(attempt, RETRY_MS[Math.min(tries - 1, RETRY_MS.length - 1)])
+        })
+      }
+      attempt()
+    })
+  }
+
+  // An ordinary close saves what is waiting first, and keeps trying a while if it cannot reach the server. { save:
+  // false } (another person or company now) drops it instead, with its timers, and asks the adapter nothing more: a
+  // waiting save never goes out under the next account.
   function dispose({ save = true } = {}) {
     if (!save) {
       dropped = true
       pending.clear()
       removing.clear()
+      endClose?.()
     }
-    const done = (save && (hasWork() || running)) ? flush().catch(() => {}) : Promise.resolve()
+    if (closing) return closeDone ?? Promise.resolve()
+    const done = (save && (hasWork() || running)) ? saveOnClose() : Promise.resolve()
+    closeDone = done
     closing = true
     if (timer) { clearTimeout(timer); timer = null }
     listeners.clear()

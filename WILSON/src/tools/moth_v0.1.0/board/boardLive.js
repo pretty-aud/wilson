@@ -82,6 +82,8 @@ export async function joinBoard({ adapter, boardId, me, store, turns, onClosed =
   let closed = false
   let suspended = false
   let rejoining = null
+  let rejoinAgain = false          // asked again while a rejoin was under way: one more follows it
+  let rejoinAgainForce = false
   let retryTimer = null
   let retries = 0
   let framing = false
@@ -318,16 +320,22 @@ export async function joinBoard({ adapter, boardId, me, store, turns, onClosed =
 
   // A channel failed: the names are asked again, at most once in a while unless it was closed for good.
   function checkNames(force = false) {
-    if (closed || suspended || rejoining || retryTimer) return
+    if (closed || suspended || retryTimer) return
     const t = now()
     if (!force && t - lastCheck < CHECK_EVERY_MS) return
     lastCheck = t
     rejoin(force)
   }
 
+  // One rejoin at a time. Asked again while one is under way (an AUDIENCE for names made since it read them), one
+  // more follows it, which compares the names and leaves the channels as they are when nothing changed.
   function rejoin(force = false) {
     if (closed || suspended) return Promise.resolve()
-    if (rejoining) return rejoining
+    if (rejoining) {
+      rejoinAgain = true
+      rejoinAgainForce = rejoinAgainForce || force
+      return rejoining
+    }
     rejoining = (async () => {
       let ch
       try {
@@ -346,7 +354,14 @@ export async function joinBoard({ adapter, boardId, me, store, turns, onClosed =
         return
       }
       await catchUp()
-    })().finally(() => { rejoining = null })
+    })().finally(() => { rejoining = null }).then(() => {
+      // A try already waiting asks the names itself.
+      const again = rejoinAgain && !closed && !suspended && !retryTimer
+      const againForce = rejoinAgainForce
+      rejoinAgain = false
+      rejoinAgainForce = false
+      return again ? rejoin(againForce) : undefined
+    })
     return rejoining
   }
 

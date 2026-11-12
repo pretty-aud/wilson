@@ -247,6 +247,32 @@ describe('boardLive: renamed channels and leaving', () => {
     expect(adapter.openBoardChannels).toHaveBeenCalledTimes(1)
   })
 
+  it('AUDIENCE while a rejoin is under way: one more rejoin follows it, and the window ends on the newest names', async () => {
+    const { adapter, store, conn } = await joined()
+    const first = conn()
+    let done
+    store.load.mockImplementationOnce(() => new Promise((r) => { done = r }))
+    adapter.names = { topic: `moth:board:${BOARD}:0.1`, live_topic: `moth:board-live:${BOARD}:0.1`, audience_gen: 1 }
+    first.handlers.onAudience({ board: BOARD, op: 'audience' })
+    await vi.advanceTimersByTimeAsync(0)
+    const second = conn()
+    expect(second.topics.topic).toMatch(/0\.1$/)
+    // Renamed again while the first rejoin still reads what it missed.
+    adapter.names = { topic: `moth:board:${BOARD}:0.2`, live_topic: `moth:board-live:${BOARD}:0.2`, audience_gen: 2 }
+    second.handlers.onAudience({ board: BOARD, op: 'audience' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(adapter.openBoardChannels).toHaveBeenCalledTimes(2)
+    done()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(adapter.openBoardChannels).toHaveBeenCalledTimes(3)
+    expect(second.leave).toHaveBeenCalled()
+    expect(conn().topics).toEqual({ topic: `moth:board:${BOARD}:0.2`, live_topic: `moth:board-live:${BOARD}:0.2` })
+    // Nothing changed since: no rejoin loops after it.
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(adapter.boardChannels).toHaveBeenCalledTimes(3)
+    expect(adapter.openBoardChannels).toHaveBeenCalledTimes(3)
+  })
+
   it('AUDIENCE then a refusal: the board closes with words', async () => {
     const { adapter, onClosed, live, conn } = await joined()
     const first = conn()

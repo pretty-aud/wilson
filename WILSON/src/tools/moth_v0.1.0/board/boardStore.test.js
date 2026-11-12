@@ -531,6 +531,120 @@ describe('boardStore: the server\'s answers', () => {
     expect(adapter.readBoardElements).not.toHaveBeenCalled()
     expect(adapter.rows.has('b')).toBe(true)
   })
+
+  it('a save answered past a version not yet heard reads the element again: the server\'s fields are drawn', async () => {
+    const { adapter, store } = await loaded([el('a', { version: 5, style: { fill: 'red' } })])
+    const real = adapter.putBoardElements.getMockImplementation()
+    let theirs = null
+    // Someone else's save lands first (v6); ours is made over it (v7), and its answer comes before their message.
+    adapter.putBoardElements.mockImplementationOnce(async (b, list) => {
+      theirs = theirSave(adapter, 'a', { style: { fill: 'blue' } })
+      return real(b, list)
+    })
+    store.update('a', { x: 50 })
+    await store.flush()
+    store.applyRemote(theirs)
+    const { file, missing, updated_at, ...echo } = adapter.rows.get('a')
+    store.applyRemote({ board: BOARD, op: 'put', elements: [{ ...echo, has_file: false, points_omitted: false }] })
+    expect(store.getElements().get('a')).toMatchObject({ x: 50, style: { fill: 'blue' }, version: 7 })
+    expect(adapter.readBoardElements).toHaveBeenCalledWith(BOARD, ['a'])
+  })
+
+  it('a save answered with the next version is taken as it is, nothing read again', async () => {
+    const { adapter, store } = await loaded([el('a', { version: 5 })])
+    store.update('a', { x: 50 })
+    await store.flush()
+    expect(adapter.readBoardElements).not.toHaveBeenCalled()
+    expect(store.getElements().get('a')).toMatchObject({ x: 50, version: 6 })
+  })
+
+  // A server that cannot be reached until `online` is set.
+  function offline(adapter) {
+    const real = adapter.putBoardElements.getMockImplementation()
+    const net = { online: false }
+    adapter.putBoardElements.mockImplementation(async (...args) => {
+      if (!net.online) throw new TypeError('Failed to fetch')
+      return real(...args)
+    })
+    return net
+  }
+
+  it('a close while the server cannot be reached keeps trying, and saves once the network is back', async () => {
+    const { adapter, store, events } = await loaded([el('a')])
+    const net = offline(adapter)
+    store.update('a', { x: 9 })
+    await store.flush()
+    expect(adapter.rows.get('a').x).toBe(0)
+    const count = events.length
+    let closed = false
+    store.dispose().then(() => { closed = true })
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(closed).toBe(false)
+    expect(store.add({ kind: 'shape' })).toBeNull()
+    net.online = true
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(adapter.rows.get('a').x).toBe(9)
+    expect(closed).toBe(true)
+    expect(events.length).toBe(count)
+    const sent = adapter.putBoardElements.mock.calls.length
+    await vi.advanceTimersByTimeAsync(600000)
+    expect(adapter.putBoardElements).toHaveBeenCalledTimes(sent)
+  })
+
+  it('🚨 dispose({ save: false }) after a failed save sends nothing more, and ends a close still trying', async () => {
+    const { adapter, store } = await loaded([el('a')])
+    const net = offline(adapter)
+    store.update('a', { x: 9 })
+    await store.flush()
+    await store.dispose({ save: false })
+    net.online = true
+    await vi.advanceTimersByTimeAsync(600000)
+    expect(adapter.putBoardElements).toHaveBeenCalledTimes(1)
+    expect(adapter.rows.get('a').x).toBe(0)
+
+    const second = await loaded([el('a')])
+    const net2 = offline(second.adapter)
+    second.store.update('a', { x: 9 })
+    await second.store.flush()
+    let closed = false
+    second.store.dispose().then(() => { closed = true })
+    await vi.advanceTimersByTimeAsync(1500)
+    const sent = second.adapter.putBoardElements.mock.calls.length
+    await second.store.dispose({ save: false })
+    expect(closed).toBe(true)
+    net2.online = true
+    await vi.advanceTimersByTimeAsync(600000)
+    expect(second.adapter.putBoardElements).toHaveBeenCalledTimes(sent)
+    expect(second.adapter.rows.get('a').x).toBe(0)
+  })
+
+  it('a close that never reaches the server stops after its tries, and a refusal ends it at once', async () => {
+    const { adapter, store } = await loaded([el('a')])
+    offline(adapter)
+    store.update('a', { x: 9 })
+    await store.flush()
+    let closed = false
+    store.dispose().then(() => { closed = true })
+    await vi.advanceTimersByTimeAsync(120000)
+    expect(closed).toBe(true)
+    const sent = adapter.putBoardElements.mock.calls.length
+    expect(sent).toBe(9) // the flush, then eight tries after the close
+    await vi.advanceTimersByTimeAsync(600000)
+    expect(adapter.putBoardElements).toHaveBeenCalledTimes(sent)
+
+    const second = await loaded([el('a')])
+    offline(second.adapter)
+    second.store.update('a', { x: 9 })
+    await second.store.flush()
+    second.adapter.putBoardElements.mockRejectedValueOnce(Object.assign(new Error('No.'), { code: '42501' }))
+    let ended = false
+    second.store.dispose().then(() => { ended = true })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(ended).toBe(true)
+    expect(second.adapter.putBoardElements).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(600000)
+    expect(second.adapter.putBoardElements).toHaveBeenCalledTimes(2)
+  })
 })
 
 describe('boardStore: the board\'s background (0136)', () => {

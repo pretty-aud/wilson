@@ -51,7 +51,7 @@ import MothBloom from './components/MothBloom.jsx'
 import MothMoveTo from './components/MothMoveTo.jsx'
 import MothTrashView from './components/MothTrashView.jsx'
 import MothTagPanel from './components/MothTagPanel.jsx'
-import { BOARD_NEEDS_CLOUD, boardWords } from './board/boardPanelState.js'
+import { BOARD_NEEDS_CLOUD, boardWords, dropLeaving, whoKey } from './board/boardPanelState.js'
 import './moth.css'
 
 // MO4: the board panel is a chunk of its own, loaded the first time a board opens.
@@ -170,6 +170,12 @@ export default function MothPage({ isActive = true, worldFactory }) {
   const selectedRef = useRef(selected)
   selectedRef.current = selected
   const makingBoard = useRef(false)
+
+  // A board closed while its last changes could not reach the server keeps trying a while after the close. Another
+  // person, another company, or signed out: every such close that is not this account's is dropped here, with
+  // nothing more sent, whether or not a board is open (the panel does the same when one is).
+  const boardWho = whoKey({ id: perms?.userId ?? null }, perms?.workspaceId ?? null)
+  useEffect(() => { dropLeaving(boardWho) }, [boardWho])
 
   // One stack per account, workspace and adapter, and it survives everything else.
   const scope = `${perms?.userId ?? ''}|${perms?.workspaceId ?? ''}|${rabbit?.adapterMode ?? ''}`

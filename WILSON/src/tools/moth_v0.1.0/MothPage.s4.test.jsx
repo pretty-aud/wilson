@@ -28,6 +28,7 @@ vi.mock('./board/BoardPanel.jsx', async () => {
 })
 
 import MothPage, { BOARD_DOT_COLOUR } from './MothPage.jsx'
+import { keepLeaving, leavingOf, whoKey } from './board/boardPanelState.js'
 import { MothHelp } from './components/MothSettings.jsx'
 import { BOARD_NEEDS_CLOUD } from './board/boardPanelState.js'
 import { FOLDERS_FAILED_SENTENCE } from './components/MothTrashView.jsx'
@@ -237,6 +238,22 @@ describe('🚨 a board on the graph', () => {
     state.perms = { ...state.perms, workspaceId: 'w2' }
     view.rerender(<MothPage worldFactory={fakeWorld} />)
     await waitFor(() => expect(panel()).toBeNull())
+  })
+  it('🚨 another account with no board open drops a close that is still trying; the same account keeps it', async () => {
+    // A board closed while its last changes could not reach the server: its store keeps trying after the close.
+    const mine = { store: { dispose: vi.fn() }, who: whoKey({ id: 'u1' }, 'w1') }
+    keepLeaving('board-still-saving', mine)
+    const view = render(<MothPage worldFactory={fakeWorld} />)
+    await world()
+    expect(panel()).toBeNull()
+    view.rerender(<MothPage worldFactory={fakeWorld} />)
+    expect(mine.store.dispose).not.toHaveBeenCalled()
+    expect(leavingOf('board-still-saving')).toBe(mine)
+    // Someone else signs in on this computer while no board is open: what was waiting must not go out as them.
+    state.perms = { ...state.perms, userId: 'u2' }
+    view.rerender(<MothPage worldFactory={fakeWorld} />)
+    await waitFor(() => expect(mine.store.dispose).toHaveBeenCalledWith({ save: false }))
+    expect(leavingOf('board-still-saving')).toBeNull()
   })
   it('🚨 Ctrl+Z is the board\'s while it is open, and Moth\'s again after', async () => {
     render(<MothPage worldFactory={fakeWorld} />)

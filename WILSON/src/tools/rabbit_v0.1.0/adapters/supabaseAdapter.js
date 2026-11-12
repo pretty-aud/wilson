@@ -3046,6 +3046,13 @@ export function supabaseAdapter() {
       saved = (await adapter.putBoardElements(board.id, [el])).saved[0];
       if (!saved) throw boardWordsError('42501', BOARD_NOT_WRITABLE);
     } catch (err) {
+      // An error with no code is a lost answer (a network gone, a timeout), not a refusal: the element may have been
+      // saved, so it is read back by its own id. There, it is placed; a read that fails leaves the file where it is.
+      if (!err?.code) {
+        let back;
+        try { [back] = await adapter.readBoardElements(board.id, [el.id]); } catch { throw err; }
+        if (back) return back;
+      }
       if (made) {
         try {
           const client = await requireClient();
@@ -6888,7 +6895,15 @@ export function supabaseAdapter() {
       await store.put(to, new Blob([String(text ?? '')], { type: 'text/markdown' }), { contentType: 'text/markdown' });
       const res = await client.rpc('board_sticky_publish', { p_element: elementId, p_generation: generation, p_from_path: from, p_to_path: to });
       if (res.error || res.data !== true) {
-        try { await store.del(to); } catch (err) { console.warn('[supabase] a sticky\'s unsaved copy could not be taken back:', err?.message || err); }
+        // An error with no code is a lost answer (a network gone, a timeout): the save may have taken the new
+        // object, so it goes only when the row, read again, names something else. A row that cannot be read keeps it.
+        let takeBack = !res.error || !!res.error.code;
+        if (!takeBack) {
+          try { takeBack = (await stickyFileRow(client, fileId)).storage_path !== to; } catch { /* kept */ }
+        }
+        if (takeBack) {
+          try { await store.del(to); } catch (err) { console.warn('[supabase] a sticky\'s unsaved copy could not be taken back:', err?.message || err); }
+        }
       }
       if (res.error) {
         if (res.error.code === 'P0001' && res.error.message === 'sticky_turn_ended') {
@@ -6971,8 +6986,8 @@ export function supabaseAdapter() {
 
     // A board's two private channels (0132), joined as projectTopicName's are: `topic` is the database's (elements,
     // sticky, board (0136) and AUDIENCE; a client never sends there), `live_topic` is the people's (cursors, drags,
-    // who is here; broadcast with self off). AUDIENCE comes on both and is handed on once: fetch boardChannels again
-    // and rejoin.
+    // who is here; broadcast with self off). AUDIENCE comes on both; only the database's channel's is trusted, and
+    // it is handed on once: fetch boardChannels again and rejoin.
     // handlers: onElements(payload), onSticky(payload), onBoard(payload), onAudience(payload), onLive(event, payload),
     // onPresence([{ key, ...meta }]), onStatus({ channel: 'topic' | 'live', status }). sendLive answers whether it
     // went (nothing goes before the live channel is joined: a cursor is worth nothing late).
@@ -7026,9 +7041,11 @@ export function supabaseAdapter() {
         live = client.channel(liveTopic, {
           config: { private: true, broadcast: { self: false }, presence: { key: key || boardRandom() } },
         });
+        // Any reader of the board may send on the live channel, so an AUDIENCE there is dropped: the database's own
+        // copy on its channel is the one heard.
         live.on('broadcast', { event: '*' }, (msg) => {
-          if (String(msg?.event ?? '').toUpperCase() === 'AUDIENCE') audience(msg?.payload);
-          else call('onLive', msg?.event ?? null, msg?.payload ?? null);
+          if (String(msg?.event ?? '').toUpperCase() === 'AUDIENCE') return;
+          call('onLive', msg?.event ?? null, msg?.payload ?? null);
         });
         live.on('presence', { event: 'sync' }, () => {
           let people = [];

@@ -353,6 +353,54 @@ describe('a sticky\'s words', () => {
     expect(client.bucket.removed).toHaveLength(2)
   })
 
+  describe('a save whose answer is lost (an error with no code)', () => {
+    const lost = { data: null, error: { message: 'TypeError: Failed to fetch', details: '', hint: '', code: '' } }
+    // The row as the database has it after the save: `moved` says whether the save took the new key.
+    const savedClient = (row) => {
+      let reads = 0
+      const client = makeClient({
+        tables: { files: () => { reads += 1; return reads === 1 ? { data: FILE, error: null } : row(client) } },
+        rpc: { board_sticky_publish: lost },
+      })
+      return client
+    }
+
+    it('the row, read again, names the new key: it is kept, and the error is thrown as before', async () => {
+      const client = savedClient((c) => ({ data: { ...FILE, storage_path: c.bucket.uploads[0].key }, error: null }))
+      globalThis.__testSupabase = client
+      await expect(adapter.saveStickyText(EL, 3, 'Words')).rejects.toMatchObject({ message: 'TypeError: Failed to fetch' })
+      expect(client.calls.filter(c => c.table === 'files')).toHaveLength(2)
+      expect(client.bucket.removed).toEqual([])
+      expect(client.bucket.objects.get(client.bucket.uploads[0].key)).toBe('Words')
+    })
+
+    it('the row, read again, names the old key: the new copy is taken back', async () => {
+      const client = savedClient(() => ({ data: FILE, error: null }))
+      globalThis.__testSupabase = client
+      await expect(adapter.saveStickyText(EL, 3, 'Words')).rejects.toMatchObject({ message: 'TypeError: Failed to fetch' })
+      expect(client.bucket.removed).toEqual([client.bucket.uploads[0].key])
+    })
+
+    it('the row cannot be read again: nothing is taken back', async () => {
+      const client = savedClient(() => ({ data: null, error: { message: 'TypeError: Failed to fetch', code: '' } }))
+      globalThis.__testSupabase = client
+      await expect(adapter.saveStickyText(EL, 3, 'Words')).rejects.toMatchObject({ message: 'TypeError: Failed to fetch' })
+      expect(client.bucket.removed).toEqual([])
+    })
+
+    it('a coded refusal or the function\'s own false takes it back without reading the row again', async () => {
+      const client = makeClient({
+        tables: { files: filesTable(FILE) },
+        rpc: { board_sticky_publish: (args, n) => (n === 0 ? pgError('42501', 'board not found') : { data: false, error: null }) },
+      })
+      globalThis.__testSupabase = client
+      await expect(adapter.saveStickyText(EL, 3, 'a')).rejects.toMatchObject({ code: '42501' })
+      expect(await adapter.saveStickyText(EL, 3, 'b')).toMatchObject({ ok: false, reason: 'moved' })
+      expect(client.bucket.removed).toEqual(client.bucket.uploads.map(u => u.key))
+      expect(client.calls.filter(c => c.table === 'files')).toHaveLength(2)
+    })
+  })
+
   it('a company\'s own bucket waits: refused in the server\'s words before anything is uploaded; a note gone says so', async () => {
     const client = makeClient({ tables: { files: filesTable({ ...FILE, storage_provider: 's3' }) } })
     globalThis.__testSupabase = client
@@ -462,6 +510,38 @@ describe('a placed file: its address, a dropped file, an embed', () => {
     expect(rpcCalls(client, 'moth_trash_files')).toEqual([{ p_ids: ['f-new'] }])
   })
 
+  it('a placement whose answer is lost but which was saved: read back by its own id, answered as placed, nothing trashed', async () => {
+    const placed = { id: 'el-pic', kind: 'media', file: { id: 'f-new' }, version: 1 }
+    const client = makeClient({ rpc: {
+      board_put_elements: { data: null, error: { message: 'AbortError: signal is aborted without reason', code: '' } },
+      board_read_elements: { data: [placed], error: null },
+      moth_trash_files: { data: { done: 1 }, error: null },
+    } })
+    globalThis.__testSupabase = client
+    adapter.uploadFile = async () => ({ id: 'f-new' })
+    expect(await adapter.createMedia(BOARD_ROW, new File(['x'], 'a.png', { type: 'image/png' }), { id: 'el-pic' })).toEqual(placed)
+    expect(rpcCalls(client, 'board_read_elements')).toEqual([{ p_board: BOARD, p_ids: ['el-pic'] }])
+    expect(rpcCalls(client, 'moth_trash_files')).toEqual([])
+  })
+
+  it('a placement whose answer is lost and which is not there: the new note goes to the trash; a read that fails trashes nothing', async () => {
+    const lost = { data: null, error: { message: 'TypeError: Failed to fetch', code: '' } }
+    const client = makeClient({ rpc: {
+      board_put_elements: lost, board_read_elements: { data: [], error: null }, moth_trash_files: { data: { done: 1 }, error: null },
+    } })
+    globalThis.__testSupabase = client
+    adapter.uploadFile = async () => ({ id: 'f-new' })
+    await expect(adapter.createSticky(BOARD_ROW, 'x', { id: 'el-new' })).rejects.toMatchObject({ message: 'TypeError: Failed to fetch' })
+    expect(rpcCalls(client, 'moth_trash_files')).toEqual([{ p_ids: ['f-new'] }])
+
+    const unread = makeClient({ rpc: { board_put_elements: lost, board_read_elements: lost, moth_trash_files: { data: { done: 1 }, error: null } } })
+    globalThis.__testSupabase = unread
+    resetSupabaseAdapter()
+    await expect(adapter.createSticky(BOARD_ROW, 'x', { id: 'el-new' })).rejects.toMatchObject({ message: 'TypeError: Failed to fetch' })
+    expect(rpcCalls(unread, 'board_read_elements')).toHaveLength(1)
+    expect(rpcCalls(unread, 'moth_trash_files')).toEqual([])
+  })
+
   it('nothing is uploaded without a board to put it on or a file to put', async () => {
     const client = makeClient()
     globalThis.__testSupabase = client
@@ -529,7 +609,7 @@ describe('a board\'s two channels (0132)', () => {
     live.hear('elements', { op: 'remove', ids: ['b'] })
     live.state = { [ME]: [{ label: 'Mara', presence_ref: 'r1' }], u2: [{ label: 'Theo', presence_ref: 'r2' }] }
     live.sync()
-    // AUDIENCE comes on both and is handed on once.
+    // AUDIENCE comes on both: the database's is handed on, once, and the live channel's is dropped.
     db.hear('AUDIENCE', { board: BOARD, op: 'audience' })
     live.hear('AUDIENCE', { board: BOARD, op: 'audience' })
     expect(heard).toEqual([
@@ -547,6 +627,23 @@ describe('a board\'s two channels (0132)', () => {
     db.hear('elements', { op: 'put', elements: [] })
     expect(heard).toHaveLength(8)
     expect(ch.sendLive('cursor', {})).toBe(false)
+  })
+
+  it('an AUDIENCE forged on the live channel calls nothing, and the database\'s later one is still handed on', async () => {
+    const client = makeClient()
+    globalThis.__testSupabase = client
+    const heard = []
+    const ch = adapter.openBoardChannels(NAMES, {
+      onAudience: (p) => heard.push(['audience', p]), onLive: (e, p) => heard.push(['live', e, p]),
+    })
+    await ch.ready
+    const [db, live] = client.channels
+    live.hear('AUDIENCE', { board: BOARD, op: 'audience' })
+    live.hear('audience', { board: BOARD })
+    expect(heard).toEqual([])
+    db.hear('AUDIENCE', { board: BOARD, op: 'audience', real: true })
+    expect(heard).toEqual([['audience', { board: BOARD, op: 'audience', real: true }]])
+    ch.leave()
   })
 
   it('the database\'s `board` message (0136) reaches onBoard; the same event on the live channel is only a live one', async () => {

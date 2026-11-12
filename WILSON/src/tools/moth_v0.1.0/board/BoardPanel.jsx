@@ -21,7 +21,8 @@ import { createStickyTurns } from './stickyTurn.js'
 import {
   SIZES, SIZE_WORDS, normalizeSize, canPullAway, canResize, FALLBACK_BOUNDS, COLLAPSE_MS, boundsFrom, defaultFrame,
   clampFrame, hitZone, hitSizes, isCorner, isEdge, cursorFor, pullDistance, pullScale, pullCloses, resizeFrame,
-  collapseTransform, createEscapeStack, boardWords, TRASH_WORDS, trashWords, whoKey,
+  collapseTransform, createEscapeStack, boardWords, TRASH_WORDS, trashWords, whoKey, keepLeaving, doneLeaving, leavingOf,
+  dropLeaving,
 } from './boardPanelState.js'
 
 const BoardCanvas = lazy(() => import('./BoardCanvas.jsx'))
@@ -39,6 +40,11 @@ const NO_LIVE = Object.freeze({
   sendPointer() {}, sendDrag() {}, cursors: () => new Map(), people: () => [], subscribe: () => () => {},
   stats: () => ({ sent: 0, received: 0 }), leave() {},
 })
+
+// A board closed while its last changes could not reach the server: its store keeps trying a while (boardStore's
+// dispose). boardPanelState.js holds those closes by board id (keepLeaving, leavingOf, doneLeaving, dropLeaving), so
+// the same board opened again sends them first and then reads, and another person or company lets them go at once,
+// here when a board is open and from the page when none is.
 
 const newSessionId = () => globalThis.crypto?.randomUUID?.() ?? `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
 
@@ -176,6 +182,7 @@ export function BoardPanel({
 
   // ── The board's store, turns and live channels: made on open, let go on close ──────────────────────────────
   useEffect(() => {
+    dropLeaving(who)
     // Another person, another company, or signed out: the last one's parts were let go by the cleanup below, and
     // nothing is made again for the new one. Back to the map.
     if (who !== whoAtOpen.current) {
@@ -197,6 +204,12 @@ export function BoardPanel({
     setParts(null)
     setLiveWords('')
     ;(async () => {
+      // This board's last close still trying: it is sent once more now, so the read below has it.
+      const earlier = leavingOf(board.id)
+      if (earlier) {
+        try { await earlier.store.flush?.() } catch { /* it goes as the server has it */ }
+        if (!alive) return
+      }
       try {
         await store.load()
       } catch (err) {
@@ -246,10 +259,16 @@ export function BoardPanel({
         // Someone else now: let go at once, and ask nothing more of the board as the last one. What was waiting is
         // dropped, not saved: it would go out under the next account.
         try { store.dispose?.({ save: false }) } catch { /* already gone */ }
+        dropLeaving(whoRef.current)
         return
       }
-      // What is waiting is saved before the store is let go.
-      Promise.resolve().then(() => store.flush?.()).catch(() => {}).finally(() => { try { store.dispose?.() } catch { /* already gone */ } })
+      // What is waiting is saved as the store is let go, and tried again a while if it cannot reach the server.
+      const mine = { store, who }
+      keepLeaving(board.id, mine)
+      Promise.resolve().then(() => store.flush?.()).catch(() => {})
+        .then(() => { try { return store.dispose?.() } catch { return undefined } })
+        .catch(() => {})
+        .finally(() => { doneLeaving(board.id, mine) })
     }
   }, [adapter, board.id, attempt, finish, who])
 

@@ -1343,6 +1343,54 @@ describe('BoardCanvas: frames like Figma\'s', () => {
     expect(order()).toEqual(['fr', 'far'])
   })
 
+  // Its middle (405) just outside the frame's right edge, stacked below the frame.
+  const EDGE = { id: 'edge', kind: 'shape', shape: 'rectangle', x: 395, y: 100, w: 20, h: 20, z: 1 }
+
+  it('a thing nudged into a frame stacked above it is raised above the frame, in the nudge\'s own undo step', async () => {
+    const { store } = await mount({ store: fakeStore([{ ...FR, z: 5 }, EDGE]) })
+    pick('edge')
+    fireEvent.keyDown(region(), { key: 'ArrowLeft', shiftKey: true })
+    expect(store.update).toHaveBeenCalledWith('edge', { x: 385, y: 100 }, { settled: true })
+    expect(store.update).toHaveBeenCalledWith('edge', { z: 6 }, { settled: true })
+    await settle()
+    expect(order()).toEqual(['fr', 'edge'])
+    cleanup()
+    const real = await realStore([{ ...FR, z: 5 }, EDGE])
+    const before = snapshot(real)
+    await mount({ store: real })
+    pick('edge')
+    fireEvent.keyDown(region(), { key: 'ArrowLeft', shiftKey: true })
+    await settle()
+    expect(snapshot(real)).toContain('edge:385,100,6')
+    fireEvent.keyDown(region(), { key: 'z', ctrlKey: true })
+    await settle()
+    expect(snapshot(real)).toEqual(before)
+    expect(real.canUndo()).toBe(false)
+  })
+
+  it('a thing resized so that a frame stacked above it now holds it is raised above the frame', async () => {
+    const { store } = await mount({ store: fakeStore([{ ...FR, z: 5 }, { ...EDGE, x: 390, w: 40 }]) })
+    pick('edge')
+    const tr = stageNow().findOne('Transformer')
+    // Half as wide: its middle goes from 410 to 400, on the frame's edge.
+    act(() => { tr.fire('transformstart'); groupOf('edge').scaleX(0.5); tr.fire('transform'); tr.fire('transformend') })
+    expect(store.update).toHaveBeenCalledWith('edge', expect.objectContaining({ x: 390, w: 20 }), { settled: true })
+    expect(store.update).toHaveBeenCalledWith('edge', { z: 6 }, { settled: true })
+    await settle()
+    expect(order()).toEqual(['fr', 'edge'])
+  })
+
+  it('a frame resized over a thing stacked below it raises that thing above the frame', async () => {
+    const { store } = await mount({ store: fakeStore([{ ...FR, z: 5 }, { ...EDGE, x: 420 }]) })
+    pick('fr')
+    const tr = stageNow().findOne('Transformer')
+    act(() => { tr.fire('transformstart'); groupOf('fr').scaleX(1.2); tr.fire('transform'); tr.fire('transformend') })
+    expect(store.update).toHaveBeenCalledWith('fr', expect.objectContaining({ x: 0, w: 480 }), { settled: true })
+    expect(store.update).toHaveBeenCalledWith('edge', { z: 6 }, { settled: true })
+    await settle()
+    expect(order()).toEqual(['fr', 'edge'])
+  })
+
   it('a frame drawn by hand inside another frame goes on top of it, what it holds above it', async () => {
     const inner = { id: 'inner', kind: 'shape', shape: 'rectangle', x: 20, y: 20, w: 50, h: 50, z: 1 }
     const { store } = await mount({ store: fakeStore([FR, inner, FAR]) })

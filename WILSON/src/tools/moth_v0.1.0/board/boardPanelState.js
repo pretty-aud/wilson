@@ -234,3 +234,24 @@ export function trashWords(err) {
  * or signed out), the board of the last one is let go and the panel closes.
  */
 export const whoKey = (me, companyId) => `${me?.id ?? ''}|${companyId ?? ''}`
+
+// Boards closed while their last changes could not reach the server: each one's store keeps trying a while
+// (boardStore's dispose). They are held here, by board id, and not in the panel's own file, for two reasons: the same
+// board opened again sends those changes first and then reads; and the page, which is there when no board is open,
+// lets them all go the moment the person or the company changes. What was waiting must never go out under the next
+// account.
+const leaving = new Map() // board id -> { store, who }
+/** Remember a close that is still trying. */
+export function keepLeaving(boardId, entry) { leaving.set(boardId, entry) }
+/** Forget it once it has ended (only if it is still the one held for that board). */
+export function doneLeaving(boardId, entry) { if (leaving.get(boardId) === entry) leaving.delete(boardId) }
+/** The close still trying for a board, or null. */
+export function leavingOf(boardId) { return leaving.get(boardId) ?? null }
+/** Let go of every close that is not this person's in this company: dropped, with nothing more sent. */
+export function dropLeaving(who) {
+  for (const [id, l] of leaving) {
+    if (l.who === who) continue
+    leaving.delete(id)
+    try { l.store.dispose?.({ save: false }) } catch { /* already gone */ }
+  }
+}

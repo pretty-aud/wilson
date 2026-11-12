@@ -921,9 +921,10 @@ export function mountBoard(host, init) {
     return out
   }
 
-  // At a drop: each moved thing a frame now holds but that is stacked below that frame goes above it, with what
-  // it holds itself, in their own order. Called in the same run as the move, so it is the same undo step.
-  function raiseIntoFrames(movedIds) {
+  // At a drop, a nudge or the end of a resize or turn: each moved thing a frame now holds but that is stacked below
+  // that frame goes above it, with what it holds itself, in their own order; after a resize or turn, so does what a
+  // frame resized now holds below it (`resized`). Called in the same run as the move, so it is the same undo step.
+  function raiseIntoFrames(movedIds, { resized = false } = {}) {
     const list = [...all().values()]
     const frames = list.filter((el) => el.kind === 'frame')
     if (!frames.length) return
@@ -932,6 +933,7 @@ export function mountBoard(host, init) {
       const el = all().get(id)
       if (!el || isTied(el)) continue
       if (frames.some((f) => frameHolds(f, el) && byStack(el, f) < 0)) below.add(id)
+      if (resized && el.kind === 'frame') for (const h of list) if (frameHolds(el, h) && byStack(h, el) < 0) below.add(h.id)
     }
     if (!below.size) return
     for (const id of heldBy(list, framesIn(below))) below.add(id)
@@ -1354,6 +1356,7 @@ export function mountBoard(host, init) {
     content.batchDraw()
   })
   tr.on('transformend', () => {
+    const ids = []
     for (const n of tr.nodes()) {
       const id = n.attrs.elementId
       const rec = nodes.get(id)
@@ -1367,7 +1370,9 @@ export function mountBoard(host, init) {
       if (el.kind === 'text') patch.h = round2(Math.max(g.h, textHeight(el.body, g.w, resolveStyle('text', el.style).fontSize)))
       store.update(id, patch, { settled: true })
       build(rec, { ...el, ...patch })
+      ids.push(id)
     }
+    if (canWrite) raiseIntoFrames(ids, { resized: true })
     transforming = null
     drawGuides([])
     ui.onBusy?.(false)
@@ -1652,11 +1657,13 @@ export function mountBoard(host, init) {
   function nudge(dx, dy) {
     if (!canWrite) return
     const els = all()
-    // A frame carries what it holds, as a drag does.
-    for (const id of carried()) {
+    // A frame carries what it holds, and what lands in a frame goes above it, as a drag does.
+    const moved = carried()
+    for (const id of moved) {
       const el = els.get(id)
       if (el) store.update(id, { x: round2(num(el.x) + dx), y: round2(num(el.y) + dy) }, { settled: true })
     }
+    raiseIntoFrames(moved)
     reconcileNow()
   }
 
