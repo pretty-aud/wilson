@@ -1899,8 +1899,8 @@ SELECT is((SELECT array_agg(p.proname::text ORDER BY p.proname) FROM pg_proc p
 SELECT is((SELECT array_agg(p.proname::text ORDER BY p.proname) FROM pg_proc p
             WHERE p.pronamespace NOT IN ('pg_catalog'::regnamespace, 'information_schema'::regnamespace)
               AND p.prosrc LIKE '%wilson.body_rekey%'),
-  ARRAY['fn_files_body_guard', 'rekey_file_body'],
-  'wilson.body_rekey is named by rekey_file_body and fn_files_body_guard and nothing else');
+  ARRAY['board_sticky_publish', 'fn_files_body_guard', 'rekey_file_body'],
+  'wilson.body_rekey is named by rekey_file_body, board_sticky_publish (0133, a sticky''s words under its turn) and fn_files_body_guard, and nothing else');
 SELECT is((SELECT array_agg(p.proname::text ORDER BY p.proname) FROM pg_proc p
             WHERE p.pronamespace NOT IN ('pg_catalog'::regnamespace, 'information_schema'::regnamespace)
               AND p.prosrc LIKE '%wilson.network_share_writer%'),

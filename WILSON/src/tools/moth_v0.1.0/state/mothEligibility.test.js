@@ -143,13 +143,15 @@ describe('0111\'s classifier, read from the migration', () => {
   // MO2 (0122): the seven kinds of item, each its project's, each in this company, the trash keeping three out.
   // MO3 (0124, MO2-09): and a phase or a task set aside by its bid version is no target either.
   // MO3 (0125, 0126): a workspace note and a typed tag are targets too, a personal one its owner's alone.
-  it("the latest gate is 0126's, and each item kind is its project's, in this company, out of the trash", () => {
-    expect(latestFile('_moth_target_eligible')).toBe('0126_moth_tags.sql')
+  // MO4 (0131): a folder in the trash is no target either, unless a definer asks for one.
+  it("the latest gate is 0131's, and each item kind is its project's, in this company, out of the trash", () => {
+    expect(latestFile('_moth_target_eligible')).toBe('0131_folder_trash_and_moves.sql')
     const text = latestBody('_moth_target_eligible')
     for (const kind of ['phase', 'asset', 'task', 'scene', 'shot', 'level', 'experience']) expect(text).toContain(`p_kind = '${kind}'`)
     for (const arm of ['a.workspace_id = v_ws', 't.workspace_id = v_ws', 's.workspace_id = v_ws', 'sh.workspace_id = v_ws',
       'l.workspace_id = v_ws', 'e.workspace_id = v_ws']) expect(text).toContain(arm)
-    expect(text.match(/v_deleted IS NOT NULL AND NOT COALESCE\(p_allow_trashed, false\)/g)).toHaveLength(4)
+    expect(text.match(/v_deleted IS NOT NULL AND NOT COALESCE\(p_allow_trashed, false\)/g)).toHaveLength(5)
+    expect(text).toContain('SELECT fo.project_id, fo.deleted_at INTO v_project, v_deleted')
     expect(text).toContain('p.workspace_id = v_ws')
     expect(text).toContain('ph.set_aside_at INTO v_project, v_deleted, v_aside')
     expect(text).toContain('t.set_aside_at INTO v_project, v_deleted, v_aside')

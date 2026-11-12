@@ -62,6 +62,10 @@ export function MothHelp() {
       <h3 className="moth-label">Moving and linking</h3>
       <p>Drag a dot onto a folder and the folder opens wider: let go to move the file into it. Drag it near another dot and that dot glows: linking comes with the next update of M.O.T.H., so for now the dot goes back. A word by the pointer says which. Press Escape to cancel. Letting go in empty space only changes the picture.</p>
       <p>Move to, in the view panel, does the same without dragging. Every move and delete can be undone.</p>
+      <h3 className="moth-label">Boards</h3>
+      <p>A board is a folder of its own, drawn as a dot of its own colour. Click it to open it in a frame over the map; the buttons at its top fill the view or the whole of M.O.T.H. Back to the map, or Escape, closes it. In the frame, drag a corner to resize it, or pull an edge outward and let go to put the board back into its dot.</p>
+      <p>To make one, open a project or a folder in the list and choose New board from its menu. Boards need the project in the cloud.</p>
+      <p>To put a board in the trash, open it and choose Put in the trash at its top. Its notes and pictures go with it, and you can bring it back from the trash for 30 days.</p>
       <h3 className="moth-label">Views</h3>
       <p>A view chooses what shows as dots, which lines join them and how they are laid out. Save one for yourself, or for everyone on a project. Where you put the dots is kept with the view.</p>
       <h3 className="moth-label">Looking back</h3>

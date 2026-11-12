@@ -311,6 +311,13 @@ Exclude financial files/canonical locked-folder descendants, including Legal, fo
 **In scope:** brief 7–7.5, board parts 1–4/8–9, 12a.1/11; checklist 9–16; complete matrix verification.
 **Out of scope:** gateway previews, live long-note transport, NAS watcher, waves, people/unrelated remediation/settled design changes.
 
+**Added to Session 4 (2026-11-12), her words**, typed to the planner at 03:28:56 UTC and confirmed in Session 4's chat at 05:59 UTC ("Yes, build both now"), both before the whole-session rounds:
+
+1. Hers: "for board default background. lets do a dotted grid, blank, and lined grid as options the user can select for the default background of a board."
+2. Hers: "also make sure to include frames like figma does to group multiple elements together and making it easier for users to group and grab the group and move it around."
+
+**Readings, not her words, hers to overturn:** the background is the board's, held with it in the database (0136, house method on dev), the same for everyone who opens it and changed by whoever may change the board; a new board starts on the dotted grid; "lined grid" is a square grid like graph paper; changing it is not an undo step. Frames: what is built stays; frame the selection in one action, grab a frame by its name, edge or surface and move it with what it holds, drag a thing in or out; a frame holds a thing by its middle and not one larger than itself; Delete on a frame takes what it holds, "Remove the frame only" leaves it; resizing does not resize contents; what a frame holds comes from positions, nothing stored; no copy, duplicate or right-click menu on boards yet; others see a dragged frame and up to nineteen of its things move live (twenty places a step in all). Where her words leave a detail open, follow Figma. As built: MOTH_DESIGN §5.
+
 **Measure first:** all hand-offs/file identity/providers/constraints/publication paths/realtime policies/settings. Audrey says Claude knows plan type: locate known configured context, verify plan name/remaining usage/spend cap; do not ask her to identify it again. Benchmark graph/both projects before board deps. Stop/report contradictions.
 **Files — MEASURED:** E1–E4/E8/E11–E23/shared publication/previews/page-dialog tests. **Proposed:** board renderer/tools/frame/presence/cursors/sticky editor.
 
@@ -357,20 +364,20 @@ Exclude financial files/canonical locked-folder descendants, including Legal, fo
 
 ### Every brief section
 
-| Section | Owner/disposition |
-|---|---|
+| Section | Owner/disposition | Session 4 evidence (2026-11-12; MOTH_DESIGN §5, walkthrough 97) |
+|---|---|---|
 | 0 Planning | This plan; S1 release docs |
-| 1 Purpose/feel/editing | S2/S4 |
-| 1.1 Light/translucency | S2; S4 preserves |
+| 1 Purpose/feel/editing | S2/S4 | Built: MOTH_DESIGN §5.2. Seen running in headless Chromium on the dev fixtures, every tool, no page error (§5.3 "Seen running"); walkthrough 97 steps 1 to 6 and pictures 01 to 28. |
+| 1.1 Light/translucency | S2; S4 preserves | Not tested as a check of its own in Session 4; walkthrough 97's picture 03 shows a board in its frame over the map. |
 | 2 One engine/views/scale/layout | S1 schema/S2; people later |
 | 3 Viewport/HUD | S2 |
 | 3.1 Settings/views/history/focus/search | S2; settled baseline metadata |
 | 3.2 List/breadcrumb | S2 |
 | 3.3 Cards/recent | S1 preferences/S2 |
-| 4 Interactions | S2/S4 |
+| 4 Interactions | S2/S4 | Built: `BoardCanvas.jsx`. Tests: `BoardCanvas.test.jsx` ("keys: Delete removes, arrows nudge, ctrl+z undoes, letters pick tools"; "two fingers pinch to zoom; a finger on empty board pans"), `snapping.test.js`, `frames.test.js`. Seen running (§5.3). Open: MO4-29 (a new text's undo), MO4-42. |
 | 4.1 Hover | S2 |
 | 4.2 Glow/grow/Escape | S2 |
-| 4.3 Shared writes | S1/all |
+| 4.3 Shared writes | S1/all | Session 4: every board write is a function's (0130 to 0136); suites 110 and 134 to 138, 349 of 349 on the applied schema at 0136 (134 to 138 alone plan 293; §5.3). |
 | 5 Tags | S1/S3 |
 | 5.1 Tiers | S3 |
 | 5.2 Types/cleanliness/promotion | S3 |
@@ -379,56 +386,56 @@ Exclude financial files/canonical locked-folder descendants, including Legal, fo
 | 6.1 Labels/separate tags | S3/S2 gesture |
 | 6.2 Inline/backlinks/visibility | S3 |
 | 6.3 Notes | S3 save-and-merge; live transport after release |
-| 7 Boards | S1/S4 |
-| 7.1 Folder/files/embed/missing/colour | S1/S4 |
-| 7.2 Toolkit | S4 |
-| 7.3 Per-element | S1/S4 |
-| 7.4 Live/cost | S4, current plan/cap/usage measured |
-| 7.5 Panel | S4 |
-| 8 Security | S1/all |
-| 9 Storage/previews | S1 metadata/S2-S4 UI; gateway after release |
+| 7 Boards | S1/S4 | Built: 0130 to 0136 (§5.1) and the client (§5.2). The rows 7.1 to 7.5 below; `tests/e2e/boards.spec.ts` steps 1 to 9 green in CI on `aa89a238` (§5.3). |
+| 7.1 Folder/files/embed/missing/colour | S1/S4 | Built: 0130 (a board is a folder), the adapter's `createSticky`, `createMedia` and `embedFile`. Tests: suite 135 section E (a placement goes, its file stays); `EmbedPicker.test.jsx`; `shapes.test.js` ("the stop-sign tile says what happened in plain words and names nothing"); `BoardCanvas.test.jsx` ("frames with names, pen strokes, text, files, a missing file's stop sign"). E2e step 8 (a picture placed in one window and received in the other; whether it is drawn from its file is reported, not required: CI's run on `aa89a238` reported it drawn, §5.3). Walkthrough 97 steps 4 and 5, pictures 01, 09 to 11; the stop sign not seen (the fixtures cannot delete a file). Open: MO4-30 (s3 stickies), MO4-37. |
+| 7.2 Toolkit | S4 | Built: §5.2 (the canvas, the background, frames). Tests: `shapes.test.js` ("the nineteen shapes"), `connectors.test.js`, `frames.test.js`, `background.test.js`, `StylePanel.test.jsx`, `BoardToolbar.test.jsx`, `BoardCanvas.test.jsx`; suite 134 section F (the background). E2e step 3c (the background across windows). Seen running (§5.3, both additions too); walkthrough 97 steps 3, 3a and 3b, pictures 04 to 07 and 16 to 28. Open: MO4-21 to MO4-25, MO4-29. |
+| 7.3 Per-element | S1/S4 | Built: `board_elements` (0130), `boardStore.js`. Tests: suite 135 (last writer wins; a stale undo skipped); `boardStore.test.js` ("a drag is drawn every frame and saved once, when it settles"; "an undo over someone else's change is skipped, said, and drawn as they left it"). E2e step 3 (shapes heard 2 and 2 as the database's messages, none sent by a window) and 3b (a forged save dropped). Open: MO4-32, MO4-33. |
+| 7.4 Live/cost | S4, current plan/cap/usage measured | Built: 0132, 0133, `boardLive.js`, `stickyTurn.js`. Tests: suites 137 and 138; `boardLive.test.js` ("a moving pointer is sent at most ten times a second, its last place always"; "a still pointer sends nothing"); `stickyTurn.test.js`. E2e steps 5 to 7 on `aa89a238`: the turn refused with the writer's name, the pointer 49 sends in 5 s (9.7 a second), none while still, caught up 1,031 ms after the socket came back. Two to five people on a throwaway stack: 112 sends and 448 receipts, 280 and 1,120, 238 and 952 (§5.3). Plan, cap and usage read 2026-11-12 06:01 UTC: Pro, spend cap enabled, 4,998,943 Realtime messages left (§5.3). Open: MO4-40 (drag messages not in the cost table), MO4-55 (no state for a month's messages run out), MO4-56 (no dashboard delta taken). |
+| 7.5 Panel | S4 | Built: `BoardPanel.jsx`, `boardPanelState.js`. Tests: `BoardPanel.test.jsx` ("the three sizes", "straight back to the map", "pull-away, on the framed size only", "the Escape stack"); `boardPanelState.test.js` ("corner against edge", "a corner resizes"). Seen running (§5.3); walkthrough 97 steps 1 and 2, pictures 03, 05, 08, 12 and 13. |
+| 8 Security | S1/all | Session 4: suites 134 to 138 (who may make, see and change a board; the channels' names; the turn); plants 118, 21 and 58 with each green one held by a named clause (§5.3); round 1's database-access reviewer found nothing, and its forged-AUDIENCE finding is fixed (§5.3, "The first whole-session round"). Open: MO4-01, MO4-34, MO4-35. |
+| 9 Storage/previews | S1 metadata/S2-S4 UI; gateway after release | Session 4: Supabase end to end (e2e on wilson-dev); the Local Server answers every board call `boards_absent` (`boardsCloud.test.js`, "the Local Server adapter: a board needs the cloud"); on an s3 company a sticky holds no words (MO4-30); a board on an s3 or office-server company: not measured. |
 | 10 Checklist | Every row below |
-| 11 Few sessions/hand-off | Four, Opus all, two reviews, continuation |
-| 12 Release rulings | S1/all |
+| 11 Few sessions/hand-off | Four, Opus all, two reviews, continuation | Session 4: every agent on Opus 5.5 (§5.3); the first whole-session round ran (27 agents, 3,594,153 tokens), the second has not; the hand-off is rewritten at the session's end. |
+| 12 Release rulings | S1/all | Session 4: nothing on staging or production; the runbook's 0130 to 0136 rows give the order (§5.4). |
 | 12a More rulings | Individual rows below |
-| 13 House rules | All; Opus exception settled |
+| 13 House rules | All; Opus exception settled | Session 4: every migration through a review round, a second look, plants, the apply and its md5 read back (§5.3's table), 0134 to 0136 rehearsed on wilson-dev rolled back. |
 
 ### Every additional ruling in 12a
 
-| Ruling | Owner |
-|---|---|
-| 1 Desktop-only | S1/S2/S4 solo |
+| Ruling | Owner | Session 4 evidence (2026-11-12) |
+|---|---|---|
+| 1 Desktop-only | S1/S2/S4 solo | Built: the Local Server adapter refuses every board call; the project's menu offers no board. Tests: `boardsCloud.test.js` ("the Local Server adapter: a board needs the cloud"); `MothPage.s4.test.jsx` ("no board is asked for or offered, and the menu says why"); `boardPanelState.test.js` ("this computer says it needs the cloud"). Seen on the desktop app with a copy of LEGEND ROAD: "A board needs this project in the cloud." and the history line (§5.3 "On the desktop"); walkthrough 97 step 7. The settings' sentence: not seen on the desktop. |
 | 2 Last view | S2 |
 | 3 First/new question and quick starts | S2 |
 | 4 Confirm tool jumps | S2/S3 note receiver |
-| 5 Delete/undo/trash | S1/S2/S3/S4 |
-| 6 Low power | S2/S4 |
+| 5 Delete/undo/trash | S1/S2/S3/S4 | Built: 0131 (a folder's trash, a board with it), 0135. Tests: suite 136 sections B to G; `MothPage.s4.test.jsx` ("a board put in the trash leaves the graph, says so, and the trash lists it with Bring back"); `BoardPanel.test.jsx` ("a board to the trash"); `boardStore.test.js` ("boardStore: undo and redo"). E2e step 9 (the trash closes both windows; the other window's words not checked, MO4-45). Walkthrough 97 steps 3.6, 3b.8 and 8.3, pictures 14, 15, 27 and 28. Open: MO4-24, MO4-29. |
+| 6 Low power | S2/S4 | Built: the map stops drawing while a board fills the view; the board's background paints only when the camera, the view's size or the background changes; the panel takes reduced motion. Tests: `MothPage.s4.test.jsx` ("filling the view, the map stops drawing; closed, it draws again"); `BoardCanvas.test.jsx` (the background layer not redrawn on an element's change). Measured: the graph's frames with a board open (§5.3, the debug sample). A low-power mode of the board's own: not built. |
 | 7 Personal space | S1 |
 | 8 Move to | S2 through S1 |
-| 9 Owner Moth/admin Files | S1/all regress |
-| 10 Company/no body move | S1/S4 |
-| 11 Adaptive pen/touch/mouse | S2/S4 |
+| 9 Owner Moth/admin Files | S1/all regress | Session 4: suite 134 section C (an admin sees a private project's board, never a personal space's). |
+| 10 Company/no body move | S1/S4 | Built: no folder or board moves between projects (`moth_move_folders`, 0131); a sticky's words never ride a message (0132). Tests: suite 136 section F; suite 137 section D (realtime stacks only); `BoardPanel.test.jsx` ("another company"); `MothPage.s4.test.jsx` ("another account or company closes the open board"). |
+| 11 Adaptive pen/touch/mouse | S2/S4 | Built: larger targets the moment a finger or pen touches (§5.2). Tests: `BoardCanvas.test.jsx` ("two fingers pinch to zoom; a finger on empty board pans", "a finger or a pen makes the handles larger", "targets grow under a finger or a pen"); `boardPanelState.test.js` ("a finger or a pen gets a wider band"); `EmbedPicker.test.jsx` ("larger rows under a finger or a pen"). The mouse: typing with a mouse failed in the browser and was fixed (`c09e6627`, §5.3). On a real touch device or pen: not tested. |
 
 ### Every checklist line in brief section 10
 
-| Line | Coverage |
-|---|---|
+| Line | Coverage | Session 4 evidence (2026-11-12) |
+|---|---|---|
 | 1 Model/free numbers | S1; settings instead of persisted pins; remeasure all |
-| 2 RLS/private/money | S1/S3 endpoints/S4 embeds-channels |
-| 3 Engine/performance/bundle/lazy | S2/S4 |
+| 2 RLS/private/money | S1/S3 endpoints/S4 embeds-channels | Built: 0130's file gate on every placed file and embed; 0132's two channels, renamed when the audience narrows. Tests: suites 134, 135, 137 (sections B and C) and 138; on the applied schema at 0136, suites 110 and 134 to 138 349 of 349, the whole set 7,241 of 7,243 (the two reds suite 74's, from before this session). Open: MO4-34 (an embed's element reaches a reader's window in messages), MO4-35. |
+| 3 Engine/performance/bundle/lazy | S2/S4 | Measured (§5.3): the graph with a board open in its frame, frames p95 21.5 ms and drawing p95 0.6 ms on the debug sample, 17.2 and 0.5 after it closed; on the desktop with LEGEND ROAD, frames p95 16.8 ms, drawing p95 0.5 and 0.6 ms. The bundle at `fdbc3832`: 13,234 bytes more on the main bundle, 15,790 on Moth's chunk, the board's chunk 301,698, loaded only when a board opens. Lazy: the scans in `BoardToolbar.test.jsx` and `MothPage.test.jsx` (which cannot see a static import of the canvas, MO4-47). A board of 5,000 elements: not measured (MO4-41). |
 | 4 HUD | S2 |
 | 5 Interactions | S2 through S1 |
 | 6 Tag lifecycle/0085 | S3 |
 | 7 Inline/backlinks | S3 |
 | 8 Note tiers | S3 |
-| 9 Boards | S4 |
-| 10 Live/auth/cost | S4 |
-| 11 Panel | S4 |
-| 12 Host/storage | S1/S2/S4 |
-| 13 Lockstep/ready/GatedAction | All; matching SQL/matrix if changed |
-| 14 Mounts/pgTAP/controls/replay | All; approved debug/local projects S2/S4 |
-| 15 Docs/walkthroughs | All |
-| 16 Production caller | All |
+| 9 Boards | S4 | As rows 7.1 to 7.3 above; e2e steps 1 to 4 and 8; walkthrough 97 steps 3 to 5, 3a and 3b. The 5,000-elements cap has no test (MO4-43). |
+| 10 Live/auth/cost | S4 | As row 7.4 above. Auth while open: a person taken off the company had the board closed 49 ms later (e2e step 8b, throwaway stack, §5.3); `boardLive.test.js` ("AUDIENCE: the names are asked again and joined, and what they carried is read again"). Round 1's forged-AUDIENCE and rejoin findings are fixed (§5.3, "The first whole-session round"). Walkthrough 97 step 6: not seen with two real accounts (RELEASE_TESTING §W, on staging). |
+| 11 Panel | S4 | As row 7.5 above; e2e steps 1, 2 and 9. |
+| 12 Host/storage | S1/S2/S4 | As section 9's row above: Supabase end to end; the Local Server refuses boards in words; on s3 a sticky holds no words (`boardsCloud.test.js`, `boardsFixtures.test.js`; MO4-30); a board on an s3 or office-server company: not measured. |
+| 13 Lockstep/ready/GatedAction | All; matching SQL/matrix if changed | Session 4: the three adapters offer the same board methods, and the fixtures keep the SQL's words, codes and order of checks (`boardsFixtures.test.js`; round 1's adapters reviewer); "New board" follows Moth's gate (`MothPage.s4.test.jsx`, "a reviewer is not offered one, and is told why", which checks the item is disabled and nothing is made; the reason's words are not checked). `GatedAction` itself is not used by the board: not tested. |
+| 14 Mounts/pgTAP/controls/replay | All; approved debug/local projects S2/S4 | Session 4: suites 134 to 138 new; plants 118, 21 and 58 (§5.3); vitest at `fdbc3832` 509 files, 13,050 passed, 9 skipped; CI six of six green on `aa89a238`. The debug sample measured in Chromium, LEGEND ROAD on the desktop (§5.3). Open: MO4-43, MO4-44, MO4-45, MO4-46 (tests that cannot fail, or leave state). |
+| 15 Docs/walkthroughs | All | Session 4: MOTH_DESIGN §5, walkthrough 97 with 28 pictures, the handbook, the runbook's 0130 to 0136 rows, RELEASE_TESTING §W, CHANGELOG, OUTSTANDING MO4-01 to MO4-47; the hand-off rewritten at the session's end. |
+| 16 Production caller | All | Session 4: not run; nothing is on staging or production (§5.4 gives the order for both). |
 | 17 Post-release | Section 10 |
 
 ## 7. Must-not-miss checklist

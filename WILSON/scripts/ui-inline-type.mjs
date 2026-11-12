@@ -106,6 +106,54 @@ export const NOT_A_STYLE = [
     n: 1,
     why: "Monaco's `options={{ minimap: …, fontSize: 14 }}` — an editor setting, not a style attribute",
   },
+  /* MO4's board (2026-11-11). Konva draws the board's words on a canvas, and its `new Konva.Text({ … })` options
+     are a drawing API's settings, as Monaco's are an editor's: there is no element, tag or class run for the map to
+     decide a step from. Each of these is the size the person chose for an element's words, or one grown with the
+     element, and each is ALSO named, with its reason, in typeScale's `INLINE_TYPE_EXCEPTIONS`. The board's own
+     words (BOARD_CAPTION) are a token object the inventory reads, so they are not here. One entry per site, each
+     marker a string of code on or beside its declaration (comments are blanked before this counts). */
+  {
+    file: 'src/tools/moth_v0.1.0/board/BoardCanvas.jsx',
+    marker: 'align: s.align, verticalAlign',
+    n: 1,
+    why: "`words()`'s Konva options: a shape's, a text box's and a sticky's words, drawn on the canvas",
+  },
+  {
+    file: 'src/tools/moth_v0.1.0/board/BoardCanvas.jsx',
+    marker: "name: 'frame-title'",
+    n: 1,
+    why: "a frame's name: Konva options, drawn on the canvas",
+  },
+  {
+    file: 'src/tools/moth_v0.1.0/board/BoardCanvas.jsx',
+    marker: 'text: el.body, fontSize',
+    n: 1,
+    why: "a connector's label: Konva options, drawn on the canvas",
+  },
+  {
+    file: 'src/tools/moth_v0.1.0/board/BoardCanvas.jsx',
+    marker: 'text: MISSING_WORDS',
+    n: 1,
+    why: "the stop-sign tile's words: Konva options, drawn on the canvas",
+  },
+  {
+    file: 'src/tools/moth_v0.1.0/board/BoardCanvas.jsx',
+    marker: "name: 'file-words'",
+    n: 1,
+    why: "a file tile's name: Konva options, drawn on the canvas",
+  },
+  {
+    file: 'src/tools/moth_v0.1.0/board/BoardCanvas.jsx',
+    marker: 'colour: s.textColour, align: s.align',
+    n: 1,
+    why: "`editorBox()`'s answer, a plain object the words editor's textarea reads its size from (that style IS in the inventory)",
+  },
+  {
+    file: 'src/tools/moth_v0.1.0/board/shapes.js',
+    marker: 'clamp(finite(s.font_size',
+    n: 1,
+    why: "`resolveStyle()`'s answer: an element's style as data for Konva, not a style attribute",
+  },
 ];
 
 /** How far from a declaration an exemption's marker may sit. Matched to the

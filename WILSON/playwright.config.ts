@@ -56,7 +56,17 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: /web-path\.spec\.ts/,
+      testIgnore: [/web-path\.spec\.ts/, /boards\.spec\.ts/],
+    },
+    // MO4 (M.O.T.H. Session 4): the board spec, after the sign-in specs and never beside them. It holds two
+    // signed-in windows on M.O.T.H. for two minutes; run beside the others (its second run in CI) three of them
+    // timed out waiting for the sign-in screen and passed on their retry. It also signs in twice, and waiting keeps
+    // that out of the minute the others spend on resolve-login's limiter.
+    {
+      name: 'chromium-boards',
+      use: { ...devices['Desktop Chrome'] },
+      testMatch: /boards\.spec\.ts/,
+      dependencies: ['chromium', 'chromium-web'],
     },
     // Session 12: web-path lane — deep links, URL ↔ page sync and the
     // signed-out degradations against the real dist-web build under /wilson.

@@ -53,6 +53,8 @@ import { isMoneyKey, moneyFolderChainLocked } from '../../tools/rabbit_v0.1.0/st
 // MO3 (0127): the typed link's one rule (pure), so the fake cloud reads a key out of the words as the trigger does.
 import { mentionKeys, isMentionKey } from '../../tools/rabbit_v0.1.0/state/mentionTokens'
 import { EDIT_SAVED_SINCE, EDIT_SAVED_SINCE_MESSAGE } from '../../tools/rabbit_v0.1.0/state/shotListModel'
+// MO4 (0130 to 0133): boards, their channels and a folder's trash and moves (boardsFixtures.js).
+import { createBoardsFixtures, BOARD_WORDS } from './boardsFixtures'
 // VW1c (0098): custom table views and groupings — the one statement of their
 // rules (pure, imports nothing; devFixtures.test.js allows it).
 import {
@@ -346,7 +348,8 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     const pid = mothTargetProject(kind, id)
     if (!pid || !mothProjectVisible(projectOf(pid))) return false
     if (kind === 'project') return true
-    if (kind === 'folder') return !moneyFolderChainLocked(id, store.folders.filter(f => f.project_id === pid))
+    // MO4 (0131): a folder in the trash is no target.
+    if (kind === 'folder') return !store.folders.find(f => f.id === id)?.deleted_at && !moneyFolderChainLocked(id, store.folders.filter(f => f.project_id === pid))
     if (kind === 'file') return mothShownFiles(pid).some(f => f.id === id)
     return mothItemLive(kind, id, pid)
   }
@@ -933,7 +936,7 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     async listMothFolders(projectId) {
       if (!mothProjectVisible(projectOf(projectId))) return []
       const rows = store.folders.filter(f => f.project_id === projectId)
-      return clone(rows.filter(f => !moneyFolderChainLocked(f.id, rows)).sort((a, b) => a.path.localeCompare(b.path)))
+      return clone(rows.filter(f => !f.deleted_at && !moneyFolderChainLocked(f.id, rows)).sort((a, b) => a.path.localeCompare(b.path)))
     },
     async listMothFiles(projectId, after = null, limit = 500) {
       if (!mothProjectVisible(projectOf(projectId))) return []
@@ -1471,6 +1474,16 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
         'notes', 'moth_tags', 'moth_tag_assignments', 'moth_relationships']
         .map(entity_type => ({ entity_type, project_id: null, recording_since: since }))
     },
+
+    // MO4 (0130 to 0133): boards, a sticky's turn and words, a folder's trash and moves, and the board channels
+    // (an in-process bus, so two fixture people on one store hear each other).
+    // A placed file's address is the one fileUrl gives its row (read when it is asked for, so the board answers as
+    // the file manager does).
+    ...createBoardsFixtures(store, {
+      userId, workspaceId, projectOf, mothTargetVisible, mothMayChange, mothProjectWritable, mothProjectVisible, isMoneyFile,
+      fileUrl: (row, opts) => adapter.fileUrl(row, opts),
+    }),
+
     async loadProject(projectId) {
       const project = projectOf(projectId)
       if (!project || project.deleted_at) throw notFound(projectId)
@@ -1499,7 +1512,8 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
         shots: inProject(store.shots).sort((a, b) => a.sort_order - b.sort_order),
         levels: inProject(store.levels),
         experiences: inProject(store.experiences),
-        folders: inProject(store.folders).sort((a, b) => a.path.localeCompare(b.path)),
+        // MO4 (0131): a folder in the trash is out of the table's reads.
+        folders: inProject(store.folders).filter(f => !f.deleted_at).sort((a, b) => a.path.localeCompare(b.path)),
         teamAssignments: inProject(store.projectMembers).map(m => ({
           project_id: m.project_id, member_id: m.user_id, project_role: m.project_role, project_title: m.project_title || '',
         })),
@@ -2573,7 +2587,7 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
 
     // ── Folders and the project mirror ───────────────────────────────────────
     async listFolders(projectId) {
-      return clone(store.folders.filter(f => f.project_id === projectId).sort((a, b) => a.path.localeCompare(b.path)))
+      return clone(store.folders.filter(f => f.project_id === projectId && !f.deleted_at).sort((a, b) => a.path.localeCompare(b.path)))
     },
     async ensureProjectFolders(projectId, project) {
       for (const planned of planProjectFolders(project || projectOf(projectId))) materialiseFolder(projectId, planned)
@@ -2654,7 +2668,20 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     },
     async writeProjectManifest(projectId, manifest) { store.manifests[projectId] = clone(manifest); return { ok: true } },
     async writeProjectRates(projectId, mirror) { store.ratesMirror[projectId] = clone(mirror); return { ok: true } },
-    async deleteFolder(id) { remove(store.folders, id) },
+    // MO4 (0130): a folder that is or holds a board goes to the trash, never by a delete (fn_folders_board_guard).
+    async deleteFolder(id) {
+      const below = new Set([id])
+      for (let grew = true; grew; ) {
+        grew = false
+        for (const f of store.folders) if (below.has(f.parent_id) && !below.has(f.id)) { below.add(f.id); grew = true }
+      }
+      if ((store.boardsFx?.boards || []).some(b => below.has(b.folder_id))) {
+        const err = new Error(BOARD_WORDS.boardDeleted)
+        err.code = '42501'
+        throw err
+      }
+      remove(store.folders, id)
+    },
 
     // ── Milestones (0067 + 0077 — Track A A2, merged 2026-09-29) ─────────────
     // The cloud shape, method for method: list(projectId) is the live rows by

@@ -4,6 +4,7 @@
 .moth-page {
   --moth-hud-ground: color-mix(in srgb, var(--color-paper-raised) 84%, transparent);
   --moth-touch: 0;
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -88,7 +89,9 @@
 .moth-time { display: flex; flex-direction: column; gap: 4px; }
 .moth-time-range { width: 100%; accent-color: var(--color-signal); }
 
-/* The list: breadcrumbs, the islands, a container's rows. */
+/* The list: breadcrumbs (and the folder's menu at their end), the islands, a container's rows. */
+.moth-list-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 4px; }
+.moth-list-head > .moth-crumbs { flex: 1 1 auto; min-width: 0; }
 .moth-crumbs { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0; color: var(--color-ink-2); font-size: var(--text-dense); }
 /* A flex item drops the spaces at its edges, so the arrow between two crumbs keeps its own. */
 .moth-crumbs > span { display: inline-flex; align-items: baseline; }
@@ -230,6 +233,131 @@
 .moth-help { display: flex; flex-direction: column; gap: 8px; }
 .moth-help p { margin: 0; }
 
+/* MO4: the trash's folders and boards, under its files. */
+.moth-trash-folders { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; }
+
+/* MO4: a board, in a panel that expands inside the page. Framed, it floats over the map (the map dimmed round it,
+   and not pressed through); filling the view, it covers the map; maximised, the whole tool, the toolbar too. The
+   frame's own band (its padding) is where an edge pulls away and a corner resizes: board/boardPanelState.js holds
+   the same sizes (10px, 18px for a finger or a pen). */
+.moth-board-layer {
+  --moth-board-band: calc(10px + 8px * var(--moth-touch));
+  position: absolute;
+  top: var(--size-toolbar, 44px);
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 5;
+  overflow: hidden;
+}
+.moth-board-layer[data-size="maximised"] { top: 0; }
+.moth-board-scrim {
+  position: absolute;
+  inset: 0;
+  background-color: color-mix(in srgb, var(--color-paper-recessed) 45%, transparent);
+  backdrop-filter: blur(2px);
+}
+.moth-board {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding: var(--moth-board-band);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-float);
+  background-color: var(--color-paper);
+  box-shadow: var(--shadow-float);
+  outline: none;
+  transform-origin: center center;
+  transition: transform 180ms var(--ease-response, ease-out), opacity 180ms var(--ease-response, ease-out),
+    border-color 120ms var(--ease-response, ease-out);
+  touch-action: none;
+}
+.moth-board[data-size="filled"], .moth-board[data-size="maximised"] {
+  inset: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  transition: none;
+}
+.moth-board[data-pulling="true"], .moth-board[data-resizing="true"] { transition: none; user-select: none; }
+.moth-board[data-will-close="true"] { border-color: var(--color-ink-2); }
+.moth-board[data-collapsing="true"] { opacity: 0; pointer-events: none; }
+.moth-board-head {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 4px 8px;
+  border-bottom: 1px solid var(--color-rule);
+}
+.moth-board-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: var(--text-dense);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Who else is on the board: a name beside its colour, cut short before it crowds the board's own name. */
+.moth-board-people { display: flex; flex: 0 1 auto; align-items: center; gap: 10px; min-width: 0; margin: 0; padding: 0; color: var(--color-ink-2); font-size: var(--text-dense); list-style: none; }
+.moth-board-people li { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.moth-board-person-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; }
+.moth-board-person-name { overflow: hidden; max-width: 14ch; text-overflow: ellipsis; white-space: nowrap; }
+.moth-board-sizes { display: flex; align-items: center; gap: 2px; }
+.moth-board-notes { display: flex; flex-direction: column; gap: 4px; padding: 4px 8px; border-bottom: 1px solid var(--color-rule); }
+.moth-board-body { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.moth-board-wait { position: absolute; top: 50%; left: 50%; max-width: min(420px, calc(100% - 32px)); transform: translate(-50%, -50%); }
+/* The corners, drawn as small marks inside the band; the press is the band's (the frame's own), so they take none. */
+.moth-board-grip {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border: 0 solid var(--color-ink-3, var(--color-rule));
+  pointer-events: none;
+}
+.moth-board-grip[data-corner="nw"] { top: 3px; left: 3px; border-top-width: 2px; border-left-width: 2px; border-top-left-radius: 4px; }
+.moth-board-grip[data-corner="ne"] { top: 3px; right: 3px; border-top-width: 2px; border-right-width: 2px; border-top-right-radius: 4px; }
+.moth-board-grip[data-corner="sw"] { bottom: 3px; left: 3px; border-bottom-width: 2px; border-left-width: 2px; border-bottom-left-radius: 4px; }
+.moth-board-grip[data-corner="se"] { right: 3px; bottom: 3px; border-right-width: 2px; border-bottom-width: 2px; border-bottom-right-radius: 4px; }
+.moth-board-pull-word {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  padding: 4px 12px;
+  border-radius: var(--radius-control);
+  background-color: var(--color-paper-raised);
+  color: var(--color-ink);
+  font-size: var(--text-dense);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.moth-page[data-input="touch"] .moth-board-head button { min-height: 40px; }
+/* Put in the trash, asked in the panel itself: a card over the top of the board, the board still showing below. */
+.moth-board-ask {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+  width: min(420px, calc(100% - 24px));
+  padding: 12px;
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-float);
+  background-color: var(--color-paper-raised, var(--color-paper));
+  box-shadow: var(--shadow-float);
+  transform: translateX(-50%);
+}
+.moth-board-ask-question { margin: 0; color: var(--color-ink); font-size: var(--text-dense); line-height: 1.45; }
+.moth-board-ask-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.moth-page[data-input="touch"] .moth-board-ask button { min-height: 40px; }
+
 /* Pen and touch (her §12a.11): larger targets the moment a finger or a pen touches, back when a mouse moves; the
    change animates, never snaps. */
 .moth-hud-panel button, .moth-card button, .moth-recent button {
@@ -242,4 +370,6 @@
 @media (prefers-reduced-motion: reduce) {
   .moth-bloom, .moth-bloom.is-leaving { animation: none; }
   .moth-hud-panel button, .moth-card button, .moth-recent button { transition: none; }
+  .moth-board { transition: none; }
 }
+.moth-board[data-calm="true"] { transition: none; }

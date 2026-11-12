@@ -4,9 +4,11 @@
 // in it, read from the same catalogue the graph draws (no money, no Legal, nothing hidden; MothPage's header).
 // Ticking a file selects it for Move to and Delete, as Session 1's list did. In a tags view it lists the tags with
 // how many files carry each.
+// MO4: a project's or a folder's menu (New board, or why there is none), a board's folder called a board, and,
+// inside one, Open board.
 import { useMemo } from 'react'
 import { Files } from 'lucide-react'
-import { Banner, Button, EmptyState } from '../../../ui'
+import { Banner, Button, EmptyState, MenuButton } from '../../../ui'
 import MothIslands, { islandLabel } from './MothIslands.jsx'
 import MothPersonalPanel from './MothPersonalPanel.jsx'
 import { nodeId } from '../engine/model.js'
@@ -22,6 +24,7 @@ export default function MothListWidget({
   snap, catalogue, index, inside, picked, gate, localOnly, onDesktop, officeRoot, onNetworkStorage, tagsView, adapter,
   onInside, onPickFile, onSelect, onRetry, onAdd, onTrash, pickedCount, onChanged, NetworkShareBanner, filesById, openFolder,
   search = '', onSearch = () => {},
+  folderMenu = null, folderMenuTitle = 'More for this folder', isBoard = () => false, insideBoard = null, onOpenBoard = () => {},
 }) {
   const setSearch = onSearch
   const islands = snap.islands
@@ -73,15 +76,21 @@ export default function MothListWidget({
 
   return (
     <aside className="moth-hud-panel moth-list-widget" aria-label="List" data-moth-list>
-      <nav className="moth-crumbs" aria-label="Where you are" data-moth-crumbs>
-        <button type="button" className="moth-link" onClick={() => { setSearch(''); onInside(null) }}>Everything</button>
-        {trail.map((id) => (
-          <span key={id}>
-            <span aria-hidden="true"> › </span>
-            <button type="button" className="moth-link" onClick={() => { setSearch(''); onInside(id) }} aria-current={id === inside ? 'location' : undefined}>{label(id)}</button>
-          </span>
-        ))}
-      </nav>
+      <div className="moth-list-head">
+        <nav className="moth-crumbs" aria-label="Where you are" data-moth-crumbs>
+          <button type="button" className="moth-link" onClick={() => { setSearch(''); onInside(null) }}>Everything</button>
+          {trail.map((id) => (
+            <span key={id}>
+              <span aria-hidden="true"> › </span>
+              <button type="button" className="moth-link" onClick={() => { setSearch(''); onInside(id) }} aria-current={id === inside ? 'location' : undefined}>{label(id)}</button>
+            </span>
+          ))}
+        </nav>
+        {inside && folderMenu?.length > 0 && <MenuButton title={folderMenuTitle} items={folderMenu} minWidth={240} />}
+      </div>
+      {inside && insideBoard && (
+        <Button size="sm" onClick={() => onOpenBoard(insideBoard)} data-moth-open-board>Open board</Button>
+      )}
 
       {!inside && (
         <>
@@ -147,8 +156,8 @@ export default function MothListWidget({
                       <button type="button" className="moth-link" onClick={() => onSelect(r.id)}>{r.label}</button>
                     </label>
                   ) : CONTAINER.has(r.kind) ? (
-                    <button type="button" className="moth-link moth-row-name" onClick={() => { setSearch(''); onInside(r.id) }}>
-                      <span className="moth-quiet">{KIND_WORD[r.kind]}</span> {r.label || '(no name)'}
+                    <button type="button" className="moth-link moth-row-name" onClick={() => { setSearch(''); onInside(r.id) }} data-board={r.kind === 'folder' && isBoard(r.rowId) ? 'true' : undefined}>
+                      <span className="moth-quiet">{r.kind === 'folder' && isBoard(r.rowId) ? 'Board' : KIND_WORD[r.kind]}</span> {r.label || '(no name)'}
                     </button>
                   ) : (
                     <button type="button" className="moth-link moth-row-name" onClick={() => onSelect(r.id)}>
