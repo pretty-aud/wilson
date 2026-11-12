@@ -417,6 +417,16 @@ export async function joinBoard({ adapter, boardId, me, store, turns, onClosed =
       listeners.add(fn)
       return () => { listeners.delete(fn) }
     },
+    // The person's name, learned after the board was joined (the company's list of people may load later than the
+    // board opens: seen between real people, who were each "Someone" to the others for as long as the board stayed
+    // open). The others are told at once, and every pointer sent from now carries it.
+    setLabel(label) {
+      const next = plainLabel(label)
+      if (closed || next === self.label) return
+      self.label = next
+      meta.label = next
+      quietly(() => conn?.track?.({ ...meta }))
+    },
     stats: () => ({ sent: counts.sent, received: counts.received,
       sentByEvent: { ...counts.sentByEvent }, receivedByEvent: { ...counts.receivedByEvent } }),
     leave() {

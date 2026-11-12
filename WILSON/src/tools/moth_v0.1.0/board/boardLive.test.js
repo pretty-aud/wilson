@@ -393,6 +393,27 @@ describe('boardLive: the channels joining, dropping and joining again', () => {
   })
 })
 
+// Seen between real people on a throwaway stack: a board opened before the company's list of people had loaded
+// joined as "Someone", and stayed so to everyone else.
+describe('boardLive: a name learned after joining', () => {
+  it('is told to the others at once, and goes with every pointer from then on', async () => {
+    const { live, conn } = await joined({ me: { id: 'u-mara', label: '' } })
+    expect(conn().track).toHaveBeenLastCalledWith(expect.objectContaining({ label: LIVE_WORDS.someone }))
+    live.setLabel('Mara Okonkwo')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(conn().track).toHaveBeenLastCalledWith({ user_id: 'u-mara', label: 'Mara Okonkwo', colour: personColour('u-mara') })
+    live.sendPointer(3, 4)
+    expect(conn().sendLive).toHaveBeenLastCalledWith('cursor', expect.objectContaining({ label: 'Mara Okonkwo' }))
+    // The same name again, or an email, tells nothing new and never an address.
+    const told = conn().track.mock.calls.length
+    live.setLabel('Mara Okonkwo')
+    expect(conn().track).toHaveBeenCalledTimes(told)
+    live.setLabel('mara@example.com')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(conn().track).toHaveBeenLastCalledWith(expect.objectContaining({ label: LIVE_WORDS.someone }))
+  })
+})
+
 describe('boardLive: words', () => {
   it('a name as a board shows it', () => {
     expect(plainLabel('  Theo   Lindqvist ')).toBe('Theo Lindqvist')

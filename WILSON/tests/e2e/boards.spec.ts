@@ -219,6 +219,9 @@ test('a board is live between two windows: shapes, a sticky and its turn, the po
         for (const page of [a, b]) {
           const here = page.locator('[data-moth-board-people] li')
           await expect(here).toHaveCount(1, { timeout: 20_000 })
+          // By their own name: a board joined before the company's people had loaded said "Someone" (this
+          // spec's first run between two people), and now says the name as soon as it is known.
+          await expect(here.first()).not.toHaveText(/Someone/, { timeout: 20_000 })
           expect(await here.first().innerText()).not.toContain('@')
         }
         seen.people = { a: await a.locator('[data-moth-board-people]').innerText(), b: await b.locator('[data-moth-board-people]').innerText() }
@@ -335,6 +338,7 @@ test('a board is live between two windows: shapes, a sticky and its turn, the po
         expect(names).toHaveLength(1)
         expect(names[0]).not.toContain('@')
         expect(names[0].trim().length).toBeGreaterThan(0)
+        expect(names[0]).not.toBe('Someone')
       }
       await a.waitForTimeout(500)
       const sent = (wireA.sent.cursor ?? 0) - before.sent

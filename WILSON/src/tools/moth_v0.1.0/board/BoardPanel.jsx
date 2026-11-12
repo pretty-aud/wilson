@@ -253,6 +253,12 @@ export function BoardPanel({
     }
   }, [adapter, board.id, attempt, finish, who])
 
+  // The person's name can arrive after the board was joined (the company's people load in their own time): the
+  // others on the board are told then, not left with "Someone".
+  const liveNow = parts?.live ?? null
+  const myLabel = me?.label
+  useEffect(() => { liveNow?.setLabel?.(myLabel) }, [liveNow, myLabel])
+
   // ── Put in the trash: asked in the panel, then the board's own folder goes ─────────────────────────────────
   const asking = trash !== null
   useEffect(() => {
