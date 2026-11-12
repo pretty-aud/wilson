@@ -87,10 +87,13 @@ import {
 } from '../storage';
 import { createSupabaseStorageProvider } from '../storage/supabaseProvider';
 import { createS3StorageProvider } from '../storage/s3Provider';
+import { patiently } from '../storage/patiently';
 import { createLocalServerStorageProvider } from '../storage/localServerProvider';
+import { createNetworkShareStorageProvider } from '../storage/networkShareProvider';
+import { mothRefusal } from './mothErrors';
 import { describeSourceFile } from '../storage/mediaMetadata';
 import {
-  generateThumbnail, thumbnailKeyFor, putThumbnailTo, removeThumbnailFrom,
+  generateThumbnail, thumbnailKeyFor, putThumbnailTo, removeThumbnailFrom, carryThumbnail,
   thumbnailUrlsAt,
 } from '../storage/thumbnails';
 // Session 40: the video decoder is a SEPARATE entry point, not an option on
@@ -100,7 +103,8 @@ import {
   looksLikeVideoFile, generateVideoThumbnailFromFile,
 } from '../storage/videoThumbnails';
 import { getWorkspaceStorageCached } from '../../../cloud/workspaceStorage';
-import { presignStorage, presignReadUrls } from '../../../cloud/storageApi';
+import { personalSpacesAvailable, isPersonalSpace, resetPersonalSpaceProbe } from '../../../cloud/personalSpace';
+import { presignStorage, presignReadUrls, lookAtStorageObject } from '../../../cloud/storageApi';
 import { serializeProjectRates, projectRatesPath } from '../projectRates';
 import {
   LEGAL_SEGMENT, LEGAL_UNAVAILABLE, LEGAL_GATE_REFUSAL,
@@ -151,6 +155,10 @@ export function resetSupabaseAdapter() {
   // `privateColumnKnown = null;` — so 0085's probe (S4a) is forgotten first.
   legalFilesKnown = false;
   fileTagsKnown = null;
+  rekeyFileBodyKnown = null;
+  topicEpochKnown = null;
+  notesTiersKnown = null;
+  resetPersonalSpaceProbe();
   privateColumnKnown = null;
   fileMetaKnown = null;
 }
@@ -222,7 +230,7 @@ registerStorageProvider(
 // preview, the player) through storage-read-urls, the batch GET signer.
 registerStorageProvider(
   FILE_PROVIDERS.S3,
-  createS3StorageProvider(presignStorage, presignReadUrls),
+  createS3StorageProvider(presignStorage, presignReadUrls, { lookAtObject: lookAtStorageObject }),
 );
 // Demo 2026-09-11: the desktop's own disk, for PRIVATE projects (see
 // uploadFile). Registered on EVERY surface so a row that names it resolves
@@ -231,6 +239,11 @@ registerStorageProvider(
 registerStorageProvider(
   FILE_PROVIDERS.LOCAL_SERVER,
   createLocalServerStorageProvider(),
+);
+// MO1 (NS-D13): a file on the company's office server, the same way: a sentence off the desktop.
+registerStorageProvider(
+  FILE_PROVIDERS.NETWORK_SHARE,
+  createNetworkShareStorageProvider(),
 );
 
 // ── Demo 2026-09-11: private projects — cloud rows, media on this computer ──
@@ -250,6 +263,31 @@ async function privateProjectsAvailable(client) {
   // Any other failure (network, RLS) says nothing about the column: answer
   // "not now" and probe again next time.
   return false;
+}
+// MO1 (0107, 0109): projects.topic_epoch names the project's realtime topic
+// after a narrowing (rabbit:project:{id}:{n}) — but only 0109 makes the
+// triggers send there. 0107 alone adds the column and bumps it, while every
+// write still goes to the plain topic (review round 1, finding 1). So the
+// probe is for 0109 itself: its join test, project_topic_matches, which a
+// signed-in caller may run. Absent (PGRST202, 42883): the list never reads the
+// epoch and every channel joins epoch 0, the only topic such a database has.
+let topicEpochKnown = null;
+async function topicEpochAvailable(client) {
+  if (topicEpochKnown !== null) return topicEpochKnown;
+  const { error } = await client.rpc('project_topic_matches', { p_topic: 'rabbit:project:00000000-0000-0000-0000-000000000000' });
+  if (!error) { topicEpochKnown = true; return true; }
+  if (error.code === 'PGRST202' || error.code === '42883' || /project_topic_matches/.test(error.message || '')) {
+    topicEpochKnown = false;
+    return false;
+  }
+  // Any other failure (network) says nothing about the schema: not now. Not false: the list would read
+  // no epoch, and a channel on a project that has one would join a topic the server refuses.
+  return null;
+}
+// The project channel's name: epoch 0 keeps the name every build has used.
+export function projectTopicName(projectId, topicEpoch = 0) {
+  const epoch = Number.isInteger(topicEpoch) && topicEpoch > 0 ? topicEpoch : 0;
+  return `rabbit:project:${projectId}${epoch > 0 ? ':' + epoch : ''}`;
 }
 // Demo 2026-09-11 (Audrey: "the name of the file, file type, creation date
 // and time, file size, if its an audio or video file the duration as well"):
@@ -273,6 +311,26 @@ async function fileMetaAvailable(client) {
 // strips `tags` from a patch rather than letting PGRST204 take the whole
 // request — a note typed beside a tag still saves.
 let fileTagsKnown = null;
+// MO3 (0125): notes gain a tier and a trash. Probed the same way: a database without the column answers 42703
+// (or PGRST204 from the schema cache) and every note is still its owner's alone, with no trash, as before 0125.
+// Any other failure says nothing about the column, and is the caller's to meet: it is not taken for an old
+// database, whose list would show other people's shared notes among one's own.
+// The session review: only "there" is remembered. A client open across the apply would otherwise go on reading the
+// database as before 0125 all session, so "not there" is asked again each time; and only the missing column or
+// table is taken for an old database, never a failure whose message merely holds the word.
+let notesTiersKnown = null;
+async function notesTiersAvailable(client) {
+  if (notesTiersKnown === true) return true;
+  const { error } = await client.from('notes').select('tier').limit(1);
+  if (!error) { notesTiersKnown = true; return true; }
+  const noTable = ['42P01', 'PGRST205'].includes(error.code);
+  const noColumn = ['42703', 'PGRST204'].includes(error.code) && /\btier\b/.test(error.message || '');
+  if (noTable || noColumn) return false;
+  lastError = error.message || String(error);
+  const err = new Error(`[supabase] ${lastError}`);
+  if (error.code) err.code = error.code;
+  throw err;
+}
 async function fileTagsAvailable(client) {
   if (fileTagsKnown !== null) return fileTagsKnown;
   const { error } = await client.from('files').select('tags').limit(1);
@@ -333,12 +391,16 @@ async function canAccessProjectLegal(client, projectId) {
     return false;
   }
 }
+// Whether this project keeps its media on this computer. MO1 (0110): a
+// personal space is is_private and is NOT that: its files go to the company's
+// storage, as any project's do (her answer; MOTH_DESIGN §2.2 PS-6).
 async function projectIsPrivate(client, projectId) {
   if (!(await privateProjectsAvailable(client))) return false;
+  const personal = await personalSpacesAvailable(client);
   const { data, error } = await client
-    .from('projects').select('is_private').eq('id', projectId).maybeSingle();
+    .from('projects').select(personal ? 'is_private, personal_owner_id' : 'is_private').eq('id', projectId).maybeSingle();
   if (error) throw new Error(`[supabase] ${error.message}`);
-  return !!data?.is_private;
+  return !!data?.is_private && !isPersonalSpace(data);
 }
 
 function sanitize(obj, drop = []) {
@@ -818,6 +880,11 @@ const FILE_COLUMNS = new Set([
   'created_at', 'created_by', 'updated_at', 'updated_by',
   'last_updated_at', 'last_updated_by', 'deleted_at', 'deleted_by',
 ]);
+
+// MO1 (0114, MOTH §2.1): where a file is kept and filed, which a client's UPDATE
+// never changes (fn_files_body_guard). In FILE_COLUMNS all the same: an INSERT
+// writes every one. updateFile takes them out of its patch.
+const FILE_BODY_COLUMNS = ['project_id', 'workspace_id', 'storage_provider', 'storage_path', 'thumbnail_url', 'is_financial', 'folder_id', 'share_missing_since', 'share_bin_path'];
 
 // ── Phase 2 of the 2026-08-10 build pass (migration 0061) ───────────────
 // The LAST write path still on the raw `sanitize(dep, [])` denylist, and the
@@ -1426,18 +1493,21 @@ async function ensureEntityFolderWith(client, projectId, project, entityType, en
 //      object no row names once it is 24h old, so no object is ever left
 //      moved with its row still saying the old key for longer than one
 //      round trip (round 1, item 1; the scan now also keeps an object whose
-//      twin key a row names, _shared/shotKeys.ts). A row update that answers
-//      an error, or no row — a row a teammate trashed meanwhile is invisible
-//      to the update (files_select, 0014) — puts the object back, but only
-//      after RE-READING the row, successfully, and only while it still
-//      names the old key: an update that committed and lost its answer is
-//      left as it committed, and when the read fails too nothing is moved
-//      (round 2, item 4). An object already at its new key with nothing at
-//      the old one is a move that landed on an earlier run and is counted
-//      done; an object at BOTH keys is left alone and reported (a move
-//      never overwrites and nothing here deletes). A thumbnail at neither
-//      key is a derived picture: the row stops naming it rather than the
-//      shot being held back;
+//      twin key a row names, _shared/shotKeys.ts). The row is rewritten through
+//      rekey_file_body (0114). A call that answers an error — a row a teammate
+//      trashed meanwhile is refused, 42501 — or false, the row no longer saying
+//      what this run read, puts the object back, but only after RE-READING the
+//      row, successfully, and only while it still names the old key: a call
+//      that committed and lost its answer is left as it committed, and when
+//      the read fails too nothing is moved (round 2, item 4). A row this
+//      account cannot see any more keeps its old key claimed, so the object
+//      could not go back (0115): it stays at its new key and the reason says
+//      so. An object
+//      already at its new key with nothing at the old one is a move that
+//      landed on an earlier run and is counted done; an object at BOTH keys
+//      is left alone and reported (a move never overwrites and nothing here
+//      deletes). A thumbnail at neither key is a derived picture: the row
+//      stops naming it rather than the shot being held back;
 //   4. the old prefix is read again: a live row still under it (an upload
 //      that landed meanwhile) leaves the folder where it is, to be run
 //      again; then, and only then, the folder row is re-parented, and the
@@ -1470,16 +1540,10 @@ function filesUnderPrefix(client, projectId, prefix) {
     .order('id'));
 }
 
+// One HEAD, not a list: see supabaseProvider.js's exists.
 async function objectExistsIn(bucket, key) {
-  const slash = key.lastIndexOf('/');
-  const dir = slash === -1 ? '' : key.slice(0, slash);
-  const leaf = slash === -1 ? key : key.slice(slash + 1);
-  const { data, error } = await bucket.list(dir, { search: leaf, limit: 100 });
-  if (error) throw new Error(`storage list failed: ${error.message}`);
-  // `search` is a substring match: the leaf itself, not a neighbour that
-  // contains it (round 1's mutant: `length > 0` saw “plate.exr.bak” as the
-  // plate).
-  return (data || []).some(o => o.name === leaf);
+  const { data } = await bucket.exists(key);
+  return data === true;
 }
 
 /** The store an object lives in: a bucket, or this computer's media root. */
@@ -1523,6 +1587,44 @@ async function moveObjectVerified(where, from, to, name) {
   return 'moved';
 }
 
+// MO1 (0114): rekey_file_body, the one path a client has to a stored key, on a
+// database that does not have it yet. There is no guard there either, and both
+// its callers move the object first, so neither may start: the re-file and the
+// migration's receipt move ask before anything moves, and the migration does not
+// trust a refused upload's row without the guard. Asked once with the nil uuid (a
+// file nobody has): 42501 where the function exists, PGRST202 or a 42883 naming it
+// where it does not. Remembered as fileTagsAvailable's answer is, and forgotten by
+// resetSupabaseAdapter, so an auth event picks up a database migrated meanwhile.
+// Any other failure says nothing about the function, so it is said in its own
+// words and asked again next time. A call that meets PGRST202 itself (the function
+// gone since, or a wrong argument name, which shotRefilingCloud.test.js pins) counts
+// as the answer. The second sentence is the first once nothing stays moved.
+export const REKEY_ABSENT_WHY = 'this company\'s database does not have this update yet';
+export const REKEY_ABSENT = `${REKEY_ABSENT_WHY}, so nothing was moved`;
+let rekeyFileBodyKnown = null;
+export function rekeyFileBodyMissing(error) {
+  if (!missingFunction('rekey_file_body')(error)) return false;
+  rekeyFileBodyKnown = false;
+  return true;
+}
+export async function rekeyFileBodyAvailable(client) {
+  if (rekeyFileBodyKnown !== null) return rekeyFileBodyKnown;
+  let answer;
+  try {
+    answer = await client.rpc('rekey_file_body', {
+      p_file: NIL_PROJECT_ID, p_from_path: null, p_to_path: null, p_from_thumb: null, p_to_thumb: null, p_financial: false,
+    });
+  } catch (err) {
+    answer = { error: err };
+  }
+  if (rekeyFileBodyMissing(answer?.error)) return false;
+  if (!answer?.error || answer.error.code === '42501') {
+    rekeyFileBodyKnown = true;
+    return true;
+  }
+  throw new Error(`could not ask this company's database whether it has this update (${answer.error.message || answer.error}), so nothing was moved`);
+}
+
 /**
  * The row read again: `{ ok: true, row }` with what it names NOW (`row`
  * null when this account cannot see it), or `{ ok: false, error }` when
@@ -1536,22 +1638,41 @@ async function rereadFileRow(client, id) {
 }
 
 /**
- * The row rewritten to say where its object now is. An error, or no row
- * answered (the update reached nothing this account can see), puts the
- * object back — but only after the row has been READ AGAIN, successfully,
- * and still names the old key (or cannot be seen at all): an update that
- * committed and lost its answer stays as it committed; a row someone else
- * changed meanwhile is left to them; and when the read fails too, nothing
- * is known, so nothing is moved — the object stays at its new key, the
- * shot is left with "run it again", and the next run finds it (the row
- * still old: landed earlier; the row new: done) while storage-gc keeps it
- * (its twin key is named either way).
+ * The row rewritten to say where its object now is. An error, or a false
+ * answer (the row no longer says what this run read), puts the object back —
+ * but only after the row has been READ AGAIN, successfully, and still names
+ * the old key: a call that committed and lost its answer stays as it committed;
+ * a row someone else changed meanwhile is left to them; a row this account
+ * cannot see any more (binned or removed meanwhile) keeps its old key claimed,
+ * so the storage policies refuse the way back (0115) and the object stays;
+ * and when the read fails too, nothing is known, so nothing is moved
+ * — the object stays at its new key, the shot is left with "run it again",
+ * and the next run finds it (the row still old: landed earlier; the row new:
+ * done) while storage-gc keeps it (its twin key is named either way).
+ *
+ * MO1 (0114): through rekey_file_body, the one path a client has to a stored
+ * key (fn_files_body_guard refuses a patch). It is still one phase per column:
+ * the body's phase keeps the picture, the picture's phase keeps the path. So
+ * `row` is the row as it stands at this phase, and the picture's phase is handed
+ * the body's new key: the call compares both columns, and a stale path is a miss.
  */
 async function rewriteFileRow(client, row, column, from, to, putBack) {
-  const up = await client.from('files').update({ [column]: to }).eq('id', row.id).select('id').maybeSingle();
-  const failed = up.error
-    ? up.error.message
-    : (!up.data || !up.data.id ? 'its record is not visible to this account any more (trashed or removed meanwhile)' : null);
+  const body = column === 'storage_path';
+  const picture = row.thumbnail_url ?? null;
+  const up = await client.rpc('rekey_file_body', {
+    p_file: row.id,
+    p_from_path: body ? from : row.storage_path,
+    p_to_path: body ? to : row.storage_path,
+    p_from_thumb: body ? picture : from,
+    p_to_thumb: body ? picture : to,
+    p_financial: false,
+  });
+  const absent = rekeyFileBodyMissing(up.error);
+  const failed = absent
+    ? REKEY_ABSENT_WHY
+    : up.error
+      ? up.error.message
+      : (up.data !== true ? 'its record was changed by someone else meanwhile' : null);
   if (!failed) return;
   const again = await rereadFileRow(client, row.id);
   if (!again.ok) {
@@ -1559,14 +1680,17 @@ async function rewriteFileRow(client, row, column, from, to, putBack) {
   }
   const now = again.row;
   if (now && now[column] === to) return;
-  if (!now || now[column] === from) {
+  if (!now) throw new Error(`“${row.name}” could not be re-filed: its record is not visible to this account any more (binned or removed meanwhile)${to ? `, and its copy now sits at ${to}` : ''}; run it again to move the rest`);
+  const movedBack = now[column] === from;
+  if (movedBack) {
     try {
       await putBack();
     } catch (back) {
       throw new Error(`“${row.name}” was moved to ${to} but its record could not be updated (${failed}) and it could not be moved back (${back?.message || back}); its record still says ${from}`);
     }
   }
-  throw new Error(`“${row.name}” could not be re-filed: ${failed}`);
+  // Only of the body's own phase: by the picture's, the body has moved already.
+  throw new Error(`“${row.name}” could not be re-filed: ${absent && movedBack && body ? REKEY_ABSENT : failed}`);
 }
 
 /** Everything that would stop a shot, found BEFORE its first object moves. */
@@ -1578,6 +1702,7 @@ async function refileShotPreflight(client, projectId, p, rows, folders, toPath) 
     const to = nestedShotKey(row.storage_path, ctx);
     const thumbTo = row.thumbnail_url ? nestedShotKey(row.thumbnail_url, ctx) : null;
     if (!to && !thumbTo) continue;
+    if (!(await rekeyFileBodyAvailable(client))) throw new Error(REKEY_ABSENT);
     if (row.storage_provider === FILE_PROVIDERS.S3) {
       throw new Error(`“${row.name}” is in your own bucket, which cannot be moved from here yet`);
     }
@@ -1610,13 +1735,16 @@ async function refileOneObject(client, projectId, p, row) {
   const local = row.storage_provider === FILE_PROVIDERS.LOCAL_SERVER;
   const where = { client, local, bucketName: BUCKET_FILES };
   let did = 'untouched';
+  // What the row says as this goes on (rewriteFileRow compares both columns).
+  let now = row;
   // 1. The body, then its row — at once. (A row whose body is nested already
   // and whose picture is not — a run that stopped between the two — skips
   // to the picture.)
   if (to) {
     await moveObjectVerified(where, row.storage_path, to, row.name);
-    await rewriteFileRow(client, row, 'storage_path', row.storage_path, to,
+    await rewriteFileRow(client, now, 'storage_path', row.storage_path, to,
       () => moveObjectVerified(where, to, row.storage_path, row.name));
+    now = { ...row, storage_path: to };
     did = 'moved';
   }
   // 2. Its thumbnail, then its row — at once. The body is moved and its row
@@ -1631,12 +1759,12 @@ async function refileOneObject(client, projectId, p, row) {
         // than the shot being held back. (The file shows no picture from
         // then on — nothing regenerates a cloud thumbnail from its source
         // today, thumbnails.js — but the file itself is whole and moved.)
-        await rewriteFileRow(client, row, 'thumbnail_url', row.thumbnail_url, null, async () => {});
+        await rewriteFileRow(client, now, 'thumbnail_url', row.thumbnail_url, null, async () => {});
         return 'moved';
       }
       throw err;
     }
-    await rewriteFileRow(client, row, 'thumbnail_url', row.thumbnail_url, thumbTo,
+    await rewriteFileRow(client, now, 'thumbnail_url', row.thumbnail_url, thumbTo,
       () => moveObjectVerified(thumbWhere, thumbTo, row.thumbnail_url, row.name));
     did = 'moved';
   }
@@ -1754,14 +1882,259 @@ function missing0084Table(error) {
     && /\b(shot_lists|shot_list_items|edits)\b/.test(error.message || '');
 }
 
-// A missing 0084 FUNCTION: PGRST202 (PostgREST's schema cache), or a 42883
-// that names THIS function. A 42883 raised inside its body (a helper dropped
+// A missing FUNCTION (0084's first, every newer RPC's since MO1): PGRST202
+// (PostgREST's schema cache), or a 42883 that names THIS function. A 42883 raised inside its body (a helper dropped
 // or re-signatured) is a real failure and must reach the caller.
 // 🚨 PGRST202 is also PostgREST's answer to a parameter-NAME mismatch, which
 // is why supabaseLoadProject.test.js pins every p_* name each method sends.
-function missing0084Function(fnName) {
+function missingFunction(fnName) {
   return (error) => error?.code === 'PGRST202'
     || (error?.code === '42883' && (error.message || '').includes(fnName));
+}
+
+// MO1 (0110): the two personal-space RPCs on a database without them.
+const PERSONAL_SPACES_ABSENT = 'this workspace\'s database does not have personal spaces yet';
+function unwrapPersonalRpc(result, fnName, absent = PERSONAL_SPACES_ABSENT) {
+  if (missingFunction(fnName)(result?.error)) {
+    lastError = absent;
+    throw new Error(absent);
+  }
+  return unwrap(result);
+}
+// MO1 (0111): the same, for Moth's three reads.
+const MOTH_ABSENT = 'this workspace\'s database does not have M.O.T.H. yet';
+// MO2 (0123): Moth's own tables. A database without them answers 42P01 or PGRST205, said in words with a code the
+// page reads as "not on this database yet" rather than as a failure.
+const MOTH_VIEWS_ABSENT = 'this workspace\'s database does not keep M.O.T.H.\'s saved views yet';
+const MOTH_HISTORY_ABSENT = 'this workspace\'s database does not keep M.O.T.H.\'s history yet';
+function mothAbsent(message) {
+  const err = new Error(message);
+  err.code = 'moth_absent';
+  return err;
+}
+function unwrapMothTable(result, absent = MOTH_VIEWS_ABSENT) {
+  const code = result?.error?.code;
+  if (code === '42P01' || code === 'PGRST205') {
+    lastError = absent;
+    throw mothAbsent(absent);
+  }
+  return keepMothCode(result);
+}
+// A refusal keeps the database's own code (23503, 42501, 23514…), so the page can say it in words.
+function keepMothCode(result) {
+  try { return unwrap(result); } catch (err) { if (result?.error?.code && !err.code) err.code = result.error.code; throw err; }
+}
+function unwrapMothRpc(result, fnName, absent = MOTH_VIEWS_ABSENT) {
+  if (missingFunction(fnName)(result?.error)) {
+    lastError = absent;
+    throw mothAbsent(absent);
+  }
+  return keepMothCode(result);
+}
+const MOTH_VIEW_COLUMNS = 'id, scope_kind, project_id, owner_id, name, position, revision, config, updated_at, updated_by';
+// MO3 (0125 to 0127): workspace notes, typed tags and relationships, each said in words on a database without them.
+const MOTH_NOTES_ABSENT = 'this workspace\'s database does not keep workspace notes yet';
+const MOTH_TAGS_ABSENT = 'this workspace\'s database does not keep M.O.T.H.\'s typed tags yet';
+const MOTH_LINKS_ABSENT = 'this workspace\'s database does not keep M.O.T.H.\'s links yet';
+const MOTH_TAG_TYPE_COLUMNS = 'id, tier, owner_id, name, shape, colour, retired_at, updated_at';
+const MOTH_TAG_COLUMNS = 'id, type_id, tier, owner_id, label, canonical_id, retired_at, revision, updated_at';
+const MOTH_TAG_ASSIGNMENT_COLUMNS = 'id, tag_id, tier, owner_id, target_type, target_id, created_at';
+const MOTH_TAG_NOMINATION_COLUMNS = 'id, proposer_id, tag_id, label, type_name, note, status, review_note, decided_by, decided_at, result_tag_id, created_at';
+const MOTH_LINK_COLUMNS = 'id, source_type, source_id, dest_type, dest_id, label, origin, field, created_at';
+const unwrapMothTagTable = (result) => unwrapMothTable(result, MOTH_TAGS_ABSENT);
+const unwrapMothLinkTable = (result) => unwrapMothTable(result, MOTH_LINKS_ABSENT);
+// MO3 (the session review): Moth's lists of tags, types, uses, nominations and notes are read whole, a page at a time
+// (PostgREST stops at 1,000 rows an answer and says nothing of the rest), up to a bound. The last page asks one row
+// past the bound, so a list cut there says so: `truncated` on the array, out of sight of a plain comparison.
+const MOTH_LIST_BOUND = 20000;
+const MOTH_NOTES_BOUND = 5000; // moth_notes' own LIMIT (0125)
+function mothCut(rows) {
+  Object.defineProperty(rows, 'truncated', { value: true, enumerable: false });
+  return rows;
+}
+// Round 2: the pages are cut on the id, which no save moves (keyset: ordered by id, past the last id read, a page at a
+// time, until a short page). Offsets ordered by a column a save changes dropped or repeated a row that moved between
+// two pages, and made every page sort the whole table under its read policy before skipping its offset. The list is
+// then put back in the order its callers have always had (`order`: [column, 'text' | 'time', descending?], the id
+// last), so a list cut at its bound keeps the lowest ids, not the first in that order, and still says it was cut.
+// Words sort as the fixtures sort them (localeCompare), which may place case and accents apart from the collation.
+const mothText = (a, b) => String(a).localeCompare(String(b));
+const mothTime = (a, b) => (Date.parse(a) - Date.parse(b)) || (a < b ? -1 : a > b ? 1 : 0);
+function mothOrder(order) {
+  return (a, b) => {
+    for (const [col, kind, desc] of order) {
+      const x = a?.[col] ?? null;
+      const y = b?.[col] ?? null;
+      // As Postgres sorts them: a missing value last going up, first going down.
+      const c = x === y ? 0 : x === null ? 1 : y === null ? -1 : (kind === 'time' ? mothTime : mothText)(x, y);
+      if (c) return desc ? -c : c;
+    }
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  };
+}
+async function readMothPages(makeQuery, unwrapPage, order, bound = MOTH_LIST_BOUND) {
+  const out = [];
+  let after = null;
+  while (out.length <= bound) {
+    const want = Math.min(READ_PAGE, bound + 1 - out.length);
+    let q = makeQuery().order('id');
+    if (after !== null) q = q.gt('id', after);
+    const page = unwrapPage(await q.limit(want)) || [];
+    out.push(...page);
+    if (page.length < want) break;
+    after = page[page.length - 1].id;
+  }
+  const rows = (out.length > bound ? out.slice(0, bound) : out).sort(mothOrder(order));
+  return out.length > bound ? mothCut(rows) : rows;
+}
+// A change the database made to no row was refused by a policy (a seat lowered while the page stayed open, a label on
+// a typed link) or found nothing there: said in words, never a quiet null a panel would show as done. The words say
+// nothing of whether the row exists.
+const MOTH_TAG_UNCHANGED = 'That tag is not one you can change now, or it is no longer there.';
+const MOTH_TAG_NOT_DELETED = 'That tag is not one you can delete, or it is gone already.';
+const MOTH_TYPE_UNCHANGED = 'That type is not one you can change now, or it is no longer there.';
+const MOTH_TYPE_NOT_DELETED = 'That type is not one you can delete, or it is gone already.';
+const MOTH_LINK_UNCHANGED = 'That link is not one you can change: only a link drawn by hand takes a label, from someone who may change where it starts.';
+function mothNothingChanged(message) {
+  const err = new Error(message);
+  err.code = '42501';
+  return err;
+}
+
+// MO1 (0118): the same, with its refusals in words.
+function unwrapMoth(result, fnName) {
+  const refusal = mothRefusal(result?.error);
+  if (refusal) {
+    lastError = refusal.message;
+    throw refusal;
+  }
+  try {
+    return unwrapPersonalRpc(result, fnName, MOTH_ABSENT);
+  } catch (err) {
+    // A database's own code means it answered, and a statement that timed out rolled back: not the lost answer
+    // that a failed fetch is, whose code is empty.
+    if (result?.error?.code && !err.code) err.code = result.error.code;
+    throw err;
+  }
+}
+
+// ── MO4 (0130 to 0133): boards ───────────────────────────────────────────────────────────────────────────────
+// A board's refusals are the server's own words, with its own code: 42501 (not found or not writable, one refusal
+// for both), 22023 (a shape, a style or a drawing the board does not know), 23514 (a CHECK), 23505, 54000 (a limit),
+// and a P0001 whose message is a code and whose DETAIL is the words (sticky_turn_ended, cross_project,
+// s3_sticky_off), which come back as that code and those words. Moth's own trash codes read as mothErrors.js says.
+// A database without a board function says so in words, with the code the page reads as "not on this database".
+export const BOARDS_ABSENT = 'This company\'s database does not have boards yet.';
+export const BOARD_COLUMNS = 'id, folder_id, project_id, audience_gen, revision';
+const BOARD_READ_CHUNK = 50;
+const BOARD_SAVE_CHUNK = 500;
+const BOARD_PAGES_MAX = 64;
+// The words the adapter itself says (the server says the rest).
+export const STICKY_GONE = 'This note is missing — it may have been moved or deleted.';
+export const STICKY_MOVED = 'Someone changed this sticky since you opened it, so your words were not saved.';
+export const STICKY_TURN_ENDED = 'Someone else is writing in this sticky now, or your turn ended: your words were not saved.';
+export const STICKY_S3_OFF = 'A sticky\'s words cannot be saved on the company\'s own storage yet.';
+export const BOARD_FILE_GONE = 'This file is missing — it may have been moved or deleted.';
+// The server's own words (0130's guard) for a placement with no file, said before anything is uploaded.
+export const BOARD_NEEDS_FILE = 'A sticky, a picture or an embed needs its file.';
+const BOARD_NOT_WRITABLE = 'board not found or not writable';
+const STICKY_SIZE = { w: 200, h: 200 };
+const BOARD_FILE_SIZE = { w: 240, h: 180 };
+const BOARD_TOO_LARGE = 'This board is too large to open.';
+const BOARD_REMOVAL_SHAPE = 'At most 500 elements a removal, each with its version when versions are sent.';
+const FALLBACK_BOARD_WORDS = 'WILSON could not do that. Try it again.';
+function boardWordsError(code, words) {
+  const err = new Error(words);
+  err.code = code;
+  return err;
+}
+function boardRefusal(error) {
+  const moth = mothRefusal(error);
+  if (moth) return moth;
+  const detailed = error?.code === 'P0001' && typeof error?.details === 'string' && error.details.trim() !== '';
+  return boardWordsError(
+    detailed ? String(error.message || 'P0001') : (error?.code || null),
+    detailed ? error.details : String(error?.message || FALLBACK_BOARD_WORDS),
+  );
+}
+function unwrapBoard(result, fnName, { table = false } = {}) {
+  const error = result?.error;
+  if (!error) {
+    lastError  = null;
+    lastSyncAt = new Date();
+    return result?.data ?? null;
+  }
+  if (missingFunction(fnName)(error) || (table && (error.code === '42P01' || error.code === 'PGRST205'))) {
+    lastError = BOARDS_ABSENT;
+    throw boardWordsError('boards_absent', BOARDS_ABSENT);
+  }
+  const err = boardRefusal(error);
+  lastError = err.message;
+  throw err;
+}
+function boardChunks(list, size) {
+  const out = [];
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+  return out;
+}
+// Stacking order, as the server reads a board: z, then id.
+function byBoardStack(a, b) {
+  const dz = (Number(a?.z) || 0) - (Number(b?.z) || 0);
+  if (dz) return dz;
+  const x = String(a?.id ?? '');
+  const y = String(b?.id ?? '');
+  return x < y ? -1 : x > y ? 1 : 0;
+}
+// What a save sends of an element: what the client drew, never what only the server writes. A placed file goes as
+// its id (file_id; the server reads nothing else of it), and the points or words a message left out are not sent as
+// nothing (a null would erase them). Connectors go after the elements their ends name, since each element is its own
+// statement and an end must already be there. The fixtures restate this (boardsFixtures.js), held equal by a test.
+const BOARD_SERVER_KEYS = ['file', 'missing', 'version', 'updated_at', 'updated_by', 'created_at', 'created_by',
+  'has_file', 'points_omitted', 'board_id', 'project_id', 'workspace_id', 'bytes'];
+export function boardElementsForSave(elements) {
+  const rows = [];
+  for (const el of Array.isArray(elements) ? elements : []) {
+    if (!el || typeof el !== 'object' || Array.isArray(el)) { rows.push(el); continue; }
+    const row = { ...el };
+    if (row.file_id === undefined && row.file && typeof row.file === 'object' && row.file.id) row.file_id = row.file.id;
+    if (row.points_omitted === true) {
+      if (row.points == null) delete row.points;
+      if (row.body == null) delete row.body;
+    }
+    for (const k of BOARD_SERVER_KEYS) delete row[k];
+    rows.push(row);
+  }
+  return [...rows.filter(r => r?.kind !== 'connector'), ...rows.filter(r => r?.kind === 'connector')];
+}
+// A sticky's file is named from its first line, as a person would name a note.
+export function stickyFileName(text) {
+  const line = String(text ?? '').split(/\r?\n/).map(s => s.replace(/^[\s#>*+-]+/, '').trim()).find(Boolean) || '';
+  const name = line.replace(/[\\/:*?"<>|\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60).trim();
+  return `${name || 'Sticky note'}.md`;
+}
+function boardRandom() {
+  try { return globalThis.crypto.randomUUID(); } catch { /* an old engine */ }
+  return `${Date.now().toString(16)}-${Math.random().toString(16).slice(2, 10)}`;
+}
+// A sticky's new words go to a fresh key under its file's own project (0133: never over an object).
+function stickyKey(projectId, fileId) {
+  return `projects/${projectId}/files/${fileId}/${Date.now()}-${boardRandom().slice(0, 8)}.md`;
+}
+async function blobText(body) {
+  if (body == null) return '';
+  if (typeof body === 'string') return body;
+  if (typeof body.text === 'function') return body.text();
+  if (body instanceof ArrayBuffer || ArrayBuffer.isView(body)) return new TextDecoder().decode(body);
+  return String(body);
+}
+// A placed file's row, read by its id under the caller's own row security: one they may not read reads as gone.
+async function stickyFileRow(client, fileId, gone = STICKY_GONE) {
+  const res = await client.from('files')
+    .select('id, project_id, folder_id, name, mime_type, storage_provider, storage_path')
+    .eq('id', fileId).maybeSingle();
+  if (res.error) throw boardRefusal(res.error);
+  if (!res.data) throw boardWordsError('42501', gone);
+  return res.data;
 }
 
 // S3a review round 2 (R2-3, parity2#2): the unique indexes behind the
@@ -2655,7 +3028,48 @@ async function patchRow(table, id, patch) {
 // Adapter factory
 // ───────────────────────────────────────────────────────────────
 export function supabaseAdapter() {
-  return {
+  // MO4: the key each sticky's words were last read from, so a save says "moved" when someone saved since.
+  const stickyKeys = new Map();
+  // MO4: a file placed on a board (a new sticky's note, a dropped file, an embed), then read back as board_read gives
+  // it. `file` is what the answer names when the read back fails. A file this placement uploaded (`made`) goes to
+  // the trash again when the board refuses the placement; an embed's file is someone's own and is never touched.
+  async function placeBoardFile(board, kind, file, placement, made) {
+    const p = placement || {};
+    const size = kind === 'sticky' ? STICKY_SIZE : BOARD_FILE_SIZE;
+    const el = {
+      id: p.id || boardRandom(), kind, file_id: file.id,
+      x: p.x ?? 0, y: p.y ?? 0, w: p.w ?? size.w, h: p.h ?? size.h, rotation: p.rotation ?? 0, z: p.z ?? 0,
+      ...(p.style ? { style: p.style } : {}),
+    };
+    let saved;
+    try {
+      saved = (await adapter.putBoardElements(board.id, [el])).saved[0];
+      if (!saved) throw boardWordsError('42501', BOARD_NOT_WRITABLE);
+    } catch (err) {
+      // An error with no code is a lost answer (a network gone, a timeout), not a refusal: the element may have been
+      // saved, so it is read back by its own id. There, it is placed; a read that fails leaves the file where it is.
+      if (!err?.code) {
+        let back;
+        try { [back] = await adapter.readBoardElements(board.id, [el.id]); } catch { throw err; }
+        if (back) return back;
+      }
+      if (made) {
+        try {
+          const client = await requireClient();
+          await client.rpc('moth_trash_files', { p_ids: [file.id] });
+        } catch { /* the file stays in the board's folder, where Moth shows it */ }
+      }
+      throw err;
+    }
+    let back = null;
+    try { [back] = await adapter.readBoardElements(board.id, [saved.id]); } catch { /* answered below as placed */ }
+    return back || {
+      ...el, id: saved.id, shape: null, style: el.style || {}, body: null, points: null, file,
+      missing: false, from_id: null, from_anchor: null, to_id: null, to_anchor: null,
+      version: saved.version ?? 1, updated_at: null, updated_by: null,
+    };
+  }
+  const adapter = {
     mode: 'supabase',
 
     // ── Status ────────────────────────────────────────────────
@@ -2688,10 +3102,19 @@ export function supabaseAdapter() {
       // Demo 2026-09-11: is_private joins the list only where 0072 has
       // landed — naming a column the database lacks fails the WHOLE list.
       const privateCol = (await privateProjectsAvailable(client)) ? ', is_private' : '';
-      return unwrap(await client
+      // MO1 (0109): topic_epoch, so the open project's channel joins the topic
+      // its current epoch names (not in PROJECT_COLUMNS: the client never writes it).
+      const epochKnown = await topicEpochAvailable(client);
+      const epochCol = epochKnown !== false ? ', topic_epoch' : '';
+      // MO1 (0110): a personal space is in no list; an admin's RLS would admit
+      // everyone's. "Not now" fails closed: this read must not guess.
+      const personal = await personalSpacesAvailable(client);
+      if (personal === null) throw new Error('[supabase] the project list could not be read just now');
+      let list = client
         .from('projects')
-        .select('id, title, status, status_tag, updated_at, budget_total, budget_currency, client_name, cover_image_url' + privateCol)
-        .order('updated_at', { ascending: false }));
+        .select('id, title, status, status_tag, updated_at, budget_total, budget_currency, client_name, folder_root, cover_image_url' + privateCol + epochCol);
+      if (personal) list = list.is('personal_owner_id', null);
+      return unwrap(await list.order('updated_at', { ascending: false }));
     },
 
     async loadProject(projectId) {
@@ -3814,16 +4237,28 @@ export function supabaseAdapter() {
       // three new surfaces in front of file rows, and the local managedFiles
       // store uses field names — stored_name, notes, version_label — that have
       // no columns here and would otherwise arrive intact from shared code.
-      const row = toColumns('files', sanitize(patch, ['id', 'uploaded_at']));
+      //
+      // MO1 (0114, MOTH §2.1): the denylist also takes the seven columns
+      // fn_files_body_guard refuses a client's UPDATE (42501). FILE_COLUMNS
+      // keeps them, because an INSERT writes every one. The project_id callers
+      // pass (RabbitProvider, ProjectsPage) is for localServerAdapter's URL; a
+      // file changes project only through Move to, and a stored key only
+      // through rekey_file_body.
+      const row = toColumns('files', sanitize(patch, ['id', 'uploaded_at', ...FILE_BODY_COLUMNS]));
       // S4a (0085): a database without files.tags gets the patch without it.
       // A patch that was ONLY tags refuses in words — a silent no-op would
       // leave the chip lit until the next list (the 0075 trap, again).
       if ('tags' in row && !(await fileTagsAvailable(client))) {
         delete row.tags;
-        const left = Object.keys(row).filter((k) => k !== 'project_id');
-        if (left.length === 0) {
+        if (Object.keys(row).length === 0) {
           throw new Error('[supabase] Tags are not on this database yet (migration 0085). Nothing was changed.');
         }
+      }
+      // MO1: the same trap for a patch with nothing else in it. PostgREST answers
+      // an empty PATCH with no row, which .single() would report as its own
+      // error, in words nobody could act on.
+      if (Object.keys(row).length === 0) {
+        throw new Error('[supabase] Nothing in this change can be saved: a file\'s project, folder and storage change only through Move to.');
       }
       const res = await client.from('files').update(row).eq('id', id).select().single();
       // S4b (0088): the two Legal CHECKs answer in Postgres's words; say what
@@ -4145,12 +4580,34 @@ export function supabaseAdapter() {
     // `version` is the optimistic-concurrency counter. The list read
     // deliberately EXCLUDES ydoc_state — snapshots can be large and the
     // list only needs metadata + body_preview.
-    async listNotes() {
+    // 0125 (MO3): 'mine' (the default: the Dashboard's list and D.O.G.'s, as before: one's own notes of every
+    // tier), 'shared' (the company's shared and standard notes, one's own among them) or 'trash' (what the caller
+    // may bring back). Before 0125 every note is its owner's alone, and there is no trash.
+    async listNotes({ scope = 'mine' } = {}) {
       const client = await requireClient();
-      const { data, error } = await client
+      const tiers = await notesTiersAvailable(client);
+      if (!tiers && scope !== 'mine') return [];
+      let q = client
         .from('notes')
-        .select('id, title, subject, note_date, body_preview, version, created_at, updated_at')
-        .order('updated_at', { ascending: false });
+        .select('id, title, subject, note_date, body_preview, version, created_at, updated_at' + (tiers ? ', owner_id, tier, deleted_at' : ''));
+      if (tiers) {
+        // A note in the trash is in no plain read: its owner and live admins find it through note_trash_list.
+        if (scope === 'trash') {
+          const out = unwrapMothRpc(await client.rpc('note_trash_list'), 'note_trash_list', MOTH_NOTES_ABSENT);
+          lastError  = null;
+          lastSyncAt = new Date();
+          return Array.isArray(out) ? out : [];
+        }
+        if (scope === 'shared') q = q.is('deleted_at', null).neq('tier', 'personal');
+        else q = q.is('deleted_at', null);
+      }
+      // One's own are asked for whatever the probe said: before 0125 every note is its owner's anyway, and a probe
+      // wrong for a moment must not list a colleague's shared note as one's own.
+      if (scope === 'mine') {
+        const { data: sess } = await client.auth.getSession();
+        q = q.eq('owner_id', sess?.session?.user?.id ?? '00000000-0000-0000-0000-000000000000');
+      }
+      const { data, error } = await q.order('updated_at', { ascending: false });
       if (error) {
         // Environment predates migration 0017 — no notes yet.
         if (error.code === '42P01' || error.code === 'PGRST205') return [];
@@ -4194,7 +4651,20 @@ export function supabaseAdapter() {
     // NEVER send ydoc_state or version through here — body saves go
     // through saveNoteDoc so the version guard can't be bypassed.
     async patchNote(id, patch) {
-      return patchRow('notes', id, sanitize(patch, ['owner_id', 'ydoc_state', 'version']));
+      return patchRow('notes', id, sanitize(patch, ['owner_id', 'ydoc_state', 'version', 'tier', 'deleted_at', 'deleted_by']));
+    },
+    // 0125: who may read a note. personal (its owner's alone), shared (every active member's) or company_standard
+    // (set, cleared and changed by a live admin only). The guard says no in words, and the words reach the caller.
+    async notesHaveTiers() {
+      const client = await requireClient();
+      try { return await notesTiersAvailable(client); } catch { return false; }
+    },
+    async setNoteTier(id, tier) {
+      return patchRow('notes', id, { tier });
+    },
+    async restoreNote(id) {
+      const client = await requireClient();
+      return unwrapMothRpc(await client.rpc('note_restore', { p_note: id }), 'note_restore', MOTH_NOTES_ABSENT) === true;
     },
 
     // Version-guarded Yjs snapshot save. Returns the updated
@@ -4223,10 +4693,15 @@ export function supabaseAdapter() {
       return (data ?? []).length > 0 ? data[0] : null;
     },
 
-    // Hard delete (v1: notes have no trash — confirm in the UI).
+    // 0125: a note goes to the trash for 30 days, with its way back (restoreNote); true when it went. Before 0125
+    // there is no trash and it is deleted, as it was (v1: confirm in the UI).
     async deleteNote(id) {
       const client = await requireClient();
+      if (await notesTiersAvailable(client)) {
+        return unwrapMothRpc(await client.rpc('note_trash', { p_note: id }), 'note_trash', MOTH_NOTES_ABSENT) === true;
+      }
       unwrap(await client.from('notes').delete().eq('id', id));
+      return true;
     },
 
     // ── Note subjects (Session 8, migration 0017) ─────────────
@@ -4264,13 +4739,20 @@ export function supabaseAdapter() {
     // an option must re-tag the owner's notes or they silently fall out of
     // the renamed filter/group (review finding). RLS owner-scopes the
     // UPDATE for free. Returns the re-tagged note ids.
+    // 0125 (the second look on round A): a subject is its owner's, so only the renamer's own notes are re-tagged,
+    // never another member's shared note an admin may now change; and the company standard is left as it is.
     async retagNoteSubject(oldLabel, newLabel) {
       const client = await requireClient();
-      const { data, error } = await client
+      const tiers = await notesTiersAvailable(client);
+      const { data: sess } = await client.auth.getSession();
+      // The owner's filter whatever the probe said (the session review): it is harmless before 0125.
+      let q = client
         .from('notes')
         .update({ subject: newLabel })
         .eq('subject', oldLabel)
-        .select('id');
+        .eq('owner_id', sess?.session?.user?.id ?? '00000000-0000-0000-0000-000000000000');
+      if (tiers) q = q.neq('tier', 'company_standard');
+      const { data, error } = await q.select('id');
       if (error) {
         if (error.code === '42P01' || error.code === 'PGRST205') return [];
         lastError = error.message || String(error);
@@ -5085,7 +5567,7 @@ export function supabaseAdapter() {
       requireShotLists();
       const rows = unwrapShotList(
         await client.rpc('replace_shot_list_items', { p_list: listId ?? null, p_items: shotListItemsParam(items) }),
-        missing0084Function('replace_shot_list_items'),
+        missingFunction('replace_shot_list_items'),
       );
       return rows || [];
     },
@@ -5109,7 +5591,7 @@ export function supabaseAdapter() {
         await client.rpc('upsert_shot_list_items', {
           p_list: listId ?? null, p_items: shotListItemsParam(items), p_positions_only: false,
         }),
-        missing0084Function('upsert_shot_list_items'),
+        missingFunction('upsert_shot_list_items'),
       );
       return rows || [];
     },
@@ -5132,7 +5614,7 @@ export function supabaseAdapter() {
         await client.rpc('upsert_shot_list_items', {
           p_list: listId ?? null, p_items, p_positions_only: true,
         }),
-        missing0084Function('upsert_shot_list_items'),
+        missingFunction('upsert_shot_list_items'),
       );
       return rows || [];
     },
@@ -5225,7 +5707,7 @@ export function supabaseAdapter() {
       requireShotLists();
       const active = unwrapShotList(
         await client.rpc('set_active_shot_list', { p_project: projectId ?? null, p_list: listId ?? null }),
-        missing0084Function('set_active_shot_list'),
+        missingFunction('set_active_shot_list'),
       );
       return active ?? null;
     },
@@ -5238,7 +5720,7 @@ export function supabaseAdapter() {
         await client.rpc('archive_shot_list', {
           p_list: listId ?? null, p_archived: archived == null ? true : Boolean(archived),
         }),
-        missing0084Function('archive_shot_list'),
+        missingFunction('archive_shot_list'),
       );
     },
     async archiveEdit(_projectId, editId, archived = true) {
@@ -5248,7 +5730,7 @@ export function supabaseAdapter() {
         await client.rpc('archive_edit', {
           p_edit: editId ?? null, p_archived: archived == null ? true : Boolean(archived),
         }),
-        missing0084Function('archive_edit'),
+        missingFunction('archive_edit'),
       );
     },
 
@@ -5675,7 +6157,10 @@ export function supabaseAdapter() {
         }
         if (cancelled) return;
 
-        channel = client.channel(`rabbit:project:${projectId}`, {
+        // MO1 (0109): the topic carries the project's epoch after a narrowing
+        // (opts.topicEpoch, from the project list); a listener on an older
+        // epoch hears one AUDIENCE and then nothing.
+        channel = client.channel(projectTopicName(projectId, opts.topicEpoch), {
           config: {
             private: true,
             ...(presenceMeta ? { presence: { key: presenceMeta.user_id } } : {}),
@@ -5694,6 +6179,10 @@ export function supabaseAdapter() {
             });
           });
         }
+        // MO1 (0109): who may see the project changed. No row rides it.
+        channel.on('broadcast', { event: 'AUDIENCE' }, () => {
+          callback({ table: 'projects', op: 'AUDIENCE', record: null, oldRecord: null });
+        });
 
         if (opts.onPresence) {
           channel.on('presence', { event: 'sync' }, () => {
@@ -5786,6 +6275,11 @@ export function supabaseAdapter() {
             });
           });
         }
+        // MO1 (0109): a project's visibility flipped somewhere in the
+        // workspace. No id, no row: the provider reads the list again.
+        channel.on('broadcast', { event: 'AUDIENCE' }, () => {
+          callback({ table: 'projects', op: 'AUDIENCE', record: null, oldRecord: null });
+        });
 
         if (opts.onPresence) {
           channel.on('presence', { event: 'sync' }, () => {
@@ -5828,5 +6322,825 @@ export function supabaseAdapter() {
       if (!client) return false;
       return privateProjectsAvailable(client);
     },
+
+    // ── personal spaces (MO1, 0110, MOTH_DESIGN §2.2) ───────────────────────
+    async supportsPersonalSpaces() {
+      const client = await getClient();
+      if (!client) return false;
+      return (await personalSpacesAvailable(client)) === true;
+    },
+    // The caller's one space in this workspace, made on first ask (the server
+    // answers the same id every time).
+    async ensurePersonalSpace() {
+      const client = await requireClient();
+      return unwrapPersonalRpc(await client.rpc('ensure_personal_space'), 'ensure_personal_space');
+    },
+    // Under RLS: the caller's own, and every member's for a workspace admin.
+    async listPersonalSpaces() {
+      const client = await requireClient();
+      if (!(await personalSpacesAvailable(client))) return [];
+      return unwrap(await client
+        .from('projects')
+        .select('id, title, personal_owner_id, folder_slug, updated_at')
+        .not('personal_owner_id', 'is', null)
+        .order('updated_at', { ascending: false })) || [];
+    },
+    // An admin opening someone else's space in Files: the server's WIL-4114 line.
+    async recordPersonalSpaceOpened(projectId) {
+      const client = await requireClient();
+      unwrapPersonalRpc(await client.rpc('record_personal_space_opened', { p_project: projectId }), 'record_personal_space_opened');
+    },
+
+    // MO1 (0111, MOTH_DESIGN §2.2 MR-1): Moth reads only through these. Each
+    // runs as the caller and only narrows RLS: no money, no Legal, and no one
+    // else's personal space, admins included. A hidden or missing project is
+    // an empty answer, and nothing here counts anything. The two lists are
+    // ordered by the server, so PostgREST's pages cannot straddle a row.
+    async listMothIslands() {
+      const client = await requireClient();
+      return readAllPagesWith(() => client.rpc('moth_islands'),
+        (res) => unwrapPersonalRpc(res, 'moth_islands', MOTH_ABSENT) || []);
+    },
+    // What the office-server banner needs of the project open in Moth: its islands say nothing of where it is.
+    async mothIslandFolder(projectId) {
+      const client = await requireClient();
+      const { data, error } = await client.from('projects').select('id, folder_root, personal_owner_id').eq('id', projectId).maybeSingle();
+      if (error) throw new Error(error.message);
+      return data;
+    },
+    async listMothFolders(projectId) {
+      const client = await requireClient();
+      return readAllPagesWith(() => client.rpc('moth_project_folders', { p_project: projectId }),
+        (res) => unwrapPersonalRpc(res, 'moth_project_folders', MOTH_ABSENT) || []);
+    },
+    // One page, keyed on id (the server clamps the limit to 1..1000): the
+    // caller follows the last id, and a short page is the end.
+    async listMothFiles(projectId, after = null, limit = 500) {
+      const client = await requireClient();
+      return unwrapPersonalRpc(
+        await client.rpc('moth_project_files', { p_project: projectId, p_after: after, p_limit: limit }),
+        'moth_project_files', MOTH_ABSENT) || [];
+    },
+    // MO2 (0122): a project's items, and the relationships WILSON already stores between items and folders, each
+    // in one answer ({ items, truncated } and { links, truncated }): the server checks both ends of every line (no
+    // money, Legal, trash, set-aside or another person's space). A database before 0122 has neither: the graph
+    // then shows files and folders.
+    async listMothItems(projectId) {
+      const client = await requireClient();
+      const out = unwrapMothRpc(await client.rpc('moth_project_items', { p_project: projectId }), 'moth_project_items', MOTH_ABSENT);
+      return { items: Array.isArray(out?.items) ? out.items : [], truncated: out?.truncated === true };
+    },
+    async listMothLinks(projectId) {
+      const client = await requireClient();
+      const out = unwrapMothRpc(await client.rpc('moth_project_links', { p_project: projectId }), 'moth_project_links', MOTH_ABSENT);
+      return { links: Array.isArray(out?.links) ? out.links : [], truncated: out?.truncated === true };
+    },
+    // What each file Moth shows is filed against, and who last changed it (ids only, named from the members the page
+    // reads): a page at a time, keyed on the file's id like listMothFiles.
+    async listMothFileFacts(projectId, after = null, limit = 1000) {
+      const client = await requireClient();
+      return unwrapMothRpc(await client.rpc('moth_project_file_facts', { p_project: projectId, p_after: after, p_limit: limit }),
+        'moth_project_file_facts', MOTH_ABSENT) || [];
+    },
+
+    // MO2 (0123): saved views. A project's, shared with whoever may write to it, and the caller's own across
+    // every project they see. The server decides which the caller sees, whose a new one is and its company;
+    // a client sends no id. A save names the revision it was made from, and one made from an old copy changes
+    // nothing (null comes back), as table views' do (0098).
+    async listMothViews() {
+      const client = await requireClient();
+      return readAllPagesWith(() => client.from('moth_views').select(MOTH_VIEW_COLUMNS)
+        .order('position').order('created_at').order('id'), unwrapMothTable);
+    },
+    async createMothView({ scopeKind, projectId = null, name, config = {}, position = 0 }) {
+      const client = await requireClient();
+      return unwrapMothTable(await client.from('moth_views')
+        .insert({ scope_kind: scopeKind, project_id: scopeKind === 'project' ? projectId : null, name, config, position })
+        .select(MOTH_VIEW_COLUMNS).single());
+    },
+    async updateMothView(id, { name, config, position } = {}, revision = null) {
+      const client = await requireClient();
+      const patch = {};
+      if (name !== undefined) patch.name = name;
+      if (config !== undefined) patch.config = config;
+      if (position !== undefined) patch.position = position;
+      let q = client.from('moth_views').update(patch).eq('id', id);
+      if (revision != null) q = q.eq('revision', revision);
+      const rows = unwrapMothTable(await q.select(MOTH_VIEW_COLUMNS)) || [];
+      return rows[0] ?? null;
+    },
+    async deleteMothView(id) {
+      const client = await requireClient();
+      const rows = unwrapMothTable(await client.from('moth_views').delete().eq('id', id).select('id')) || [];
+      return { removed: rows.length > 0 };
+    },
+    // A view's places: the caller's own and the shared ones, each only while its target is one Moth shows (one
+    // gate a row, the view asked once), in one answer, so nothing is paged by running the scan again.
+    async listMothPositions(viewId) {
+      const client = await requireClient();
+      const out = unwrapMothRpc(await client.rpc('moth_view_positions', { p_view: viewId }), 'moth_view_positions');
+      return Array.isArray(out?.places) ? out.places : [];
+    },
+    // Many places at once (1,000 a call, the server's bound): each added or moved. Whose they are the server says;
+    // a client writes no place directly.
+    async putMothPositions(viewId, places) {
+      const client = await requireClient();
+      let written = 0;
+      for (let i = 0; i < places.length; i += 1000) {
+        written += unwrapMothRpc(await client.rpc('moth_put_positions', { p_view: viewId, p_places: places.slice(i, i + 1000) }),
+          'moth_put_positions') || 0;
+      }
+      return written;
+    },
+    // A view's places, cleared (its Reset): the caller's own, or a shared view's when they may write to it.
+    async clearMothPositions(viewId) {
+      const client = await requireClient();
+      return unwrapMothRpc(await client.rpc('moth_clear_positions', { p_view: viewId }), 'moth_clear_positions') || 0;
+    },
+    // This person's Moth settings for this company: the last view, the first visit, appearance, the folders
+    // opened last. The reader trusts nothing stored. Null when the database has none of it yet.
+    async getMothPrefs() {
+      const client = await requireClient();
+      try {
+        return unwrapMothRpc(await client.rpc('moth_prefs'), 'moth_prefs') || {};
+      } catch (err) {
+        if (err?.code === 'moth_absent') return null;
+        throw err;
+      }
+    },
+    async setMothPrefs(patch) {
+      const client = await requireClient();
+      return unwrapMothRpc(await client.rpc('set_moth_prefs', { p_patch: patch }), 'set_moth_prefs') || {};
+    },
+    // ── MO3 (0125 to 0127): workspace notes in Moth, typed tags, relationships ─────────────────────────────────
+    // A workspace note is a note of 0017 that is not personal: Moth reads titles and tiers only (moth_notes), never a
+    // body. A database before 0125 has none, and the page says so.
+    // Paged on the function's answer by id, then put back newest first. moth_notes returns a set: PostgREST filters
+    // and orders its rows after it ran, so each page runs the function again, its 5,000 rows and their gate. The
+    // server stops at 5,000 before its gate, so a full 5,000 is the only sign some were left out, and is said to be cut.
+    async listMothNotes() {
+      const client = await requireClient();
+      const rows = await readMothPages(() => client.rpc('moth_notes'),
+        (res) => unwrapMothRpc(res, 'moth_notes', MOTH_NOTES_ABSENT), [['updated_at', 'time', true]], MOTH_NOTES_BOUND);
+      return rows.length >= MOTH_NOTES_BOUND && !rows.truncated ? mothCut(rows) : rows;
+    },
+    // The keys of the typed links a note's body holds, sent after each save with the version they were read from
+    // (the server cannot read a Yjs document; a list for a version the note no longer is answers false, unused).
+    async syncNoteMentions(noteId, version, keys) {
+      const client = await requireClient();
+      return unwrapMothRpc(await client.rpc('moth_note_mentions_sync', { p_note: noteId, p_version: version, p_keys: keys }),
+        'moth_note_mentions_sync', MOTH_LINKS_ABSENT) === true;
+    },
+    // Types and tags: the company's and the caller's own, through each table's own read policy.
+    async listMothTagTypes() {
+      const client = await requireClient();
+      return readMothPages(() => client.from('moth_tag_types').select(MOTH_TAG_TYPE_COLUMNS), unwrapMothTagTable, [['name', 'text']]);
+    },
+    async createMothTagType({ tier, name, shape = 'circle', colour = 'mist' }) {
+      const client = await requireClient();
+      return unwrapMothTagTable(await client.from('moth_tag_types').insert({ tier, name, shape, colour })
+        .select(MOTH_TAG_TYPE_COLUMNS).single());
+    },
+    async updateMothTagType(id, { name, shape, colour, retired } = {}) {
+      const client = await requireClient();
+      const patch = {};
+      if (name !== undefined) patch.name = name;
+      if (shape !== undefined) patch.shape = shape;
+      if (colour !== undefined) patch.colour = colour;
+      if (retired !== undefined) patch.retired_at = retired ? new Date().toISOString() : null;
+      const rows = unwrapMothTagTable(await client.from('moth_tag_types').update(patch).eq('id', id).select(MOTH_TAG_TYPE_COLUMNS)) || [];
+      if (!rows.length) throw mothNothingChanged(MOTH_TYPE_UNCHANGED);
+      return rows[0];
+    },
+    async deleteMothTagType(id) {
+      const client = await requireClient();
+      const rows = unwrapMothTagTable(await client.from('moth_tag_types').delete().eq('id', id).select('id')) || [];
+      if (!rows.length) throw mothNothingChanged(MOTH_TYPE_NOT_DELETED);
+      return { removed: true };
+    },
+    async listMothTags() {
+      const client = await requireClient();
+      return readMothPages(() => client.from('moth_tags').select(MOTH_TAG_COLUMNS), unwrapMothTagTable, [['label', 'text']]);
+    },
+    async createMothTag({ typeId, tier, label }) {
+      const client = await requireClient();
+      return unwrapMothTagTable(await client.from('moth_tags').insert({ type_id: typeId, tier, label })
+        .select(MOTH_TAG_COLUMNS).single());
+    },
+    async updateMothTag(id, { label, typeId, retired } = {}) {
+      const client = await requireClient();
+      const patch = {};
+      if (label !== undefined) patch.label = label;
+      if (typeId !== undefined) patch.type_id = typeId;
+      if (retired !== undefined) patch.retired_at = retired ? new Date().toISOString() : null;
+      const rows = unwrapMothTagTable(await client.from('moth_tags').update(patch).eq('id', id).select(MOTH_TAG_COLUMNS)) || [];
+      if (!rows.length) throw mothNothingChanged(MOTH_TAG_UNCHANGED);
+      return rows[0];
+    },
+    async deleteMothTag(id) {
+      const client = await requireClient();
+      const rows = unwrapMothTagTable(await client.from('moth_tags').delete().eq('id', id).select('id')) || [];
+      if (!rows.length) throw mothNothingChanged(MOTH_TAG_NOT_DELETED);
+      return { removed: true };
+    },
+    // Assignments the caller sees: the company's on what they see, and their own. One thing's, or all (bounded at
+    // 20,000, and said to be cut past it).
+    async listMothTagAssignments({ targetKind = null, targetId = null } = {}) {
+      const client = await requireClient();
+      return readMothPages(() => {
+        let q = client.from('moth_tag_assignments').select(MOTH_TAG_ASSIGNMENT_COLUMNS);
+        if (targetKind && targetId) q = q.eq('target_type', targetKind).eq('target_id', targetId);
+        return q;
+      }, unwrapMothTagTable, [['created_at', 'time']]);
+    },
+    async assignMothTag({ tagId, tier, targetKind, targetId }) {
+      const client = await requireClient();
+      return unwrapMothTagTable(await client.from('moth_tag_assignments')
+        .insert({ tag_id: tagId, tier, target_type: targetKind, target_id: targetId })
+        .select(MOTH_TAG_ASSIGNMENT_COLUMNS).single());
+    },
+    async unassignMothTag(id) {
+      const client = await requireClient();
+      const rows = unwrapMothTagTable(await client.from('moth_tag_assignments').delete().eq('id', id).select('id')) || [];
+      return { removed: rows.length > 0 };
+    },
+    // Putting one's own tag forward, and the company's live admins' decision. The proposer consents to the label and
+    // its type's name only; approving folds every exact match into the company tag, each owner's use kept private.
+    async listMothTagNominations() {
+      const client = await requireClient();
+      return readMothPages(() => client.from('moth_tag_nominations').select(MOTH_TAG_NOMINATION_COLUMNS),
+        unwrapMothTagTable, [['created_at', 'time', true]]);
+    },
+    async nominateMothTag(tagId, note = null) {
+      const client = await requireClient();
+      return unwrapMothRpc(await client.rpc('moth_tag_nominate', { p_tag: tagId, p_note: note }), 'moth_tag_nominate', MOTH_TAGS_ABSENT);
+    },
+    async withdrawMothTagNomination(nominationId) {
+      const client = await requireClient();
+      return unwrapMothRpc(await client.rpc('moth_tag_nomination_withdraw', { p_nomination: nominationId }),
+        'moth_tag_nomination_withdraw', MOTH_TAGS_ABSENT) === true;
+    },
+    async decideMothTagNomination(nominationId, approve, note = null) {
+      const client = await requireClient();
+      return unwrapMothRpc(await client.rpc('moth_tag_nomination_decide', { p_nomination: nominationId, p_approve: approve, p_review_note: note }),
+        'moth_tag_nomination_decide', MOTH_TAGS_ABSENT) ?? null;
+    },
+    async mergeMothTags(fromId, intoId) {
+      const client = await requireClient();
+      return unwrapMothRpc(await client.rpc('moth_tag_merge', { p_from: fromId, p_into: intoId }), 'moth_tag_merge', MOTH_TAGS_ABSENT);
+    },
+    // Relationships: the graph's (both ends seen, at most 60,000), one thing's ("Links" and "Mentioned in"), and the
+    // picker's key and offers. Not listMothLinks, which reads the links R.A.B.B.I.T.'s own fields make (0111).
+    async listMothRelationships() {
+      const client = await requireClient();
+      const out = unwrapMothRpc(await client.rpc('moth_relationships_read'), 'moth_relationships_read', MOTH_LINKS_ABSENT);
+      return { links: Array.isArray(out?.links) ? out.links : [], truncated: out?.truncated === true };
+    },
+    async createMothRelationship({ sourceKind, sourceId, targetKind, targetId, label = null }) {
+      const client = await requireClient();
+      return unwrapMothLinkTable(await client.from('moth_relationships')
+        .insert({ source_type: sourceKind, source_id: sourceId, dest_type: targetKind, dest_id: targetId, label })
+        .select(MOTH_LINK_COLUMNS).single());
+    },
+    async updateMothRelationshipLabel(id, label) {
+      const client = await requireClient();
+      const rows = unwrapMothLinkTable(await client.from('moth_relationships').update({ label }).eq('id', id).select(MOTH_LINK_COLUMNS)) || [];
+      if (!rows.length) throw mothNothingChanged(MOTH_LINK_UNCHANGED);
+      return rows[0];
+    },
+    async deleteMothRelationship(id) {
+      const client = await requireClient();
+      const rows = unwrapMothLinkTable(await client.from('moth_relationships').delete().eq('id', id).select('id')) || [];
+      return { removed: rows.length > 0 };
+    },
+    async listMothItemRelationships(kind, id) {
+      const client = await requireClient();
+      const out = unwrapMothRpc(await client.rpc('moth_item_links', { p_kind: kind, p_id: id }), 'moth_item_links', MOTH_LINKS_ABSENT);
+      return { out: Array.isArray(out?.out) ? out.out : [], in: Array.isArray(out?.in) ? out.in : [] };
+    },
+    async reserveMothMention(kind, id) {
+      const client = await requireClient();
+      return unwrapMothRpc(await client.rpc('moth_mention_reserve', { p_dest_type: kind, p_dest_id: id }), 'moth_mention_reserve', MOTH_LINKS_ABSENT);
+    },
+    async listMothMentionCandidates(query, limit = 20) {
+      const client = await requireClient();
+      const out = unwrapMothRpc(await client.rpc('moth_mention_candidates', { p_query: query, p_limit: limit }),
+        'moth_mention_candidates', MOTH_LINKS_ABSENT);
+      return Array.isArray(out) ? out : [];
+    },
+    // MO1's 0119, read by MO2's history scrub. Rows newest first, paged by an opaque row_key; the window says from
+    // when each kind of thing has been recorded, per project.
+    async fetchMothHistory({ scopeProject = null, since = null, after = null, limit = 1000 } = {}) {
+      const client = await requireClient();
+      return unwrapMothRpc(await client.rpc('moth_history_read',
+        { p_scope_project: scopeProject, p_since: since, p_after: after, p_limit: limit }),
+      'moth_history_read', MOTH_HISTORY_ABSENT) || [];
+    },
+    async fetchMothHistoryWindow(scopeProject = null) {
+      const client = await requireClient();
+      return unwrapMothRpc(await client.rpc('moth_history_window', { p_scope_project: scopeProject }),
+        'moth_history_window', MOTH_HISTORY_ABSENT) || [];
+    },
+
+    // MO1 (0118, MOTH_DESIGN §1.9): moves. A plan writes nothing and says what each file needs:
+    // { items: [{ id, how, to_provider, to_path, to_thumb, from }] }. The commit takes the copies that
+    // plan asked for, and answers { move_id, moved, links_cleared, ops }.
+    async planFileMove(ids, destProject, destFolder = null) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('moth_move_items', {
+        p_file_ids: ids, p_dest_project: destProject, p_dest_folder: destFolder, p_plan_only: true,
+      }), 'moth_move_items');
+    },
+    async moveFiles(ids, destProject, destFolder = null, bodies = null) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('moth_move_items', {
+        p_file_ids: ids, p_dest_project: destProject, p_dest_folder: destFolder, p_plan_only: false, p_bodies: bodies,
+      }), 'moth_move_items');
+    },
+    async planUndoFileMove(moveId) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('moth_undo_move', { p_move_id: moveId, p_plan_only: true }), 'moth_undo_move');
+    },
+    // Redo is undoFileMove(<the undo's move_id>).
+    async undoFileMove(moveId) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('moth_undo_move', { p_move_id: moveId, p_plan_only: false }), 'moth_undo_move');
+    },
+    // The copy a rehome or a copy-up asks for, at the key the server minted: one call within Petal's
+    // storage, otherwise the bytes through this computer. A file on another computer cannot be read
+    // from here, and the local provider's sentence says so.
+    async copyBodyForMove(file, item) {
+      const client = await requireClient();
+      const from = file.storage_provider;
+      const to = item.to_provider;
+      // One more try for each step, each on its own: a look that did not answer does not copy the file again.
+      await patiently(async () => {
+        if (from === FILE_PROVIDERS.SUPABASE && to === FILE_PROVIDERS.SUPABASE) {
+          unwrap(await client.storage.from(BUCKET_FILES).copy(file.storage_path, item.to_path));
+        } else {
+          const body = await getStorageProvider(from).get(file.storage_path);
+          await getStorageProvider(to).put(item.to_path, body, { contentType: file.mime_type || undefined });
+        }
+      });
+      // MO1 (0120): in a company's own bucket the commit takes the copy only on the server's look. If that
+      // refuses, the copy this just made has no move to go with, and the caller's clean-up does not know of it.
+      if (to === FILE_PROVIDERS.S3) {
+        try {
+          await patiently(() => getStorageProvider(to).look(item.to_path));
+        } catch (err) {
+          await patiently(() => getStorageProvider(to).del(item.to_path)).catch(() => {
+            console.warn('[moth] a new copy could not be taken back from the company\'s bucket');
+          });
+          throw err;
+        }
+      }
+      // Its picture too, at the key the plan minted beside the body. A picture is not worth refusing a
+      // move over: if it will not copy, the row goes without one, and the file is what was asked for.
+      let thumbnail = null;
+      if (item.to_thumb && file.thumbnail_url) {
+        try {
+          await patiently(() => carryThumbnail(from, to, file.thumbnail_url, item.to_thumb, { client }));
+          thumbnail = item.to_thumb;
+        } catch { /* said above */ }
+      }
+      // to_provider: the plan's word for where the copy went, which the commit compares (0120).
+      return { file_id: file.id, to_provider: to, path: item.to_path, thumbnail };
+    },
+    // Undoes a copy whose move the server then refused: the file is still where it was.
+    async removeMoveCopy(item) {
+      await patiently(() => getStorageProvider(item.to_provider).del(item.to_path)).catch(() => {
+        console.warn('[moth] a new copy could not be taken back');
+      });
+      if (item.to_thumb) {
+        const client = await requireClient();
+        await removeThumbnailFrom(item.to_provider, item.to_thumb, { client }).catch(() => {});
+      }
+    },
+
+    // MO1 (0121, her answer "Yes, once they've left"): a former member's personal files, for an admin. The
+    // list is the server's: empty for anyone else and while the person is active. The move is moveFiles'.
+    async listLeaverFiles(projectId) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('moth_leaver_files', { p_project: projectId }), 'moth_leaver_files') || [];
+    },
+    async planLeaverMove(ids, destProject) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('moth_move_leaver_files', {
+        p_file_ids: ids, p_dest_project: destProject, p_dest_folder: null, p_plan_only: true,
+      }), 'moth_move_leaver_files');
+    },
+    async moveLeaverFiles(ids, destProject, bodies = null) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('moth_move_leaver_files', {
+        p_file_ids: ids, p_dest_project: destProject, p_dest_folder: null, p_plan_only: false, p_bodies: bodies,
+      }), 'moth_move_leaver_files');
+    },
+
+    // MO1 (0118): the trash. { done, ops }, where ops are the renames an office-server file owes.
+    async trashFiles(ids) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('moth_trash_files', { p_ids: ids }), 'moth_trash_files');
+    },
+    async restoreFiles(ids) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('moth_restore_files', { p_ids: ids }), 'moth_restore_files');
+    },
+    // What may be seen of the trash, newest first: no locator columns, no counts.
+    async listTrashedFiles({ limit = 200, before = null } = {}) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('moth_trash_index', { p_limit: limit, p_before: before }), 'moth_trash_index') || [];
+    },
+
+    // ── MO4 (0130 to 0133): boards ─────────────────────────────────────────────────────────────────────────────
+    // A board is a folder of its own (0130): its stickies and dropped files are files in it. A client reads the
+    // boards table (row security decides which) and changes a board only through its functions.
+    async listBoards(projectId) {
+      const client = await requireClient();
+      return readAllPagesWith(() => client.from('boards').select(BOARD_COLUMNS).eq('project_id', projectId).order('id'),
+        (res) => unwrapBoard(res, 'boards', { table: true }) || []);
+    },
+    // { board_id, folder_id, project_id, title, path }: a custom folder under the parent (the project's top folder
+    // when none is named) and its board.
+    async createBoard(projectId, parentFolderId = null, title = null) {
+      const client = await requireClient();
+      return unwrapBoard(await client.rpc('board_create', { p_project: projectId, p_parent: parentFolderId ?? null, p_title: title ?? null }), 'board_create');
+    },
+    // { board, elements }: every page of board_read, in stacking order. The board is the first page's.
+    async readBoard(boardId) {
+      const client = await requireClient();
+      let board = null;
+      let after = null;
+      const elements = [];
+      for (let page = 0; page < BOARD_PAGES_MAX; page += 1) {
+        const out = unwrapBoard(await client.rpc('board_read', { p_board: boardId, p_after: after }), 'board_read');
+        if (!board) board = out?.board ?? null;
+        if (Array.isArray(out?.elements)) elements.push(...out.elements);
+        const next = out?.next ?? null;
+        if (!next || (after && next.z === after.z && next.id === after.id)) return { board, elements };
+        after = { z: next.z, id: next.id };
+      }
+      throw boardWordsError('54000', BOARD_TOO_LARGE);
+    },
+    // Chosen elements as board_read gives them (a new sticky or picture, a long stroke a message left out), 50 a call.
+    async readBoardElements(boardId, ids) {
+      const want = [...new Set((Array.isArray(ids) ? ids : []).filter(Boolean))];
+      if (!want.length) return [];
+      const client = await requireClient();
+      const out = [];
+      for (const part of boardChunks(want, BOARD_READ_CHUNK)) {
+        out.push(...(unwrapBoard(await client.rpc('board_read_elements', { p_board: boardId, p_ids: part }), 'board_read_elements') || []));
+      }
+      return out.sort(byBoardStack);
+    },
+    // { saved: [{ id, version, asked? }], conflicts: [{ id, version }] }, 500 a call. A call refused after others
+    // saved carries what they saved (err.partial).
+    async putBoardElements(boardId, elements) {
+      const rows = boardElementsForSave(elements);
+      const answer = { saved: [], conflicts: [] };
+      if (!rows.length) return answer;
+      const client = await requireClient();
+      for (const part of boardChunks(rows, BOARD_SAVE_CHUNK)) {
+        let out;
+        try {
+          out = unwrapBoard(await client.rpc('board_put_elements', { p_board: boardId, p_elements: part }), 'board_put_elements');
+        } catch (err) {
+          if (answer.saved.length || answer.conflicts.length) err.partial = answer;
+          throw err;
+        }
+        answer.saved.push(...(out?.saved || []));
+        answer.conflicts.push(...(out?.conflicts || []));
+      }
+      return answer;
+    },
+    // { removed: [id], conflicts: [{ id, version }] }. With versions (an undo of a create), one per id.
+    async deleteBoardElements(boardId, ids, versions = null) {
+      const list = Array.isArray(ids) ? ids : [];
+      const answer = { removed: [], conflicts: [] };
+      if (versions != null && (!Array.isArray(versions) || versions.length !== list.length)) {
+        throw boardWordsError('22023', BOARD_REMOVAL_SHAPE);
+      }
+      if (!list.length) return answer;
+      const client = await requireClient();
+      for (let i = 0; i < list.length; i += BOARD_SAVE_CHUNK) {
+        let out;
+        try {
+          out = unwrapBoard(await client.rpc('board_delete_elements', {
+            p_board: boardId, p_ids: list.slice(i, i + BOARD_SAVE_CHUNK),
+            p_versions: versions == null ? null : versions.slice(i, i + BOARD_SAVE_CHUNK),
+          }), 'board_delete_elements');
+        } catch (err) {
+          if (answer.removed.length || answer.conflicts.length) err.partial = answer;
+          throw err;
+        }
+        answer.removed.push(...(out?.removed || []));
+        answer.conflicts.push(...(out?.conflicts || []));
+      }
+      return answer;
+    },
+    // { topic, live_topic, audience_gen }: the board's two channels, named with who may read it now.
+    async boardChannels(boardId) {
+      const client = await requireClient();
+      return unwrapBoard(await client.rpc('board_channels', { p_board: boardId }), 'board_channels');
+    },
+    // A board's background (0136): 'dots' | 'blank' | 'lines', answered { board_id, background, version, changed }
+    // (the version goes up by one with each change; a window keeps the highest it hears). board_read carries the
+    // pair as board.background and board.background_version where the server has 0136 (the boards table is never
+    // asked for them: a server without the columns would refuse the whole read).
+    async setBoardBackground(boardId, background) {
+      const client = await requireClient();
+      return unwrapBoard(await client.rpc('board_set_background', { p_board: boardId, p_background: background }), 'board_set_background');
+    },
+
+    // A sticky's turn (0133): { granted, generation?, holder_label?, ends_in_ms }, { ok, ends_in_ms }, a boolean, and
+    // [{ element, holder_label, mine, ends_in_ms }].
+    async claimSticky(elementId, sessionId) {
+      const client = await requireClient();
+      return unwrapBoard(await client.rpc('sticky_claim', { p_element: elementId, p_session: sessionId }), 'sticky_claim');
+    },
+    async renewSticky(elementId, generation) {
+      const client = await requireClient();
+      return unwrapBoard(await client.rpc('sticky_renew', { p_element: elementId, p_generation: generation }), 'sticky_renew');
+    },
+    async releaseSticky(elementId, generation) {
+      const client = await requireClient();
+      return unwrapBoard(await client.rpc('sticky_release', { p_element: elementId, p_generation: generation }), 'sticky_release') === true;
+    },
+    async stickyStatus(boardId) {
+      const client = await requireClient();
+      return unwrapBoard(await client.rpc('sticky_status', { p_board: boardId }), 'sticky_status') || [];
+    },
+    // A sticky's words are its markdown file's: read from where its row says, and the key remembered for the save.
+    async readStickyText(file) {
+      const fileId = typeof file === 'string' ? file : file?.id;
+      if (!fileId) throw boardWordsError('42501', STICKY_GONE);
+      const client = await requireClient();
+      const row = await stickyFileRow(client, fileId);
+      const text = await blobText(await resolveFileProvider(row).get(row.storage_path));
+      stickyKeys.set(row.id, row.storage_path);
+      return text;
+    },
+    // The words to a fresh key under the file's own project, then board_sticky_publish over the key they were read
+    // from: { ok: true }, or { ok: false, reason: 'moved' | 'turn_ended', words }. The new object goes again when
+    // the save does not take it. A company's own bucket waits (0133), refused before anything is uploaded there.
+    async saveStickyText(element, generation, text) {
+      const elementId = element?.id;
+      const fileId = element?.file?.id ?? element?.file_id ?? null;
+      if (!elementId || !fileId) throw boardWordsError('42501', STICKY_GONE);
+      const client = await requireClient();
+      const row = await stickyFileRow(client, fileId);
+      if (row.storage_provider === FILE_PROVIDERS.S3) throw boardWordsError('s3_sticky_off', STICKY_S3_OFF);
+      const from = stickyKeys.get(row.id) ?? row.storage_path;
+      const to = stickyKey(row.project_id, row.id);
+      const store = getStorageProvider(row.storage_provider);
+      await store.put(to, new Blob([String(text ?? '')], { type: 'text/markdown' }), { contentType: 'text/markdown' });
+      const res = await client.rpc('board_sticky_publish', { p_element: elementId, p_generation: generation, p_from_path: from, p_to_path: to });
+      if (res.error || res.data !== true) {
+        // An error with no code is a lost answer (a network gone, a timeout): the save may have taken the new
+        // object, so it goes only when the row, read again, names something else. A row that names it is a save
+        // that landed: its key is the one remembered, and it is answered as saved. A row that cannot be read keeps
+        // the object, and the key remembered is forgotten, so the next save goes over the row's own.
+        let takeBack = !res.error || !!res.error.code;
+        let landed = false;
+        if (!takeBack) {
+          try {
+            landed = (await stickyFileRow(client, fileId)).storage_path === to;
+            takeBack = !landed;
+          } catch { stickyKeys.delete(row.id); }
+        }
+        if (takeBack) {
+          try { await store.del(to); } catch (err) { console.warn('[supabase] a sticky\'s unsaved copy could not be taken back:', err?.message || err); }
+        }
+        if (landed) {
+          stickyKeys.set(row.id, to);
+          lastError  = null;
+          lastSyncAt = new Date();
+          return { ok: true };
+        }
+      }
+      if (res.error) {
+        if (res.error.code === 'P0001' && res.error.message === 'sticky_turn_ended') {
+          return { ok: false, reason: 'turn_ended', words: res.error.details || STICKY_TURN_ENDED };
+        }
+        unwrapBoard(res, 'board_sticky_publish');
+      }
+      // The key read is kept: every save says "moved" until the words are read again.
+      if (res.data !== true) return { ok: false, reason: 'moved', words: STICKY_MOVED };
+      stickyKeys.set(row.id, to);
+      lastError  = null;
+      lastSyncAt = new Date();
+      return { ok: true };
+    },
+    // A new sticky: its words as a markdown file in the board's own folder, through the ordinary upload, then placed.
+    // The element as board_read gives it. A placement the board refuses takes the new note to the trash again.
+    async createSticky(board, text, placement = {}) {
+      if (!board?.id || !board?.project_id || !board?.folder_id) throw boardWordsError('42501', BOARD_NOT_WRITABLE);
+      const words = String(text ?? '');
+      const file = new File([words], stickyFileName(words), { type: 'text/markdown' });
+      const row = await adapter.uploadFile(board.project_id, { folderId: board.folder_id }, file, {});
+      return placeBoardFile(board, 'sticky', {
+        id: row.id, name: row.name, mime_type: row.mime_type ?? 'text/markdown',
+        folder_id: row.folder_id ?? board.folder_id, project_id: row.project_id ?? board.project_id,
+      }, placement, true);
+    },
+    // A dropped file (a picture, a video, anything): uploaded into the board's own folder through the ordinary
+    // upload, so Files shows it like any other, then placed as a medium. A placement the board refuses takes the new
+    // file to the trash again, as a sticky's does.
+    async createMedia(board, file, placement = {}) {
+      if (!board?.id || !board?.project_id || !board?.folder_id) throw boardWordsError('42501', BOARD_NOT_WRITABLE);
+      if (!file || typeof file !== 'object' || typeof file.size !== 'number') throw boardWordsError('22023', BOARD_NEEDS_FILE);
+      const row = await adapter.uploadFile(board.project_id, { folderId: board.folder_id }, file, {});
+      return placeBoardFile(board, 'media', {
+        id: row.id, name: row.name ?? file.name ?? null, mime_type: row.mime_type ?? (file.type || null),
+        folder_id: row.folder_id ?? board.folder_id, project_id: row.project_id ?? board.project_id,
+      }, placement, true);
+    },
+    // A file the person can see, shown on the board where it is: a reference, no copy. The server asks whether the
+    // caller may read it, and a file they may not is refused as a missing one is.
+    async embedFile(board, fileId, placement = {}) {
+      if (!board?.id) throw boardWordsError('42501', BOARD_NOT_WRITABLE);
+      const id = typeof fileId === 'string' ? fileId : fileId?.id;
+      if (!id) throw boardWordsError('22023', BOARD_NEEDS_FILE);
+      return placeBoardFile(board, 'embed', { id, name: null, mime_type: null, folder_id: null, project_id: null }, placement, false);
+    },
+    // A placed file's address. An element names its file ({ id, name, mime_type, folder_id, project_id }) and never
+    // where it is kept, so the row is read by its id under the caller's own row security (a file they may not read
+    // is missing to them), then signed as fileUrl signs it, by the provider the row names.
+    async boardFileUrl(file, opts = {}) {
+      const fileId = typeof file === 'string' ? file : file?.id;
+      if (!fileId) throw boardWordsError('42501', BOARD_FILE_GONE);
+      const client = await requireClient();
+      const row = await stickyFileRow(client, fileId, BOARD_FILE_GONE);
+      return adapter.fileUrl(row, { stream: opts?.stream !== false });
+    },
+
+    // A folder's trash and moves (0131), a board's with it: { batches, folders, files }, { folders, files },
+    // [{ id, project_id, project_title, name, is_board, files, deleted_at, deleted_by_label, purges_at, can_restore }],
+    // and { moved: [{ id, from, to, folders }], plan_only }.
+    async trashFolders(ids) {
+      const client = await requireClient();
+      return unwrapBoard(await client.rpc('moth_trash_folders', { p_ids: ids }), 'moth_trash_folders');
+    },
+    async restoreFolders(ids) {
+      const client = await requireClient();
+      return unwrapBoard(await client.rpc('moth_restore_folders', { p_ids: ids }), 'moth_restore_folders');
+    },
+    async listTrashedFolders({ limit = 200, before = null, beforeId = null } = {}) {
+      const client = await requireClient();
+      return unwrapBoard(await client.rpc('moth_trashed_folders', { p_limit: limit, p_before: before, p_before_id: beforeId }),
+        'moth_trashed_folders') || [];
+    },
+    async moveFolders(ids, destParentId, planOnly = false) {
+      const client = await requireClient();
+      const plan = planOnly && typeof planOnly === 'object' ? !!planOnly.planOnly : !!planOnly;
+      return unwrapBoard(await client.rpc('moth_move_folders', { p_ids: ids, p_dest_parent: destParentId, p_plan_only: plan }),
+        'moth_move_folders');
+    },
+
+    // A board's two private channels (0132), joined as projectTopicName's are: `topic` is the database's (elements,
+    // sticky, board (0136) and AUDIENCE; a client never sends there), `live_topic` is the people's (cursors, drags,
+    // who is here; broadcast with self off). AUDIENCE comes on both; only the database's channel's is trusted, and
+    // it is handed on once: fetch boardChannels again and rejoin.
+    // handlers: onElements(payload), onSticky(payload), onBoard(payload), onAudience(payload), onLive(event, payload),
+    // onPresence([{ key, ...meta }]), onStatus({ channel: 'topic' | 'live', status }). sendLive answers whether it
+    // went (nothing goes before the live channel is joined: a cursor is worth nothing late).
+    openBoardChannels(names, handlers = {}) {
+      const topic = names?.topic;
+      const liveTopic = names?.live_topic;
+      if (!topic || !liveTopic) throw boardWordsError('22023', 'A board\'s channels need their names.');
+      let cancelled = false;
+      let client = null;
+      let db = null;
+      let live = null;
+      let liveJoined = false;
+      let tracked = null;
+      let heardAudience = false;
+      const call = (name, ...args) => {
+        if (cancelled) return;
+        try { handlers?.[name]?.(...args); } catch (err) { console.warn('[supabase] a board handler failed:', err?.message || err); }
+      };
+      const audience = (payload) => {
+        if (heardAudience) return;
+        heardAudience = true;
+        call('onAudience', payload ?? null);
+      };
+      const ready = (async () => {
+        client = await getClient();
+        if (!client || cancelled) return;
+        try { await client.realtime.setAuth(); } catch { /* non-fatal */ }
+        if (cancelled) return;
+        let key = null;
+        try {
+          const { data } = await client.auth.getSession();
+          key = data?.session?.user?.id ?? null;
+        } catch { /* presence keyed below */ }
+        if (cancelled) return;
+        // The client hands back a channel it still holds under the same name, even one still leaving (a rejoin
+        // under the same names, a page brought back): that one never joins again, so it goes first.
+        for (const name of [topic, liveTopic]) {
+          let old = null;
+          try { old = (client.getChannels?.() || []).find(c => c?.topic === `realtime:${name}`) || null; } catch { /* none */ }
+          if (old) {
+            try { await client.removeChannel(old); } catch { /* already gone */ }
+          }
+        }
+        if (cancelled) return;
+        db = client.channel(topic, { config: { private: true } });
+        db.on('broadcast', { event: 'elements' }, (msg) => call('onElements', msg?.payload ?? null));
+        db.on('broadcast', { event: 'sticky' }, (msg) => call('onSticky', msg?.payload ?? null));
+        db.on('broadcast', { event: 'board' }, (msg) => call('onBoard', msg?.payload ?? null));
+        db.on('broadcast', { event: 'AUDIENCE' }, (msg) => audience(msg?.payload));
+        db.subscribe((status) => call('onStatus', { channel: 'topic', status }));
+        live = client.channel(liveTopic, {
+          config: { private: true, broadcast: { self: false }, presence: { key: key || boardRandom() } },
+        });
+        // Any reader of the board may send on the live channel, so an AUDIENCE there is dropped: the database's own
+        // copy on its channel is the one heard.
+        live.on('broadcast', { event: '*' }, (msg) => {
+          if (String(msg?.event ?? '').toUpperCase() === 'AUDIENCE') return;
+          call('onLive', msg?.event ?? null, msg?.payload ?? null);
+        });
+        live.on('presence', { event: 'sync' }, () => {
+          let people = [];
+          try {
+            people = Object.entries(live.presenceState() || {}).flatMap(([k, metas]) => (Array.isArray(metas) && metas.length
+              ? [(({ presence_ref: _ref, ...meta }) => ({ key: k, ...meta }))(metas[0])] : []));
+          } catch { /* presence is best-effort */ }
+          call('onPresence', people);
+        });
+        live.subscribe(async (status) => {
+          if (cancelled) return;
+          liveJoined = status === 'SUBSCRIBED';
+          call('onStatus', { channel: 'live', status });
+          if (liveJoined && tracked) {
+            try { await live.track(tracked); } catch { /* best-effort */ }
+          }
+        });
+      })();
+      return {
+        ready,
+        sendLive(event, payload) {
+          if (cancelled || !liveJoined || !live || !event) return false;
+          try {
+            const sent = live.send({ type: 'broadcast', event, payload: payload ?? {} });
+            sent?.catch?.(() => {});
+          } catch { return false; }
+          return true;
+        },
+        async track(meta) {
+          tracked = meta ?? null;
+          if (cancelled || !liveJoined || !live || !tracked) return;
+          try { await live.track(tracked); } catch { /* best-effort */ }
+        },
+        leave() {
+          cancelled = true;
+          for (const ch of [db, live]) {
+            if (!ch) continue;
+            try { ch.unsubscribe(); } catch { /* already down */ }
+            try { client?.removeChannel?.(ch); } catch { /* already gone */ }
+          }
+        },
+      };
+    },
+
+    // Who is calling, for the desktop's add route, which asks the auth server (electron/authCheck.cjs).
+    async getAccessToken() {
+      const client = await requireClient();
+      const { data } = await client.auth.getSession();
+      return data?.session?.access_token ?? null;
+    },
+
+    // MO1 (0117, NS-D6, NS-D12): the office-server catalogue and its operations, as
+    // networkShareCatalogue.js asks. p_root is checked against the drive by the server.
+    async refreshNetworkShare({ projectId, root, folder, dirs, bin = [], final = true, stoppedAt = null, first = false }) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('network_share_catalogue_apply', {
+        p_project_id: projectId, p_root: root, p_folder: folder, p_dirs: dirs, p_bin: bin,
+        p_final: final, p_stopped_at: stoppedAt, p_first: first,
+      }), 'network_share_catalogue_apply');
+    },
+    async getNetworkShareCheck(projectId) {
+      const client = await requireClient();
+      return unwrap(await client.from('network_share_checks').select('*').eq('project_id', projectId).maybeSingle());
+    },
+    async settleNetworkShareOps(opIds, outcome, facts = null) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('network_share_settle', { p_op_ids: opIds, p_outcome: outcome, p_facts: facts }), 'network_share_settle');
+    },
+    async networkSharePending() {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('network_share_pending_mine'), 'network_share_pending_mine') || [];
+    },
+    // Moves left over a day ago that this person may call off, because only their computer could have moved them.
+    async networkShareStaleMoves() {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('network_share_stale_moves'), 'network_share_stale_moves') || [];
+    },
+    async networkShareRecordAdded({ projectId, root, folderId = null, entries }) {
+      const client = await requireClient();
+      return unwrapMoth(await client.rpc('network_share_record_added', {
+        p_project: projectId, p_root: root, p_folder_id: folderId, p_entries: entries,
+      }), 'network_share_record_added');
+    },
   };
+  return adapter;
 }

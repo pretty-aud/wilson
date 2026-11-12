@@ -16,7 +16,7 @@
 -- login_as call; the tests schema is runner-only.
 
 BEGIN;
-SELECT plan(27);
+SELECT plan(29);
 
 SELECT * FROM tests.rls_setup();
 
@@ -226,6 +226,17 @@ RESET ROLE;
 -- rows on the project topic; db-only stacks report no-schema/no-partition.
 SELECT ok(pg_temp.rabbit_broadcast_status(4) IN ('landed', 'no-schema', 'no-partition'),
   'broadcast rows land on rabbit:project:% when realtime infrastructure is present');
+
+-- 28-29: MO1 (0116): the files arm's early return for a catalogue check, by text (suite 112
+-- proves it on the channel, where realtime is present). It sits after the money return.
+SELECT ok(
+  regexp_replace(pg_get_functiondef('public.fn_realtime_broadcast()'::regprocedure), '\s+', ' ', 'g')
+    ~ 'WHEN ''files'' THEN IF public\.file_row_is_money.*?RETURN NULL; END IF; -- 0116: .*?IF COALESCE\(current_setting\(''wilson\.network_share_writer'', true\), ''''\) = ''check:'' \|\| \(v_row ->> ''project_id''\) THEN RETURN NULL; END IF; v_project := \(v_row ->> ''project_id''\)::uuid;',
+  'the files arm returns early on this project''s own catalogue check, after the money return');
+SELECT is(
+  (SELECT count(*)::int FROM regexp_matches(pg_get_functiondef('public.fn_realtime_broadcast()'::regprocedure),
+                                            'wilson\.network_share_writer', 'g')),
+  1, 'the marker is read once, in the files arm');
 
 SELECT * FROM finish();
 ROLLBACK;

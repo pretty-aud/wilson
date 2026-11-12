@@ -450,6 +450,12 @@ describe('project write gate', () => {
     expect(ungated, 'these surfaces write project entities and must gate them').toEqual([])
   })
 
+  // MO1 (0110, MOTH_DESIGN §2.2 CL-1): Files decides a personal space through
+  // the gate itself, so the suite's `ready` rule above reaches it.
+  it('the Files page decides a personal space through canOnProject', () => {
+    expect(readSrc('components/Resources/ProjectFilesExplorer.jsx')).toMatch(/canOnProject\(personalCtx, 'project\.entity\.write'\)/)
+  })
+
   // Post-overhaul S3b step 7: the Timeline test's shape, for the Scenes tab.
   // A reviewer now builds shot lists on this tab, so its scene and shot
   // verbs — which the database refuses them — must be gated where they are

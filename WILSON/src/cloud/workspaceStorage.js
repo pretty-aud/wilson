@@ -19,6 +19,7 @@
 // most expensive pattern (six instances).
 // =============================================================================
 
+import { devFixtures } from '../dev/devFixtures'
 import { supabase } from './auth/supabaseClient'
 
 // The workspace's storage row, or null when storage has never been
@@ -36,6 +37,8 @@ import { supabase } from './auth/supabaseClient'
 // provider while a SAVED row carried one, so the same component's `row` object
 // changed shape halfway through a session depending on which path produced it.
 export async function fetchWorkspaceStorage() {
+  // MO1: `?storage=network` on the dev fixtures, a company on its office server. Otherwise this asks as ever.
+  if (import.meta.env.DEV && devFixtures()?.workspaceStorage) return { ...devFixtures().workspaceStorage }
   const gen = generation
   const { data, error } = await supabase
     .from('workspace_storage')
@@ -159,10 +162,13 @@ export async function fetchStorageUsage() {
     // safe-integer range. Number() is correct at these magnitudes (100 TiB is
     // ~1.1e14, well inside 2^53) but the coercion has to be explicit or the
     // percentage arithmetic below silently concatenates strings.
-    usedBytes: Number(row.used_bytes ?? 0),
-    quotaBytes: Number(row.quota_bytes ?? 0),
+    // MO1 (0121, her answer "Full or nearly full"): the figures are an admin's. For anyone else they are
+    // absent, and absent is not zero: fullness is what they are told.
+    usedBytes: row.used_bytes == null ? null : Number(row.used_bytes),
+    quotaBytes: row.quota_bytes == null ? null : Number(row.quota_bytes),
     status: row.status ?? 'active',
     hasPlan: !!row.has_plan,
+    fullness: row.fullness ?? 'ok',
   }
 }
 

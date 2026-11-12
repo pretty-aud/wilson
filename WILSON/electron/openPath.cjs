@@ -7,6 +7,9 @@
 //       project's file or managed file. The path comes from the bundle,
 //       through main's own contained resolvers (`locateRow`, the download
 //       and stream routes' code).
+//   { source: 'share', locator }  — MO1 (MOTH NS-X06): a file on the office server, resolved by
+//       shareLocate (reachability, then shareContain), with no sync call: a dead SMB path can hold one
+//       for the OS timeout. shareContain refuses a link on the way, so the path is the real one.
 //   { source: 'media', mediaKey }  — a private project's body (0072) under
 //       the local media root: checkMediaKey (the shape uploadFile writes),
 //       then lexical containment, then REAL-path containment — the
@@ -108,6 +111,20 @@ function refuseToOpen(diskPath) {
  * the REAL target (and the name) and opens exactly what it judged.
  */
 async function openOrReveal(req, deps) {
+  if (req && req.source === 'share') {
+    if (typeof deps.shareLocate !== 'function') return { ok: false, error: NOT_HERE };
+    const found = await deps.shareLocate(String(req.locator || ''));
+    if (!found.ok) return found;
+    if (req.reveal) {
+      deps.shell.showItemInFolder(found.diskPath);
+      return { ok: true };
+    }
+    if (!found.isFile) return { ok: false, error: 'That is not a file.' };
+    const refused = refuseToOpen(found.diskPath);
+    if (refused) return { ok: false, error: refused };
+    const failed = await deps.shell.openPath(found.diskPath);
+    return failed ? { ok: false, error: failed } : { ok: true };
+  }
   const target = resolveOpenTarget(req, deps);
   if (!target.ok) return target;
   if (req && req.reveal) {

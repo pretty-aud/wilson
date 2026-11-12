@@ -297,3 +297,29 @@ describe('getUrls — a panel\'s thumbnails, batched and cached (P1)', () => {
     expect(app).toMatch(/clearS3ReadUrlCache\(\);\s*\}, \[perms\.ready, perms\.userId, perms\.workspaceId\]\)/)
   })
 })
+
+describe('look (MO1, 0120): the server\'s word that a move\'s new copy is there', () => {
+  const said = 'The new copy could not be found in your company\'s bucket, so nothing moved.'
+  it('asks the server, and signs nothing for this client', async () => {
+    const presign = vi.fn()
+    const lookAtObject = vi.fn(async () => true)
+    const provider = createS3StorageProvider(presign, null, { lookAtObject })
+    await expect(provider.look(KEY)).resolves.toBeUndefined()
+    expect(lookAtObject).toHaveBeenCalledWith(KEY)
+    expect(presign).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
+  })
+  it('🚨 not there is a refusal, not a quiet return', async () => {
+    const provider = createS3StorageProvider(vi.fn(), null, { lookAtObject: vi.fn(async () => false) })
+    await expect(provider.look(KEY)).rejects.toThrow(said)
+  })
+  it('a provider with no way to ask refuses: its own word would be no look at all', async () => {
+    await expect(createS3StorageProvider(vi.fn()).look(KEY)).rejects.toThrow(said)
+  })
+  it('a server that could not answer says its own sentence', async () => {
+    const provider = createS3StorageProvider(vi.fn(), null, { lookAtObject: vi.fn(async () => { throw Object.assign(new Error('[s3] the bucket answered 503'), { status: 502 }) }) })
+    const err = await provider.look(KEY).catch((e) => e)
+    expect(err.message).toBe('the bucket answered 503')
+    expect(err.status).toBe(502)
+  })
+})

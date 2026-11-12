@@ -321,8 +321,13 @@ const ARIA_LABEL_SITES = (() => {
 })()
 const ARIA_LABELS = new Set(ARIA_LABEL_SITES.keys())
 
+// MO4 (M.O.T.H. Session 4): a spec that is not about signing in is pinned by its own test, named here, so that no
+// spec in the folder goes unpinned and none is read twice. boards.spec.ts presses a canvas (it reads Konva's stage,
+// not the DOM) and titles built from a tool's name and key, which this file's extractors do not parse.
+const PINNED_ELSEWHERE = { 'boards.spec.ts': 'src/tools/moth_v0.1.0/board/boardsE2ePins.test.js' }
+
 const specs = readdirSync(E2E)
-  .filter((f) => /\.ts$/.test(f))
+  .filter((f) => /\.ts$/.test(f) && !(f in PINNED_ELSEWHERE))
   .map((f) => ({ name: f, text: stripComments(readFileSync(join(E2E, f), 'utf8'), { ts: true }) }))
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -960,6 +965,13 @@ describe('the e2e suite still has something to select', () => {
   it('the suite was actually found and read', () => {
     // A glob that silently matches nothing would make every loop below pass.
     expect(specs.map((s) => s.name).sort()).toEqual(['auth.spec.ts', 'authFlow.ts', 'sessions.spec.ts', 'web-path.spec.ts'])
+    // Every other file in the folder is pinned by the test named for it, which exists and reads that very spec.
+    const others = readdirSync(E2E).filter((f) => /\.ts$/.test(f) && !specs.some((s) => s.name === f)).sort()
+    expect(others).toEqual(Object.keys(PINNED_ELSEWHERE).sort())
+    for (const [spec, pins] of Object.entries(PINNED_ELSEWHERE)) {
+      expect(existsSync(join(REPO, pins)), `${pins} pins ${spec}`).toBe(true)
+      expect(readFileSync(join(REPO, pins), 'utf8')).toContain(`tests/e2e/${spec}`)
+    }
     expect(FILES.length).toBeGreaterThan(200)
     expect(CORPUS.length).toBeGreaterThan(500)
     expect(ARIA_LABELS.size).toBeGreaterThan(10)

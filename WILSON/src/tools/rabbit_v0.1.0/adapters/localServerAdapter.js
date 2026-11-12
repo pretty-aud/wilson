@@ -17,6 +17,7 @@ import { describeSourceFile } from '../storage/mediaMetadata';
 
 import { byMilestoneDate } from '../state/milestoneOrder';
 import { splitSetAside } from '../state/setAside';
+import { moneyFolderChainLocked, MONEY_SEGMENTS } from '../storage/index.js';
 
 // B3 (Track B): every request below goes to the desktop loopback server, which
 // refuses /api without the per-launch token. localFetch attaches the header;
@@ -29,6 +30,16 @@ import { compareItems } from '../state/taskItemsModel.js';
 import { compareViewRows, compareGroupingRows } from '../state/tableViewsModel.js';
 
 const BASE = '/api/rabbit';
+
+// A route's sentence as a person reads it: the '[localServer]' prefix is for a log.
+const plainly = (call) => async (...args) => {
+  try {
+    return await call(...args);
+  } catch (err) {
+    err.message = String(err?.message ?? err).replace(/^\[localServer\] /, '');
+    throw err;
+  }
+};
 
 let lastError  = null;
 let lastSyncAt = null;
@@ -71,6 +82,46 @@ async function jfetch(url, init) {
 // Supabase does it with `.order('path')`; the local bundle is a plain array,
 // so it is sorted here. Copied rather than sorted in place — the caller owns
 // the bundle and mutating it would reorder the file on the next write.
+// MO1 (0111): a project the desktop no longer holds is an empty answer for Moth,
+// as a hidden or missing project is on the cloud.
+// MO2: a project kept only on this computer keeps no saved views, places or Moth settings: they wait until the
+// project moves to the cloud (her answer of 2026-11-02, "Wait for the cloud"). Said with the cloud adapter's code,
+// so the page reads it as "not here", not as a failure.
+const MOTH_LOCAL_VIEWS = 'Saved views and layouts come when this project moves to the cloud.';
+function mothLocalAbsent() {
+  const err = new Error(MOTH_LOCAL_VIEWS);
+  err.code = 'moth_absent';
+  return err;
+}
+// MO3 (0125 to 0127): typed tags, links and workspace notes wait for the cloud the same way.
+const MOTH_LOCAL_S3 = 'Typed tags, links and workspace notes come when this project moves to the cloud.';
+function mothLocalS3() {
+  const err = new Error(MOTH_LOCAL_S3);
+  err.code = 'moth_absent';
+  return err;
+}
+// MO4 (0130 to 0133): a board is the cloud's (its elements, its turns and its channels are the database's), so a
+// project kept only on this computer has none and says so, with a code the page reads as "not here". A folder's
+// trash and moves are the cloud's too: nothing is in that trash here.
+export const BOARDS_LOCAL = 'Boards need this project in the cloud.';
+export const FOLDERS_LOCAL = 'Moving a folder or putting it in the trash needs this project in the cloud.';
+function boardsLocalAbsent(words = BOARDS_LOCAL) {
+  const err = new Error(words);
+  err.code = 'boards_absent';
+  return err;
+}
+const MOTH_LOCAL_ITEMS = [['phase', 'phases'], ['asset', 'assets'], ['task', 'tasks'], ['scene', 'scenes'],
+  ['shot', 'shots'], ['level', 'levels'], ['experience', 'experiences']];
+
+async function mothBundle(projectId) {
+  try {
+    return await jfetch(`${BASE}/projects/${projectId}`);
+  } catch (err) {
+    if (err?.status === 404) return null;
+    throw err;
+  }
+}
+
 function sortByPath(rows) {
   return [...(rows || [])].sort((a, b) => String(a.path).localeCompare(String(b.path)))
 }
@@ -194,6 +245,209 @@ export function localServerAdapter() {
 
     // ── Projects ──────────────────────────────────────────────
     listProjects: () => jfetch(`${BASE}/projects`),
+
+    // MO1 (MOTH_DESIGN §2.2 DT-1): the signed-out desktop's one personal space
+    // per computer and OS user. The existing project routes serve it by its id.
+    supportsPersonalSpaces: async () => true,
+    async ensurePersonalSpace() {
+      const project = await jfetch(`${BASE}/personal-space`, { method: 'POST' });
+      return project?.id ?? null;
+    },
+    async listPersonalSpaces() {
+      const body = await jfetch(`${BASE}/personal-space`);
+      return body?.project ? [body.project] : [];
+    },
+    // No admins here, so nobody opens someone else's.
+    async recordPersonalSpaceOpened() {},
+
+    // MO1 (0111, MOTH_DESIGN §2.2): Moth's reads on the signed-out desktop. It
+    // has no roles, so everything here is the one person's and writable. There
+    // is no server to strip money and Legal either: the Moth page passes every
+    // file row through mothFileHidden, and the folders are filtered here.
+    async listMothIslands() {
+      // An unreadable personal bundle costs the person their space, not their
+      // projects (the Files page treats it the same way).
+      const [projects, personal] = await Promise.all([
+        jfetch(`${BASE}/projects`),
+        jfetch(`${BASE}/personal-space`).catch((err) => {
+          if (err?.status === 409) return null;
+          throw err;
+        }),
+      ]);
+      const island = (p, mine) => ({
+        id: p.id, title: p.title, is_personal: mine, is_mine: mine, is_private: mine || !!p.is_private,
+        my_project_role: null, is_staffed: false, can_write: true, updated_at: p.updated_at ?? null,
+      });
+      return [
+        ...(personal?.project ? [island(personal.project, true)] : []),
+        ...(projects || []).filter(p => !p.deleted_at).map(p => island(p, false)),
+      ];
+    },
+    async listMothFolders(projectId) {
+      const rows = (await mothBundle(projectId))?.folders || [];
+      return sortByPath(rows.filter(f => !moneyFolderChainLocked(f.id, rows)));
+    },
+    // The cloud's keyset and clamp, so a page means the same on both. A managed
+    // file (an asset's, a shot's) is an ordinary files row in the cloud, so it is
+    // listed here too, marked: it has no folder and does not move between
+    // projects (§1.3 I-6).
+    // What mothFileHidden cannot read from a row. There is no server here to have removed money and Legal
+    // first, so these are the only way the page knows a receipt by its expense, or a folder by its chain.
+    async mothHiddenFacts(projectId) {
+      const bundle = await mothBundle(projectId);
+      const slug = bundle?.project?.folder_slug || bundle?.project?.slug || null;
+      return {
+        expenseFileIds: (bundle?.expenses || []).flatMap(e => (Array.isArray(e.file_ids) ? e.file_ids : [])),
+        localMoneyDirs: slug ? [`${slug}_RECEIPTS&INVOICES`, `${slug}_CREWINVOICES`, `${slug}_TALENTINVOICES`] : [],
+        folders: bundle?.folders || [],
+      };
+    },
+    async listMothFiles(projectId, after = null, limit = 500) {
+      const bundle = await mothBundle(projectId);
+      const rows = [
+        ...(bundle?.files || []),
+        ...(bundle?.managedFiles || []).filter(m => !m.deleted_at).map(m => ({
+          id: m.id, project_id: projectId, folder_id: null,
+          name: m.file_name || m.original_name || m.stored_name || 'file',
+          mime_type: m.mime_type ?? null, size_bytes: m.size_bytes ?? null, kind: 'source',
+          tags: m.tags || [], storage_provider: m.storage_provider || 'local_managed', storage_path: null,
+          uploaded_at: m.uploaded_at ?? null, updated_at: m.updated_at ?? null, managed: true,
+        })),
+      ];
+      // A desktop key's first segment is what isMoneyKey's third is in the cloud (fileTrash.cjs's rule).
+      const moneyKey = (f) => MONEY_SEGMENTS.includes(String(f.storage_path ?? '').split('/')[0].toUpperCase());
+      return rows
+        .filter(f => !f.deleted_at && !moneyKey(f) && (after == null || String(f.id) > String(after)))
+        .sort((a, b) => (String(a.id) < String(b.id) ? -1 : 1))
+        .slice(0, Math.min(Math.max(Number(limit) || 500, 1), 1000));
+    },
+    // MO2 (the cloud's 0122): the project's items and the links its bundle stores. Every row is this person's
+    // (one person, one computer); a line to a file the page hides is dropped by the graph, which draws only
+    // what it was given.
+    async listMothItems(projectId) {
+      const bundle = await mothBundle(projectId);
+      if (!bundle) return { items: [], truncated: false };
+      const live = (kind, id) => (bundle[MOTH_LOCAL_ITEMS.find(([k]) => k === kind)?.[1]] || []).some(r => r.id === id && !r.deleted_at && !r.set_aside_at);
+      return { truncated: false, items: MOTH_LOCAL_ITEMS.flatMap(([kind, key]) => (bundle[key] || []).filter(r => !r.deleted_at && !r.set_aside_at).map(r => ({
+        kind,
+        id: r.id,
+        name: String((kind === 'task' ? r.title : r.name) ?? '').slice(0, 300),
+        parent_kind: kind === 'phase' && r.parent_phase_id && live('phase', r.parent_phase_id) ? 'phase'
+          : kind === 'shot' && r.scene_id && live('scene', r.scene_id) ? 'scene' : null,
+        parent_id: kind === 'phase' && r.parent_phase_id && live('phase', r.parent_phase_id) ? r.parent_phase_id
+          : kind === 'shot' && r.scene_id && live('scene', r.scene_id) ? r.scene_id : null,
+        updated_at: r.updated_at ?? null,
+      }))) };
+    },
+    async listMothLinks(projectId) {
+      const bundle = await mothBundle(projectId);
+      if (!bundle) return { links: [], truncated: false };
+      const live = (kind, id) => !!id && (bundle[MOTH_LOCAL_ITEMS.find(([k]) => k === kind)?.[1]] || []).some(r => r.id === id && !r.deleted_at && !r.set_aside_at);
+      const out = new Map();
+      const add = (sk, sid, tk, tid, link) => {
+        if (!live(tk, tid)) return;
+        const key = `${sk}|${sid}|${tk}|${tid}`;
+        if (!out.has(key)) out.set(key, { source_kind: sk, source_id: sid, target_kind: tk, target_id: tid, link });
+      };
+      for (const ti of bundle.taskItems || []) if (live('task', ti.task_id)) add('task', ti.task_id, ti.entity_type, ti.entity_id, 'task_item');
+      for (const tk of (bundle.tasks || []).filter(r => !r.deleted_at)) {
+        add('task', tk.id, 'asset', tk.asset_id, 'task_asset');
+        add('task', tk.id, 'scene', tk.scene_id, 'task_scene');
+        add('task', tk.id, 'shot', tk.shot_id, 'task_shot');
+        add('task', tk.id, 'phase', tk.phase_id, 'task_phase');
+      }
+      for (const a of (bundle.assets || []).filter(r => !r.deleted_at)) {
+        add('asset', a.id, 'phase', a.phase_id, 'asset_phase');
+        for (const id of a.scene_ids || []) add('asset', a.id, 'scene', id, 'asset_scene');
+        for (const id of a.shot_ids || []) add('asset', a.id, 'shot', id, 'asset_shot');
+        for (const id of a.level_ids || []) add('asset', a.id, 'level', id, 'asset_level');
+        for (const id of a.experience_ids || []) add('asset', a.id, 'experience', id, 'asset_experience');
+      }
+      return { links: [...out.values()], truncated: false };
+    },
+    // A file's items from its own row; no editor (one person, one computer: nobody else to tell apart).
+    async listMothFileFacts(projectId, after = null, limit = 1000) {
+      const bundle = await mothBundle(projectId);
+      if (!bundle) return [];
+      const live = (kind, id) => (!!id && (bundle[MOTH_LOCAL_ITEMS.find(([k]) => k === kind)?.[1]] || []).some(r => r.id === id && !r.deleted_at && !r.set_aside_at) ? id : null);
+      return (bundle.files || [])
+        .filter(f => !f.deleted_at && (after == null || String(f.id) > String(after)))
+        .sort((a, b) => (String(a.id) < String(b.id) ? -1 : 1))
+        .slice(0, Math.min(Math.max(Number(limit) || 1000, 1), 1000))
+        .map(f => ({
+          file_id: f.id, editor_id: null,
+          phase_id: live('phase', f.phase_id), asset_id: live('asset', f.asset_id), task_id: live('task', f.task_id),
+          scene_id: live('scene', f.scene_id), shot_id: live('shot', f.shot_id), level_id: live('level', f.level_id),
+          experience_id: live('experience', f.experience_id),
+        }));
+    },
+    async listMothViews() { throw mothLocalAbsent(); },
+    async createMothView() { throw mothLocalAbsent(); },
+    async updateMothView() { throw mothLocalAbsent(); },
+    async deleteMothView() { throw mothLocalAbsent(); },
+    async listMothPositions() { throw mothLocalAbsent(); },
+    async putMothPositions() { throw mothLocalAbsent(); },
+    async clearMothPositions() { throw mothLocalAbsent(); },
+    async getMothPrefs() { return null; },
+    async setMothPrefs() { throw mothLocalAbsent(); },
+    async listMothNotes() { throw mothLocalS3(); },
+    async syncNoteMentions() { throw mothLocalS3(); },
+    async listMothTagTypes() { throw mothLocalS3(); },
+    async createMothTagType() { throw mothLocalS3(); },
+    async updateMothTagType() { throw mothLocalS3(); },
+    async deleteMothTagType() { throw mothLocalS3(); },
+    async listMothTags() { throw mothLocalS3(); },
+    async createMothTag() { throw mothLocalS3(); },
+    async updateMothTag() { throw mothLocalS3(); },
+    async deleteMothTag() { throw mothLocalS3(); },
+    async listMothTagAssignments() { throw mothLocalS3(); },
+    async assignMothTag() { throw mothLocalS3(); },
+    async unassignMothTag() { throw mothLocalS3(); },
+    async listMothTagNominations() { throw mothLocalS3(); },
+    async nominateMothTag() { throw mothLocalS3(); },
+    async withdrawMothTagNomination() { throw mothLocalS3(); },
+    async decideMothTagNomination() { throw mothLocalS3(); },
+    async mergeMothTags() { throw mothLocalS3(); },
+    async listMothRelationships() { throw mothLocalS3(); },
+    async createMothRelationship() { throw mothLocalS3(); },
+    async updateMothRelationshipLabel() { throw mothLocalS3(); },
+    async deleteMothRelationship() { throw mothLocalS3(); },
+    async listMothItemRelationships() { throw mothLocalS3(); },
+    async reserveMothMention() { throw mothLocalS3(); },
+    async listMothMentionCandidates() { throw mothLocalS3(); },
+    // MO4: boards wait for the cloud.
+    async listBoards() { throw boardsLocalAbsent(); },
+    async createBoard() { throw boardsLocalAbsent(); },
+    async readBoard() { throw boardsLocalAbsent(); },
+    async readBoardElements() { throw boardsLocalAbsent(); },
+    async putBoardElements() { throw boardsLocalAbsent(); },
+    async deleteBoardElements() { throw boardsLocalAbsent(); },
+    async boardChannels() { throw boardsLocalAbsent(); },
+    async setBoardBackground() { throw boardsLocalAbsent(); },
+    async claimSticky() { throw boardsLocalAbsent(); },
+    async renewSticky() { throw boardsLocalAbsent(); },
+    async releaseSticky() { throw boardsLocalAbsent(); },
+    async stickyStatus() { throw boardsLocalAbsent(); },
+    async readStickyText() { throw boardsLocalAbsent(); },
+    async saveStickyText() { throw boardsLocalAbsent(); },
+    async createSticky() { throw boardsLocalAbsent(); },
+    async createMedia() { throw boardsLocalAbsent(); },
+    async embedFile() { throw boardsLocalAbsent(); },
+    async boardFileUrl() { throw boardsLocalAbsent(); },
+    openBoardChannels() { throw boardsLocalAbsent(); },
+    async trashFolders() { throw boardsLocalAbsent(FOLDERS_LOCAL); },
+    async restoreFolders() { throw boardsLocalAbsent(FOLDERS_LOCAL); },
+    async moveFolders() { throw boardsLocalAbsent(FOLDERS_LOCAL); },
+    async listTrashedFolders() { return []; },
+    // Not recorded for projects kept only on this computer (MOTH_DESIGN H2): no rows, and every kind recorded
+    // only from now, so the scrub labels everything before as not recorded.
+    async fetchMothHistory() { return []; },
+    async fetchMothHistoryWindow() {
+      const now = new Date().toISOString();
+      return ['projects', 'folders', 'files', 'phases', 'assets', 'tasks', 'scenes', 'shots', 'levels', 'experiences', 'task_items',
+        'notes', 'moth_tags', 'moth_tag_assignments', 'moth_relationships']
+        .map(entity_type => ({ entity_type, project_id: null, recording_since: now }));
+    },
 
     async loadProject(id) {
       const bundle = await jfetch(`${BASE}/projects/${id}`);
@@ -516,6 +770,33 @@ export function localServerAdapter() {
       if (!file?.id || !file?.project_id) return null;
       return `${BASE}/projects/${encodeURIComponent(file.project_id)}/files/${encodeURIComponent(file.id)}/download?download=1`;
     },
+
+    // MO1 (MOTH_DESIGN §1.8, §1.9): this computer's 30-day trash and moves (fileTrash.cjs, fileMoves.cjs). The
+    // routes need a project, which a cloud row carries and the local calls are told.
+    restoreFile: plainly((id, projectId) => jfetch(`${BASE}/projects/${projectId}/files/${id}/restore`, { method: 'POST' })),
+    restoreManagedFile: async (id, projectId) => jfetch(`${BASE}/projects/${projectId}/managed-files/${id}/restore`, { method: 'POST' }),
+    trashFiles: plainly((ids, projectId) => jfetch(`${BASE}/projects/${projectId}/files/trash`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
+    })),
+    restoreFiles: plainly((ids, projectId) => jfetch(`${BASE}/projects/${projectId}/files/restore`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
+    })),
+    listTrashedFiles: async ({ projectIds = [] } = {}) => {
+      const lists = await Promise.all(projectIds.map((id) => jfetch(`${BASE}/projects/${id}/trash`)));
+      return lists.flat().sort((a, b) => (a.deleted_at < b.deleted_at ? 1 : -1));
+    },
+    purgeExpiredTrash: async (projectId) => jfetch(`${BASE}/projects/${projectId}/trash/purge-expired`, { method: 'POST' }),
+    moveFilesInProject: plainly((ids, projectId, folderId = null) => jfetch(`${BASE}/projects/${projectId}/files/move`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, folder_id: folderId }),
+    })),
+    // `back` is what an earlier move's answer said its rows left behind (`before`): a way back returns it.
+    moveFilesBetweenProjects: plainly((ids, fromProject, toProject, toFolder = null, { back = null } = {}) => jfetch(`${BASE}/files/move-between-projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids, from_project: fromProject, to_project: toProject, to_folder: toFolder, back }),
+    })),
+    // A move a crash or an unplugged drive left unfinished: which projects and how many files.
+    listPendingMoves: async () => (await jfetch(`${BASE}/files/pending-moves`))?.moves ?? [],
 
     deleteFile: async (id, projectId) => jfetch(`${BASE}/projects/${projectId}/files/${id}`, { method: 'DELETE' }),
 

@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, lazy, Suspense } from 'react'
 import { Menu } from 'lucide-react'
 import TitleBar from './components/TitleBar'
 import DevFixturesBadge from './dev/DevFixturesBadge'
@@ -31,6 +31,7 @@ import { createCoalescingSave } from './lib/coalescingSave'
 import { installCompanionShiftHotkey } from './lib/companionHotkey'
 import { PAGES, PAGE_BARS, PAGE_TITLES, COMPRESSED_BAR_HEIGHT, getPage, navPages } from './layout/pages'
 import PageSurface from './layout/PageSurface'
+import LazyPageBoundary from './components/LazyPageBoundary';
 import { resolveUserPet, saveCloudPet, mirrorPetToCache, fetchCloudPet, isStalePetWrite,
          resolveUserSettings, mirrorSettingsToCache, setUserStateOwner,
          getUserStateOwner } from './lib/userState'
@@ -52,6 +53,20 @@ import { usePermissions } from './permissions'
 import DeckOutlineGenerator from './tools/deck-outline-generator_v0.514'
 import Otter from './tools/otter_v0.3.1'
 import Rabbit from './tools/rabbit_v0.1.0'
+// MO1 (MOTH_DESIGN §1.10): a lazy chunk, loaded the first time the page is opened. Nothing else reaches it.
+// A lazy() remembers a failed import, so asking again takes a new one. The boundary holds a page that will not
+// load, or that throws while drawing, to its own surface.
+function MothSurface({ isActive }) {
+  const [attempt, setAttempt] = useState(0)
+  const MothPage = useMemo(() => lazy(() => import('./tools/moth_v0.1.0')), [attempt])
+  return (
+    <LazyPageBoundary key={attempt} title="M.O.T.H." onRetry={() => setAttempt((n) => n + 1)}>
+      <Suspense fallback={<p>Opening M.O.T.H.…</p>}>
+        <MothPage isActive={isActive} />
+      </Suspense>
+    </LazyPageBoundary>
+  )
+}
 import PetCompanion from './components/PetCompanion'
 import { PET_BREEDS, pickRandomBreed } from './components/sprites/index'
 import {
@@ -358,6 +373,9 @@ export default function App() {
   // Deep links initialize the page from the URL on the web; Electron always
   // boots on home (URL_ROUTING_ENABLED false → pageFromLocation() = 'home').
   const [currentPage, setCurrentPage] = useState(() => pageFromLocation());
+  // Set once, on first entry, and never reset: the page keeps its state after that, as the others do.
+  const [mothEntered, setMothEntered] = useState(false);
+  useEffect(() => { if (currentPage === 'moth') setMothEntered(true); }, [currentPage]);
 
   // Transition: 'idle' -> 'compressing'(600ms) -> 'title-hold'(400ms) -> [swap] -> 'expanding'(600ms) -> 'idle'
   const [transitionState, setTransitionState] = useState('idle');
@@ -1582,6 +1600,14 @@ export default function App() {
     // company's root reaches the main process once the cloud answers (§11.9).
   }, [perms.ready, perms.workspaceId, perms.offline]);
 
+  // MO1 (PS-7): who is signed in, for the office-server add route, which writes only into
+  // that person's own folder. Main has no Supabase client, as above; null when signed out.
+  useEffect(() => {
+    const bridge = typeof window !== 'undefined' ? window.electronAPI?.rabbit : null;
+    if (!bridge?.setSignedInUser) return;
+    bridge.setSignedInUser({ userId: perms.ready ? (perms.userId || null) : null }).catch(() => {});
+  }, [perms.ready, perms.userId]);
+
   // Decay timer — runs every 30 seconds
   useEffect(() => {
     if (!petData) return;
@@ -2424,6 +2450,24 @@ export default function App() {
     window.addEventListener('wilson:open-otter-course', onOpenOtterCourse);
     return () => window.removeEventListener('wilson:open-otter-course', onOpenOtterCourse);
   }, []);
+  // MO2: M.O.T.H.'s "Open in R.A.B.B.I.T." and "Open in Files", after its own question (tools/moth_v0.1.0/state/
+  // mothJumps.js). The shell goes to R.A.B.B.I.T.; Rabbit.jsx, always mounted, opens the project and the item.
+  useEffect(() => {
+    const toRabbit = () => { navigateToRef.current('rabbit'); };
+    window.addEventListener('wilson:open-rabbit-item', toRabbit);
+    window.addEventListener('wilson:open-project-file', toRabbit);
+    return () => {
+      window.removeEventListener('wilson:open-rabbit-item', toRabbit);
+      window.removeEventListener('wilson:open-project-file', toRabbit);
+    };
+  }, []);
+  // MO3: a note asked for from a typed link or M.O.T.H. (wilson:open-dashboard-note; rabbit_v0.1.0/state/
+  // linkedThings.js). The shell goes to the Dashboard, which opens on its Notes tab; NotesView finds the note.
+  useEffect(() => {
+    const toDashboard = () => { navigateToRef.current('dashboard'); };
+    window.addEventListener('wilson:open-dashboard-note', toDashboard);
+    return () => window.removeEventListener('wilson:open-dashboard-note', toDashboard);
+  }, []);
   useEffect(() => {
     if (!URL_ROUTING_ENABLED) return;
     // Deep links land with no history state — stamp the entry so the first
@@ -2619,6 +2663,9 @@ export default function App() {
           isActive={currentPage === 'rabbit'}
           currentPage={currentPage}
         />
+      </PageSurface>
+      <PageSurface id="moth" currentPage={currentPage} overflow="hidden">
+        {mothEntered && <MothSurface isActive={currentPage === 'moth'} />}
       </PageSurface>
       <PageSurface id="settings" currentPage={currentPage}>
         <SettingsPageWithAgent

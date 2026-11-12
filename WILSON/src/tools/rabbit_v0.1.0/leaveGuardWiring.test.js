@@ -29,7 +29,8 @@ describe('Rabbit.jsx: leaving the Scenes tab asks (the strip, a jump out, a toas
     for (const [name, re] of Object.entries(TAB)) expect(rabbit, name).toMatch(re)
   })
   it('the automatic switches stay direct: a hidden tab and a cleared project never ask (D12)', () => {
-    expect(rabbit).toMatch(/if \(hiddenTabs\.has\(activeView\)\) setActiveView\('summary'\)/)
+    // MO2 round 1: the switch also drops a request waiting for the hidden tab; it stays direct, asking nothing.
+    expect(rabbit).toMatch(/if \(hiddenTabs\.has\(activeView\)\) \{ dropPendingNavigate\(\{ view: activeView \}\); setActiveView\('summary'\) \}/)
     expect(rabbit).toMatch(/if \(!activeProjectId\) \{\s*setActiveView\('summary'\)/)
   })
   it('CONTROL: the strip handed setActiveView, or a goToView that skips leaveTab, fails the pins', () => {

@@ -42,6 +42,11 @@
 //      dropped: a workspace that switched back to Petal cloud must not
 //      orphan the bodies it already wrote (resolve-from-the-row, S36) — the
 //      retained provider_config is exactly what keeps them reachable.
+//   7. MO1 (0120): `look` signs nothing for the client. The server makes the
+//      signed HEAD itself, to a vetted address (s3Reach.ts, as the storage-gc
+//      drain does), and on a 200 records the look for the move's commit
+//      (_shared/s3Look.ts). It asks the rights to WRITE the key, and the active
+//      choice, as a PUT does: it is the last step of writing a move's new copy.
 //
 // verify_jwt = false + in-function validation, like every function here
 // (the gateway can't validate this project's ES256 JWTs).
@@ -53,21 +58,23 @@ import { requireActiveMember } from '../_shared/memberGuard.ts'
 import { isRateLimited, envInt } from '../_shared/rateLimit.ts'
 import { checkRowShapedPath } from '../_shared/presignPath.ts'
 import { decryptStorageSecret, storageSecretCryptoConfigured } from '../_shared/storageSecretCrypto.ts'
-import { presignS3Request, type S3Target } from '../_shared/s3Presign.ts'
+import { presignS3Request, s3HostAndPath, type S3Target } from '../_shared/s3Presign.ts'
+import { vetS3Host, s3Request, s3ReachDeps } from '../_shared/s3Reach.ts'
+import { lookAtObject } from '../_shared/s3Look.ts'
 
 // Expiry per method. A PUT's signature is validated when the request STARTS,
 // so a multi-GB upload may stream past it — 15 minutes is headroom for a
 // slow link to BEGIN, not a cap on transfer time.
-const EXPIRES: Record<string, number> = { put: 900, get: 300, del: 300, head: 300 }
+const EXPIRES: Record<string, number> = { put: 900, get: 300, del: 300, head: 300, look: 60 }
 const METHOD: Record<string, 'PUT' | 'GET' | 'DELETE' | 'HEAD'> = {
-  put: 'PUT', get: 'GET', del: 'DELETE', head: 'HEAD',
+  put: 'PUT', get: 'GET', del: 'DELETE', head: 'HEAD', look: 'HEAD',
 }
 // 🚨 The allowlist is this ARRAY, never `op in METHOD`. `in` walks the
 // prototype chain, so 'constructor', '__proto__' and 'toString' all satisfy
 // a check meant to admit four values — and each then ran the whole
 // authorisation path, decrypted the bucket secret, and failed at the signer
 // as a 500 rather than at the door as a 400. Found by S37's review.
-const OPS = ['put', 'get', 'del', 'head'] as const
+const OPS = ['put', 'get', 'del', 'head', 'look'] as const
 
 type S3Config = {
   endpoint?: string
@@ -117,7 +124,7 @@ Deno.serve(async (req: Request) => {
 
   const op = typeof body.op === 'string' ? body.op : ''
   if (!(OPS as readonly string[]).includes(op)) {
-    return reply({ error: 'bad_request', detail: 'op must be one of put, get, del, head' }, 400)
+    return reply({ error: 'bad_request', detail: 'op must be one of put, get, del, head, look' }, 400)
   }
 
   const shape = checkRowShapedPath(body.path)
@@ -132,11 +139,11 @@ Deno.serve(async (req: Request) => {
     Deno.env.get('SUPABASE_ANON_KEY')!,
     { global: { headers: { Authorization: `Bearer ${token}` } } },
   )
-  const predicate = op === 'get' || op === 'head'
-    ? 'can_presign_project_read'
-    : 'can_presign_project_write'
-  const { data: allowed, error: predErr } = await asCaller.rpc(predicate, {
-    p_project: shape.projectId,
+  // MO1 (0115): the key no longer says where a file is, because a moved file keeps its key. The
+  // database decides: a key a row claims answers to that row; a new key answers to its project.
+  const { data: allowed, error: predErr } = await asCaller.rpc('can_presign_object', {
+    p_path: body.path,
+    p_op: op === 'look' ? 'put' : op,
   })
   if (predErr) {
     return reply({ error: 'refused', detail: `the project check failed: ${predErr.message}` }, 403)
@@ -161,7 +168,7 @@ Deno.serve(async (req: Request) => {
       detail: 'this workspace has no S3-compatible storage configured — an admin sets it in Admin Terminal → Storage',
     }, 409)
   }
-  if (op === 'put' && ws.mode !== 'byos') {
+  if ((op === 'put' || op === 'look') && ws.mode !== 'byos') {
     return reply({
       error: 'refused',
       detail: 'this workspace is on Petal cloud right now — its S3 configuration is retained but inactive, so new files do not go to the bucket',
@@ -207,6 +214,31 @@ Deno.serve(async (req: Request) => {
   // row-shaped in the database (0051 — split_part money axis; prefix edits
   // must not orphan keys), and the client never sees or supplies it.
   const key = cfg.prefix ? `${cfg.prefix}/${body.path}` : (body.path as string)
+
+  if (op === 'look') {
+    const deps = s3ReachDeps()
+    const supabaseHost = new URL(Deno.env.get('SUPABASE_URL') ?? 'https://invalid').hostname
+    const out = await lookAtObject({
+      host: () => s3HostAndPath(target, 'probe').host,
+      vet: (host) => vetS3Host(host, deps, { supabaseHost }),
+      sign: () => presignS3Request({
+        target,
+        accessKeyId: cfg.accessKeyId,
+        secretAccessKey: secret,
+        method: METHOD[op],
+        key,
+        expiresSeconds: EXPIRES[op],
+        now: new Date(),
+      }),
+      request: (url, vetted) => s3Request({ url, method: 'HEAD', vetted, deps }),
+      record: () => ctx.admin.rpc('s3_body_look_record', {
+        p_workspace: ctx.workspaceId,
+        p_path: body.path,
+        p_user: ctx.callerId,
+      }),
+    })
+    return reply(out.body, out.status)
+  }
 
   try {
     const url = await presignS3Request({

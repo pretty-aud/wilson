@@ -13,6 +13,7 @@
 // =============================================================================
 
 import { LINK_FIELDS } from '../state/taskItemsModel'
+import { mentionPlainText } from '../state/mentionTokens'
 
 // The action's colour is the drawer's CSS (`.rb-hist-action[data-action]` on
 // the success / ink-2 / danger tokens); P1-66 deleted the `color` hexes this
@@ -60,7 +61,8 @@ const HEADLINE_FIELDS = ['title', 'name', 'label', 'body', 'url', 'role_label', 
 function displayValue(v) {
   if (v === null || v === undefined || v === '') return '—'
   if (typeof v === 'object') return JSON.stringify(v)
-  return String(v)
+  // MO3: a description's or notes' words, never a link's code.
+  return mentionPlainText(String(v))
 }
 
 // VW1m (2026-10-16), Q-N8 (batch 16, not yet asked; interim: no history of

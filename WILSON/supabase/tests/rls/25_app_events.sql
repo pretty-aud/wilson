@@ -6,7 +6,7 @@
 
 BEGIN;
 
-SELECT plan(14);
+SELECT plan(21);
 
 SELECT * FROM tests.rls_setup();
 
@@ -193,6 +193,83 @@ SELECT ok(
   ),
   'anon holds no table privilege on app_events'
 );
+
+-- ═════════════════════════════════════════════════════════════════════════
+-- MO1 (2026-11-04, migration 0110, her answer 4): an admin opening someone
+-- else's personal space in Files is recorded. record_personal_space_opened
+-- writes one 'admin' WIL-4114 line another admin reads; everyone and
+-- everything else gets one 42501; a client cannot forge the line.
+-- Fixtures (runner): X a plain member and Y a second admin of ws_a; personal
+-- spaces for X and for user_a (ws_a) and for user_b (ws_b).
+-- ═════════════════════════════════════════════════════════════════════════
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+INSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at,
+                        raw_app_meta_data, raw_user_meta_data, aud, role,
+                        instance_id, created_at, updated_at)
+VALUES
+  ('25250000-0000-0000-0000-0000000000c1', 'mo1_x@test.local', crypt('testpw', gen_salt('bf')), now(),
+   '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
+   'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000', now(), now()),
+  ('25250000-0000-0000-0000-0000000000c2', 'mo1_y@test.local', crypt('testpw', gen_salt('bf')), now(),
+   '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
+   'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000', now(), now())
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.workspace_members (workspace_id, user_id, app_role, username, display_name, is_active)
+VALUES
+  ('11111111-1111-1111-1111-111111111111', '25250000-0000-0000-0000-0000000000c1', 'user', 'mo1_x', 'MO1 X', true),
+  ('11111111-1111-1111-1111-111111111111', '25250000-0000-0000-0000-0000000000c2', 'admin', 'mo1_y', 'MO1 Y', true)
+ON CONFLICT (workspace_id, user_id) DO NOTHING;
+INSERT INTO public.projects (id, workspace_id, title, is_private, personal_owner_id, created_by) VALUES
+  ('25250000-0000-0000-0000-0000000000d1', '11111111-1111-1111-1111-111111111111', 'Personal space', true,
+   '25250000-0000-0000-0000-0000000000c1', '25250000-0000-0000-0000-0000000000c1'),
+  ('25250000-0000-0000-0000-0000000000d2', '11111111-1111-1111-1111-111111111111', 'Personal space', true,
+   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
+  ('25250000-0000-0000-0000-0000000000d3', '22222222-2222-2222-2222-222222222222', 'Personal space', true,
+   'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb');
+
+CREATE FUNCTION pg_temp.mo1_as(p_uid UUID, p_app_role TEXT, p_ws UUID DEFAULT '11111111-1111-1111-1111-111111111111')
+RETURNS VOID LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM set_config('request.jwt.claims', json_build_object(
+    'sub', p_uid, 'role', 'authenticated',
+    'app_metadata', json_build_object('workspace_id', p_ws, 'app_role', p_app_role))::text, true);
+  PERFORM set_config('role', 'authenticated', true);
+END;
+$$;
+
+SELECT pg_temp.mo1_as('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'admin');
+SELECT lives_ok($$ SELECT public.record_personal_space_opened('25250000-0000-0000-0000-0000000000d1') $$,
+  'MO1: an admin opening someone else''s personal space is recorded');
+SELECT throws_ok($$ SELECT public.record_personal_space_opened('25250000-0000-0000-0000-0000000000d2') $$,
+  '42501', 'Only an admin opening someone else''s personal space is recorded.', 'MO1: not for the admin''s own space');
+SELECT throws_ok($$ SELECT public.record_personal_space_opened('aaaa1111-0000-0000-0000-000000000001') $$,
+  '42501', 'Only an admin opening someone else''s personal space is recorded.', 'MO1: not for an ordinary project');
+SELECT throws_ok($$ SELECT public.record_personal_space_opened('25250000-0000-0000-0000-0000000000d3') $$,
+  '42501', 'Only an admin opening someone else''s personal space is recorded.', 'MO1: not for another company''s space');
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+SELECT pg_temp.mo1_as('25250000-0000-0000-0000-0000000000c1', 'user');
+SELECT throws_ok($$ SELECT public.record_personal_space_opened('25250000-0000-0000-0000-0000000000d2') $$,
+  '42501', 'Only an admin opening someone else''s personal space is recorded.', 'MO1: not for someone who is not an admin');
+SELECT throws_ok($$
+  INSERT INTO public.app_events (workspace_id, event_type, code, severity, message, context)
+  VALUES ('11111111-1111-1111-1111-111111111111', 'admin', 'WIL-4114', 'info', 'forged', '{}'::jsonb)
+$$, '42501', NULL, 'MO1: a client cannot forge the line (app_events_insert reserves admin and WIL-41)');
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+SELECT pg_temp.mo1_as('25250000-0000-0000-0000-0000000000c2', 'admin');
+SELECT is((SELECT count(*)::int FROM public.app_events
+            WHERE code = 'WIL-4114' AND event_type = 'admin' AND severity = 'info'
+              AND actor_user_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+              AND context = jsonb_build_object('project_id', '25250000-0000-0000-0000-0000000000d1',
+                                               'owner_user_id', '25250000-0000-0000-0000-0000000000c1')),
+  1, 'MO1: another admin reads exactly one line, ids only');
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
 
 SELECT * FROM finish();
 ROLLBACK;

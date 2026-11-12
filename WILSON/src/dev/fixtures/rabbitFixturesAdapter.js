@@ -49,7 +49,12 @@ import {
   planLegacyFieldWrite, seedItemsFor, buildItemLookup,
 } from '../../tools/rabbit_v0.1.0/state/taskItemsModel'
 import { splitSetAside, isSetAside } from '../../tools/rabbit_v0.1.0/state/setAside'
+import { isMoneyKey, moneyFolderChainLocked } from '../../tools/rabbit_v0.1.0/storage/index'
+// MO3 (0127): the typed link's one rule (pure), so the fake cloud reads a key out of the words as the trigger does.
+import { mentionKeys, isMentionKey } from '../../tools/rabbit_v0.1.0/state/mentionTokens'
 import { EDIT_SAVED_SINCE, EDIT_SAVED_SINCE_MESSAGE } from '../../tools/rabbit_v0.1.0/state/shotListModel'
+// MO4 (0130 to 0133): boards, their channels and a folder's trash and moves (boardsFixtures.js).
+import { createBoardsFixtures, BOARD_WORDS } from './boardsFixtures'
 // VW1c (0098): custom table views and groupings — the one statement of their
 // rules (pure, imports nothing; devFixtures.test.js allows it).
 import {
@@ -309,7 +314,213 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
   const passesLegalGate = (projectId) => passesMoneyGate(projectId) || appRole === 'manager'
   const isMoneyFile = (f) => !!f?.is_financial || isLegalFile(f)
   const isLegalRow = (f) => isLegalFile(f) && !f?.is_financial
+  // MO1 (0111): moth_can_read_target's project arm. The personal arm has no admin leg.
+  const mothProjectVisible = (p) => !!p && !p.deleted_at
+    && (!p.is_private || p.created_by === userId || appRole === 'admin')
+    && (!p.personal_owner_id || p.personal_owner_id === userId)
   const readableFiles = (rows) => rows.filter(f => !isMoneyFile(f) || passesMoneyGate(f.project_id) || (isLegalRow(f) && passesLegalGate(f.project_id)))
+
+  // MO2 (0122, 0123): Moth's gates over the dataset, as _moth_target_eligible answers them.
+  const MOTH_ITEM_TABLES = { phase: 'phases', asset: 'assets', task: 'tasks', scene: 'scenes', shot: 'shots', level: 'levels', experience: 'experiences' }
+  const MOTH_TAG_WORDS = ['production', 'creative', 'reference', 'assets', 'code', 'shots', 'documentation']
+  // A phase or task set aside by its bid version is not live, as 0122's reads leave it out.
+  const mothRowLive = (kind, r) => !r.deleted_at && !((kind === 'phase' || kind === 'task') && r.set_aside_at)
+  const mothItemRows = (projectId) => Object.entries(MOTH_ITEM_TABLES).flatMap(([kind, table]) =>
+    (store[table] || []).filter(r => r.project_id === projectId && mothRowLive(kind, r)).map(row => ({ kind, row })))
+  const mothItemLive = (kind, id, projectId) => {
+    const table = MOTH_ITEM_TABLES[kind]
+    return !!table && (store[table] || []).some(r => r.id === id && r.project_id === projectId && mothRowLive(kind, r))
+  }
+  const mothShownFiles = (projectId) => {
+    const folders = store.folders.filter(f => f.project_id === projectId)
+    const receipts = new Set(store.expenses.filter(e => e.project_id === projectId).flatMap(e => e.file_ids || []))
+    return live(store.files.filter(f => f.project_id === projectId))
+      .filter(f => !isMoneyFile(f) && !isMoneyKey(f.storage_path) && !receipts.has(f.id) && !moneyFolderChainLocked(f.folder_id, folders))
+  }
+  const mothTargetProject = (kind, id) => {
+    if (kind === 'project') return projectOf(id) ? id : null
+    if (kind === 'folder') return store.folders.find(f => f.id === id)?.project_id ?? null
+    if (kind === 'file') return store.files.find(f => f.id === id)?.project_id ?? null
+    const table = MOTH_ITEM_TABLES[kind]
+    return table ? (store[table] || []).find(r => r.id === id)?.project_id ?? null : null
+  }
+  const mothTargetVisible = (kind, id) => {
+    const pid = mothTargetProject(kind, id)
+    if (!pid || !mothProjectVisible(projectOf(pid))) return false
+    if (kind === 'project') return true
+    // MO4 (0131): a folder in the trash is no target.
+    if (kind === 'folder') return !store.folders.find(f => f.id === id)?.deleted_at && !moneyFolderChainLocked(id, store.folders.filter(f => f.project_id === pid))
+    if (kind === 'file') return mothShownFiles(pid).some(f => f.id === id)
+    return mothItemLive(kind, id, pid)
+  }
+  const mothProjectWritable = (p) => {
+    if (!p || !mothProjectVisible(p)) return false
+    if (p.personal_owner_id) return p.personal_owner_id === userId
+    const seat = store.projectMembers.find(m => m.project_id === p.id && m.user_id === userId)
+    const staffed = store.projectMembers.some(m => m.project_id === p.id)
+    return appRole === 'admin' || appRole === 'manager' || !staffed || ['manager', 'member'].includes(seat?.project_role)
+  }
+  const mothViewVisible = (v) => v.workspace_id === workspaceId
+    && (v.scope_kind === 'project' ? mothProjectVisible(projectOf(v.project_id)) : v.owner_id === userId)
+  const mothViewWritable = (v) => (v.scope_kind === 'project' ? mothProjectWritable(projectOf(v.project_id)) : v.owner_id === userId)
+  const MOTH_ID_SHAPE = /[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}/i
+  const mothViewShapeProblem = (v) => {
+    const okScope = (v.scope_kind === 'project' && v.project_id) || (v.scope_kind === 'aggregate' && !v.project_id)
+    if (!okScope) throw tvError('42501', 'new row violates row-level security policy for table "moth_views"')
+    if (typeof v.name !== 'string' || v.name !== v.name.trim() || v.name.length < 1 || v.name.length > 80 || /[\u0000-\u001f\u007f]/.test(v.name)) {
+      throw tvError('23514', 'new row for relation "moth_views" violates check constraint "moth_views_name_chk"')
+    }
+    const text = JSON.stringify(v.config ?? {})
+    if (!v.config || typeof v.config !== 'object' || Array.isArray(v.config) || text.length > 32768) {
+      throw tvError('23514', 'new row for relation "moth_views" violates check constraint "moth_views_config_chk"')
+    }
+    if (MOTH_ID_SHAPE.test(text)) throw tvError('23514', 'new row for relation "moth_views" violates check constraint "moth_views_config_no_ids_chk"')
+  }
+  // moth_prefs(): what is stored, trusted for nothing: the last view only while it is a quick start or a view
+  // this person sees, an opened folder only while Moth shows it to them, eight at most.
+  const mothPrefsRead = () => {
+    const cur = store.mothPrefs[workspaceId]
+    if (!cur || typeof cur !== 'object') return {}
+    const out = {}
+    const lv = cur.last_view
+    if (lv === 'q:tags' || lv === 'q:folders' || store.mothViews.some(v => v.id === lv && mothViewVisible(v))) out.last_view = lv
+    if (typeof cur.first_visit_done === 'boolean') out.first_visit_done = cur.first_visit_done
+    if (cur.appearance && typeof cur.appearance === 'object') {
+      const a = cur.appearance
+      out.appearance = {}
+      if (typeof a.glow === 'string' && /^#[0-9a-f]{6}$/.test(a.glow)) out.appearance.glow = a.glow
+      if (['contents', 'recency'].includes(a.size_by)) out.appearance.size_by = a.size_by
+      if (['kind', 'file_type', 'tag', 'editor'].includes(a.colour_by)) out.appearance.colour_by = a.colour_by
+      if (['auto', 'full', 'light'].includes(a.light)) out.appearance.light = a.light
+    }
+    if (Array.isArray(cur.recent)) {
+      out.recent = cur.recent.filter(r => r && (r.k === 'folder' || r.k === 'project') && mothTargetVisible(r.k, r.id))
+        .slice(0, 8).map(r => ({ k: r.k, id: r.id }))
+    }
+    return out
+  }
+
+  // MO3 (0125 to 0127): notes' tiers and trash, typed tags and relationships, as the cloud keeps them. One person
+  // reads here (Mara, in the role `appRole` gives her), so no one else's personal note, tag or assignment is shown:
+  // the seeded shared note is Theo's, and no one else's personal tags are seeded. A live admin is the admin role, as
+  // is_live_workspace_admin reads the membership row.
+  const liveAdmin = () => appRole === 'admin'
+  const noteTier = (n) => n?.tier || 'personal'
+  // A note in the trash is in no plain read (round A): its owner and live admins find it in the trash list.
+  const noteSeen = (n) => !!n && n.workspace_id === workspaceId && !n.deleted_at
+    && (n.owner_id === userId || noteTier(n) !== 'personal')
+  // The owner changes their own, the company's standard aside; a live admin, any note that is not personal.
+  const noteMayHandle = (n) => !!n && n.workspace_id === workspaceId
+    && ((n.owner_id === userId && noteTier(n) !== 'company_standard') || (noteTier(n) !== 'personal' && liveAdmin()))
+  const noteMayChange = (n) => noteSeen(n) && noteMayHandle(n)
+  const noteGate = (id) => {
+    const n = store.notes.find(x => x.id === id && x.workspace_id === workspaceId)
+    return !!n && !n.deleted_at && (noteTier(n) !== 'personal' || n.owner_id === userId)
+  }
+  const noteListRow = (n) => {
+    const { ydoc_state: _y, deleted_by: _d, ...rest } = n
+    return { ...rest, tier: noteTier(n), deleted_at: n.deleted_at ?? null }
+  }
+  const mothTagSeen = (t) => !!t && t.workspace_id === workspaceId && (t.tier === 'company' || t.owner_id === userId)
+  const mothTagMayChange = (t) => mothTagSeen(t) && (t.tier === 'company' ? liveAdmin() : t.owner_id === userId)
+  const mtagGate = (id) => { const t = store.mothTags.find(x => x.id === id); return mothTagSeen(t) && !t.canonical_id }
+  const mothTagNorm = (s) => String(s ?? '').normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase()
+  const mothCut = (rows) => Object.defineProperty(rows, 'truncated', { value: true, enumerable: false })
+  const MOTH_TAG_SHAPES = ['circle', 'square', 'diamond', 'triangle', 'hexagon', 'star']
+  const MOTH_TAG_COLOURS = ['mist', 'amber', 'rose', 'violet', 'sky', 'teal', 'lime', 'sand']
+  const MOTH_LINK_KINDS = ['project', 'folder', 'file', 'phase', 'asset', 'task', 'scene', 'shot', 'level', 'experience', 'note']
+  const mothWords = (s, max) => typeof s === 'string' && s === s.trim() && s.length >= 1 && s.length <= max
+    && !/[\u0000-\u001f\u007f]/.test(s)
+  // Moth's gate for the kinds 0125 to 0127 add, and its writer's (moth_can_write_target).
+  const mothSees = (kind, id) => (kind === 'note' ? noteGate(id) : kind === 'mtag' ? mtagGate(id) : mothTargetVisible(kind, id))
+  const mothMayChange = (kind, id) => {
+    if (kind === 'note') { const n = store.notes.find(x => x.id === id); return !!n && !n.deleted_at && noteMayChange(n) }
+    if (!MOTH_LINK_KINDS.includes(kind) || !mothTargetVisible(kind, id)) return false
+    return mothProjectWritable(projectOf(mothTargetProject(kind, id)))
+  }
+  const mothNameOf = (kind, id) => {
+    if (kind === 'note') return store.notes.find(n => n.id === id)?.title ?? ''
+    if (kind === 'project') return projectOf(id)?.title ?? ''
+    if (kind === 'folder') { const f = store.folders.find(x => x.id === id); return f ? (f.label || f.slug || '') : '' }
+    if (kind === 'file') return store.files.find(f => f.id === id)?.name ?? ''
+    const row = (store[MOTH_ITEM_TABLES[kind]] || []).find(r => r.id === id)
+    return (kind === 'task' ? row?.title : row?.name) ?? ''
+  }
+  // The text a typed link lives in (0127 §3): nine kinds' description, and five kinds' notes too, as the triggers read
+  // it. The fake cloud runs the triggers when a read asks: each field's links whose key has left the words go, and a
+  // key the writer reserved becomes a link of the first field that holds it, the reservation spent.
+  const MOTH_TEXT_FIELDS = {
+    project: ['description'], phase: ['description'], asset: ['description'], file: ['description'],
+    task: ['description', 'notes'], scene: ['description', 'notes'], shot: ['description', 'notes'],
+    level: ['description', 'notes'], experience: ['description', 'notes'],
+  }
+  const mothTextRows = (kind) => (kind === 'project' ? store.projects : kind === 'file' ? store.files : store[MOTH_ITEM_TABLES[kind]] || [])
+  // The session review: as moth_mentions_apply does, a reservation the writer made in the last day and no field has
+  // used becomes this field's and is kept, so its key links here again whenever its words come back (an undo, a cut
+  // and paste within the field). A key that is another field's, or no one's, links nothing here.
+  const mothReservedToday = (m) => Date.now() - Date.parse(m.created_at) < 86400000
+  const mothMentionsApply = (kind, id, field, keys) => {
+    store.mothRelationships = store.mothRelationships.filter(r => !(r.origin === 'inline' && r.source_type === kind
+      && r.source_id === id && r.field === field && !keys.includes(r.mention_key)))
+    for (const m of store.mothMentionReservations) {
+      if (keys.includes(m.mention_key) && m.used_kind == null && m.created_by === userId && mothReservedToday(m)) {
+        Object.assign(m, { used_kind: kind, used_id: id, used_field: field, used_at: now() })
+      }
+    }
+    for (const key of keys) {
+      const res = store.mothMentionReservations.find(m => m.mention_key === key && m.used_kind === kind && m.used_id === id && m.used_field === field)
+      if (!res) continue
+      if ((res.dest_type === kind && res.dest_id === id) || !mothSees(res.dest_type, res.dest_id)) continue
+      if (store.mothRelationships.some(r => r.origin === 'inline' && r.source_type === kind && r.source_id === id
+        && r.field === field && r.mention_key === key)) continue
+      store.mothRelationships.push({
+        id: crypto.randomUUID(), workspace_id: workspaceId, source_type: kind, source_id: id,
+        dest_type: res.dest_type, dest_id: res.dest_id, label: null, origin: 'inline', field, mention_key: key,
+        created_by: userId, created_at: now(),
+      })
+    }
+  }
+  const mothMentionsCatchUp = () => {
+    for (const [kind, fields] of Object.entries(MOTH_TEXT_FIELDS)) {
+      for (const row of mothTextRows(kind)) {
+        for (const field of fields) {
+          const keys = mentionKeys(row[field])
+          const had = store.mothRelationships.some(r => r.origin === 'inline' && r.source_type === kind && r.source_id === row.id && r.field === field)
+          if (keys.length || had) mothMentionsApply(kind, row.id, field, keys)
+        }
+      }
+    }
+  }
+  const mothLinkRow = (r) => ({ id: r.id, source_kind: r.source_type, source_id: r.source_id, target_kind: r.dest_type,
+    target_id: r.dest_id, label: r.label, origin: r.origin, field: r.field })
+  const mothTagTypeRow = ({ workspace_id: _w, ...t }) => t
+  const mothTagRow = ({ workspace_id: _w, norm: _n, ...t }) => t
+  // The session review: a change the cloud makes to no row (a policy hid it, or it is gone) is refused in these words,
+  // with 42501, as the cloud adapter says it (supabaseAdapter.js, mothNothingChanged): never a quiet null.
+  const MOTH_TAG_UNCHANGED = 'That tag is not one you can change now, or it is no longer there.'
+  const MOTH_TAG_NOT_DELETED = 'That tag is not one you can delete, or it is gone already.'
+  const MOTH_TYPE_UNCHANGED = 'That type is not one you can change now, or it is no longer there.'
+  const MOTH_TYPE_NOT_DELETED = 'That type is not one you can delete, or it is gone already.'
+  const MOTH_LINK_UNCHANGED = 'That link is not one you can change: only a link drawn by hand takes a label, from someone who may change where it starts.'
+  // fn_moth_tags_gone: a tag removed or retired takes its open nomination with it, as a withdrawal.
+  const mothTagNominationsGone = (tagId) => {
+    for (const x of store.mothTagNominations) if (x.tag_id === tagId && x.status === 'open') x.status = 'withdrawn'
+  }
+
+  // rabbit_private.moth_tag_fold: the assignments move (one the other tag already has, for the same owner, goes),
+  // each keeping its tier and owner; a place of the folded dot becomes the other's where that view and owner have
+  // none; and the folded tag, with anything folded into it before, stands for the other.
+  const foldMothTag = (intoId, fromId) => {
+    store.mothTagAssignments = store.mothTagAssignments.filter(a => !(a.tag_id === fromId && store.mothTagAssignments.some(b =>
+      b.tag_id === intoId && b.target_type === a.target_type && b.target_id === a.target_id && b.owner_id === a.owner_id)))
+    for (const a of store.mothTagAssignments) if (a.tag_id === fromId) a.tag_id = intoId
+    for (const pl of store.mothPositions.filter(x => x.target_type === 'mtag' && x.target_id === fromId)) {
+      const taken = store.mothPositions.some(q => q.view_id === pl.view_id && q.target_type === 'mtag' && q.target_id === intoId && q.owner_id === pl.owner_id)
+      if (!taken) store.mothPositions.push({ ...pl, target_id: intoId, is_focus: false })
+    }
+    store.mothPositions = store.mothPositions.filter(x => !(x.target_type === 'mtag' && x.target_id === fromId))
+    for (const tg of store.mothTags) if (tg.id === fromId || tg.canonical_id === fromId) tg.canonical_id = intoId
+  }
 
   // 0090 (S5b): the set-aside stamp is written only by setAsideRows — never
   // by an ordinary write (the store MERGES, so a stale copy re-sent with
@@ -667,8 +878,612 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
 
     // ── Projects ─────────────────────────────────────────────────────────────
     async listProjects() {
-      return clone(live(store.projects))
+      return clone(live(store.projects).filter(p => !p.personal_owner_id))
     },
+    // MO1 (0110): the cloud's four, as its RLS and RPCs answer them.
+    async supportsPersonalSpaces() { return true },
+    async listPersonalSpaces() {
+      return clone(live(store.projects)
+        .filter(p => p.personal_owner_id && (appRole === 'admin' || p.personal_owner_id === userId))
+        .map(({ id, title, personal_owner_id, folder_slug, updated_at }) => ({ id, title, personal_owner_id, folder_slug, updated_at })))
+    },
+    async ensurePersonalSpace() {
+      const mine = store.projects.find(p => p.personal_owner_id === userId)
+      if (mine) return mine.id
+      const row = upsert(store.projects, stampBy({
+        workspace_id: workspaceId, title: 'Personal space', is_private: true, status: 'active',
+        personal_owner_id: userId, folder_slug: `Personal_${String(userId).replace(/-/g, '')}`, created_by: userId,
+      }))
+      store.projectMembers.push({ project_id: row.id, user_id: userId, workspace_id: workspaceId, project_role: 'manager' })
+      return row.id
+    },
+    async recordPersonalSpaceOpened(projectId) {
+      const space = projectOf(projectId)
+      if (appRole !== 'admin' || !space?.personal_owner_id || space.personal_owner_id === userId) {
+        const err = new Error('only an admin opening another person\'s personal space is recorded')
+        err.code = '42501'
+        throw err
+      }
+      store.personalSpaceOpens.push({ project_id: projectId, owner_user_id: space.personal_owner_id, actor_user_id: userId, at: now() })
+    },
+    // MO1 (0111): Moth's three reads, as the cloud's answer them: the same rows
+    // for every role, no money, no Legal, no one else's personal space.
+    async listMothIslands() {
+      const seatOf = (id) => store.projectMembers.find(m => m.project_id === id && m.user_id === userId)
+      const staffed = (id) => store.projectMembers.some(m => m.project_id === id)
+      const mine = (p) => p.personal_owner_id === userId
+      return clone(live(store.projects).filter(mothProjectVisible)
+        .sort((a, b) => Number(mine(b)) - Number(mine(a)) || String(a.title).localeCompare(String(b.title)) || String(a.id).localeCompare(String(b.id)))
+        .map(p => ({
+          id: p.id,
+          title: p.title,
+          is_personal: !!p.personal_owner_id,
+          is_mine: mine(p),
+          is_private: !!p.is_private,
+          my_project_role: seatOf(p.id)?.project_role ?? null,
+          is_staffed: staffed(p.id),
+          can_write: p.personal_owner_id
+            ? mine(p)
+            : appRole === 'admin' || appRole === 'manager' || !staffed(p.id) || ['manager', 'member'].includes(seatOf(p.id)?.project_role),
+          updated_at: p.updated_at,
+        })))
+    },
+    // Where the open project is on the office server, for its banner: `?storage=network` gives it a folder.
+    async mothIslandFolder(projectId) {
+      const project = projectOf(projectId)
+      return { id: projectId, folder_root: project?.folder_root ?? null, personal_owner_id: project?.personal_owner_id ?? null }
+    },
+    async listMothFolders(projectId) {
+      if (!mothProjectVisible(projectOf(projectId))) return []
+      const rows = store.folders.filter(f => f.project_id === projectId)
+      return clone(rows.filter(f => !f.deleted_at && !moneyFolderChainLocked(f.id, rows)).sort((a, b) => a.path.localeCompare(b.path)))
+    },
+    async listMothFiles(projectId, after = null, limit = 500) {
+      if (!mothProjectVisible(projectOf(projectId))) return []
+      const folders = store.folders.filter(f => f.project_id === projectId)
+      const receipts = new Set(store.expenses.filter(e => e.project_id === projectId).flatMap(e => e.file_ids || []))
+      return clone(live(store.files.filter(f => f.project_id === projectId))
+        .filter(f => !isMoneyFile(f) && !isMoneyKey(f.storage_path) && !receipts.has(f.id) && !moneyFolderChainLocked(f.folder_id, folders))
+        .filter(f => after == null || String(f.id) > String(after))
+        .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+        .slice(0, Math.min(Math.max(Number(limit) || 500, 1), 1000))
+        .map(({ is_financial: _flag, created_by: _by, ...row }) => row))
+    },
+    // MO2 (0122): a project's items and the relationships the dataset stores, as moth_project_items and
+    // moth_project_links answer them: live rows of a project Moth shows, both ends of every line checked.
+    async listMothItems(projectId) {
+      if (!mothProjectVisible(projectOf(projectId))) return { items: [], truncated: false }
+      return { truncated: false, items: clone(mothItemRows(projectId).map(({ kind, row }) => ({
+        kind,
+        id: row.id,
+        name: String((kind === 'task' ? row.title : row.name) ?? '').slice(0, 300),
+        parent_kind: kind === 'phase' && row.parent_phase_id && mothItemLive('phase', row.parent_phase_id, projectId) ? 'phase'
+          : kind === 'shot' && row.scene_id && mothItemLive('scene', row.scene_id, projectId) ? 'scene' : null,
+        parent_id: kind === 'phase' && row.parent_phase_id && mothItemLive('phase', row.parent_phase_id, projectId) ? row.parent_phase_id
+          : kind === 'shot' && row.scene_id && mothItemLive('scene', row.scene_id, projectId) ? row.scene_id : null,
+        updated_at: row.updated_at ?? null,
+      })).sort((a, b) => a.kind.localeCompare(b.kind) || String(a.id).localeCompare(String(b.id)))) }
+    },
+    async listMothLinks(projectId) {
+      if (!mothProjectVisible(projectOf(projectId))) return { links: [], truncated: false }
+      const out = new Map()
+      const add = (sk, sid, tk, tid, lk) => {
+        if (!tid || !mothItemLive(tk, tid, projectId)) return
+        const key = `${sk}|${sid}|${tk}|${tid}`
+        const was = out.get(key)
+        if (!was || lk < was.link) out.set(key, { source_kind: sk, source_id: sid, target_kind: tk, target_id: tid, link: lk })
+      }
+      for (const ti of store.taskItems.filter(x => x.project_id === projectId)) {
+        if (mothItemLive('task', ti.task_id, projectId)) add('task', ti.task_id, ti.entity_type, ti.entity_id, 'task_item')
+      }
+      for (const tk of live(store.tasks.filter(x => x.project_id === projectId))) {
+        add('task', tk.id, 'asset', tk.asset_id, 'task_asset')
+        add('task', tk.id, 'scene', tk.scene_id, 'task_scene')
+        add('task', tk.id, 'shot', tk.shot_id, 'task_shot')
+        add('task', tk.id, 'phase', tk.phase_id, 'task_phase')
+      }
+      for (const a of live(store.assets.filter(x => x.project_id === projectId))) {
+        add('asset', a.id, 'phase', a.phase_id, 'asset_phase')
+        for (const id of a.scene_ids || []) add('asset', a.id, 'scene', id, 'asset_scene')
+        for (const id of a.shot_ids || []) add('asset', a.id, 'shot', id, 'asset_shot')
+        for (const id of a.level_ids || []) add('asset', a.id, 'level', id, 'asset_level')
+        for (const id of a.experience_ids || []) add('asset', a.id, 'experience', id, 'asset_experience')
+      }
+      const folders = store.folders.filter(x => x.project_id === projectId)
+      for (const fo of folders.filter(x => x.kind === 'entity' && !moneyFolderChainLocked(x.id, folders))) {
+        const col = { asset: 'asset_id', scene: 'scene_id', shot: 'shot_id', level: 'level_id', experience: 'experience_id' }[fo.entity_type]
+        if (col) add('folder', fo.id, fo.entity_type, fo[col], 'folder_item')
+      }
+      return { truncated: false, links: clone([...out.values()].sort((a, b) => [a.source_kind, a.source_id, a.target_kind, a.target_id].join('|').localeCompare([b.source_kind, b.source_id, b.target_kind, b.target_id].join('|')))) }
+    },
+    async listMothFileFacts(projectId, after = null, limit = 1000) {
+      if (!mothProjectVisible(projectOf(projectId))) return []
+      const item = (kind, id) => (id && mothItemLive(kind, id, projectId) ? id : null)
+      return clone(mothShownFiles(projectId)
+        .filter(f => after == null || String(f.id) > String(after))
+        .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+        .slice(0, Math.min(Math.max(Number(limit) || 1000, 1), 1000))
+        .map(f => ({
+          file_id: f.id, editor_id: f.updated_by ?? f.created_by ?? null,
+          phase_id: item('phase', f.phase_id), asset_id: item('asset', f.asset_id), task_id: item('task', f.task_id),
+          scene_id: item('scene', f.scene_id), shot_id: item('shot', f.shot_id), level_id: item('level', f.level_id),
+          experience_id: item('experience', f.experience_id),
+        })))
+    },
+
+    // MO2 (0123): saved views, their places and the person's Moth settings, as the cloud keeps them.
+    async listMothViews() {
+      return clone(store.mothViews.filter(mothViewVisible).sort((a, b) => a.position - b.position || a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)))
+    },
+    async createMothView({ scopeKind, projectId = null, name, config = {}, position = 0 }) {
+      mothViewShapeProblem({ scope_kind: scopeKind, project_id: scopeKind === 'project' ? projectId : null, name, config })
+      if (!Number.isInteger(position) || position < 0) throw tvError('23514', 'new row for relation "moth_views" violates check constraint "moth_views_position_chk"')
+      const row = {
+        id: crypto.randomUUID(),
+        workspace_id: workspaceId,
+        scope_kind: scopeKind,
+        project_id: scopeKind === 'project' ? projectId : null,
+        owner_id: scopeKind === 'aggregate' ? userId : null,
+        name,
+        position,
+        revision: 1,
+        config: clone(config),
+        created_at: now(),
+        updated_at: now(),
+        updated_by: userId,
+      }
+      if (!mothViewWritable(row)) throw tvError('42501', 'new row violates row-level security policy for table "moth_views"')
+      const count = store.mothViews.filter(v => (row.scope_kind === 'project' ? v.project_id === row.project_id : v.owner_id === userId && v.scope_kind === 'aggregate')).length
+      if (count >= 200) throw tvError('54000', 'At most 200 saved views here.')
+      store.mothViews.push(row)
+      return clone(row)
+    },
+    async updateMothView(id, { name, config, position } = {}, revision = null) {
+      const row = store.mothViews.find(v => v.id === id)
+      if (!row || !mothViewVisible(row) || !mothViewWritable(row)) return null
+      if (revision != null && row.revision !== revision) return null
+      const next = { ...row, ...(name !== undefined ? { name } : {}), ...(config !== undefined ? { config: clone(config) } : {}),
+        ...(position !== undefined ? { position } : {}) }
+      mothViewShapeProblem(next)
+      if (config !== undefined && JSON.stringify(config) !== JSON.stringify(row.config)) next.revision = row.revision + 1
+      next.updated_at = now()
+      next.updated_by = userId
+      Object.assign(row, next)
+      return clone(row)
+    },
+    async deleteMothView(id) {
+      const row = store.mothViews.find(v => v.id === id)
+      if (!row || !mothViewVisible(row) || !mothViewWritable(row)) return { removed: false }
+      store.mothViews = store.mothViews.filter(v => v.id !== id)
+      store.mothPositions = store.mothPositions.filter(p => p.view_id !== id)
+      return { removed: true }
+    },
+    async listMothPositions(viewId) {
+      const view = store.mothViews.find(v => v.id === viewId)
+      if (!view || !mothViewVisible(view)) return []
+      return clone(store.mothPositions
+        .filter(p => p.view_id === viewId && (p.owner_id == null || p.owner_id === userId)
+          && (p.target_type === 'tag' || mothSees(p.target_type, p.target_id)))
+        .map(({ view_id: _v, owner_id: owner, ...p }) => ({ ...p, mine: owner != null })))
+    },
+    async putMothPositions(viewId, places) {
+      // As the cloud's adapter: a list longer than the server's 1,000 goes a thousand at a time.
+      if (Array.isArray(places) && places.length > 1000) {
+        let n = 0
+        for (let i = 0; i < places.length; i += 1000) n += await this.putMothPositions(viewId, places.slice(i, i + 1000))
+        return n
+      }
+      const view = store.mothViews.find(v => v.id === viewId)
+      if (!Array.isArray(places) || places.length > 1000) throw tvError('22023', 'Places come as a list of at most 1,000.')
+      if (!view || !mothViewVisible(view)) throw tvError('23503', 'insert or update on table "moth_layout_positions" violates foreign key constraint "moth_layout_positions_view_fk"')
+      const personal = !!projectOf(view.project_id)?.personal_owner_id
+      const owner = view.scope_kind === 'aggregate' || personal ? userId : null
+      if (owner == null && !mothViewWritable(view)) throw tvError('42501', 'Only those who may change this project may move its shared places.')
+      for (const p of places) {
+        const bad = !p || typeof p.t !== 'string' || !Number.isFinite(p.x) || !Number.isFinite(p.y)
+          || (p.t === 'tag' ? typeof p.tag !== 'string' || 'id' in p : !/^[0-9a-f-]{36}$/i.test(String(p.id ?? '')) || 'tag' in p)
+          || ['pinned', 'open', 'focus'].some(k => k in p && typeof p[k] !== 'boolean')
+        if (bad) throw tvError('22023', 'A place is not of the right shape.')
+        if (Math.abs(p.x) > 1e7 || Math.abs(p.y) > 1e7) throw tvError('23514', 'new row for relation "moth_layout_positions" violates check constraint "moth_layout_positions_xy_chk"')
+        if (p.t === 'tag' ? !MOTH_TAG_WORDS.includes(p.tag) : !mothSees(p.t, p.id)) {
+          throw tvError(p.t === 'tag' ? '23514' : '23503', p.t === 'tag'
+            ? 'new row for relation "moth_layout_positions" violates check constraint "moth_layout_positions_tag_chk"'
+            : `insert or update on table "moth_layout_positions" violates foreign key constraint "moth_layout_positions_${p.t}_ref_fk"`)
+        }
+        // 0126: a note and a typed tag belong to no project, so a project's view keeps their places too.
+        if (view.scope_kind === 'project' && !['tag', 'note', 'mtag'].includes(p.t) && mothTargetProject(p.t, p.id) !== view.project_id) {
+          throw tvError('23514', 'A project\'s view keeps the places of that project\'s things only.')
+        }
+      }
+      // 0124 (MO2-10), as the server: a target named twice is one place, the last naming it, folded first; only then
+      // is a focus counted, and the old one cleared.
+      const seen = new Set()
+      const folded = []
+      for (const p of [...places].reverse()) {
+        const key = `${p.t}|${String(p.id ?? '').toLowerCase()}|${p.tag ?? ''}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        folded.push(p)
+      }
+      if (folded.filter(p => p.focus === true).length > 1) throw tvError('22023', 'A view has one focus at most.')
+      if (folded.some(p => p.focus === true)) {
+        for (const r of store.mothPositions) if (r.view_id === viewId && r.owner_id === owner) r.is_focus = false
+      }
+      let written = 0
+      for (const p of folded) {
+        const was = store.mothPositions.find(r => r.view_id === viewId && r.owner_id === owner && r.target_type === p.t
+          && (r.target_id ?? null) === (p.id ?? null) && (r.target_tag ?? null) === (p.tag ?? null))
+        const row = was || { view_id: viewId, target_type: p.t, target_id: p.id ?? null, target_tag: p.tag ?? null, owner_id: owner }
+        Object.assign(row, { x: p.x, y: p.y, pinned: !!p.pinned, is_open: !!p.open, is_focus: !!p.focus })
+        if (!was) store.mothPositions.push(row)
+        written++
+      }
+      return written
+    },
+    async clearMothPositions(viewId) {
+      const view = store.mothViews.find(v => v.id === viewId)
+      if (!view || !mothViewVisible(view)) throw tvError('23503', 'insert or update on table "moth_layout_positions" violates foreign key constraint "moth_layout_positions_view_fk"')
+      const personal = !!projectOf(view.project_id)?.personal_owner_id
+      const owner = view.scope_kind === 'aggregate' || personal ? userId : null
+      if (owner == null && !mothViewWritable(view)) throw tvError('42501', 'Only those who may change this project may clear its shared places.')
+      const before = store.mothPositions.length
+      store.mothPositions = store.mothPositions.filter(r => !(r.view_id === viewId && r.owner_id === owner))
+      return before - store.mothPositions.length
+    },
+    async getMothPrefs() {
+      return clone(mothPrefsRead())
+    },
+    async setMothPrefs(patch) {
+      const keys = ['last_view', 'first_visit_done', 'appearance', 'recent']
+      if (!patch || typeof patch !== 'object' || Array.isArray(patch) || Object.keys(patch).some(k => !keys.includes(k))) {
+        throw tvError('22023', 'Moth has no setting of that name.')
+      }
+      const cur = store.mothPrefs[workspaceId] || {}
+      store.mothPrefs[workspaceId] = {
+        ...cur,
+        ...patch,
+        appearance: { ...(cur.appearance || {}), ...(patch.appearance || {}) },
+        at: Date.now(),
+      }
+      return clone(mothPrefsRead())
+    },
+    // MO3 (0125 to 0127): Moth's notes, typed tags, nominations and relationships, as the cloud answers them.
+    // Round 2: a list cut at its bound says so as the cloud's does, `truncated` out of sight on the array, set on the
+    // copy handed out (structuredClone leaves a hidden property behind). A full 5,000 notes is the cloud's sign of one.
+    async listMothNotes() {
+      const rows = clone(store.notes.filter(n => noteSeen(n) && !n.deleted_at && noteGate(n.id))
+        .sort((a, b) => b.updated_at.localeCompare(a.updated_at) || a.id.localeCompare(b.id))
+        .slice(0, 5000)
+        .map(n => ({ id: n.id, title: String(n.title ?? '').slice(0, 300), tier: noteTier(n), is_mine: n.owner_id === userId, updated_at: n.updated_at })))
+      return rows.length >= 5000 ? mothCut(rows) : rows
+    },
+    async syncNoteMentions(noteId, version, keys) {
+      if (!mothMayChange('note', noteId)) throw tvError('42501', 'That note is not one you can change.')
+      if (!Number.isInteger(version) || !Array.isArray(keys) || keys.length > 2000 || keys.some(k => !isMentionKey(k))) {
+        throw tvError('22023', 'A note\'s links come with the version they were read from, as a list of at most 2,000 keys.')
+      }
+      if (store.notes.find(n => n.id === noteId)?.version !== version) return false
+      mothMentionsApply('note', noteId, 'body', [...new Set(keys)])
+      return true
+    },
+    async listMothTagTypes() {
+      return clone(store.mothTagTypes.filter(mothTagSeen).map(mothTagTypeRow).sort((a, b) => a.name.localeCompare(b.name)))
+    },
+    async createMothTagType({ tier, name, shape = 'circle', colour = 'mist' }) {
+      const row = { id: crypto.randomUUID(), workspace_id: workspaceId, tier, owner_id: tier === 'personal' ? userId : null,
+        name, shape, colour, retired_at: null, updated_at: now() }
+      if (!['company', 'personal'].includes(tier) || !mothTagMayChange(row)) throw tvError('42501', 'new row violates row-level security policy for table "moth_tag_types"')
+      if (!mothWords(name, 60)) throw tvError('23514', 'new row for relation "moth_tag_types" violates check constraint "moth_tag_types_name_chk"')
+      if (!MOTH_TAG_SHAPES.includes(shape)) throw tvError('23514', 'new row for relation "moth_tag_types" violates check constraint "moth_tag_types_shape_chk"')
+      if (!MOTH_TAG_COLOURS.includes(colour)) throw tvError('23514', 'new row for relation "moth_tag_types" violates check constraint "moth_tag_types_colour_chk"')
+      if (store.mothTagTypes.some(t => t.tier === tier && t.owner_id === row.owner_id && !t.retired_at && mothTagNorm(t.name) === mothTagNorm(name))) {
+        throw tvError('23505', 'duplicate key value violates unique constraint "moth_tag_types_name_uq"')
+      }
+      store.mothTagTypes.push(row)
+      return clone(mothTagTypeRow(row))
+    },
+    async updateMothTagType(id, { name, shape, colour, retired } = {}) {
+      const row = store.mothTagTypes.find(t => t.id === id)
+      if (!mothTagMayChange(row)) throw tvError('42501', MOTH_TYPE_UNCHANGED)
+      if (name !== undefined && !mothWords(name, 60)) throw tvError('23514', 'new row for relation "moth_tag_types" violates check constraint "moth_tag_types_name_chk"')
+      if (shape !== undefined && !MOTH_TAG_SHAPES.includes(shape)) throw tvError('23514', 'new row for relation "moth_tag_types" violates check constraint "moth_tag_types_shape_chk"')
+      if (colour !== undefined && !MOTH_TAG_COLOURS.includes(colour)) throw tvError('23514', 'new row for relation "moth_tag_types" violates check constraint "moth_tag_types_colour_chk"')
+      // Round 2: 0126's moth_tag_types_norm_key holds on a rename and a bring-back too, among the live types alone.
+      const nextName = name ?? row.name
+      const nextLive = retired === undefined ? !row.retired_at : !retired
+      if (nextLive && store.mothTagTypes.some(t => t.id !== id && t.workspace_id === row.workspace_id && t.tier === row.tier
+        && t.owner_id === row.owner_id && !t.retired_at && mothTagNorm(t.name) === mothTagNorm(nextName))) {
+        throw tvError('23505', 'duplicate key value violates unique constraint "moth_tag_types_name_uq"')
+      }
+      Object.assign(row, name !== undefined ? { name } : {}, shape !== undefined ? { shape } : {}, colour !== undefined ? { colour } : {},
+        retired !== undefined ? { retired_at: retired ? now() : null } : {}, { updated_at: now() })
+      return clone(mothTagTypeRow(row))
+    },
+    async deleteMothTagType(id) {
+      const row = store.mothTagTypes.find(t => t.id === id)
+      if (!row || row.tier !== 'personal' || row.owner_id !== userId) throw tvError('42501', MOTH_TYPE_NOT_DELETED)
+      if (store.mothTags.some(t => t.type_id === id)) throw tvError('23503', 'update or delete on table "moth_tag_types" violates foreign key constraint "moth_tags_type_fk" on table "moth_tags"')
+      store.mothTagTypes = store.mothTagTypes.filter(t => t.id !== id)
+      return { removed: true }
+    },
+    async listMothTags() {
+      return clone(store.mothTags.filter(mothTagSeen).map(mothTagRow).sort((a, b) => a.label.localeCompare(b.label)))
+    },
+    async createMothTag({ typeId, tier, label }) {
+      const type = store.mothTagTypes.find(t => t.id === typeId)
+      const row = { id: crypto.randomUUID(), workspace_id: workspaceId, type_id: typeId, tier, owner_id: tier === 'personal' ? userId : null,
+        label, canonical_id: null, retired_at: null, revision: 1, updated_at: now() }
+      if (!['company', 'personal'].includes(tier) || !mothTagMayChange(row)) throw tvError('42501', 'new row violates row-level security policy for table "moth_tags"')
+      if (!mothWords(label, 80)) throw tvError('23514', 'new row for relation "moth_tags" violates check constraint "moth_tags_label_chk"')
+      // A company tag takes a company type; a personal one, a company type or its owner's own; live either way.
+      if (!mothTagSeen(type) || type.retired_at || (tier === 'company' && type.tier !== 'company')) {
+        throw tvError('23503', 'insert or update on table "moth_tags" violates foreign key constraint "moth_tags_type_fk"')
+      }
+      if (store.mothTags.some(t => t.type_id === typeId && t.tier === tier && t.owner_id === row.owner_id && !t.retired_at && !t.canonical_id
+        && mothTagNorm(t.label) === mothTagNorm(label))) {
+        throw tvError('23505', 'duplicate key value violates unique constraint "moth_tags_label_uq"')
+      }
+      store.mothTags.push(row)
+      return clone(mothTagRow(row))
+    },
+    async updateMothTag(id, { label, typeId, retired } = {}) {
+      const row = store.mothTags.find(t => t.id === id)
+      if (!mothTagMayChange(row)) throw tvError('42501', MOTH_TAG_UNCHANGED)
+      if (label !== undefined && !mothWords(label, 80)) throw tvError('23514', 'new row for relation "moth_tags" violates check constraint "moth_tags_label_chk"')
+      // fn_moth_tags_pin asks only when the type changes: a tag of a type since retired keeps its name and may be renamed.
+      if (typeId !== undefined && typeId !== row.type_id) {
+        const type = store.mothTagTypes.find(t => t.id === typeId)
+        if (!mothTagSeen(type) || type.retired_at || (row.tier === 'company' && type.tier !== 'company')) {
+          throw tvError('23503', 'insert or update on table "moth_tags" violates foreign key constraint "moth_tags_type_fk"')
+        }
+      }
+      // Round 2: 0126's moth_tags_norm_key holds on a rename, a type's change and a bring-back too, among the live,
+      // unfolded tags alone.
+      const nextLabel = label ?? row.label
+      const nextType = typeId ?? row.type_id
+      const nextLive = !row.canonical_id && (retired === undefined ? !row.retired_at : !retired)
+      if (nextLive && store.mothTags.some(t => t.id !== id && t.workspace_id === row.workspace_id && t.type_id === nextType
+        && t.tier === row.tier && t.owner_id === row.owner_id && !t.retired_at && !t.canonical_id
+        && mothTagNorm(t.label) === mothTagNorm(nextLabel))) {
+        throw tvError('23505', 'duplicate key value violates unique constraint "moth_tags_label_uq"')
+      }
+      // fn_moth_tags_gone: a tag retired takes its open nomination with it, as a withdrawal.
+      if (retired && !row.retired_at) mothTagNominationsGone(row.id)
+      // fn_moth_tags_pin counts a revision when the words or the type change, not a retire or a bring-back.
+      const revised = nextLabel !== row.label || nextType !== row.type_id
+      Object.assign(row, label !== undefined ? { label } : {}, typeId !== undefined ? { type_id: typeId } : {},
+        retired !== undefined ? { retired_at: retired ? now() : null } : {}, { revision: revised ? row.revision + 1 : row.revision, updated_at: now() })
+      return clone(mothTagRow(row))
+    },
+    async deleteMothTag(id) {
+      const row = store.mothTags.find(t => t.id === id)
+      if (!row || row.tier !== 'personal' || row.owner_id !== userId) throw tvError('42501', MOTH_TAG_NOT_DELETED)
+      mothTagNominationsGone(row.id)
+      store.mothTags = store.mothTags.filter(t => t.id !== id)
+      store.mothTagAssignments = store.mothTagAssignments.filter(a => a.tag_id !== id)
+      store.mothPositions = store.mothPositions.filter(p => !(p.target_type === 'mtag' && p.target_id === id))
+      return { removed: true }
+    },
+    async listMothTagAssignments({ targetKind = null, targetId = null } = {}) {
+      const seen = store.mothTagAssignments
+        .filter(a => (a.tier === 'company' || a.owner_id === userId) && mothSees(a.target_type, a.target_id)
+          && store.mothTags.some(t => t.id === a.tag_id)
+          && (!targetKind || !targetId || (a.target_type === targetKind && a.target_id === targetId)))
+      const rows = clone(seen
+        .sort((a, b) => a.created_at.localeCompare(b.created_at))
+        .slice(0, 20000)
+        .map(({ workspace_id: _w, ...a }) => a))
+      return seen.length > 20000 ? mothCut(rows) : rows
+    },
+    async assignMothTag({ tagId, tier, targetKind, targetId }) {
+      const owner = tier === 'personal' ? userId : null
+      const allowed = (tier === 'company' && mothMayChange(targetKind, targetId)) || (tier === 'personal' && mothSees(targetKind, targetId))
+      if (!allowed) throw tvError('42501', 'new row violates row-level security policy for table "moth_tag_assignments"')
+      const tag = store.mothTags.find(t => t.id === tagId)
+      if (!mothTagSeen(tag) || tag.canonical_id || tag.retired_at || (tag.tier !== 'company' && !(tier === 'personal' && tag.owner_id === owner))) {
+        throw tvError('23503', 'insert or update on table "moth_tag_assignments" violates foreign key constraint "moth_tag_assignments_tag_fk"')
+      }
+      if (store.mothTagAssignments.some(a => a.tag_id === tagId && a.target_type === targetKind && a.target_id === targetId && a.owner_id === owner)) {
+        throw tvError('23505', 'duplicate key value violates unique constraint "moth_tag_assignments_uq"')
+      }
+      const row = { id: crypto.randomUUID(), workspace_id: workspaceId, tag_id: tagId, tier, owner_id: owner,
+        target_type: targetKind, target_id: targetId, created_at: now() }
+      store.mothTagAssignments.push(row)
+      const { workspace_id: _w, ...out } = row
+      return clone(out)
+    },
+    async unassignMothTag(id) {
+      const a = store.mothTagAssignments.find(x => x.id === id)
+      const may = !!a && ((a.tier === 'company' && mothMayChange(a.target_type, a.target_id)) || (a.tier === 'personal' && a.owner_id === userId))
+      if (!may) return { removed: false }
+      store.mothTagAssignments = store.mothTagAssignments.filter(x => x.id !== id)
+      return { removed: true }
+    },
+    async listMothTagNominations() {
+      return clone(store.mothTagNominations.filter(n => n.proposer_id === userId || liveAdmin())
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))
+        .map(({ workspace_id: _w, ...n }) => n))
+    },
+    async nominateMothTag(tagId, note = null) {
+      const tag = store.mothTags.find(t => t.id === tagId && t.tier === 'personal' && t.owner_id === userId && !t.canonical_id && !t.retired_at)
+      const type = tag && store.mothTagTypes.find(t => t.id === tag.type_id)
+      // 0126's words for each refusal (the session review), not a quiet answer where the server says no.
+      if (!tag || !type) throw tvError('42501', 'That tag is not one you can put forward.')
+      if (note != null && String(note).length > 1000) throw tvError('22023', 'A note to the admins is 1,000 characters at most.')
+      if (store.mothTagNominations.some(n => n.tag_id === tagId && n.status === 'open')) throw tvError('23505', 'That tag is put forward already.')
+      const row = { id: crypto.randomUUID(), workspace_id: workspaceId, proposer_id: userId, tag_id: tagId, label: tag.label,
+        type_name: type.name, note: note == null ? null : String(note).trim() || null, status: 'open', review_note: null,
+        decided_by: null, decided_at: null, result_tag_id: null, created_at: now() }
+      store.mothTagNominations.push(row)
+      return row.id
+    },
+    async withdrawMothTagNomination(nominationId) {
+      const n = store.mothTagNominations.find(x => x.id === nominationId && x.proposer_id === userId && x.status === 'open')
+      if (!n) throw tvError('42501', 'That is not an open nomination of yours.')
+      n.status = 'withdrawn'
+      return true
+    },
+    async decideMothTagNomination(nominationId, approve, note = null) {
+      if (!liveAdmin()) throw tvError('42501', 'Only a workspace admin decides what becomes a company tag.')
+      if (typeof approve !== 'boolean' || (note != null && String(note).length > 1000)) {
+        throw tvError('22023', 'A decision is a yes or a no, with a note of 1,000 characters at most.')
+      }
+      const n = store.mothTagNominations.find(x => x.id === nominationId && x.status === 'open')
+      if (!n) throw tvError('42501', 'That nomination is not open.')
+      const reviewNote = note == null ? null : String(note).trim() || null
+      if (!approve) {
+        Object.assign(n, { status: 'rejected', review_note: reviewNote, decided_by: userId, decided_at: now() })
+        return null
+      }
+      const typeNorm = mothTagNorm(n.type_name)
+      const labelNorm = mothTagNorm(n.label)
+      let type = store.mothTagTypes.find(t => t.tier === 'company' && !t.retired_at && mothTagNorm(t.name) === typeNorm)
+      // A new company type takes the plain shape and colour: the proposer put forward a word and its type's name,
+      // not their own look for it.
+      if (!type) {
+        type = { id: crypto.randomUUID(), workspace_id: workspaceId, tier: 'company', owner_id: null, name: n.type_name,
+          shape: 'circle', colour: 'mist', retired_at: null, updated_at: now() }
+        store.mothTagTypes.push(type)
+      }
+      let into = store.mothTags.find(t => t.tier === 'company' && t.type_id === type.id && !t.retired_at && !t.canonical_id && mothTagNorm(t.label) === labelNorm)
+      if (!into) {
+        into = { id: crypto.randomUUID(), workspace_id: workspaceId, type_id: type.id, tier: 'company', owner_id: null, label: n.label,
+          canonical_id: null, retired_at: null, revision: 1, updated_at: now() }
+        store.mothTags.push(into)
+      }
+      // Every exact match folds in: its owner's use of it moves to the company's tag, and stays theirs alone. A tag its
+      // owner has retired is left as it is.
+      for (const t of store.mothTags) {
+        const tType = store.mothTagTypes.find(x => x.id === t.type_id)
+        if (t.tier === 'personal' && !t.canonical_id && !t.retired_at && mothTagNorm(t.label) === labelNorm && mothTagNorm(tType?.name) === typeNorm) foldMothTag(into.id, t.id)
+      }
+      // This nomination is approved into it, and so is any other open one whose tag has just been folded.
+      const folded = new Set(store.mothTags.filter(t => t.canonical_id === into.id).map(t => t.id))
+      for (const x of store.mothTagNominations) {
+        if (x.status === 'open' && (x.id === n.id || folded.has(x.tag_id))) {
+          Object.assign(x, { status: 'approved', result_tag_id: into.id, decided_by: userId, decided_at: now(), review_note: x.id === n.id ? reviewNote : x.review_note })
+        }
+      }
+      return into.id
+    },
+    async mergeMothTags(fromId, intoId) {
+      if (!liveAdmin()) throw tvError('42501', 'Only a workspace admin merges company tags.')
+      const from = store.mothTags.find(t => t.id === fromId && t.tier === 'company' && !t.canonical_id)
+      const into = store.mothTags.find(t => t.id === intoId && t.tier === 'company' && !t.canonical_id && !t.retired_at)
+      if (!from || !into || from.id === into.id) throw tvError('22023', 'Two different company tags of this company merge, into one still in use.')
+      foldMothTag(into.id, from.id)
+      for (const x of store.mothTagNominations) if (x.result_tag_id === from.id) x.result_tag_id = into.id
+      return into.id
+    },
+    async listMothRelationships() {
+      mothMentionsCatchUp()
+      const links = store.mothRelationships.filter(r => mothSees(r.source_type, r.source_id) && mothSees(r.dest_type, r.dest_id))
+        .sort((a, b) => a.id.localeCompare(b.id))
+      return clone({ links: links.slice(0, 60000).map(mothLinkRow), truncated: links.length > 60000 })
+    },
+    async createMothRelationship({ sourceKind, sourceId, targetKind, targetId, label = null }) {
+      if (!MOTH_LINK_KINDS.includes(sourceKind) || !MOTH_LINK_KINDS.includes(targetKind) || !mothMayChange(sourceKind, sourceId)) {
+        throw tvError('42501', 'new row violates row-level security policy for table "moth_relationships"')
+      }
+      if (!mothSees(targetKind, targetId)) {
+        throw tvError('23503', `insert or update on table "moth_relationships" violates foreign key constraint "moth_relationships_dest_${targetKind}_fk"`)
+      }
+      if (label != null && !mothWords(label, 80)) throw tvError('23514', 'new row for relation "moth_relationships" violates check constraint "moth_relationships_label_chk"')
+      if (sourceKind === targetKind && sourceId === targetId) throw tvError('23514', 'new row for relation "moth_relationships" violates check constraint "moth_relationships_not_self_chk"')
+      if (store.mothRelationships.some(r => r.origin === 'manual' && r.source_type === sourceKind && r.source_id === sourceId
+        && r.dest_type === targetKind && r.dest_id === targetId)) {
+        throw tvError('23505', 'duplicate key value violates unique constraint "moth_relationships_manual_uq"')
+      }
+      const row = { id: crypto.randomUUID(), workspace_id: workspaceId, source_type: sourceKind, source_id: sourceId,
+        dest_type: targetKind, dest_id: targetId, label: label ?? null, origin: 'manual', field: null, mention_key: null,
+        created_by: userId, created_at: now() }
+      store.mothRelationships.push(row)
+      const { workspace_id: _w, mention_key: _k, created_by: _c, ...out } = row
+      return clone(out)
+    },
+    async updateMothRelationshipLabel(id, label) {
+      const r = store.mothRelationships.find(x => x.id === id)
+      // moth_relationships_update takes a drawn link only: a typed one is named by its words.
+      if (!r || r.origin !== 'manual' || !mothSees(r.source_type, r.source_id) || !mothSees(r.dest_type, r.dest_id)
+        || !mothMayChange(r.source_type, r.source_id)) throw tvError('42501', MOTH_LINK_UNCHANGED)
+      if (label != null && !mothWords(label, 80)) throw tvError('23514', 'new row for relation "moth_relationships" violates check constraint "moth_relationships_label_chk"')
+      r.label = label ?? null
+      const { workspace_id: _w, mention_key: _k, created_by: _c, ...out } = r
+      return clone(out)
+    },
+    async deleteMothRelationship(id) {
+      const r = store.mothRelationships.find(x => x.id === id)
+      if (!r || r.origin !== 'manual' || !mothSees(r.dest_type, r.dest_id) || !mothMayChange(r.source_type, r.source_id)) return { removed: false }
+      store.mothRelationships = store.mothRelationships.filter(x => x.id !== id)
+      return { removed: true }
+    },
+    async listMothItemRelationships(kind, id) {
+      if (!mothSees(kind, id)) return { out: [], in: [] }
+      mothMentionsCatchUp()
+      const named = (k, tid) => ({ name: String(mothNameOf(k, tid) ?? '').slice(0, 200), project_id: k === 'note' ? null : mothTargetProject(k, tid) })
+      const byTime = (a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)
+      const out = store.mothRelationships.filter(r => r.source_type === kind && r.source_id === id).sort(byTime).slice(0, 500)
+        .filter(r => mothSees(r.dest_type, r.dest_id))
+        .map(r => ({ id: r.id, kind: r.dest_type, target_id: r.dest_id, ...named(r.dest_type, r.dest_id), label: r.label,
+          origin: r.origin, field: r.field, key: r.mention_key }))
+      const inn = store.mothRelationships.filter(r => r.dest_type === kind && r.dest_id === id).sort(byTime).slice(0, 500)
+        .filter(r => mothSees(r.source_type, r.source_id))
+        .map(r => ({ id: r.id, kind: r.source_type, target_id: r.source_id, ...named(r.source_type, r.source_id), label: r.label,
+          origin: r.origin, field: r.field }))
+      return clone({ out, in: inn })
+    },
+    async reserveMothMention(kind, id) {
+      if (!MOTH_LINK_KINDS.includes(kind) || !mothSees(kind, id)) throw tvError('42501', 'That is not something you can link to.')
+      // Keys never used go after their day; every key made in the last day counts toward the 500, used or not.
+      store.mothMentionReservations = store.mothMentionReservations.filter(m => m.used_kind != null || mothReservedToday(m))
+      if (store.mothMentionReservations.filter(m => m.created_by === userId && mothReservedToday(m)).length >= 500) {
+        throw tvError('54000', 'Many links are waiting to be saved; save what you are writing first.')
+      }
+      const key = crypto.randomUUID().replace(/-/g, '').slice(0, 12)
+      store.mothMentionReservations.push({ mention_key: key, workspace_id: workspaceId, created_by: userId, dest_type: kind, dest_id: id, created_at: now(),
+        used_kind: null, used_id: null, used_field: null, used_at: null })
+      return key
+    },
+    async listMothMentionCandidates(query, limit = 20) {
+      const q = String(query ?? '').trim().toLowerCase()
+      const lim = Math.min(Math.max(Number(limit) || 20, 1), 50)
+      if (q.length > 120) return []
+      const pool = [
+        ...store.notes.filter(n => !n.deleted_at).map(n => ['note', n]),
+        ...store.projects.filter(p => !p.deleted_at).map(p => ['project', p]),
+        ...store.files.filter(f => !f.deleted_at).map(f => ['file', f]),
+        ...store.folders.map(f => ['folder', f]),
+        ...Object.entries(MOTH_ITEM_TABLES).flatMap(([k, table]) => (store[table] || []).filter(r => mothRowLive(k, r)).map(r => [k, r])),
+      ]
+      const rank = (name) => (name === q ? 0 : name.startsWith(q) ? 1 : 2)
+      return clone(pool
+        .map(([kind, row]) => ({ kind, row, name: String(mothNameOf(kind, row.id) ?? '') }))
+        .filter(c => c.name.toLowerCase().includes(q) && mothSees(c.kind, c.row.id))
+        .sort((a, b) => rank(a.name.toLowerCase()) - rank(b.name.toLowerCase()) || String(b.row.updated_at ?? '').localeCompare(String(a.row.updated_at ?? '')))
+        .slice(0, lim)
+        .map(c => ({ kind: c.kind, id: c.row.id, name: c.name.slice(0, 200), project_id: c.kind === 'note' ? null : mothTargetProject(c.kind, c.row.id) })))
+    },
+    // 0119's two readers, over a small history the dataset carries (fixtures/data: none yet), so the scrub reads
+    // "recorded since" a month back and every earlier time "not recorded".
+    async fetchMothHistory() {
+      return clone(store.mothHistory || [])
+    },
+    async fetchMothHistoryWindow() {
+      const since = new Date(Date.now() - 30 * 86400000).toISOString()
+      return ['projects', 'folders', 'files', 'phases', 'assets', 'tasks', 'scenes', 'shots', 'levels', 'experiences', 'task_items',
+        'notes', 'moth_tags', 'moth_tag_assignments', 'moth_relationships']
+        .map(entity_type => ({ entity_type, project_id: null, recording_since: since }))
+    },
+
+    // MO4 (0130 to 0133): boards, a sticky's turn and words, a folder's trash and moves, and the board channels
+    // (an in-process bus, so two fixture people on one store hear each other).
+    // A placed file's address is the one fileUrl gives its row (read when it is asked for, so the board answers as
+    // the file manager does).
+    ...createBoardsFixtures(store, {
+      userId, workspaceId, projectOf, mothTargetVisible, mothMayChange, mothProjectWritable, mothProjectVisible, isMoneyFile,
+      fileUrl: (row, opts) => adapter.fileUrl(row, opts),
+    }),
+
     async loadProject(projectId) {
       const project = projectOf(projectId)
       if (!project || project.deleted_at) throw notFound(projectId)
@@ -697,7 +1512,8 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
         shots: inProject(store.shots).sort((a, b) => a.sort_order - b.sort_order),
         levels: inProject(store.levels),
         experiences: inProject(store.experiences),
-        folders: inProject(store.folders).sort((a, b) => a.path.localeCompare(b.path)),
+        // MO4 (0131): a folder in the trash is out of the table's reads.
+        folders: inProject(store.folders).filter(f => !f.deleted_at).sort((a, b) => a.path.localeCompare(b.path)),
         teamAssignments: inProject(store.projectMembers).map(m => ({
           project_id: m.project_id, member_id: m.user_id, project_role: m.project_role, project_title: m.project_title || '',
         })),
@@ -1039,6 +1855,36 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
 
     // ── Files ────────────────────────────────────────────────────────────────
     async uploadFile() { throw devWriteRefused('Uploading a file') },
+    async planFileMove() { throw devWriteRefused('Moving a file') },
+    async moveFiles() { throw devWriteRefused('Moving a file') },
+    async moveFilesInProject() { throw devWriteRefused('Moving a file') },
+    async moveFilesBetweenProjects() { throw devWriteRefused('Moving a file') },
+    async planUndoFileMove() { throw devWriteRefused('Undoing a move') },
+    async undoFileMove() { throw devWriteRefused('Undoing a move') },
+    async copyBodyForMove() { throw devWriteRefused('Moving a file') },
+    async listLeaverFiles() { return [] },
+    async planLeaverMove() { throw devWriteRefused('Moving a file') },
+    async moveLeaverFiles() { throw devWriteRefused('Moving a file') },
+    async removeMoveCopy() {},
+    async getAccessToken() { return null },
+    async trashFiles() { throw devWriteRefused('Deleting a file') },
+    async restoreFiles() { throw devWriteRefused('Restoring a file') },
+    // Only what `?storage=network` put there: the fixtures' other rows have no way into a trash.
+    async listTrashedFiles({ projectIds = [] } = {}) {
+      return clone(store.files
+        .filter(f => f.deleted_at && f.storage_provider === 'network_share' && projectIds.includes(f.project_id))
+        .map(f => ({
+          id: f.id, project_id: f.project_id, folder_id: f.folder_id, name: f.name, mime_type: f.mime_type, size_bytes: f.size_bytes,
+          kind: null, deleted_at: f.deleted_at, purges_at: new Date(Date.parse(f.deleted_at) + 30 * 86400000).toISOString(),
+          can_restore: true, needs_desktop: true,
+        })))
+    },
+    async refreshNetworkShare() { throw devWriteRefused('Checking the office server') },
+    async getNetworkShareCheck(projectId) { return clone(store.networkShareChecks?.[projectId] ?? null) },
+    async settleNetworkShareOps() { throw devWriteRefused('Finishing an office-server move') },
+    async networkSharePending() { return [] },
+    async networkShareStaleMoves() { return clone(store.networkShareStale ?? []) },
+    async networkShareRecordAdded() { throw devWriteRefused('Adding a file') },
     async listFiles(projectId) { return clone(readableFiles(live(store.files.filter(f => f.project_id === projectId)))) },
     // There are no file bodies. A download is refused loudly (a data URI handed
     // to the anchor FileManager clicks would be a silent no-op — review round 1),
@@ -1203,26 +2049,77 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     },
 
     // ── Notes ────────────────────────────────────────────────────────────────
-    async listNotes() {
+    // 0125 (MO3): 'mine' (one's own of every tier), 'shared' (the company's shared and standard notes) or 'trash'
+    // (what the caller may bring back), through the notes' read policy.
+    async listNotes({ scope = 'mine' } = {}) {
+      if (scope === 'trash') {
+        return clone(store.notes.filter(n => !!n.deleted_at && noteMayHandle(n))
+          .sort((a, b) => b.deleted_at.localeCompare(a.deleted_at) || a.id.localeCompare(b.id)).slice(0, 500)
+          .map(n => ({ id: n.id, title: String(n.title ?? '').slice(0, 300), subject: n.subject ?? null, tier: noteTier(n),
+            is_mine: n.owner_id === userId, body_preview: n.body_preview ?? '', deleted_at: n.deleted_at, updated_at: n.updated_at })))
+      }
       return clone(store.notes
-        .map(({ ydoc_state, ...n }) => n)
+        .filter(n => noteSeen(n) && (scope === 'shared' ? noteTier(n) !== 'personal' : n.owner_id === userId))
+        .map(noteListRow)
         .sort((a, b) => b.updated_at.localeCompare(a.updated_at)))
     },
-    async getNote(id) { const n = findById(store.notes, id); return n ? clone(n) : null },
+    async getNote(id) { const n = findById(store.notes, id); return noteSeen(n) ? clone({ ...n, tier: noteTier(n), deleted_at: n.deleted_at ?? null }) : null },
     async createNote(fields = {}) {
-      return clone(upsert(store.notes, { workspace_id: workspaceId, owner_id: by, title: '', subject: null, note_date: null, ydoc_state: null, body_preview: '', version: 0, created_by: by, ...fields, updated_by: by }))
+      const { tier = 'personal', deleted_at: _d, deleted_by: _b, owner_id: _o, version: _v, ...rest } = fields || {}
+      if (!['personal', 'shared', 'company_standard'].includes(tier)) throw tvError('23514', 'new row for relation "notes" violates check constraint "notes_tier_chk"')
+      if (tier === 'company_standard' && !liveAdmin()) throw tvError('42501', 'Only a workspace admin makes a note the company standard.')
+      return clone(upsert(store.notes, { workspace_id: workspaceId, owner_id: by, title: '', subject: null, note_date: null, ydoc_state: null, body_preview: '', version: 0, created_by: by, ...rest, tier, deleted_at: null, deleted_by: null, updated_by: by }))
     },
     async patchNote(id, fields) {
-      const { ydoc_state, version, ...safe } = fields || {}
+      const { ydoc_state, version, tier, deleted_at, deleted_by, owner_id, ...safe } = fields || {}
+      const n = findById(store.notes, id)
+      if (!noteMayChange(n)) throw notFound(id)
       return clone(patch(store.notes, id, { ...safe, updated_by: by }))
+    },
+    async notesHaveTiers() { return true },
+    // 0125: personal and shared are the owner's to choose; the company standard a live admin's to set or clear.
+    async setNoteTier(id, tier) {
+      const n = findById(store.notes, id)
+      if (!noteMayChange(n)) throw notFound(id)
+      if (!['personal', 'shared', 'company_standard'].includes(tier)) throw tvError('23514', 'new row for relation "notes" violates check constraint "notes_tier_chk"')
+      if (tier !== noteTier(n)) {
+        if ([tier, noteTier(n)].includes('company_standard')) {
+          if (!liveAdmin()) throw tvError('42501', 'Only a workspace admin makes a note the company standard, or takes it back.')
+        } else if (n.owner_id !== userId) {
+          throw tvError('42501', 'Only its owner shares a note, or makes it private again.')
+        }
+        // An admin may not make someone else's note personal, which would make it no longer theirs to see.
+        if (tier === 'personal' && n.owner_id !== userId) throw tvError('42501', 'new row violates row-level security policy for table "notes"')
+      }
+      return clone(patch(store.notes, id, { tier, updated_by: by }))
+    },
+    async restoreNote(id) {
+      const n = findById(store.notes, id)
+      if (!noteMayHandle(n)) {
+        throw tvError('42501', 'That note is not one you can bring back.')
+      }
+      if (!n.deleted_at) return false
+      n.deleted_at = null
+      n.deleted_by = null
+      return true
     },
     async saveNoteDoc(id, { ydocState, bodyPreview, expectedVersion }) {
       const n = findById(store.notes, id)
       if (!n) throw notFound(id)
-      if (n.version !== expectedVersion) return null
+      if (!noteMayChange(n) || n.deleted_at || n.version !== expectedVersion) return null
       return clone(patch(store.notes, id, { ydoc_state: ydocState, body_preview: bodyPreview ?? n.body_preview, version: n.version + 1, updated_by: by }))
     },
-    async deleteNote(id) { remove(store.notes, id) },
+    // 0125: to the trash for 30 days, with its way back; true when it went.
+    async deleteNote(id) {
+      const n = findById(store.notes, id)
+      if (!noteMayHandle(n)) {
+        throw tvError('42501', 'That note is not one you can put in the trash.')
+      }
+      if (n.deleted_at) return false
+      n.deleted_at = now()
+      n.deleted_by = userId
+      return true
+    },
     async listNoteSubjects() {
       return clone([...store.noteSubjects].sort((a, b) => (a.position - b.position) || a.label.localeCompare(b.label)))
     },
@@ -1232,7 +2129,12 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     async patchNoteSubject(id, fields) { return clone(patch(store.noteSubjects, id, fields)) },
     async retagNoteSubject(oldLabel, newLabel) {
       const ids = []
-      for (const n of store.notes) if (n.subject === oldLabel) { n.subject = newLabel; n.updated_at = now(); ids.push(n.id) }
+      // As the cloud: the owner's own, the company standard and the trash left as they are (fn_notes_guard, the read policy).
+      for (const n of store.notes) {
+        if (n.owner_id === userId && n.subject === oldLabel && noteTier(n) !== 'company_standard' && !n.deleted_at) {
+          n.subject = newLabel; n.updated_at = now(); ids.push(n.id)
+        }
+      }
       return ids
     },
     async deleteNoteSubject(id) { remove(store.noteSubjects, id) },
@@ -1685,7 +2587,7 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
 
     // ── Folders and the project mirror ───────────────────────────────────────
     async listFolders(projectId) {
-      return clone(store.folders.filter(f => f.project_id === projectId).sort((a, b) => a.path.localeCompare(b.path)))
+      return clone(store.folders.filter(f => f.project_id === projectId && !f.deleted_at).sort((a, b) => a.path.localeCompare(b.path)))
     },
     async ensureProjectFolders(projectId, project) {
       for (const planned of planProjectFolders(project || projectOf(projectId))) materialiseFolder(projectId, planned)
@@ -1766,7 +2668,20 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId, appRol
     },
     async writeProjectManifest(projectId, manifest) { store.manifests[projectId] = clone(manifest); return { ok: true } },
     async writeProjectRates(projectId, mirror) { store.ratesMirror[projectId] = clone(mirror); return { ok: true } },
-    async deleteFolder(id) { remove(store.folders, id) },
+    // MO4 (0130): a folder that is or holds a board goes to the trash, never by a delete (fn_folders_board_guard).
+    async deleteFolder(id) {
+      const below = new Set([id])
+      for (let grew = true; grew; ) {
+        grew = false
+        for (const f of store.folders) if (below.has(f.parent_id) && !below.has(f.id)) { below.add(f.id); grew = true }
+      }
+      if ((store.boardsFx?.boards || []).some(b => below.has(b.folder_id))) {
+        const err = new Error(BOARD_WORDS.boardDeleted)
+        err.code = '42501'
+        throw err
+      }
+      remove(store.folders, id)
+    },
 
     // ── Milestones (0067 + 0077 — Track A A2, merged 2026-09-29) ─────────────
     // The cloud shape, method for method: list(projectId) is the live rows by

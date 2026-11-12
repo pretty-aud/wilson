@@ -70,6 +70,7 @@ import {
   History, Download,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
+import { useNavigateTarget } from '../state/rabbitNavigate'
 import { useRosterMembers } from '../../../components/TeamMembers/useRosterMembers'
 import { usePermissions } from '../../../permissions/usePermissions'
 import { canOnProject, projectActionDeniedReason } from '../../../permissions/projectRoleMatrix'
@@ -115,6 +116,7 @@ import {
 import {
   applyViewFilters, applyViewSorts, effectiveFields, filterCount, withFirstSort, withFirstSortReversed,
 } from './tableViews/viewScreenModel'
+import { mentionPlainText } from '../state/mentionTokens'
 import './rabbitTasks.css'
 
 // Q17 (her "Start fresh"): the views this browser kept for the Tasks table
@@ -367,6 +369,16 @@ export default function ProjectTasksView() {
 
   // Task detail popup
   const [detailTaskId, setDetailTaskId] = useState(null)
+
+  // MO2: Moth's "Open in R.A.B.B.I.T." (wilson:open-rabbit-item): open this item once its row is here; until then
+  // the request waits (state/rabbitNavigate.js).
+  const onNavigate = useCallback((p) => {
+    if (!p?.itemId) return true
+    if (!(ctx?.tasks || []).some((x) => x.id === p.itemId)) return false
+    setDetailTaskId(p.itemId)
+    return true
+  }, [ctx?.tasks])
+  useNavigateTarget('tasks', onNavigate, ctx?.activeProjectId || null)
   // Session 23: null = closed. An object = the popup is open, seeded with the
   // defaults its trigger passed (group add-rows supply phase_id, the group's
   // items, etc.).
@@ -732,7 +744,8 @@ export default function ProjectTasksView() {
     const stem = (project?.title || 'project').replace(/[^\w.-]+/g, '_')
     downloadCsv(`${stem}-tasks-${exportDateStamp()}.csv`, processed, [
       ...columns.map(col => ({ key: col.key, header: col.label, map: t => shown(col, t) })),
-      { key: 'notes',      header: 'Notes' },
+      // MO3: the notes' words, never a link's code.
+      { key: 'notes',      header: 'Notes', map: t => mentionPlainText(t.notes || '') },
       { key: 'created_at', header: 'Created' },
     ])
   }, [processed, columns, memberById, phaseById, itemLookup, itemSort, project?.title])

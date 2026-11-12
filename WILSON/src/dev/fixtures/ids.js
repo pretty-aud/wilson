@@ -32,6 +32,8 @@ const KINDS = {
   gateway: '002a', gatewayToken: '002b',
   // FX2 (2026-10-11, migration 0096): a task's items.
   taskItem: '002c',
+  // MO3 (walkthrough 96, `?fixtures=tags`): typed tags' types, typed tags, their assignments and saved links.
+  mtype: '002d', mtag: '002e', mtagging: '002f', mlink: '0030',
 }
 
 export function fid(kind, n) {

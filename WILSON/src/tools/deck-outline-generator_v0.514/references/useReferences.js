@@ -59,6 +59,7 @@ const mb = (n) => `${Math.max(1, Math.round((Number(n) || 0) / (1024 * 1024)))} 
 
 /** Pictures larger than this are described in a preview, not downloaded. */
 export const PREVIEW_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
+export const OFFICE_SERVER_READ_MAX_BYTES = 50 * 1024 * 1024;
 
 /** A Blob as D.O.G.'s `content`: plain text for text, base64 for the rest. */
 export function blobToDogContent(blob, type) {
@@ -479,6 +480,10 @@ export function useReferences({ getAdapter, adapterMode, projectId, project }) {
     if (hit && hit.sig === sig) return hit.content;
     const adapter = getAdapter?.();
     if (typeof adapter?.downloadFile !== 'function') throw new Error('this storage cannot read files');
+    // MO1 (MOTH §1.9): a big file over an office network would hold the page for minutes.
+    if (entry.row?.storage_provider === 'network_share' && Number(entry.row.size_bytes) > OFFICE_SERVER_READ_MAX_BYTES) {
+      throw new Error('This file is too big to read from the office server here. Use a copy under 50 MB.');
+    }
     const blob = await adapter.downloadFile(entry.row);
     const content = await blobToDogContent(blob, entry.dogType);
     bodyCache.current.set(entry.id, { sig, content });

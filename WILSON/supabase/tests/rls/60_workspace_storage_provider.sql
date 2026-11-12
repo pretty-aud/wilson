@@ -60,7 +60,7 @@
 
 BEGIN;
 
-SELECT plan(32);
+SELECT plan(33);
 
 SELECT * FROM tests.rls_setup();
 
@@ -411,6 +411,12 @@ SELECT is(
     WHERE id = 'aaaa1111-0000-0000-0000-000000000001'),
   '\\nas\projects\wilson\Alpha',
   'and the refused write changed nothing');
+
+-- 0117 (NS-D1): 'network_share' is a body's provider, never a company's. This vocabulary stays three.
+SELECT is((SELECT pg_get_constraintdef(oid) FROM pg_constraint
+            WHERE conrelid = 'public.workspace_storage'::regclass AND conname = 'workspace_storage_provider_chk'),
+  'CHECK ((provider = ANY (ARRAY[''petal''::text, ''network''::text, ''s3''::text])))',
+  'a company''s provider is still exactly petal, network or s3');
 
 SELECT * FROM finish();
 

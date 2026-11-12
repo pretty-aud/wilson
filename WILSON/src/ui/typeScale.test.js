@@ -162,6 +162,8 @@ const offAxisWeightIn = (fragment) => isOffAxisWeight(fragment, 0);
 const T1_LANE = /^src\/tools\/(?:deck-outline-generator_v0\.514|otter_v0\.3\.1)\//;
 /** T2's lane: R.A.B.B.I.T. Landed; its scope is asserted hard below. */
 const T2_LANE = /^src\/tools\/rabbit_v0\.1\.0\//;
+/** M.O.T.H. (MO1, her ruling of 2026-11-04, "MO1 or MO2 adds it (Recommended)"). */
+const MOTH_LANE = /^src\/tools\/moth_v0\.1\.0\//;
 
 /** Any side, any width above the hairline, and arbitrary values too. */
 const OFF_BORDER = /\bborder(?:-[tblrxyse]{1,2})?-(?:[2-9]\b|\[[^\]]*\])/g;
@@ -2406,6 +2408,62 @@ const INLINE_TYPE_EXCEPTIONS = [
      number — `fontSize` there is a NUMBER on a third-party API, and
      `TYPE.body` satisfies it because `TYPE` is numbers (tokens.js casts the
      `px` off), not strings. */
+  /* MO4's board (2026-11-11). What the board DRAWS at the person's own size is the person's, not the scale's: a
+     text box at 48, a sticky at 20. One entry per site, each marked at its site with a `board-type:` comment. The
+     board's own words on it (BOARD_CAPTION: TYPE.caption, FONT_SANS) and every DOM element round it read the tokens.
+     Konva's options are not style attributes, so these sites are also in `NOT_A_STYLE` (ui-inline-type.mjs). */
+  {
+    file: 'src/tools/moth_v0.1.0/board/BoardCanvas.jsx',
+    marker: "board-type: an element's words",
+    sites: 1,
+    why: "a shape's, a text box's and a sticky's words, drawn by Konva at the size the person chose (style font_size)",
+  },
+  {
+    file: 'src/tools/moth_v0.1.0/board/BoardCanvas.jsx',
+    marker: "board-type: a frame's name",
+    sites: 1,
+    why: "a frame's name, drawn above it at the size the person chose",
+  },
+  {
+    file: 'src/tools/moth_v0.1.0/board/BoardCanvas.jsx',
+    marker: "board-type: a line's label",
+    sites: 1,
+    why: "a connector's label, drawn at the size the person chose",
+  },
+  {
+    file: 'src/tools/moth_v0.1.0/board/BoardCanvas.jsx',
+    marker: "board-type: the gone file's tile",
+    sites: 1,
+    why: "the stop-sign tile's words grow with the tile the person sized (an eleventh of its short side, 9 to 18), "
+      + 'in board space as the tile is',
+  },
+  {
+    file: 'src/tools/moth_v0.1.0/board/BoardCanvas.jsx',
+    marker: "board-type: a file tile's name",
+    sites: 1,
+    why: "a file tile's name grows with the tile the person sized (a ninth of its short side, 9 to 16), in board "
+      + 'space as the tile is',
+  },
+  {
+    file: 'src/tools/moth_v0.1.0/board/BoardCanvas.jsx',
+    marker: 'board-type: the editing box',
+    sites: 1,
+    why: "the words editor's box: the person's size times the zoom, so the textarea sits over the words the board draws",
+  },
+  {
+    file: 'src/tools/moth_v0.1.0/board/BoardCanvas.jsx',
+    marker: 'board-type: the textarea over the words',
+    sites: 2,
+    why: "the textarea over the words being edited: the person's size at this zoom, and a leading of 1 because Konva "
+      + 'draws its text at 1; a scale leading would move the typed words off the drawn ones',
+  },
+  {
+    file: 'src/tools/moth_v0.1.0/board/shapes.js',
+    marker: 'board-type: the size the person chose',
+    sites: 1,
+    why: "resolveStyle's answer: the size the person chose for an element's words (6 to 400, 16 when unset), the "
+      + 'data the board draws with',
+  },
 ];
 
 /** Inline type declarations whose VALUE is hard-coded. `applyExceptions` is a
@@ -3019,7 +3077,7 @@ describe('the inline half: every type value reads a token (T3)', () => {
       'the hard assertion no longer covers every file').toEqual([]);
     // Every in-scope file belongs to exactly one of the three lanes.
     const orphans = tree().filter((t) =>
-      !IN_T3_SCOPE(t.file) && !T1_LANE.test(t.file) && !T2_LANE.test(t.file));
+      !IN_T3_SCOPE(t.file) && !T1_LANE.test(t.file) && !T2_LANE.test(t.file) && !MOTH_LANE.test(t.file));
     expect(orphans.map((t) => t.file), 'a tool directory belongs to no lane').toEqual([]);
   });
 });

@@ -58,13 +58,15 @@ describe('the managed store (the desktop in Local Server mode)', () => {
   }
   it('makes the record (the server answers folder_path), then copies into THAT folder under the project folder', async () => {
     const api = desktop()
-    const addManagedFile = vi.fn(async (rec) => ({ ...rec, id: 'm1', stored_name: `Salt_${rec.file_name}_v001${rec.extension}`, folder_path: 'LEVELS/Lamp-Room/' }))
+    const addManagedFile = vi.fn(async (rec) => ({ ...rec, id: 'm1', project_id: 'p1', stored_name: `Salt_${rec.file_name}_v001${rec.extension}`, folder_path: 'LEVELS/Lamp-Room/' }))
     const ctx = { supportsManagedFiles: true, addManagedFile, uploadFile: vi.fn(), project: { id: 'p1', title: 'Salt Hours', folder_root: 'D:\\Projects\\Salt-Hours' } }
     const out = await addFilesToEntity({ ctx, entityType: 'level', entity: { id: 'l1', name: 'Lamp Room' }, picked: [{ name: 'blockout.png', path: 'C:\\in\\blockout.png' }], api })
     expect(out).toEqual({ added: 1, failed: [] })
     // Typed as FileManager types a file (mimeTypes.js), not `null` (review round 1, item 8).
     expect(addManagedFile).toHaveBeenCalledWith(expect.objectContaining({ level_id: 'l1', file_name: 'blockout', original_name: 'blockout.png', extension: '.png', mime_type: 'image/png', size_bytes: 10 }))
-    expect(api.copyFile).toHaveBeenCalledWith({ sourcePath: 'C:\\in\\blockout.png', destDir: 'D:\\Projects\\Salt-Hours\\LEVELS\\Lamp-Room', destFileName: 'Salt_blockout_v001.png' })
+    // The record's project is named: main refuses a folder outside it (copyFileFence.cjs).
+    const windows = (p) => p.replaceAll('/', String.fromCharCode(92))
+    expect(api.copyFile).toHaveBeenCalledWith({ sourcePath: windows('C:/in/blockout.png'), destDir: windows('D:/Projects/Salt-Hours/LEVELS/Lamp-Room'), destFileName: 'Salt_blockout_v001.png', projectId: 'p1' })
     expect(ctx.uploadFile).not.toHaveBeenCalled()
   })
   it('with no project folder set, the root this machine resolves under, then the project slug (S34)', async () => {

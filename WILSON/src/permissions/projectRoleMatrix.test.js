@@ -11,6 +11,8 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createElement } from 'react'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { renderToString } from 'react-dom/server'
 import {
   canOnProject, canSeeProjectMoney, canWriteTaskTemplate,
@@ -649,5 +651,105 @@ describe('useProjectAccess — the gate context', () => {
     const access = renderAccess()
     expect(access.gateCtx.noRoles).toBe(false)
     expect(access.can(ACTIVATE)).toBe(false)
+  })
+})
+
+// MO1 (0111, MOTH_DESIGN §2.2 CL-2): one table for the SQL helpers and this
+// file's subject. Suite 113 runs every MATRIX line against the helper as a seat
+// on a real project; here canOnProject answers the same line. Each line's probe
+// must follow it and say the same thing, so a comment cannot drift from its SQL.
+describe('the MATRIX in suite 113', () => {
+  const HELPER = {
+    'project.entity.write': 'can_write_project',
+    'project.comment.write': 'can_comment_project',
+    'project.roster.manage': 'can_manage_project_roster',
+    'project.shotlist.write': 'can_edit_shot_lists',
+  }
+  const lines = readFileSync(join(process.cwd(), 'supabase/tests/rls/113_moth_read_path.sql'), 'utf8').split(/\r?\n/)
+  const rows = lines.flatMap((line, at) => {
+    const m = /^-- MATRIX (\S+) \| (\w+) \| (\w+) \| (\w+) \| (\w+) \| (\w+) \| (\w+)$/.exec(line)
+    if (!m) return []
+    const [, action, appRole, seat, staffed, personal, owner, expected] = m
+    return [{ at, action, appRole, seat, staffed, personal, owner, expected, text: line.slice('-- MATRIX '.length) }]
+  })
+
+  it('covers every app role, seat and personal state, for all four actions', () => {
+    expect(rows).toHaveLength(84)
+    expect(new Set(rows.map(r => r.action))).toEqual(new Set(Object.keys(HELPER)))
+    expect(new Set(rows.map(r => r.appRole))).toEqual(new Set(['admin', 'manager', 'user']))
+    expect(new Set(rows.map(r => r.seat))).toEqual(new Set(['manager', 'member', 'reviewer', 'none']))
+    expect(new Set(rows.map(r => r.text)).size).toBe(rows.length)
+  })
+
+  it('canOnProject agrees on every line', () => {
+    const wrong = rows.filter(r => String(canOnProject({
+      appRole: r.appRole,
+      projectRole: r.seat === 'none' ? null : r.seat,
+      isStaffed: r.staffed === 'true',
+      isPersonal: r.personal === 'true',
+      isPersonalOwner: r.owner === 'true',
+      ready: true,
+    }, r.action)) !== r.expected)
+    expect(wrong.map(r => r.text)).toEqual([])
+  })
+
+  it('every line is followed by its own probe, with its helper and its answer', () => {
+    for (const r of rows) {
+      expect(lines[r.at + 1], r.text).toMatch(new RegExp(`^SELECT is\\(COALESCE\\(public\\.${HELPER[r.action]}\\('[0-9a-f-]{36}'\\), false\\), ${r.expected}, `))
+      expect(lines[r.at + 1], r.text).toContain(`'MATRIX ${r.text}'`)
+      if (r.action === 'project.entity.write') {
+        expect(lines[r.at + 2], r.text).toMatch(new RegExp(`^SELECT is\\(public\\.moth_can_write_target\\('project', '[0-9a-f-]{36}'\\), ${r.expected}, `))
+      }
+    }
+  })
+})
+
+// MO1 (0110, MOTH_DESIGN §2.2 CL-1): the personal arm, the mirror of the four
+// restated SQL helpers. Seats and app roles do not decide on a personal space.
+describe('canOnProject on a personal space', () => {
+  const ARM = ['project.bins.write', 'project.comment.write', 'project.entity.write', 'project.settings.open', 'project.shotlist.write']
+  const everyone = [
+    ['admin', null], ['admin', 'manager'], ['manager', null], ['manager', 'manager'],
+    ['user', null], ['user', 'manager'], ['user', 'member'], ['user', 'reviewer'], [null, null],
+  ]
+  const on = (appRole, projectRole, isPersonalOwner) => ({ appRole, projectRole, isStaffed: true, isPersonal: true, isPersonalOwner, ready: true })
+
+  it.each(ARM)('%s: its owner yes, whatever else they are', (action) => {
+    for (const [appRole, projectRole] of everyone) expect(canOnProject(on(appRole, projectRole, true), action), `${appRole}/${projectRole}`).toBe(true)
+  })
+  // PLANTED by the ordering: placed after the admin short-circuit, the admin rows here go red.
+  it.each(ARM)('%s: nobody else, a workspace admin and an unstaffed reading included', (action) => {
+    for (const [appRole, projectRole] of everyone) expect(canOnProject(on(appRole, projectRole, false), action), `${appRole}/${projectRole}`).toBe(false)
+    expect(canOnProject({ appRole: 'user', projectRole: null, isStaffed: false, isPersonal: true, isPersonalOwner: false, ready: true }, action)).toBe(false)
+  })
+  it('the roster is nobody\'s: it has one seat, and its owner is told that', () => {
+    for (const owner of [true, false]) {
+      expect(canOnProject(on('admin', 'manager', owner), 'project.roster.manage')).toBe(false)
+      expect(projectActionDeniedReason(on('admin', 'manager', owner), 'project.roster.manage')).toBe('A personal space has one seat, its owner\'s.')
+    }
+  })
+  it('activate and vet keep their rules (0110 did not restate their SQL)', () => {
+    expect(canOnProject(on('admin', null, false), 'project.shotlist.activate')).toBe(true)
+    expect(canOnProject(on('user', null, true), 'project.shotlist.activate')).toBe(false)
+    expect(canOnProject(on('manager', null, false), 'project.bins.vet')).toBe(true)
+    expect(canOnProject(on('user', null, true), 'project.bins.vet')).toBe(false)
+  })
+  it('"still loading" is still not "denied"', () => {
+    for (const action of PROJECT_ACTIONS) expect(canOnProject({ isPersonal: true, isPersonalOwner: false, ready: false }, action), action).toBe(true)
+  })
+  it('the sentence pairs with the answer, for every action, owner or not', () => {
+    for (const action of PROJECT_ACTIONS) {
+      for (const [appRole, projectRole] of everyone) {
+        for (const owner of [true, false]) {
+          const ctx = on(appRole, projectRole, owner)
+          expect(projectActionDeniedReason(ctx, action) === null, `${action} ${appRole}/${projectRole} ${owner}`).toBe(canOnProject(ctx, action))
+        }
+      }
+    }
+    expect(projectActionDeniedReason(on('admin', null, false), 'project.entity.write')).toBe('Only the owner of a personal space can change it.')
+  })
+  it('FAILING CONTROL: isPersonal false (or absent) leaves every other row as it was', () => {
+    expect(canOnProject({ appRole: 'admin', projectRole: null, isStaffed: true, ready: true }, 'project.entity.write')).toBe(true)
+    expect(canOnProject({ appRole: 'admin', projectRole: null, isStaffed: true, isPersonal: false, isPersonalOwner: false, ready: true }, 'project.entity.write')).toBe(true)
   })
 })

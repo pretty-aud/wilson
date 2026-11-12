@@ -182,7 +182,7 @@ function chunkByEncodedLength(paths: string[]): string[][] {
 async function referencedPaths(ctx: AdminContext, paths: string[]): Promise<Set<string>> {
   const out = new Set<string>()
   for (const chunk of chunkByEncodedLength(paths)) {
-    const { data, error } = await ctx.admin.from('files').select('storage_path').in('storage_path', chunk)
+    const { data, error } = await ctx.admin.from('files').select('storage_path').in('storage_provider', ['supabase', 's3', 'local_server']).in('storage_path', chunk)
     if (error) throw new Error(`files read failed (referenced paths): ${error.message}`)
     for (const r of data ?? []) out.add(r.storage_path as string)
   }
@@ -191,11 +191,12 @@ async function referencedPaths(ctx: AdminContext, paths: string[]): Promise<Set<
 
 // S4c: does any files row (live OR trashed — the admin client sees both)
 // name the other shape of a shot object's key? One query per unreferenced
-// object OLD ENOUGH TO DELETE only, within the object's own project (the
-// files_project index does the work; storage_path has none), so a clean
-// bucket costs nothing extra. A failed read throws: it is not "no twin".
-async function rowNamesTwin(ctx: AdminContext, projectId: string, pattern: string): Promise<boolean> {
-  const { data, error } = await ctx.admin.from('files').select('id').eq('project_id', projectId).like('storage_path', pattern).limit(1)
+// object OLD ENOUGH TO DELETE only, so a clean bucket costs nothing extra. In
+// any project: a moved file keeps its key (MO1, 0115), so the key's project is
+// no longer where its row is. Only a provider that keeps a body by key: an
+// office server's locator names no object. A failed read throws: it is not "no twin".
+async function rowNamesTwin(ctx: AdminContext, pattern: string): Promise<boolean> {
+  const { data, error } = await ctx.admin.from('files').select('id').in('storage_provider', ['supabase', 's3', 'local_server']).like('storage_path', pattern).limit(1)
   if (error) throw new Error(`files read failed (twin key): ${error.message}`)
   return (data ?? []).length > 0
 }
@@ -306,8 +307,11 @@ Deno.serve(async (req) => {
       // previews while certifying them disposed. A missing column here is a
       // silent data-loss bug, not a missing field.
       .select('id, bucket_id, object_path, provider, kind')
-      .eq('status', 'pending')
+      // A row that failed goes again, after what has never been tried. The admin is told to fix the secret
+      // and run cleanup again, and 0115 keeps a failed row's key claimed until it is really gone.
+      .in('status', ['pending', 'failed'])
       .eq('workspace_id', ctx.workspaceId)
+      .order('status', { ascending: false })
       .order('id', { ascending: true })
       .limit(500)
     if (qErr) throw new Error(`queue read: ${qErr.message}`)
@@ -365,8 +369,21 @@ Deno.serve(async (req) => {
       const refColumn = (row as { kind?: string }).kind === 'thumbnail'
         ? 'thumbnail_url'
         : 'storage_path'
-      const { data: stillRef, error: refErr } = await ctx.admin
-        .from('files').select('id').eq(refColumn, row.object_path).limit(1)
+      // MO1 (0120): in a company's own bucket a body and a picture share one namespace, and thumbnail_url
+      // was client-writable once. So a legacy picture naming another file's body must not delete that
+      // body: for s3 both columns answer. Petal's two buckets cannot hold each other's keys.
+      const refColumns: string[] = (row as { provider?: string }).provider === 's3'
+        ? ['storage_path', 'thumbnail_url']
+        : [refColumn]
+      let stillRef: unknown[] | null = null
+      let refErr: { message: string } | null = null
+      for (const column of refColumns) {
+        const answer = await ctx.admin
+          .from('files').select('id').eq(column, row.object_path).limit(1)
+        stillRef = answer.data
+        refErr = answer.error
+        if (refErr || stillRef?.length) break
+      }
       // 🚨 A FAILED READ PUSHES NOTHING (S37's rule). supabase-js RESOLVES on
       // error with data:null, so an unchecked destructure turns a statement
       // timeout or a pooler reset into "nothing references this path" — which
@@ -448,6 +465,9 @@ Deno.serve(async (req) => {
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)
+          // A bucket that has stopped answering costs ten seconds a row, and failed rows now come back each run,
+          // so the rest of this run does not ask it: the steps after the drain must still get their turn.
+          s3DrainMemo = { ok: false, detail: `could not reach the bucket endpoint: ${message}` }
           counts.queue_failed++
           await ctx.admin.from('storage_gc_queue')
             .update({ status: 'failed', processed_at: new Date().toISOString(), detail: `could not reach the bucket endpoint: ${message}` })
@@ -532,7 +552,7 @@ Deno.serve(async (req) => {
         if (twin) {
           let named = false
           try {
-            named = await rowNamesTwin(ctx, projectId, twin)
+            named = await rowNamesTwin(ctx, twin)
           } catch (err) {
             counts.scan_failed++
             console.error(`[storage-gc] orphan scan stopped for project ${projectId}: ${(err as Error).message}`)

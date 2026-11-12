@@ -15,6 +15,9 @@
 --      table (her Q4), written through set_table_view_last — the first-ever
 --      write makes the row, a write merges one key, the 300 newest stay, the
 --      refusals, the CHECK, and nobody else's row is reached (probes 22-37).
+--   6. 0123 (MO2, 2026-11-07): moth_prefs, Moth's own settings per person and company, written through
+--      set_moth_prefs and read through moth_prefs(), which trusts nothing stored (probes 38-61).
+--   7. 0124 (MO3, MO2-12): that map's bound pinned by its definition, not its name (probe 63).
 --
 -- The sibling suite 56 carries the fuller commentary; this one is deliberately
 -- the same shape so a reader can diff them.
@@ -22,7 +25,7 @@
 
 BEGIN;
 
-SELECT plan(37);
+SELECT plan(63);
 
 SELECT * FROM tests.rls_setup();
 
@@ -324,6 +327,205 @@ SELECT throws_ok(
   $$UPDATE public.user_settings SET table_view_last = jsonb_build_object('pad', repeat('x', 70000))
      WHERE user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'$$,
   '23514', NULL, 'the map is at most 64 KB');
+
+-- ── 0123 (MO2): moth_prefs, Moth's own settings per person and company ─────────────────────────
+-- Written through set_moth_prefs (a patch of known keys, merged), read through moth_prefs(), which trusts
+-- nothing stored: the row is the person's own to write directly, so a forged entry is read as untrusted.
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+CREATE FUNCTION public.t57_as(p_user uuid, p_ws uuid DEFAULT '11111111-1111-1111-1111-111111111111')
+RETURNS void LANGUAGE plpgsql AS $f$
+BEGIN
+  PERFORM set_config('request.jwt.claims', json_build_object(
+    'sub', p_user, 'role', 'authenticated',
+    'app_metadata', json_build_object('workspace_id', p_ws, 'app_role', 'user'))::text, true);
+END;
+$f$;
+CREATE FUNCTION public.t57_err(p_sql text) RETURNS text LANGUAGE plpgsql AS $f$
+DECLARE
+  s text;
+BEGIN
+  EXECUTE p_sql;
+  RETURN 'no refusal';
+EXCEPTION WHEN OTHERS THEN
+  GET STACKED DIAGNOSTICS s = RETURNED_SQLSTATE;
+  RETURN s;
+END;
+$f$;
+
+SELECT public.t57_as('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+SELECT set_config('request.jwt.claims', json_build_object('sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'role', 'authenticated',
+  'app_metadata', json_build_object('workspace_id', '11111111-1111-1111-1111-111111111111', 'app_role', 'admin'))::text, true);
+INSERT INTO public.projects (id, workspace_id, title, created_by) VALUES
+  ('aaaa0570-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111', 'Salt Hours', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+INSERT INTO public.folders (id, project_id, parent_id, kind, slug, path) VALUES
+  ('05700000-0000-0000-0000-000000000070', 'aaaa0570-0000-0000-0000-00000000000a', NULL, 'root', 'salt-hours', ''),
+  ('05700000-0000-0000-0000-000000000071', 'aaaa0570-0000-0000-0000-00000000000a', '05700000-0000-0000-0000-000000000070', 'category', 'ASSETS', 'ASSETS'),
+  ('05700000-0000-0000-0000-000000000072', 'aaaa0570-0000-0000-0000-00000000000a', '05700000-0000-0000-0000-000000000070', 'category', 'INVOICES', 'INVOICES');
+SELECT public.t57_as('cccccccc-cccc-cccc-cccc-cccccccccccc');
+INSERT INTO public.moth_views (id, scope_kind, name) VALUES ('05700000-0000-0000-0000-0000000000a1', 'aggregate', 'C own');
+SELECT public.t57_as('dddddddd-dddd-dddd-dddd-dddddddddddd');
+INSERT INTO public.moth_views (id, scope_kind, name) VALUES ('05700000-0000-0000-0000-0000000000a2', 'aggregate', 'D own');
+
+CREATE TEMP TABLE t57_before ON COMMIT DROP AS SELECT table_view_last AS tvl, prompts AS pr FROM public.user_settings WHERE user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+GRANT SELECT ON t57_before TO authenticated;
+-- 38
+SELECT ok((SELECT is_nullable = 'NO' AND column_default LIKE '''{}''::jsonb%' FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'user_settings' AND column_name = 'moth_prefs'),
+  'moth_prefs: an object, empty to begin with, never null');
+-- 39
+SELECT ok(NOT (SELECT prosecdef FROM pg_proc WHERE oid = 'public.set_moth_prefs(jsonb)'::regprocedure)
+          AND NOT (SELECT prosecdef FROM pg_proc WHERE oid = 'public.moth_prefs()'::regprocedure)
+          AND has_function_privilege('authenticated', 'public.set_moth_prefs(jsonb)', 'EXECUTE')
+          AND has_function_privilege('authenticated', 'public.moth_prefs()', 'EXECUTE')
+          AND NOT has_function_privilege('anon', 'public.set_moth_prefs(jsonb)', 'EXECUTE')
+          AND NOT has_function_privilege('anon', 'public.moth_prefs()', 'EXECUTE'),
+  'the writer and the reader run as their caller, for signed-in callers only');
+
+SET LOCAL ROLE authenticated;
+SELECT public.t57_as('cccccccc-cccc-cccc-cccc-cccccccccccc');
+-- 40
+SELECT is(public.moth_prefs(), '{}'::jsonb, 'nothing yet');
+-- 41
+SELECT is(public.set_moth_prefs('{"last_view":"q:tags","first_visit_done":true}') - 'appearance',
+  '{"last_view":"q:tags","first_visit_done":true}'::jsonb, 'the first visit done, the last view a quick start');
+-- 42
+SELECT ok(public.set_moth_prefs('{"appearance":{"glow":"#ffb347","size_by":"contents"}}') IS NOT NULL
+          AND (public.set_moth_prefs('{"appearance":{"colour_by":"tag"}}') -> 'appearance')
+              = '{"glow":"#ffb347","size_by":"contents","colour_by":"tag"}'::jsonb,
+  'appearance merges key by key');
+-- 43
+SELECT is(public.set_moth_prefs('{"last_view":"05700000-0000-0000-0000-0000000000a1"}') ->> 'last_view',
+  '05700000-0000-0000-0000-0000000000a1', 'the last view may be a saved view the person sees');
+-- 44
+SELECT is(public.set_moth_prefs('{"recent":[{"k":"folder","id":"05700000-0000-0000-0000-000000000071"},{"k":"project","id":"aaaa0570-0000-0000-0000-00000000000a"}]}') -> 'recent',
+  '[{"k":"folder","id":"05700000-0000-0000-0000-000000000071"},{"k":"project","id":"aaaa0570-0000-0000-0000-00000000000a"}]'::jsonb,
+  'the folders opened last');
+-- 45
+SELECT is((public.moth_prefs() ->> 'first_visit_done') || ' ' || (public.moth_prefs() -> 'appearance' ->> 'glow'), 'true #ffb347',
+  'each write keeps what it did not name');
+-- 46
+SELECT is(public.t57_err($$ SELECT public.set_moth_prefs('{"pets":1}') $$), '22023', 'no unknown setting');
+-- 47
+SELECT is(public.t57_err($$ SELECT public.set_moth_prefs('{"appearance":{"glow":"#FFF"}}') $$)
+       || public.t57_err($$ SELECT public.set_moth_prefs('{"appearance":{"size_by":"big"}}') $$)
+       || public.t57_err($$ SELECT public.set_moth_prefs('{"appearance":{"colour_by":1}}') $$)
+       || public.t57_err($$ SELECT public.set_moth_prefs('{"appearance":{"blur":"on"}}') $$),
+  '22023220232202322023', 'appearance only in its own words');
+-- 48
+SELECT is(public.t57_err($$ SELECT public.set_moth_prefs(jsonb_build_object('recent', (SELECT jsonb_agg(jsonb_build_object('k', 'folder', 'id', '05700000-0000-0000-0000-000000000071')) FROM generate_series(1, 9)))) $$)
+       || public.t57_err($$ SELECT public.set_moth_prefs('{"recent":[{"k":"file","id":"05700000-0000-0000-0000-000000000071"}]}') $$)
+       || public.t57_err($$ SELECT public.set_moth_prefs('{"recent":[{"k":"folder","id":"05700000-0000-0000-0000-000000000071","x":1}]}') $$)
+       || public.t57_err($$ SELECT public.set_moth_prefs('{"recent":[{"k":"folder","id":"nope"}]}') $$),
+  '22023220232202322023', 'at most eight folders opened last, each a folder or a project by id');
+-- 49
+SELECT is(public.t57_err($$ SELECT public.set_moth_prefs('{"last_view":"anything"}') $$)
+       || public.t57_err($$ SELECT public.set_moth_prefs('{"first_visit_done":"yes"}') $$)
+       || public.t57_err($$ SELECT public.set_moth_prefs('[1]') $$),
+  '220232202322023', 'a last view, a first visit and the patch itself, each of its shape');
+
+-- 50: a forged entry, written straight into the row the person owns.
+UPDATE public.user_settings
+   SET moth_prefs = jsonb_set(moth_prefs, ARRAY['11111111-1111-1111-1111-111111111111'],
+         (moth_prefs -> '11111111-1111-1111-1111-111111111111')
+         || jsonb_build_object(
+              'last_view', '05700000-0000-0000-0000-0000000000a2',
+              'appearance', '{"glow":"red","light":"light","extra":"x"}'::jsonb,
+              'recent', '[{"k":"folder","id":"05700000-0000-0000-0000-000000000072"},{"k":"folder","id":"not-an-id"},{"k":"folder","id":"05700000-0000-0000-0000-000000000071"}]'::jsonb))
+ WHERE user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+SELECT is(public.moth_prefs(),
+  '{"first_visit_done":true,"appearance":{"light":"light"},"recent":[{"k":"folder","id":"05700000-0000-0000-0000-000000000071"}]}'::jsonb,
+  'the reader keeps of a forged entry only what is of its shape and still visible: not another''s view, not a money folder');
+-- 51
+UPDATE public.user_settings
+   SET moth_prefs = jsonb_set(moth_prefs, ARRAY['11111111-1111-1111-1111-111111111111', 'recent'],
+         (SELECT jsonb_agg(jsonb_build_object('k', 'folder', 'id', '05700000-0000-0000-0000-000000000071')) FROM generate_series(1, 20)))
+ WHERE user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+SELECT is(jsonb_array_length(public.moth_prefs() -> 'recent'), 8, 'eight at most, whatever is stored');
+-- 52
+UPDATE public.user_settings
+   SET moth_prefs = jsonb_set(moth_prefs, ARRAY['11111111-1111-1111-1111-111111111111', 'member_since'], '946684800000')
+ WHERE user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+SELECT is(public.moth_prefs(), '{}'::jsonb, 'an entry stamped for another membership is not this one''s');
+-- 53
+SELECT is(public.set_moth_prefs('{"first_visit_done":true}') - 'appearance', '{"first_visit_done":true}'::jsonb, '… and the next write starts afresh too');
+SELECT is(public.set_moth_prefs('{"last_view":"Q:TAGS"}') ->> 'last_view', 'q:tags', 'a quick start is kept in the reader''s own letters');
+RESET ROLE;
+-- Removed from the company and added again: a new membership, so the settings start afresh.
+SELECT set_config('request.jwt.claims', json_build_object('sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'role', 'authenticated',
+  'app_metadata', json_build_object('workspace_id', '11111111-1111-1111-1111-111111111111', 'app_role', 'admin'))::text, true);
+DELETE FROM public.workspace_members WHERE workspace_id = '11111111-1111-1111-1111-111111111111' AND user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+INSERT INTO public.workspace_members (workspace_id, user_id, app_role, username, display_name, is_active, created_at)
+VALUES ('11111111-1111-1111-1111-111111111111', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'user', 'user_c', 'User C', true, now() + interval '1 second');
+SET LOCAL ROLE authenticated;
+SELECT public.t57_as('cccccccc-cccc-cccc-cccc-cccccccccccc');
+SELECT is(public.moth_prefs(), '{}'::jsonb, 'a person removed and added again starts afresh');
+-- 54
+UPDATE public.user_settings
+   SET moth_prefs = moth_prefs || jsonb_build_object('22222222-2222-2222-2222-222222222222', jsonb_build_object('last_view', 'q:tags', 'member_since', (SELECT floor(extract(epoch FROM wm.created_at) * 1000) FROM public.workspace_members wm WHERE wm.workspace_id = '11111111-1111-1111-1111-111111111111' AND wm.user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc')))
+ WHERE user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+SELECT is(public.moth_prefs() ->> 'last_view', NULL, 'another company''s entry is not this one''s, though stamped as this membership');
+-- 55
+UPDATE public.user_settings
+   SET moth_prefs = moth_prefs || (SELECT jsonb_object_agg(lpad(g::text, 8, '0') || '-0000-0000-0000-000000000000', jsonb_build_object('at', g)) FROM generate_series(1, 12) g)
+ WHERE user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+SELECT public.set_moth_prefs('{"first_visit_done":false}');
+SELECT ok((SELECT count(*) FROM public.user_settings, jsonb_object_keys(moth_prefs) WHERE user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc') = 10
+          AND (SELECT moth_prefs ? '11111111-1111-1111-1111-111111111111' FROM public.user_settings WHERE user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'),
+  'ten companies at most, the newest, this one among them');
+-- 56
+SELECT ok((SELECT table_view_last = t57_before.tvl AND prompts = t57_before.pr FROM public.user_settings, t57_before WHERE user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'),
+  'the other settings stand, each as it was');
+RESET ROLE;
+-- 57
+SELECT is(COALESCE((SELECT moth_prefs FROM public.user_settings WHERE user_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'), '{}'::jsonb), '{}'::jsonb,
+  'another person''s row is untouched');
+-- 58
+SELECT set_config('request.jwt.claims', json_build_object('sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'role', 'authenticated',
+  'app_metadata', json_build_object('workspace_id', '11111111-1111-1111-1111-111111111111', 'app_role', 'admin'))::text, true);
+INSERT INTO public.user_settings (user_id) VALUES ('dddddddd-dddd-dddd-dddd-dddddddddddd') ON CONFLICT (user_id) DO NOTHING;
+UPDATE public.user_settings
+   SET moth_prefs = jsonb_build_object('11111111-1111-1111-1111-111111111111', jsonb_build_object('first_visit_done', true, 'member_since', (SELECT floor(extract(epoch FROM wm.created_at) * 1000) FROM public.workspace_members wm WHERE wm.workspace_id = '11111111-1111-1111-1111-111111111111' AND wm.user_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd')))
+ WHERE user_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+UPDATE public.workspace_members SET is_active = false
+ WHERE workspace_id = '11111111-1111-1111-1111-111111111111' AND user_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+SET LOCAL ROLE authenticated;
+SELECT public.t57_as('dddddddd-dddd-dddd-dddd-dddddddddddd');
+SELECT is(public.t57_err($$ SELECT public.set_moth_prefs('{"first_visit_done":true}') $$) || ' ' || public.moth_prefs()::text, '42501 {}',
+  'someone who has left neither writes nor reads Moth''s settings');
+-- 59
+SELECT public.t57_as('cccccccc-cccc-cccc-cccc-cccccccccccc');
+SELECT is(public.t57_err($$ UPDATE public.user_settings SET moth_prefs = '[1]'::jsonb WHERE user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc' $$)
+       || public.t57_err($$ UPDATE public.user_settings SET moth_prefs = jsonb_build_object('pad', repeat('x', 33000)) WHERE user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc' $$),
+  '2351423514', 'the stored map is an object of at most 32 KB, whoever writes it');
+RESET ROLE;
+
+-- 62: what the plants found unprobed: a forged entry naming a file, a task or a phase as an opened folder, written
+-- straight into the person's own row, is not given back, though the person can see that file.
+RESET ROLE;
+SELECT set_config('request.jwt.claims', json_build_object('sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'role', 'authenticated',
+  'app_metadata', json_build_object('workspace_id', '11111111-1111-1111-1111-111111111111', 'app_role', 'admin'))::text, true);
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, is_financial) VALUES
+  ('05700000-0000-0000-0000-0000000000f1', 'aaaa0570-0000-0000-0000-00000000000a', 'plain.png', 'supabase', 'projects/aaaa0570-0000-0000-0000-00000000000a/files/05700000-0000-0000-0000-0000000000f1/plain.png', false);
+INSERT INTO public.tasks (id, project_id, title) VALUES ('05700000-0000-0000-0000-0000000000f2', 'aaaa0570-0000-0000-0000-00000000000a', 'Grade');
+SET LOCAL ROLE authenticated;
+SELECT public.set_moth_prefs('{"recent":[{"k":"folder","id":"05700000-0000-0000-0000-000000000071"}]}');
+UPDATE public.user_settings
+   SET moth_prefs = jsonb_set(moth_prefs, ARRAY['11111111-1111-1111-1111-111111111111', 'recent'],
+         '[{"k":"file","id":"05700000-0000-0000-0000-0000000000f1"},{"k":"task","id":"05700000-0000-0000-0000-0000000000f2"},{"k":"folder","id":"05700000-0000-0000-0000-000000000071"}]'::jsonb)
+ WHERE user_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+SELECT ok(public.moth_can_read_target('file', '05700000-0000-0000-0000-0000000000f1')
+          AND public.moth_can_read_target('task', '05700000-0000-0000-0000-0000000000f2')
+          AND public.moth_prefs() -> 'recent' = '[{"k":"folder","id":"05700000-0000-0000-0000-000000000071"}]'::jsonb,
+  'a forged opened folder that is a file or a task is not given back, though the file is the person''s to see');
+RESET ROLE;
+
+-- 63: 0124 (MO2-12): the stored map's bound by what it is, so a draft of the same name is not taken for it.
+SELECT is((SELECT pg_get_constraintdef(c.oid) || ' ' || c.convalidated::text FROM pg_constraint c
+            WHERE c.conrelid = 'public.user_settings'::regclass AND c.conname = 'user_settings_moth_prefs_chk'),
+  'CHECK (((jsonb_typeof(moth_prefs) = ''object''::text) AND (octet_length((moth_prefs)::text) <= 32768))) true',
+  'the settings'' bound is 0123''s, by its definition (0124)');
 
 SELECT * FROM finish();
 

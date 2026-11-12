@@ -61,8 +61,8 @@ import ExperiencesView from './views/ExperiencesView'
 import ProjectFilesExplorer from '../../components/Resources/ProjectFilesExplorer'
 import { loadHolidays, saveHolidays } from './holidays.js'
 import { RABBIT_HELP_SIDEBAR_ITEMS } from './rabbitHelpContent.jsx'
-import { subscribeNavigate, dropPendingNavigate } from './state/rabbitNavigate'
-import { leaveTab } from './state/leaveGuard'
+import { subscribeNavigate, dropPendingNavigate, navigateTo as navigateWithin, mothItemTarget, openFromMoth } from './state/rabbitNavigate'
+import { leaveTab, confirmLeave } from './state/leaveGuard'
 import { IconButton } from '../../ui/IconButton'
 import { Button } from '../../ui/Button'
 import { EmptyState } from '../../ui/EmptyState'
@@ -112,7 +112,9 @@ export default function Rabbit({ currentPage } = {}) {
   // button gone — and the same applies to toggling scenes/levels off while
   // viewing them.
   useEffect(() => {
-    if (hiddenTabs.has(activeView)) setActiveView('summary')
+    // A tab this project turns off opens its summary, and a request waiting for that tab (a jump from M.O.T.H.)
+    // is dropped, so it cannot open later (MO2 review round 1).
+    if (hiddenTabs.has(activeView)) { dropPendingNavigate({ view: activeView }); setActiveView('summary') }
   }, [hiddenTabs, activeView])
 
   // Post-overhaul S3c, step 7 (D12): leaving the Scenes tab — by the tab
@@ -138,6 +140,35 @@ export default function Rabbit({ currentPage } = {}) {
     if (!d?.view) return
     goToView(d.view).then((went) => { if (!went) dropPendingNavigate(d) })
   }), [goToView])
+
+  // MO2: M.O.T.H. opens a thing here (wilson:open-rabbit-item, wilson:open-project-file; its mothJumps.js). The
+  // project first, asking as the project bar asks when an edit is unsaved; then the tab, whose view opens the item
+  // once its rows are read (useNavigateTarget). A refused switch leaves everything as it was.
+  const projectRef = useRef(null)
+  projectRef.current = { id: ctx?.activeProjectId ?? null, set: ctx?.setActiveProject }
+  useEffect(() => {
+    const open = (projectId, target) => openFromMoth({ projectId, target }, {
+      currentId: () => projectRef.current.id,
+      confirm: () => confirmLeave('project'),
+      switchProject: (id) => projectRef.current.set?.(id),
+      navigate: navigateWithin,
+    })
+    const onItem = (e) => {
+      const { projectId, kind, id } = e?.detail || {}
+      const target = mothItemTarget(kind, id)
+      if (target) open(projectId, target)
+    }
+    const onFile = (e) => {
+      const { projectId, fileId } = e?.detail || {}
+      open(projectId, { view: 'files', fileId })
+    }
+    window.addEventListener('wilson:open-rabbit-item', onItem)
+    window.addEventListener('wilson:open-project-file', onFile)
+    return () => {
+      window.removeEventListener('wilson:open-rabbit-item', onItem)
+      window.removeEventListener('wilson:open-project-file', onFile)
+    }
+  }, [])
 
   // ── Settings, help & holidays (shared across all RABBIT tabs) ──
   const [settings, setSettings] = useState(() => loadRabbitSettings())

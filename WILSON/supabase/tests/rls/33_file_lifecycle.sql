@@ -25,7 +25,7 @@
 -- =============================================================================
 BEGIN;
 
-SELECT plan(44);
+SELECT plan(81);
 
 SELECT * FROM tests.rls_setup();
 
@@ -57,6 +57,13 @@ SELECT has_table('public'::name, 'storage_gc_queue'::name, 'storage_gc_queue tab
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
+
+-- MO1 (0114): a member's row names a stored copy already in the bucket, as an upload leaves it.
+INSERT INTO storage.objects (bucket_id, name, owner_id) VALUES
+  ('rabbit-files', 'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/1-lifecycle.png', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
+  ('rabbit-files', 'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/1-downloaded.png', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
+  ('rabbit-files', 'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/x/1-invoice.pdf', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+
 SELECT tests.login_as(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
   '11111111-1111-1111-1111-111111111111'
@@ -84,9 +91,17 @@ SELECT is(
   'uploaded event carries the acting user'
 );
 
+-- MO1 (0114): a client no longer patches a stored key, so the runner makes the change
+-- the capture trigger is pinned on (suite 115 pins the client's refusal).
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
 UPDATE public.files
    SET storage_path = 'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/2-lifecycle.png'
  WHERE id = 'aaaa1111-0000-0000-0000-000000003301';
+SELECT tests.login_as(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  '11111111-1111-1111-1111-111111111111'
+);
 
 -- 5: storage_path change emitted 'moved' with both paths.
 SELECT is(
@@ -339,7 +354,7 @@ INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, 
 VALUES ('aaaa1111-0000-0000-0000-000000003303',
         'aaaa1111-0000-0000-0000-000000000001',
         'invoice.pdf', 'supabase',
-        'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/1-invoice.pdf',
+        'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/x/1-invoice.pdf',
         1024, true);
 
 -- 28: a money-privileged caller logs a financial file.
@@ -587,6 +602,373 @@ SELECT is(
       AND qual LIKE '%can_write_project%'
       AND qual LIKE '%has_active_membership%'),
   1, 'delete-own policy pins owner_id, the 1-hour window and the write guards'
+);
+
+-- ══ MO1 (0116): one vocabulary, one capture ═══════════════════════════════════
+-- The runner makes these changes: a client no longer changes a file's project, folder or
+-- key (suite 115), and Move to arrives with 0118. The private-time rule is suite 78's.
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+-- Their own two projects: probes above purge project A.
+INSERT INTO public.projects (id, workspace_id, title, created_by) VALUES
+  ('aaaa1111-0000-0000-0000-000000003303', '11111111-1111-1111-1111-111111111111',
+   'One project', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
+  ('aaaa1111-0000-0000-0000-000000003302', '11111111-1111-1111-1111-111111111111',
+   'The other project', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+
+INSERT INTO public.folders (id, project_id, workspace_id, parent_id, kind, slug, path) VALUES
+  ('33000000-0000-0000-0000-0000000000f0', 'aaaa1111-0000-0000-0000-000000003303', '11111111-1111-1111-1111-111111111111', NULL, 'root', 'project-a', ''),
+  ('33000000-0000-0000-0000-0000000000f1', 'aaaa1111-0000-0000-0000-000000003303', '11111111-1111-1111-1111-111111111111', '33000000-0000-0000-0000-0000000000f0', 'custom', 'one', 'one'),
+  ('33000000-0000-0000-0000-0000000000f2', 'aaaa1111-0000-0000-0000-000000003303', '11111111-1111-1111-1111-111111111111', '33000000-0000-0000-0000-0000000000f0', 'custom', 'two', 'two');
+
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, size_bytes, folder_id) VALUES
+  ('aaaa1111-0000-0000-0000-000000003310', 'aaaa1111-0000-0000-0000-000000003303', 'moving.png', 'supabase',
+   'projects/aaaa1111-0000-0000-0000-000000003303/project/aaaa1111-0000-0000-0000-000000003303/1-moving.png', 10, NULL),
+  ('aaaa1111-0000-0000-0000-000000003311', 'aaaa1111-0000-0000-0000-000000003303', 'invoice-out.pdf', 'supabase',
+   'projects/aaaa1111-0000-0000-0000-000000003303/INVOICES/x/1-invoice-out.pdf', 10, NULL),
+  ('aaaa1111-0000-0000-0000-000000003312', 'aaaa1111-0000-0000-0000-000000003303', 'invoice-in.pdf', 'supabase',
+   'projects/aaaa1111-0000-0000-0000-000000003303/project/aaaa1111-0000-0000-0000-000000003303/1-invoice-in.pdf', 10, NULL),
+  ('aaaa1111-0000-0000-0000-000000003313', 'aaaa1111-0000-0000-0000-000000003303', 'filed.png', 'supabase',
+   'projects/aaaa1111-0000-0000-0000-000000003303/project/aaaa1111-0000-0000-0000-000000003303/1-filed.png', 10,
+   '33000000-0000-0000-0000-0000000000f1'),
+  ('aaaa1111-0000-0000-0000-000000003314', 'aaaa1111-0000-0000-0000-000000003303', 'both.png', 'supabase',
+   'projects/aaaa1111-0000-0000-0000-000000003303/project/aaaa1111-0000-0000-0000-000000003303/1-both.png', 10,
+   '33000000-0000-0000-0000-0000000000f1'),
+  ('aaaa1111-0000-0000-0000-000000003315', 'aaaa1111-0000-0000-0000-000000003303', 'leaving.png', 'supabase',
+   'projects/aaaa1111-0000-0000-0000-000000003303/project/aaaa1111-0000-0000-0000-000000003303/1-leaving.png', 10,
+   '33000000-0000-0000-0000-0000000000f1'),
+  ('aaaa1111-0000-0000-0000-000000003316', 'aaaa1111-0000-0000-0000-000000003303', 'trash-and-move.png', 'supabase',
+   'projects/aaaa1111-0000-0000-0000-000000003303/project/aaaa1111-0000-0000-0000-000000003303/1-trash.png', 10, NULL);
+
+-- 45: thirteen terms, each once, and nothing else.
+SELECT is(
+  (SELECT array_agg(m[1] ORDER BY m[1])
+     FROM pg_constraint c
+     CROSS JOIN LATERAL regexp_matches(pg_get_constraintdef(c.oid), '''([a-z_]+)''::text', 'g') AS m
+    WHERE c.conrelid = 'public.file_events'::regclass AND c.conname = 'file_events_event_check'),
+  ARRAY['catalogued', 'downloaded', 'moved', 'moved_in', 'moved_out', 'purged', 'refiled', 'relinked',
+        'restored', 'trashed', 'upload_abandoned', 'uploaded', 'viewed_remote']::text[],
+  'the vocabulary is exactly the thirteen terms, each once'
+);
+
+-- 46: a name-only drop that missed one would leave two vocabularies, and the narrower wins.
+SELECT is(
+  (SELECT count(*)::int FROM pg_constraint
+    WHERE conrelid = 'public.file_events'::regclass AND contype = 'c'
+      AND pg_get_constraintdef(oid) LIKE '%uploaded%'),
+  1, 'one vocabulary constraint on file_events'
+);
+
+-- 47: an unknown term is refused.
+SELECT throws_ok(
+  $$ INSERT INTO public.file_events (workspace_id, project_id, file_id, event)
+     VALUES ('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000003303',
+             'aaaa1111-0000-0000-0000-000000003399', 'renamed') $$,
+  '23514', NULL, 'an unknown term is refused'
+);
+
+-- 48-51: each new term is admitted.
+SELECT lives_ok(
+  format($f$ INSERT INTO public.file_events (workspace_id, project_id, file_id, event)
+             VALUES ('11111111-1111-1111-1111-111111111111', 'aaaa1111-0000-0000-0000-000000003303',
+                     'aaaa1111-0000-0000-0000-000000003399', %L) $f$, t),
+  format('%s is admitted', t))
+  FROM unnest(ARRAY['catalogued', 'moved_out', 'moved_in', 'refiled']) AS t;
+
+-- A project change with its locator, as a person: the actor is the caller (MV-8).
+SELECT set_config('request.jwt.claims',
+  json_build_object('sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'role', 'authenticated')::text, true);
+UPDATE public.files
+   SET project_id = 'aaaa1111-0000-0000-0000-000000003302',
+       storage_path = 'projects/aaaa1111-0000-0000-0000-000000003302/project/aaaa1111-0000-0000-0000-000000003302/1-moving.png'
+ WHERE id = 'aaaa1111-0000-0000-0000-000000003310';
+SELECT set_config('request.jwt.claims', '{}', true);
+
+-- 52-53: one row each side, under that side's project, with no paths and details '{}'.
+SELECT is(
+  (SELECT count(*)::int FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003310' AND event = 'moved_out'
+      AND project_id = 'aaaa1111-0000-0000-0000-000000003303'
+      AND old_path IS NULL AND new_path IS NULL AND details = '{}'::jsonb),
+  1, 'a project change writes one moved_out under the old project, no paths, details {}'
+);
+SELECT is(
+  (SELECT count(*)::int FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003310' AND event = 'moved_in'
+      AND project_id = 'aaaa1111-0000-0000-0000-000000003302'
+      AND old_path IS NULL AND new_path IS NULL AND details = '{}'::jsonb),
+  1, 'a project change writes one moved_in under the new project, no paths, details {}'
+);
+
+-- 54: 'moved' keeps its meaning, a locator change within one project.
+SELECT is(
+  (SELECT string_agg(event, ',' ORDER BY event) FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003310'),
+  'moved_in,moved_out,uploaded', 'no moved row on a project change, even when the locator changes with it'
+);
+
+-- 55: neither row names the other side.
+SELECT is(
+  (SELECT count(*)::int FROM public.file_events fe
+    WHERE fe.file_id = 'aaaa1111-0000-0000-0000-000000003310' AND fe.event IN ('moved_out', 'moved_in')
+      AND (strpos(to_jsonb(fe)::text, 'projects/') > 0
+           OR strpos(to_jsonb(fe)::text,
+                     CASE fe.event WHEN 'moved_out' THEN 'aaaa1111-0000-0000-0000-000000003302'
+                                   ELSE 'aaaa1111-0000-0000-0000-000000003303' END) > 0)),
+  0, 'neither side''s row names the other project or any locator'
+);
+
+-- 56: the actor is the caller, on both rows.
+SELECT is(
+  (SELECT count(*)::int FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003310' AND event IN ('moved_out', 'moved_in')
+      AND actor_user_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' AND actor_label = 'User A'),
+  2, 'both rows carry the caller'
+);
+
+-- 57-58: is_financial on every row: either side under a money segment flags both, because
+-- the rows carry no path for the money trigger to read.
+UPDATE public.files
+   SET project_id = 'aaaa1111-0000-0000-0000-000000003302',
+       storage_path = 'projects/aaaa1111-0000-0000-0000-000000003302/project/aaaa1111-0000-0000-0000-000000003302/1-invoice-out.pdf'
+ WHERE id = 'aaaa1111-0000-0000-0000-000000003311';
+UPDATE public.files
+   SET project_id = 'aaaa1111-0000-0000-0000-000000003302',
+       storage_path = 'projects/aaaa1111-0000-0000-0000-000000003302/INVOICES/x/1-invoice-in.pdf'
+ WHERE id = 'aaaa1111-0000-0000-0000-000000003312';
+SELECT is(
+  (SELECT count(*)::int FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003311' AND event IN ('moved_out', 'moved_in') AND is_financial),
+  2, 'an invoice moved out of a money segment flags both rows'
+);
+SELECT is(
+  (SELECT count(*)::int FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003312' AND event IN ('moved_out', 'moved_in') AND is_financial),
+  2, 'a file moved into a money segment flags both rows'
+);
+
+-- 59-60: a folder change within one project.
+UPDATE public.files SET folder_id = '33000000-0000-0000-0000-0000000000f2'
+ WHERE id = 'aaaa1111-0000-0000-0000-000000003313';
+SELECT is(
+  (SELECT count(*)::int FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003313' AND event = 'refiled'
+      AND project_id = 'aaaa1111-0000-0000-0000-000000003303'
+      AND old_path IS NULL AND new_path IS NULL
+      AND details = jsonb_build_object('from_folder_id', '33000000-0000-0000-0000-0000000000f1',
+                                       'to_folder_id', '33000000-0000-0000-0000-0000000000f2')),
+  1, 'a folder change writes one refiled with both folders and no paths'
+);
+SELECT is(
+  (SELECT string_agg(event, ',' ORDER BY event) FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003313'),
+  'refiled,uploaded', 'a folder change alone writes no moved row'
+);
+
+-- 61: the locator and the folder are independent facts, as trash and the path are.
+UPDATE public.files
+   SET folder_id = '33000000-0000-0000-0000-0000000000f2',
+       storage_path = 'projects/aaaa1111-0000-0000-0000-000000003303/project/aaaa1111-0000-0000-0000-000000003303/2-both.png'
+ WHERE id = 'aaaa1111-0000-0000-0000-000000003314';
+SELECT is(
+  (SELECT string_agg(event, ',' ORDER BY event) FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003314'),
+  'moved,refiled,uploaded', 'a locator and a folder change in one UPDATE write both rows'
+);
+
+-- 62: a project change leaving its folder is a project change: no refiled names the old folder.
+UPDATE public.files
+   SET project_id = 'aaaa1111-0000-0000-0000-000000003302', folder_id = NULL
+ WHERE id = 'aaaa1111-0000-0000-0000-000000003315';
+SELECT is(
+  (SELECT string_agg(event, ',' ORDER BY event) FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003315'),
+  'moved_in,moved_out,uploaded', 'a project change writes no refiled, whatever happens to the folder'
+);
+
+-- 63: trash and a project change in one UPDATE write both facts.
+UPDATE public.files
+   SET project_id = 'aaaa1111-0000-0000-0000-000000003302', deleted_at = now()
+ WHERE id = 'aaaa1111-0000-0000-0000-000000003316';
+SELECT is(
+  (SELECT string_agg(event, ',' ORDER BY event) FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003316'),
+  'moved_in,moved_out,trashed,uploaded', 'trash and a project change in one UPDATE write both facts'
+);
+
+-- 64-67: catalogued, only under this project's own catalogue check.
+SELECT set_config('wilson.network_share_writer', 'check:aaaa1111-0000-0000-0000-000000003303', true);
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, size_bytes, mime_type, source_modified_at) VALUES
+  ('aaaa1111-0000-0000-0000-000000003320', 'aaaa1111-0000-0000-0000-000000003303', 'found.mov', 'network_share',
+   'nas:Shared S/3320/found.mov', 10, 'video/mp4', '2026-01-01');
+SELECT set_config('wilson.network_share_writer', 'check:aaaa1111-0000-0000-0000-000000003302', true);
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, size_bytes, mime_type, source_modified_at) VALUES
+  ('aaaa1111-0000-0000-0000-000000003321', 'aaaa1111-0000-0000-0000-000000003303', 'other-check.mov', 'network_share',
+   'nas:Shared S/3321/other-check.mov', 10, 'video/mp4', '2026-01-01');
+SELECT set_config('wilson.network_share_writer', 'op:aaaa1111-0000-0000-0000-000000003322', true);
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, size_bytes, mime_type, source_modified_at) VALUES
+  ('aaaa1111-0000-0000-0000-000000003322', 'aaaa1111-0000-0000-0000-000000003303', 'added.mov', 'network_share',
+   'nas:Shared S/3322/added.mov', 10, 'video/mp4', '2026-01-01');
+SELECT set_config('wilson.network_share_writer', '', true);
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, size_bytes, mime_type, source_modified_at, share_bin_path) VALUES
+  ('aaaa1111-0000-0000-0000-000000003323', 'aaaa1111-0000-0000-0000-000000003303', 'binned.mov', 'network_share',
+   'nas:Shared S/3323/binned.mov', 10, 'video/mp4', '2026-01-01', 'Shared S/.wilson-bin/aaaa1111-0000-0000-0000-000000003323/binned.mov');
+SELECT is(
+  (SELECT string_agg(event, ',' ORDER BY event) FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003320'),
+  'catalogued', 'an insert under this project''s catalogue check writes catalogued and no uploaded'
+);
+SELECT is(
+  (SELECT string_agg(event, ',' ORDER BY event) FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003321'),
+  'uploaded', 'another project''s check is not this project''s: uploaded'
+);
+SELECT is(
+  (SELECT string_agg(event, ',' ORDER BY event) FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003322'),
+  'uploaded', 'an add through WILSON (the op marker) stays uploaded'
+);
+SELECT is(
+  (SELECT string_agg(event, ',' ORDER BY event) FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003323'),
+  'uploaded', 'no marker: uploaded'
+);
+
+-- 68-71: the purge certificate says where an office-server file's real body went.
+DELETE FROM public.files WHERE id IN ('aaaa1111-0000-0000-0000-000000003320', 'aaaa1111-0000-0000-0000-000000003323',
+                                      'aaaa1111-0000-0000-0000-000000003310');
+SELECT is(
+  (SELECT details ->> 'body' FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003323' AND event = 'purged'),
+  'company server bin', 'an office-server row with a bin path: its certificate says the company server bin'
+);
+SELECT is(
+  (SELECT details ->> 'body' FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003320' AND event = 'purged'),
+  'left on the company server', 'an office-server row with no bin path: left on the company server'
+);
+SELECT is(
+  (SELECT details ? 'mime_type' AND details ? 'kind' AND details ? 'was_trashed' FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003320' AND event = 'purged'),
+  true, 'the office-server certificate keeps the snapshot every certificate carries'
+);
+SELECT is(
+  (SELECT details ? 'body' FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003310' AND event = 'purged'),
+  false, 'an ordinary file''s certificate has no body line'
+);
+
+-- 72: the idiom: every INSERT classifies its row, and an audit failure never aborts the write.
+SELECT ok(
+  (SELECT regexp_count(prosrc, 'INSERT INTO public\.file_events') = 7
+      AND regexp_count(prosrc, 'public\.file_event_is_financial\(') = 8
+      AND prosrc LIKE '%EXCEPTION WHEN OTHERS THEN%'
+     FROM pg_proc WHERE oid = 'public.fn_file_events_capture()'::regprocedure),
+  'seven INSERTs, eight rows, eight classifications, and the EXCEPTION idiom kept'
+);
+
+-- 73-75: the money flag on the rows that carry no path for the money trigger to read:
+-- a flag on a plain path moved across projects, a key under a money segment re-filed, a
+-- flag on a plain path re-filed.
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, size_bytes, folder_id, is_financial) VALUES
+  ('aaaa1111-0000-0000-0000-000000003317', 'aaaa1111-0000-0000-0000-000000003303', 'flagged-move.pdf', 'supabase', 'projects/aaaa1111-0000-0000-0000-000000003303/project/aaaa1111-0000-0000-0000-000000003303/1-flagged-move.pdf', 10, NULL, true),
+  ('aaaa1111-0000-0000-0000-000000003318', 'aaaa1111-0000-0000-0000-000000003303', 'invoice-refile.pdf', 'supabase', 'projects/aaaa1111-0000-0000-0000-000000003303/INVOICES/x/1-invoice-refile.pdf', 10, '33000000-0000-0000-0000-0000000000f1', false),
+  ('aaaa1111-0000-0000-0000-000000003319', 'aaaa1111-0000-0000-0000-000000003303', 'flagged-refile.pdf', 'supabase', 'projects/aaaa1111-0000-0000-0000-000000003303/project/aaaa1111-0000-0000-0000-000000003303/1-flagged-refile.pdf', 10, '33000000-0000-0000-0000-0000000000f1', true);
+UPDATE public.files SET project_id = 'aaaa1111-0000-0000-0000-000000003302'
+ WHERE id = 'aaaa1111-0000-0000-0000-000000003317';
+UPDATE public.files SET folder_id = '33000000-0000-0000-0000-0000000000f2'
+ WHERE id IN ('aaaa1111-0000-0000-0000-000000003318', 'aaaa1111-0000-0000-0000-000000003319');
+SELECT is(
+  (SELECT count(*)::int FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003317' AND event IN ('moved_out', 'moved_in') AND is_financial),
+  2, 'a flag on a plain path moved across projects flags both rows'
+);
+SELECT is(
+  (SELECT is_financial FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003318' AND event = 'refiled'),
+  true, 'a file under a money segment, re-filed: its refiled row is flagged'
+);
+SELECT is(
+  (SELECT is_financial FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003319' AND event = 'refiled'),
+  true, 'a flagged file on a plain path, re-filed: its refiled row is flagged'
+);
+
+-- 76-77: and a plain member reads none of it, with the presence control beside it.
+SELECT tests.login_as('cccccccc-cccc-cccc-cccc-cccccccccccc', '11111111-1111-1111-1111-111111111111');
+SELECT is(
+  (SELECT count(*)::int FROM public.file_events
+    WHERE file_id IN ('aaaa1111-0000-0000-0000-000000003317', 'aaaa1111-0000-0000-0000-000000003318',
+                      'aaaa1111-0000-0000-0000-000000003319')),
+  0, 'a plain member reads no row of the three, the moves and the re-filings included'
+);
+SELECT is(
+  (SELECT count(*)::int FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003313' AND event = 'refiled'),
+  1, 'PRESENCE CONTROL for 76: the same member reads a plain file''s refiled row'
+);
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+-- 78: a move to the project's top level, its folder still standing, is a re-filing.
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, size_bytes, folder_id) VALUES
+  ('aaaa1111-0000-0000-0000-000000003326', 'aaaa1111-0000-0000-0000-000000003303', 'to-the-top.png', 'supabase', 'projects/aaaa1111-0000-0000-0000-000000003303/project/aaaa1111-0000-0000-0000-000000003303/1-to-the-top.png', 10, '33000000-0000-0000-0000-0000000000f1');
+UPDATE public.files SET folder_id = NULL WHERE id = 'aaaa1111-0000-0000-0000-000000003326';
+SELECT is(
+  (SELECT details FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003326' AND event = 'refiled'),
+  jsonb_build_object('from_folder_id', '33000000-0000-0000-0000-0000000000f1', 'to_folder_id', NULL),
+  'a move to the top level, the folder still there, writes refiled with to_folder_id null'
+);
+
+-- 79: a folder deleted empties its files' folder through the foreign key: nobody re-filed them.
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, size_bytes, folder_id) VALUES
+  ('aaaa1111-0000-0000-0000-000000003324', 'aaaa1111-0000-0000-0000-000000003303', 'orphaned.png', 'supabase', 'projects/aaaa1111-0000-0000-0000-000000003303/project/aaaa1111-0000-0000-0000-000000003303/1-orphaned.png', 10, '33000000-0000-0000-0000-0000000000f1');
+DELETE FROM public.folders WHERE id = '33000000-0000-0000-0000-0000000000f1';
+SELECT is(
+  (SELECT string_agg(e.event, ',' ORDER BY e.event) || '|' || (SELECT count(*) FROM public.files f
+                                                                WHERE f.id = e.file_id AND f.folder_id IS NULL)
+     FROM public.file_events e
+    WHERE e.file_id = 'aaaa1111-0000-0000-0000-000000003324'
+    GROUP BY e.file_id),
+  'uploaded|1', 'a folder''s delete empties the file''s folder and writes no refiled'
+);
+
+-- 80: a parent folder deleted takes its child with it, and the child's file is emptied the
+-- same way: the folder it left is gone by the time the capture fires.
+INSERT INTO public.folders (id, project_id, workspace_id, parent_id, kind, slug, path) VALUES
+  ('33000000-0000-0000-0000-0000000000f4', 'aaaa1111-0000-0000-0000-000000003303', '11111111-1111-1111-1111-111111111111', '33000000-0000-0000-0000-0000000000f0', 'custom', 'parent', 'parent'),
+  ('33000000-0000-0000-0000-0000000000f5', 'aaaa1111-0000-0000-0000-000000003303', '11111111-1111-1111-1111-111111111111', '33000000-0000-0000-0000-0000000000f4', 'custom', 'child', 'parent/child');
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, size_bytes, folder_id) VALUES
+  ('aaaa1111-0000-0000-0000-000000003327', 'aaaa1111-0000-0000-0000-000000003303', 'in-the-child.png', 'supabase', 'projects/aaaa1111-0000-0000-0000-000000003303/project/aaaa1111-0000-0000-0000-000000003303/1-in-the-child.png', 10, '33000000-0000-0000-0000-0000000000f5');
+DELETE FROM public.folders WHERE id = '33000000-0000-0000-0000-0000000000f4';
+SELECT is(
+  (SELECT string_agg(e.event, ',' ORDER BY e.event) || '|' || (SELECT count(*) FROM public.files f
+                                                                WHERE f.id = e.file_id AND f.folder_id IS NULL)
+     FROM public.file_events e
+    WHERE e.file_id = 'aaaa1111-0000-0000-0000-000000003327'
+    GROUP BY e.file_id),
+  'uploaded|1', 'a parent folder''s delete empties the file in its child and writes no refiled'
+);
+
+-- 81: a project purged writes each filed file's certificate. The file goes before any folder's
+-- key can empty it, so this holds the certificate and not the folder test.
+INSERT INTO public.projects (id, workspace_id, title, created_by) VALUES
+  ('aaaa1111-0000-0000-0000-000000003304', '11111111-1111-1111-1111-111111111111', 'Purged', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+INSERT INTO public.folders (id, project_id, workspace_id, parent_id, kind, slug, path) VALUES
+  ('33000000-0000-0000-0000-0000000000f3', 'aaaa1111-0000-0000-0000-000000003304', '11111111-1111-1111-1111-111111111111', NULL, 'root', 'purged', '');
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, size_bytes, folder_id) VALUES
+  ('aaaa1111-0000-0000-0000-000000003325', 'aaaa1111-0000-0000-0000-000000003304', 'purged.png', 'supabase',
+   'projects/aaaa1111-0000-0000-0000-000000003304/project/aaaa1111-0000-0000-0000-000000003304/1-purged.png', 10,
+   '33000000-0000-0000-0000-0000000000f3');
+DELETE FROM public.projects WHERE id = 'aaaa1111-0000-0000-0000-000000003304';
+SELECT is(
+  (SELECT string_agg(event, ',' ORDER BY event) FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003325'),
+  'purged,uploaded', 'a project''s purge writes the certificate and no refiled'
 );
 
 SELECT * FROM finish();

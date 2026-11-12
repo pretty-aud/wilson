@@ -122,9 +122,9 @@ describe('the orphan scan asks before it deletes', () => {
     // The question is answered by the files table, live or trashed rows
     // alike (the admin client), by the pattern, within the project (the
     // indexed column), with one row enough; and ONLY by an answer.
-    expect(GC).toMatch(/named = await rowNamesTwin\(ctx, projectId, twin\)/)
+    expect(GC).toMatch(/named = await rowNamesTwin\(ctx, twin\)/)
     expect(GC).toMatch(/if \(named\) \{ counts\.skipped_twin\+\+; continue \}/)
-    expect(GC).toMatch(/from\('files'\)\.select\('id'\)\.eq\('project_id', projectId\)\.like\('storage_path', pattern\)\.limit\(1\)/)
+    expect(GC).toMatch(/from\('files'\)\.select\('id'\)\.in\('storage_provider', \['supabase', 's3', 'local_server'\]\)\.like\('storage_path', pattern\)\.limit\(1\)/)
     expect(GC).toMatch(/return \(data \?\? \[\]\)\.length > 0/)
     expect(GC).toMatch(/skipped_twin: number/)
     expect(GC).toMatch(/skipped_twin: 0/)
@@ -133,11 +133,11 @@ describe('the orphan scan asks before it deletes', () => {
   it('FAILS CLOSED: a files read that errors — the referenced-path lookup or the twin question — throws and ends that project\'s scan with nothing removed, counted; the lookup is chunked by encoded length', () => {
     // Both readers destructure `error` and throw on it (round 2, item 2: a
     // failed read answered as "no row" made a whole chunk deletable).
-    expect(GC).toMatch(/const \{ data, error \} = await ctx\.admin\.from\('files'\)\.select\('storage_path'\)\.in\('storage_path', chunk\)\s*if \(error\) throw new Error/)
-    expect(GC).toMatch(/const \{ data, error \} = await ctx\.admin\.from\('files'\)\.select\('id'\)\.eq\('project_id', projectId\)\.like\('storage_path', pattern\)\.limit\(1\)\s*if \(error\) throw new Error/)
+    expect(GC).toMatch(/const \{ data, error \} = await ctx\.admin\.from\('files'\)\.select\('storage_path'\)\.in\('storage_provider', \['supabase', 's3', 'local_server'\]\)\.in\('storage_path', chunk\)\s*if \(error\) throw new Error/)
+    expect(GC).toMatch(/const \{ data, error \} = await ctx\.admin\.from\('files'\)\.select\('id'\)\.in\('storage_provider', \['supabase', 's3', 'local_server'\]\)\.like\('storage_path', pattern\)\.limit\(1\)\s*if \(error\) throw new Error/)
     // The orphan loop catches each, counts it, and goes on to the next project.
     expect(GC).toMatch(/referenced = await referencedPaths\(ctx, objects\.map\(o => o\.path\)\)\s*\} catch \(err\) \{\s*counts\.scan_failed\+\+/)
-    expect(GC).toMatch(/named = await rowNamesTwin\(ctx, projectId, twin\)\s*\} catch \(err\) \{\s*counts\.scan_failed\+\+/)
+    expect(GC).toMatch(/named = await rowNamesTwin\(ctx, twin\)\s*\} catch \(err\) \{\s*counts\.scan_failed\+\+/)
     expect(GC).toMatch(/scan_failed: number/)
     expect(GC).toMatch(/scan_failed: 0/)
     // The `.in()` chunks are cut by what the URL will carry, not by count.

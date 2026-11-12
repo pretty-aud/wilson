@@ -1479,7 +1479,8 @@ describe('review round two', () => {
           const box = within(main).getByRole('textbox', { name: label })
           expect(document.activeElement, `${name}: ${label} ${close}`).toBe(box)
           if (close === 'Escape') fireEvent.keyDown(box, { key: 'Escape' })
-          else fireEvent.click(within(box.parentElement).getByRole('button', { name: close }))
+          // The editor's own Save and Cancel, in its field's section (MO3: the box sits in its own holder).
+          else fireEvent.click(within(box.closest('.rb-scene-detail-text')).getByRole('button', { name: close }))
           expect([inBody(), document.activeElement === within(main).getByRole('button', { name: words })], `${name}: ${label} ${close}`).toEqual([false, true])
         }
       }
@@ -3711,5 +3712,69 @@ describe('VW1b: the scene window counts its assets through scene_ids', () => {
     expect(within(dialog.querySelector('.rb-scene-detail-side')).getByText('Fresnel lamp')).toBeTruthy()
     expect(within(dialog.querySelector('.rb-scene-detail-side')).getByText('Rope')).toBeTruthy()
     expect(within(dialog.querySelector('.rb-scene-detail-side')).queryByText('Old link')).toBeNull()
+  })
+})
+
+describe("MO3: a scene's words take [[ and #, and draw their links", () => {
+  const KEY = 'a1b2c3d4e5f6'
+  const NEW = 'b2c3d4e5f6a1'
+  const fakeAdapter = () => ({
+    listMothItemRelationships: vi.fn(async (kind, id) => (kind === 'scene' && id === 'sc1'
+      ? { out: [{ key: KEY, kind: 'asset', id: 'aaaa', name: 'Lighthouse model', project_id: 'p1' }], in: [] }
+      : { out: [], in: [] })),
+    listMothMentionCandidates: vi.fn(async () => [{ kind: 'asset', id: 'aaaa', name: 'Lighthouse model', project_id: 'p1' }]),
+    reserveMothMention: vi.fn(async () => NEW),
+    listMothTags: vi.fn(async () => []),
+    listMothTagAssignments: vi.fn(async () => []),
+  })
+
+  it("a saved description draws a seen link's words as a link, any other token's words alone, and never the code", async () => {
+    const scenes = SCENES()
+    scenes[0].description = `See [[the model|m:${KEY}]] and [[a hidden thing|m:0f0f0f0f0f0f]].`
+    const adapter = fakeAdapter()
+    page({ scenes, getAdapter: () => adapter })
+    const main = openScenePopup().querySelector('.rb-scene-detail-main')
+    await waitFor(() => expect(main.querySelector('.rb-mention-link')?.textContent).toBe('the model'))
+    expect(main.textContent).toContain('a hidden thing')
+    expect(main.textContent).not.toMatch(/m:[0-9a-f]|\[\[/)
+    expect(adapter.listMothItemRelationships).toHaveBeenCalledWith('scene', 'sc1')
+  })
+
+  it('the box asks at [[, Enter puts the link where [[ began, and Save writes it', async () => {
+    const adapter = fakeAdapter()
+    const { ctx } = page({ getAdapter: () => adapter })
+    const main = openScenePopup().querySelector('.rb-scene-detail-main')
+    fireEvent.click(within(main).getByRole('button', { name: 'Mara lets herself in.' }))
+    const box = within(main).getByRole('textbox', { name: 'Description' })
+    expect(box.getAttribute('aria-autocomplete')).toBe('list')
+    const text = 'Mara lets herself in. [[li'
+    fireEvent.change(box, { target: { value: text, selectionStart: text.length, selectionEnd: text.length } })
+    box.setSelectionRange(text.length, text.length)
+    await within(main).findByRole('listbox')
+    await act(async () => { fireEvent.keyDown(box, { key: 'Enter' }) })
+    const linked = `Mara lets herself in. [[Lighthouse model|m:${NEW}]] `
+    await waitFor(() => expect(box.value).toBe(linked))
+    expect(adapter.reserveMothMention).toHaveBeenCalledWith('asset', 'aaaa')
+    fireEvent.click(within(box.closest('.rb-scene-detail-text')).getByRole('button', { name: 'Save' }))
+    expect(ctx.updateScene).toHaveBeenLastCalledWith('sc1', { description: linked })
+  })
+
+  it('the links are read again once the save has landed, not only on a timer', async () => {
+    const adapter = fakeAdapter()
+    let land
+    const { ctx } = page({ getAdapter: () => adapter })
+    ctx.updateScene.mockImplementation(() => new Promise(r => { land = r }))
+    const main = openScenePopup().querySelector('.rb-scene-detail-main')
+    // The first read, and the timer's read a moment after the window opens.
+    await waitFor(() => expect(adapter.listMothItemRelationships.mock.calls.length).toBeGreaterThanOrEqual(2), { timeout: 3000 })
+    fireEvent.click(within(main).getByRole('button', { name: 'Mara lets herself in.' }))
+    const box = within(main).getByRole('textbox', { name: 'Description' })
+    fireEvent.change(box, { target: { value: 'Mara lets herself in. Again.' } })
+    fireEvent.click(within(box.closest('.rb-scene-detail-text')).getByRole('button', { name: 'Save' }))
+    const before = adapter.listMothItemRelationships.mock.calls.length
+    await act(async () => { await new Promise(r => setTimeout(r, 30)) })
+    expect(adapter.listMothItemRelationships.mock.calls.length).toBe(before)
+    await act(async () => { land({}) })
+    await waitFor(() => expect(adapter.listMothItemRelationships.mock.calls.length).toBe(before + 1))
   })
 })

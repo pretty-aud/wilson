@@ -229,3 +229,14 @@ describe('the wiring is real: the two functions that reach a bucket go through s
     expect(helper).toContain("redirect: 'manual'")
   })
 })
+
+describe('round 2: the drain and the collector, read from their source', () => {
+  const src = (...p) => readFileSync(join(process.cwd(), ...p), 'utf-8')
+  it('🚨 a bucket that stopped answering is asked once in a run, so what follows the drain still runs', () => {
+    const gc = src('supabase', 'functions', 'storage-gc', 'index.ts')
+    expect(gc).toMatch(/catch \(err\) \{\n\s+const message = [^\n]+\n(?:\s+\/\/[^\n]*\n)+\s+s3DrainMemo = \{ ok: false,/)
+  })
+  it('🚨 a queue row naming no uuid cannot stop a teardown', () => {
+    expect(src('supabase', 'functions', '_shared', 'teardownCollect.ts')).toMatch(/seg\[0\] === 'projects' && \/\^\[0-9a-f\]\{8\}/)
+  })
+})

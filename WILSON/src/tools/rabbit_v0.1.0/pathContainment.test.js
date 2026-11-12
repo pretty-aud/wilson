@@ -165,11 +165,13 @@ describe('wiring — electron/main.cjs uses the extracted guard', () => {
     expect(body).toContain("event:            'downloaded'")
     expect(body).toContain('writeRabbitBundle(')
   })
-  it('the delete route containment-checks before unlink', () => {
-    const idx = MAIN.indexOf("expressApp.delete('/api/rabbit/projects/:projectId/files/:id'")
-    expect(idx).toBeGreaterThan(-1)
-    const body = MAIN.slice(idx, MAIN.indexOf('unlinkSync', idx) + 20)
-    expect(body).toContain('resolveContainedFilePath(')
+  it('the delete route, in fileTrash.cjs since MO1, containment-checks before any rename or unlink', () => {
+    const TRASH = read('../../../electron/fileTrash.cjs')
+    expect(MAIN).toContain("require('./fileTrash.cjs').mountFileTrash(expressApp")
+    expect(TRASH.indexOf('resolveContainedFilePath(')).toBeGreaterThan(-1)
+    expect(TRASH.indexOf('resolveContainedFilePath(')).toBeLessThan(TRASH.indexOf('fs.renameSync'))
+    const purge = TRASH.slice(TRASH.indexOf('purge-expired'))
+    expect(purge.indexOf('resolveContainedFilePath(')).toBeLessThan(purge.indexOf('fs.unlinkSync'))
   })
   it('isUserAuthorizedRelinkDir compares via isPathInside', () => {
     const idx = MAIN.indexOf('function isUserAuthorizedRelinkDir')

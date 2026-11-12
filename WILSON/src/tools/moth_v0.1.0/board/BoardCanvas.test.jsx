@@ -1,0 +1,1831 @@
+// @vitest-environment jsdom
+// BoardCanvas.test.jsx — MO4 boards: the canvas mounted with Konva's own build under jsdom. jsdom has no 2D
+// context, so each canvas is handed a stand-in that answers every call and measures text by its length; Konva's
+// nodes, events and Transformer are the real ones. The store, the room (live) and sticky turns are stand-ins that
+// keep to the design's interfaces.
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest'
+import { render, screen, fireEvent, cleanup, act, waitFor } from '@testing-library/react'
+import Konva from 'konva'
+import BoardCanvas, {
+  READ_ONLY_WORDS, TURN_ENDED_WORDS, targetSizes, elementIdOf, writingWords, NO_FILES_WORDS, DROP_WORDS, addingWords, mediaBox,
+  dragHasFiles, FRAME_REMOVED_WORDS,
+} from './BoardCanvas.jsx'
+import { MISSING_WORDS, shapePath } from './shapes.js'
+import { createBoardStore } from './boardStore.js'
+
+const METHODS = ['arc', 'arcTo', 'beginPath', 'bezierCurveTo', 'clearRect', 'clip', 'closePath', 'drawImage', 'ellipse', 'fill',
+  'fillRect', 'fillText', 'lineTo', 'moveTo', 'putImageData', 'quadraticCurveTo', 'rect', 'restore', 'rotate', 'save', 'scale',
+  'setLineDash', 'setTransform', 'stroke', 'strokeRect', 'strokeText', 'transform', 'translate', 'resetTransform', 'roundRect']
+function standInContext(canvas) {
+  const ctx = { canvas, fillStyle: '#000000', strokeStyle: '#000000', lineWidth: 1, font: '10px sans-serif', globalAlpha: 1, lineCap: 'butt', lineJoin: 'miter', textBaseline: 'alphabetic', textAlign: 'left', filter: 'none' }
+  for (const m of METHODS) ctx[m] = () => {}
+  ctx.measureText = (t) => ({ width: String(t ?? '').length * 7, actualBoundingBoxAscent: 8, actualBoundingBoxDescent: 2, fontBoundingBoxAscent: 9, fontBoundingBoxDescent: 3 })
+  ctx.getImageData = (x, y, w, h) => ({ data: new Uint8ClampedArray(Math.max(1, Math.floor(w) * Math.floor(h)) * 4) })
+  ctx.createImageData = (w, h) => ({ data: new Uint8ClampedArray(Math.max(1, w * h) * 4) })
+  ctx.getLineDash = () => []
+  ctx.getTransform = () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 })
+  ctx.createLinearGradient = () => ({ addColorStop() {} })
+  ctx.createRadialGradient = () => ({ addColorStop() {} })
+  ctx.createPattern = () => ({})
+  ctx.isPointInPath = () => false
+  ctx.isPointInStroke = () => false
+  return ctx
+}
+let realGetContext
+beforeAll(() => {
+  realGetContext = HTMLCanvasElement.prototype.getContext
+  HTMLCanvasElement.prototype.getContext = function getContext() {
+    if (!this.__standIn) this.__standIn = standInContext(this)
+    return this.__standIn
+  }
+})
+afterAll(() => { HTMLCanvasElement.prototype.getContext = realGetContext })
+afterEach(() => { cleanup(); vi.useRealTimers() })
+
+// ---- stand-ins ----------------------------------------------------------------------------------------------------
+function fakeStore(initial = [], { canWrite = true } = {}) {
+  const els = new Map(initial.map((e) => [e.id, { version: 1, rotation: 0, z: 0, style: {}, body: null, points: null, ...e }]))
+  const subs = new Set()
+  let n = 0
+  const notify = (evt) => { for (const fn of [...subs]) fn(evt) }
+  const store = {
+    getBoard: () => ({ id: 'b1', folder_id: 'f1', project_id: 'p1', title: 'Plans', can_write: canWrite }),
+    getElements: () => els,
+    subscribe: vi.fn((fn) => { subs.add(fn); return () => subs.delete(fn) }),
+    add: vi.fn((el) => { n += 1; const id = `new-${n}`; els.set(id, { version: 0, rotation: 0, z: 0, style: {}, ...el, id }); notify(); return id }),
+    update: vi.fn((id, patch) => { const el = els.get(id); if (el) { els.set(id, { ...el, ...patch, version: (el.version || 0) + 1 }); notify() } }),
+    remove: vi.fn((ids) => { for (const id of ids) els.delete(id); notify() }),
+    undo: vi.fn(),
+    redo: vi.fn(),
+    canUndo: () => false,
+    canRedo: () => false,
+    applyRemote: vi.fn((msg) => { for (const e of msg.elements) els.set(e.id, e); notify() }),
+    flush: vi.fn(async () => {}),
+    dispose: vi.fn(),
+    // test-only
+    say: (words) => notify({ type: 'notice', words }),
+    put: (el) => { els.set(el.id, el); notify() },
+    rename: (from, to) => { const el = els.get(from); els.delete(from); els.set(to, { ...el, id: to }); notify({ type: 'renamed', from, to }) },
+  }
+  return store
+}
+function fakeLive() {
+  const subs = new Set()
+  let cursors = new Map()
+  return {
+    sendPointer: vi.fn(),
+    sendDrag: vi.fn(),
+    cursors: () => cursors,
+    people: () => [{ id: 'u2', label: 'Mara Okonkwo', colour: '#AA3377' }],
+    subscribe: vi.fn((fn) => { subs.add(fn); return () => subs.delete(fn) }),
+    stats: () => ({ sent: 0, received: 0 }),
+    leave: vi.fn(),
+    setCursors(next) { cursors = next; for (const fn of subs) fn() },
+  }
+}
+function fakeTurns({ granted = true, holderLabel = null, save = { ok: true }, events = false } = {}) {
+  let glow = new Map()
+  const subs = new Set()
+  const turns = {
+    begin: vi.fn(async () => ({ granted, holderLabel })),
+    save: vi.fn(async () => save),
+    end: vi.fn(),
+    glow: () => glow,
+    applyMessage: vi.fn(),
+    refresh: vi.fn(async () => {}),
+    dispose: vi.fn(),
+    setGlow(next) { glow = next },
+    tell(evt) { for (const fn of subs) fn(evt) },
+  }
+  if (events) turns.subscribe = vi.fn((fn) => { subs.add(fn); return () => subs.delete(fn) })
+  return turns
+}
+function fakeEscape() {
+  const stack = []
+  return {
+    stack,
+    push: vi.fn((fn) => { stack.push(fn); return () => { const i = stack.indexOf(fn); if (i >= 0) stack.splice(i, 1) } }),
+    press() { for (let i = stack.length - 1; i >= 0; i -= 1) if (stack[i]()) return true; return false },
+  }
+}
+
+const RECT = { id: 'a', kind: 'shape', shape: 'rectangle', x: 0, y: 0, w: 100, h: 50, z: 1, body: 'Hello' }
+const OTHER = { id: 'b', kind: 'shape', shape: 'circle', x: 300, y: 0, w: 80, h: 80, z: 2 }
+
+const stageNow = () => Konva.stages[Konva.stages.length - 1]
+const groupOf = (id) => stageNow().findOne((n) => n.attrs.elementId === id)
+const named = (name) => stageNow().find((n) => n.name() === name)
+const layer = (name) => stageNow().getLayers().find((l) => l.name() === name)
+const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 40)) })
+
+function pointerEvent(type, init = {}) {
+  const e = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: 0, clientY: 0, button: 0, ...init })
+  Object.defineProperty(e, 'pointerId', { value: init.pointerId ?? 1 })
+  Object.defineProperty(e, 'pointerType', { value: init.pointerType ?? 'mouse' })
+  return e
+}
+// A press on a node (Konva's own event, bubbling to the stage), then moves and a release on the window.
+function press(node, at, extra = {}) {
+  act(() => { node.fire('pointerdown', { evt: { button: 0, pointerId: 1, pointerType: 'mouse', clientX: at.x, clientY: at.y, ...extra } }, true) })
+}
+function moveTo(at, extra = {}) { act(() => { window.dispatchEvent(pointerEvent('pointermove', { clientX: at.x, clientY: at.y, ...extra })) }) }
+function release(at, extra = {}) { act(() => { window.dispatchEvent(pointerEvent('pointerup', { clientX: at.x, clientY: at.y, ...extra })) }) }
+
+async function mount(props = {}) {
+  const store = props.store ?? fakeStore([RECT, OTHER])
+  const out = render(<BoardCanvas store={store} canWrite inputMode="mouse" {...props} />)
+  await settle()
+  return { ...out, store, stage: stageNow() }
+}
+
+const toScreen = (b) => { const s = stageNow(); return { x: s.x() + b.x * s.scaleX(), y: s.y() + b.y * s.scaleY() } }
+const region = () => screen.getByRole('region', { name: 'Board' })
+const host = () => document.querySelector('[data-moth-board-stage]')
+
+const STICKY_FILE = { id: 'f9', name: 'note.md', mime_type: 'text/markdown', folder_id: 'f1', project_id: 'p1' }
+const STICKY = { id: 's', kind: 'sticky', x: 0, y: 200, w: 200, h: 200, z: 4, file: STICKY_FILE, missing: false }
+const stickyAdapter = (text = 'Buy milk') => ({ readStickyText: vi.fn(async () => text), fileUrl: vi.fn(async () => null) })
+
+describe('BoardCanvas — drawing every kind', () => {
+  it('draws each element as a group of its own, with the shape\'s own path and words', async () => {
+    await mount()
+    const a = groupOf('a')
+    expect(a).toBeTruthy()
+    expect(groupOf('b')).toBeTruthy()
+    expect(a.findOne('Path').data()).toBe(shapePath('rectangle', 100, 50, {}))
+    expect(a.findOne('Text').text()).toBe('Hello')
+    // Drawn in z order, as the server pages.
+    expect(layer('content').getChildren().map((g) => g.attrs.elementId)).toEqual(['a', 'b'])
+  })
+
+  it('frames with names, pen strokes, text, files, a missing file\'s stop sign', async () => {
+    const adapter = { fileUrl: vi.fn(async () => null), readStickyText: vi.fn(async () => '') }
+    const store = fakeStore([
+      { id: 'fr', kind: 'frame', x: -400, y: -400, w: 300, h: 200, z: 0, body: 'Ideas' },
+      { id: 'pen1', kind: 'pen', x: 0, y: 0, w: 10, h: 10, z: 1, points: [0, 0, 5, 8, 10, 10] },
+      { id: 't', kind: 'text', x: 0, y: 100, w: 200, h: 30, z: 2, body: 'Plain words' },
+      { id: 'pic', kind: 'media', x: 200, y: 0, w: 160, h: 120, z: 3, file: { id: 'f2', name: 'still.png', mime_type: 'image/png' }, missing: false },
+      { id: 'doc', kind: 'embed', x: 400, y: 0, w: 160, h: 120, z: 4, file: { id: 'f3', name: 'script.pdf', mime_type: 'application/pdf' }, missing: false },
+      { id: 'gone', kind: 'media', x: 600, y: 0, w: 160, h: 120, z: 5, file: null, missing: true },
+    ])
+    await mount({ store, adapter })
+    await settle()
+    expect(named('frame-title')[0].text()).toBe('Ideas')
+    expect(groupOf('pen1').findOne('Line').points()).toEqual([0, 0, 5, 8, 10, 10])
+    expect(groupOf('t').findOne('Text').text()).toBe('Plain words')
+    // A picture asks for its file's address (no stream for a still); with none to be had it is a tile with its name.
+    expect(adapter.fileUrl).toHaveBeenCalledWith(expect.objectContaining({ id: 'f2' }), { stream: false })
+    expect(groupOf('pic').findOne('.file-words').text()).toBe('still.png\nPicture')
+    expect(groupOf('doc').findOne('.file-words').text()).toBe('script.pdf\nFile')
+    // The stop-sign tile: the words, and no name of anything.
+    const gone = groupOf('gone')
+    expect(gone.findOne('.missing-words').text()).toBe(MISSING_WORDS)
+    expect(gone.find('Text').map((t) => t.text())).toEqual([MISSING_WORDS])
+  })
+
+  it('a sticky shows its markdown file\'s words as text', async () => {
+    const adapter = stickyAdapter('# Shopping\nBuy milk')
+    await mount({ store: fakeStore([STICKY]), adapter })
+    await settle()
+    expect(adapter.readStickyText).toHaveBeenCalledWith(STICKY_FILE)
+    expect(groupOf('s').findOne('.sticky-words').text()).toBe('# Shopping\nBuy milk')
+  })
+
+  it('a connector\'s ends follow their elements by id and anchor', async () => {
+    const store = fakeStore([RECT, OTHER, { id: 'c', kind: 'connector', x: 0, y: 0, w: 1, h: 1, z: 3, points: [0, 0, 1, 1], from_id: 'a', from_anchor: 'right', to_id: 'b', to_anchor: 'left', style: { end_head: 'none' } }])
+    await mount({ store })
+    const line = () => groupOf('c').findOne('.connector-line')
+    expect(line().points()).toEqual([100, 25, 300, 40])
+    act(() => store.update('a', { x: -50, y: 10 }))
+    await settle()
+    expect(line().points()).toEqual([50, 35, 300, 40])
+    // The element goes: its end stays where it was last stored.
+    act(() => store.remove(['b']))
+    await settle()
+    expect(line().points().slice(-2)).toEqual([1, 1])
+  })
+})
+
+describe('BoardCanvas — select, move, snap', () => {
+  it('a press selects; a drag moves, snapping to another element\'s edge, saved once when it settles', async () => {
+    const live = fakeLive()
+    const { store } = await mount({ live })
+    const a = groupOf('a')
+    const start = toScreen({ x: 50, y: 25 })
+    press(a.findOne('Path'), start)
+    expect(stageNow().findOne('Transformer').nodes()).toEqual([a])
+    moveTo({ x: start.x + 100, y: start.y })
+    moveTo({ x: start.x + 197, y: start.y + 2 })
+    // While it moves: drawn where the hand is (snapped), told to the room, not saved.
+    expect(a.x()).toBe(200)
+    expect(a.y()).toBe(0)
+    expect(named('guide').length).toBeGreaterThan(0)
+    expect(live.sendDrag).toHaveBeenLastCalledWith('a', 200, 0)
+    expect(store.update).not.toHaveBeenCalled()
+    release({ x: start.x + 197, y: start.y + 2 })
+    expect(store.update).toHaveBeenCalledTimes(1)
+    expect(store.update).toHaveBeenCalledWith('a', { x: 200, y: 0 }, { settled: true })
+    expect(named('guide')).toHaveLength(0)
+  })
+
+  it('Alt holds snapping off', async () => {
+    const { store } = await mount()
+    const start = toScreen({ x: 50, y: 25 })
+    press(groupOf('a').findOne('Path'), start)
+    moveTo({ x: start.x + 197, y: start.y + 2 }, { altKey: true })
+    release({ x: start.x + 197, y: start.y + 2 })
+    expect(store.update).toHaveBeenCalledWith('a', { x: 197, y: 2 }, { settled: true })
+  })
+
+  it('what changes under a drag is drawn when it lets go', async () => {
+    const { store } = await mount()
+    const start = toScreen({ x: 50, y: 25 })
+    press(groupOf('a').findOne('Path'), start)
+    moveTo({ x: start.x + 40, y: start.y + 40 })
+    act(() => store.put({ ...store.getElements().get('a'), style: { fill: '#F28B82' }, version: 9 }))
+    await settle()
+    expect(groupOf('a').x()).toBe(40) // the hand still has it
+    release({ x: start.x + 40, y: start.y + 40 })
+    await settle()
+    expect(groupOf('a').findOne('Path').fill()).toBe('#F28B82')
+  })
+
+  it('a dragged rectangle on empty board selects what lies inside it', async () => {
+    await mount()
+    const from = toScreen({ x: -20, y: -20 })
+    const to = toScreen({ x: 150, y: 100 })
+    press(stageNow(), from)
+    moveTo(to)
+    expect(layer('overlay').find('Rect').some((r) => r.visible() && r.width() === 170 && r.height() === 120)).toBe(true)
+    release(to)
+    await settle()
+    expect(stageNow().findOne('Transformer').nodes().map((n) => n.attrs.elementId)).toEqual(['a'])
+  })
+
+  it('a frame carries what lies inside it', async () => {
+    const store = fakeStore([
+      { id: 'fr', kind: 'frame', x: 0, y: 0, w: 400, h: 300, z: 0, body: 'Ideas' },
+      { id: 'in', kind: 'shape', shape: 'rectangle', x: 20, y: 20, w: 50, h: 50, z: 1 },
+      { id: 'out', kind: 'shape', shape: 'rectangle', x: 1000, y: 20, w: 50, h: 50, z: 2 },
+    ])
+    await mount({ store })
+    expect(stageNow().scaleX()).toBeLessThan(1) // fitted to show all three
+    press(groupOf('fr').findOne('Rect'), toScreen({ x: 200, y: 200 }))
+    moveTo(toScreen({ x: 233, y: 241 }), { altKey: true })
+    release(toScreen({ x: 233, y: 241 }), { altKey: true })
+    expect(store.update).toHaveBeenCalledWith('fr', { x: 33, y: 41 }, { settled: true })
+    expect(store.update).toHaveBeenCalledWith('in', { x: 53, y: 61 }, { settled: true })
+    expect(store.update).not.toHaveBeenCalledWith('out', expect.anything(), expect.anything())
+  })
+
+  it('resize through the transformer saves the new size, never a scale', async () => {
+    const { store } = await mount()
+    press(groupOf('a').findOne('Path'), toScreen({ x: 50, y: 25 }))
+    release(toScreen({ x: 50, y: 25 }))
+    const tr = stageNow().findOne('Transformer')
+    const a = groupOf('a')
+    act(() => { tr.fire('transformstart'); a.scaleX(2); a.rotation(30); tr.fire('transform'); tr.fire('transformend') })
+    expect(store.update).toHaveBeenCalledWith('a', { x: 0, y: 0, w: 200, h: 50, rotation: 30 }, { settled: true })
+    expect(groupOf('a').scaleX()).toBe(1)
+  })
+
+  it('keys: Delete removes, arrows nudge, ctrl+z undoes, letters pick tools', async () => {
+    const { store } = await mount()
+    press(groupOf('a').findOne('Path'), toScreen({ x: 50, y: 25 }))
+    release(toScreen({ x: 50, y: 25 }))
+    fireEvent.keyDown(region(), { key: 'ArrowRight' })
+    expect(store.update).toHaveBeenCalledWith('a', { x: 1, y: 0 }, { settled: true })
+    fireEvent.keyDown(region(), { key: 'ArrowDown', shiftKey: true })
+    expect(store.update).toHaveBeenLastCalledWith('a', { x: 1, y: 10 }, { settled: true })
+    fireEvent.keyDown(region(), { key: 'z', ctrlKey: true })
+    expect(store.undo).toHaveBeenCalledTimes(1)
+    fireEvent.keyDown(region(), { key: 'z', ctrlKey: true, shiftKey: true })
+    expect(store.redo).toHaveBeenCalledTimes(1)
+    fireEvent.keyDown(region(), { key: 'Delete' })
+    expect(store.remove).toHaveBeenCalledWith(['a'])
+    fireEvent.keyDown(region(), { key: 'p' })
+    expect(screen.getByTitle('Pen (P)').getAttribute('aria-pressed')).toBe('true')
+    // On a button, Space and Enter are the button's (they press it); every other key is the board's.
+    expect(fireEvent.keyDown(screen.getByTitle('Select (V)'), { key: ' ' })).toBe(true) // not taken
+    expect(fireEvent.keyDown(screen.getByTitle('Select (V)'), { key: 'Enter' })).toBe(true)
+    expect(screen.getByTitle('Pen (P)').getAttribute('aria-pressed')).toBe('true')
+    fireEvent.keyDown(screen.getByTitle('Select (V)'), { key: 't' })
+    expect(screen.getByTitle('Text (T)').getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('deleting an element keeps a connector\'s end where it was drawn', async () => {
+    const store = fakeStore([RECT, OTHER, { id: 'c', kind: 'connector', x: 0, y: 0, w: 1, h: 1, z: 3, points: [0, 0, 1, 1], from_id: 'a', from_anchor: 'right', to_id: 'b', to_anchor: 'left', style: { end_head: 'none' } }])
+    await mount({ store })
+    press(groupOf('a').findOne('Path'), toScreen({ x: 50, y: 25 }))
+    release(toScreen({ x: 50, y: 25 }))
+    fireEvent.keyDown(region(), { key: 'Delete' })
+    expect(store.update).toHaveBeenCalledWith('c', expect.objectContaining({ from_id: null, from_anchor: null, x: 100, y: 25 }), { settled: true })
+    expect(store.remove).toHaveBeenCalledWith(['a'])
+  })
+})
+
+describe('BoardCanvas — the tools', () => {
+  it('a shape placed with a click, at its own size, then back to Select', async () => {
+    const { store } = await mount()
+    fireEvent.click(screen.getByTitle('Shape (S)'))
+    const at = toScreen({ x: 500, y: 300 })
+    press(stageNow(), at)
+    release(at)
+    expect(store.add).toHaveBeenCalledWith(expect.objectContaining({ kind: 'shape', shape: 'rectangle', x: 410, y: 245, w: 180, h: 110, z: 3, style: { fill: '#FFFFFF', stroke: '#2B3440', width: 2 } }))
+    await settle()
+    expect(screen.getByTitle('Select (V)').getAttribute('aria-pressed')).toBe('true')
+    expect(groupOf('new-1')).toBeTruthy()
+  })
+
+  it('a shape from the picker, drawn to the size dragged', async () => {
+    const { store } = await mount()
+    fireEvent.click(screen.getByTitle('Choose a shape'))
+    fireEvent.click(screen.getByTitle('Star'))
+    const from = toScreen({ x: 500, y: 300 })
+    const to = toScreen({ x: 620, y: 400 })
+    press(stageNow(), from)
+    moveTo(to)
+    expect(named('draw-preview')).toHaveLength(1)
+    release(to)
+    expect(store.add).toHaveBeenCalledWith(expect.objectContaining({ kind: 'shape', shape: 'star', x: 500, y: 300, w: 120, h: 100 }))
+  })
+
+  it('a frame goes beneath everything', async () => {
+    const { store } = await mount()
+    fireEvent.click(screen.getByTitle('Frame (F)'))
+    const at = toScreen({ x: 0, y: 500 })
+    press(stageNow(), at)
+    release(at)
+    expect(store.add).toHaveBeenCalledWith(expect.objectContaining({ kind: 'frame', z: 0, body: 'Frame', w: 480, h: 320 }))
+  })
+
+  it('the pen draws a stroke kept relative to its box', async () => {
+    const { store } = await mount()
+    fireEvent.click(screen.getByTitle('Pen (P)'))
+    press(stageNow(), toScreen({ x: 0, y: 200 }))
+    moveTo(toScreen({ x: 10, y: 210 }))
+    moveTo(toScreen({ x: 30, y: 205 }))
+    expect(named('pen-preview')).toHaveLength(1)
+    release(toScreen({ x: 30, y: 205 }))
+    expect(store.add).toHaveBeenCalledWith(expect.objectContaining({ kind: 'pen', x: 0, y: 200, w: 30, h: 10, points: [0, 0, 10, 10, 30, 5], style: { stroke: '#2B3440', width: 3 } }))
+    // The pen stays in hand.
+    expect(screen.getByTitle('Pen (P)').getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('a connector from one element to another, tied to both', async () => {
+    const { store } = await mount()
+    fireEvent.click(screen.getByTitle('Connector (L)'))
+    press(groupOf('a').findOne('Path'), toScreen({ x: 20, y: 10 }))
+    moveTo(toScreen({ x: 200, y: 30 }))
+    expect(named('connect-preview')).toHaveLength(1)
+    release(toScreen({ x: 325, y: 30 }))
+    expect(store.add).toHaveBeenCalledWith(expect.objectContaining({ kind: 'connector', from_id: 'a', from_anchor: 'auto', to_id: 'b', to_anchor: 'auto' }))
+    await settle()
+    const line = groupOf('new-1').findOne('.connector-line')
+    expect(line.points().slice(0, 2)).toEqual([100, 25])
+    // Its ends can be dragged: off the circle, the end comes free where it is dropped.
+    expect(named('connector-handle')).toHaveLength(2)
+    const toHandle = named('connector-handle').find((h) => h.attrs.boardHandle === 'to')
+    press(toHandle, toScreen({ x: 300, y: 40 }))
+    moveTo(toScreen({ x: 200, y: 400 }))
+    release(toScreen({ x: 200, y: 400 }))
+    expect(store.update).toHaveBeenLastCalledWith('new-1', expect.objectContaining({ to_id: null, to_anchor: null, from_id: 'a' }), { settled: true })
+  })
+
+  it('a text box opens its editor at once; empty, it goes', async () => {
+    const { store } = await mount()
+    fireEvent.click(screen.getByTitle('Text (T)'))
+    press(stageNow(), toScreen({ x: 0, y: 300 }))
+    release(toScreen({ x: 0, y: 300 }))
+    const box = await screen.findByLabelText('Text')
+    fireEvent.change(box, { target: { value: 'Notes' } })
+    fireEvent.blur(box)
+    await settle()
+    expect(store.update).toHaveBeenCalledWith('new-1', expect.objectContaining({ body: 'Notes' }), { settled: true })
+    fireEvent.click(screen.getByTitle('Text (T)'))
+    press(stageNow(), toScreen({ x: 0, y: 500 }))
+    release(toScreen({ x: 0, y: 500 }))
+    fireEvent.blur(await screen.findByLabelText('Text'))
+    await settle()
+    expect(store.remove).toHaveBeenCalledWith(['new-2'])
+  })
+
+  // A browser sends a press's mousedown after its pointerdown, and gives the focus to the canvas on it. Seen in a
+  // running browser: that took the focus from the words box the pointerdown had just opened, and the box closed.
+  it('a press on the stage moves no focus by itself: the words box that press opened keeps it', async () => {
+    await mount()
+    const stageCanvas = document.querySelector('[data-moth-board-stage] canvas')
+    const mouseDown = () => {
+      const e = new MouseEvent('mousedown', { bubbles: true, cancelable: true })
+      act(() => { stageCanvas.dispatchEvent(e) })
+      return e
+    }
+    // No words box open: the canvas takes the focus, as it did when the browser gave it.
+    expect(mouseDown().defaultPrevented).toBe(true)
+    expect(document.activeElement).toBe(region())
+    // A new text: its box opens on the pointerdown with the focus in it, and the mousedown that follows leaves it there.
+    fireEvent.click(screen.getByTitle('Text (T)'))
+    press(stageNow(), toScreen({ x: 0, y: 300 }))
+    const box = await screen.findByLabelText('Text')
+    expect(document.activeElement).toBe(box)
+    expect(mouseDown().defaultPrevented).toBe(true)
+    expect(document.activeElement).toBe(box)
+    expect(screen.getByLabelText('Text')).toBe(box)
+  })
+
+  it('a sticky is made through the adapter and opens for writing', async () => {
+    const turns = fakeTurns()
+    const made = { id: 'st1', kind: 'sticky', x: 400, y: 200, w: 200, h: 200, z: 3, file: STICKY_FILE, missing: false, version: 1, style: {} }
+    const adapter = { ...stickyAdapter(''), createSticky: vi.fn(async () => ({ element: made })) }
+    const { store } = await mount({ adapter, turns })
+    fireEvent.click(screen.getByTitle('Sticky note (N)'))
+    press(stageNow(), toScreen({ x: 500, y: 300 }))
+    release(toScreen({ x: 500, y: 300 }))
+    await settle()
+    expect(adapter.createSticky).toHaveBeenCalledWith(expect.objectContaining({ id: 'b1' }), '', expect.objectContaining({ x: 400, y: 200, w: 200, h: 200 }))
+    expect(store.applyRemote).toHaveBeenCalledWith({ board: 'b1', op: 'put', elements: [made] })
+    expect(turns.begin).toHaveBeenCalledWith('st1')
+    expect(await screen.findByLabelText('Words on the sticky')).toBeTruthy()
+  })
+
+  it('a store that adopts takes the new sticky as its own (drawn and undoable)', async () => {
+    const made = { id: 'st2', kind: 'sticky', x: 0, y: 0, w: 200, h: 200, z: 3, file: STICKY_FILE, missing: false, version: 1, style: {} }
+    const store = fakeStore([RECT, OTHER])
+    store.adopt = vi.fn((el) => store.put(el))
+    const adapter = { ...stickyAdapter(''), createSticky: vi.fn(async () => made) }
+    await mount({ store, adapter, turns: fakeTurns() })
+    fireEvent.click(screen.getByTitle('Sticky note (N)'))
+    press(stageNow(), toScreen({ x: 100, y: 100 }))
+    await settle()
+    expect(store.adopt).toHaveBeenCalledWith(made)
+    expect(store.applyRemote).not.toHaveBeenCalled()
+    expect(groupOf('st2')).toBeTruthy()
+  })
+
+  it('a refusal to make a sticky is said in the server\'s words', async () => {
+    const adapter = { createSticky: vi.fn(async () => { throw new Error('Boards need this project in the cloud.') }) }
+    await mount({ adapter })
+    fireEvent.click(screen.getByTitle('Sticky note (N)'))
+    press(stageNow(), toScreen({ x: 500, y: 300 }))
+    await settle()
+    expect(screen.getByRole('status').textContent).toBe('Boards need this project in the cloud.')
+  })
+})
+
+describe('BoardCanvas — words', () => {
+  it('a double press opens a shape\'s words; leaving saves them', async () => {
+    const { store } = await mount()
+    const at = toScreen({ x: 50, y: 25 })
+    press(groupOf('a').findOne('Path'), at)
+    release(at)
+    press(groupOf('a').findOne('Path'), at)
+    const box = await screen.findByLabelText('Words in the shape')
+    expect(box.value).toBe('Hello')
+    // The canvas does not draw the words under the editor.
+    expect(groupOf('a').findOne('Text')).toBeFalsy()
+    fireEvent.change(box, { target: { value: 'Hello there' } })
+    fireEvent.blur(box)
+    await settle()
+    expect(store.update).toHaveBeenCalledWith('a', { body: 'Hello there' }, { settled: true })
+    expect(screen.queryByLabelText('Words in the shape')).toBeNull()
+  })
+
+  it('a sticky: the turn is claimed, the words saved through it, then handed back', async () => {
+    const turns = fakeTurns()
+    const escape = fakeEscape()
+    const adapter = stickyAdapter('Buy milk')
+    await mount({ store: fakeStore([STICKY]), adapter, turns, escape })
+    await settle()
+    const at = toScreen({ x: 100, y: 300 })
+    press(groupOf('s').findOne('Rect'), at)
+    release(at)
+    press(groupOf('s').findOne('Rect'), at)
+    await settle()
+    expect(turns.begin).toHaveBeenCalledWith('s')
+    const box = await screen.findByLabelText('Words on the sticky')
+    expect(box.value).toBe('Buy milk')
+    fireEvent.change(box, { target: { value: 'Buy bread' } })
+    // Escape goes to the editor first (the panel's stack).
+    await act(async () => { expect(escape.press()).toBe(true) })
+    await settle()
+    expect(turns.save).toHaveBeenCalledWith(expect.objectContaining({ id: 's' }), 'Buy bread')
+    expect(turns.end).toHaveBeenCalledWith('s')
+    expect(screen.queryByLabelText('Words on the sticky')).toBeNull()
+    expect(groupOf('s').findOne('.sticky-words').text()).toBe('Buy bread')
+  })
+
+  it('someone else\'s turn: no editor, their name said', async () => {
+    const turns = fakeTurns({ granted: false, holderLabel: 'Mara Okonkwo' })
+    await mount({ store: fakeStore([STICKY]), adapter: stickyAdapter(), turns })
+    const at = toScreen({ x: 100, y: 300 })
+    press(groupOf('s').findOne('Rect'), at)
+    release(at)
+    press(groupOf('s').findOne('Rect'), at)
+    await settle()
+    expect(screen.queryByLabelText('Words on the sticky')).toBeNull()
+    expect(screen.getByRole('status').textContent).toBe('Mara Okonkwo is writing on this sticky.')
+  })
+
+  it('a turn that ended keeps the words in the editor and says so', async () => {
+    const words = 'Your turn on this note ended. Copy your words, then try again.'
+    const turns = fakeTurns({ save: { ok: false, reason: 'turn_ended', words } })
+    const escape = fakeEscape()
+    await mount({ store: fakeStore([STICKY]), adapter: stickyAdapter('Buy milk'), turns, escape })
+    await settle()
+    const at = toScreen({ x: 100, y: 300 })
+    press(groupOf('s').findOne('Rect'), at)
+    release(at)
+    press(groupOf('s').findOne('Rect'), at)
+    const box = await screen.findByLabelText('Words on the sticky')
+    fireEvent.change(box, { target: { value: 'Buy bread and eggs' } })
+    await act(async () => { escape.press() })
+    await settle()
+    const kept = screen.getByLabelText('Words on the sticky')
+    expect(kept.value).toBe('Buy bread and eggs')
+    expect(kept.readOnly).toBe(true)
+    expect(screen.getByText(words)).toBeTruthy()
+    fireEvent.blur(kept)
+    await settle()
+    expect(screen.getByLabelText('Words on the sticky')).toBeTruthy() // leaving does not lose them
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    await settle()
+    expect(screen.queryByLabelText('Words on the sticky')).toBeNull()
+    expect(turns.end).toHaveBeenCalledWith('s')
+  })
+
+  it('someone saved a sticky\'s words: they are read again (when stickyTurn says so)', async () => {
+    const turns = fakeTurns({ events: true })
+    const adapter = stickyAdapter('Buy milk')
+    await mount({ store: fakeStore([STICKY]), adapter, turns })
+    await settle()
+    expect(groupOf('s').findOne('.sticky-words').text()).toBe('Buy milk')
+    adapter.readStickyText.mockResolvedValue('Buy bread')
+    act(() => turns.tell({ type: 'body', elementId: 's', mine: false }))
+    await settle()
+    expect(adapter.readStickyText).toHaveBeenCalledTimes(2)
+    expect(groupOf('s').findOne('.sticky-words').text()).toBe('Buy bread')
+    // This window's own save is not read back.
+    act(() => turns.tell({ type: 'body', elementId: 's', mine: true }))
+    await settle()
+    expect(adapter.readStickyText).toHaveBeenCalledTimes(2)
+  })
+
+  it('this window\'s turn ended while writing: the words stay and it says so', async () => {
+    const turns = fakeTurns({ events: true })
+    await mount({ store: fakeStore([STICKY]), adapter: stickyAdapter('Buy milk'), turns })
+    await settle()
+    const at = toScreen({ x: 100, y: 300 })
+    press(groupOf('s').findOne('Rect'), at)
+    release(at)
+    press(groupOf('s').findOne('Rect'), at)
+    const box = await screen.findByLabelText('Words on the sticky')
+    fireEvent.change(box, { target: { value: 'Buy milk and tea' } })
+    act(() => turns.tell({ type: 'ended', elementId: 's', words: 'Your turn on this note ended.' }))
+    expect(screen.getByText('Your turn on this note ended.')).toBeTruthy()
+    expect(screen.getByLabelText('Words on the sticky').value).toBe('Buy milk and tea')
+    expect(screen.getByLabelText('Words on the sticky').readOnly).toBe(true)
+    expect(turns.save).not.toHaveBeenCalled()
+  })
+
+  it('on someone else\'s turn the sticky glows with their name; mine does not', async () => {
+    const turns = fakeTurns()
+    const live = fakeLive()
+    await mount({ store: fakeStore([STICKY]), adapter: stickyAdapter(), turns, live })
+    turns.setGlow(new Map([['s', { holderLabel: 'Mara Okonkwo', endsAt: Date.now() + 20000, mine: false }]]))
+    act(() => live.setCursors(new Map()))
+    await settle()
+    expect(named('sticky-glow')).toHaveLength(1)
+    expect(named('sticky-glow')[0].stroke()).toBe('#AA3377')
+    expect(named('sticky-holder')[0].text()).toBe('Mara Okonkwo is writing')
+    turns.setGlow(new Map([['s', { holderLabel: 'Me', endsAt: Date.now() + 20000, mine: true }]]))
+    act(() => live.setCursors(new Map()))
+    await settle()
+    expect(named('sticky-glow')).toHaveLength(0)
+    // A turn past its end glows no more, even before anyone says so.
+    turns.setGlow(new Map([['s', { holderLabel: 'Mara Okonkwo', endsAt: Date.now() - 1, mine: false }]]))
+    act(() => live.setCursors(new Map()))
+    await settle()
+    expect(named('sticky-glow')).toHaveLength(0)
+  })
+})
+
+describe('BoardCanvas — the style panel and stacking', () => {
+  it('shows the selection\'s style; a swatch writes only what the server accepts', async () => {
+    const { store } = await mount()
+    press(groupOf('a').findOne('Path'), toScreen({ x: 50, y: 25 }))
+    release(toScreen({ x: 50, y: 25 }))
+    const panel = await screen.findByRole('complementary', { name: 'Style' })
+    const fill = panel.querySelector('[data-style-group="Fill"]')
+    fireEvent.click(fill.querySelector('[aria-label="Red"]'))
+    expect(store.update).toHaveBeenCalledWith('a', { style: { fill: '#F28B82' } }, { settled: true })
+    fireEvent.click(screen.getByTitle('Bring to front'))
+    expect(store.update).toHaveBeenLastCalledWith('a', { z: 3 }, { settled: true })
+    fireEvent.click(screen.getByTitle('Delete'))
+    expect(store.remove).toHaveBeenCalledWith(['a'])
+  })
+})
+
+describe('BoardCanvas — read only', () => {
+  it('offers no writing tools, says so, and changes nothing', async () => {
+    const store = fakeStore([RECT, OTHER], { canWrite: false })
+    const turns = fakeTurns()
+    await mount({ store, canWrite: false, turns })
+    expect(screen.getByText(READ_ONLY_WORDS)).toBeTruthy()
+    expect(screen.queryByTitle('Shape (S)')).toBeNull()
+    expect(screen.queryByTitle('Undo')).toBeNull()
+    expect(screen.getByTitle('Select (V)')).toBeTruthy()
+    expect(screen.getByTitle('Move around (H)')).toBeTruthy()
+    const at = toScreen({ x: 50, y: 25 })
+    press(groupOf('a').findOne('Path'), at)
+    moveTo({ x: at.x + 50, y: at.y })
+    release({ x: at.x + 50, y: at.y })
+    press(groupOf('a').findOne('Path'), at)
+    fireEvent.keyDown(region(), { key: 'Delete' })
+    fireEvent.keyDown(region(), { key: 's' })
+    await settle()
+    expect(store.update).not.toHaveBeenCalled()
+    expect(store.remove).not.toHaveBeenCalled()
+    expect(screen.queryByLabelText('Words in the shape')).toBeNull()
+    expect(screen.queryByRole('complementary', { name: 'Style' })).toBeNull()
+    expect(stageNow().findOne('Transformer').resizeEnabled()).toBe(false)
+  })
+})
+
+describe('BoardCanvas — Escape, notices, the room', () => {
+  it('takes Escape only while it has something to let go of', async () => {
+    const escape = fakeEscape()
+    await mount({ escape })
+    expect(escape.stack).toHaveLength(0)
+    press(groupOf('a').findOne('Path'), toScreen({ x: 50, y: 25 }))
+    release(toScreen({ x: 50, y: 25 }))
+    await settle()
+    expect(escape.stack).toHaveLength(1)
+    await act(async () => { expect(escape.press()).toBe(true) })
+    expect(stageNow().findOne('Transformer').nodes()).toHaveLength(0)
+    await settle()
+    expect(escape.stack).toHaveLength(0)
+    expect(escape.press()).toBe(false) // the panel's own: back to the graph
+    fireEvent.click(screen.getByTitle('Pen (P)'))
+    await settle()
+    await act(async () => { expect(escape.press()).toBe(true) })
+    expect(screen.getByTitle('Select (V)').getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('the shape picker takes Escape before the canvas', async () => {
+    const escape = fakeEscape()
+    await mount({ escape })
+    fireEvent.click(screen.getByTitle('Shape (S)'))
+    fireEvent.click(screen.getByTitle('Choose a shape'))
+    await settle()
+    await act(async () => { escape.press() })
+    expect(screen.queryByRole('group', { name: 'Shapes' })).toBeNull()
+    expect(screen.getByTitle('Shape (S)').getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('an id the server changed: the selection follows it', async () => {
+    const { store } = await mount()
+    press(groupOf('a').findOne('Path'), toScreen({ x: 50, y: 25 }))
+    release(toScreen({ x: 50, y: 25 }))
+    act(() => store.rename('a', 'a2'))
+    await settle()
+    expect(groupOf('a')).toBeFalsy()
+    expect(stageNow().findOne('Transformer').nodes()).toEqual([groupOf('a2')])
+    fireEvent.keyDown(region(), { key: 'Delete' })
+    expect(store.remove).toHaveBeenCalledWith(['a2'])
+  })
+
+  it('a store notice is said', async () => {
+    const { store } = await mount()
+    act(() => store.say('That was changed by someone else, so it was not undone.'))
+    expect(screen.getByRole('status').textContent).toBe('That was changed by someone else, so it was not undone.')
+  })
+
+  it('sends the pointer only while it moves; draws others\' cursors with their names', async () => {
+    const live = fakeLive()
+    await mount({ live })
+    expect(live.sendPointer).not.toHaveBeenCalled()
+    act(() => { host().dispatchEvent(pointerEvent('pointermove', { clientX: toScreen({ x: 10, y: 20 }).x, clientY: toScreen({ x: 10, y: 20 }).y })) })
+    expect(live.sendPointer).toHaveBeenCalledTimes(1)
+    expect(live.sendPointer).toHaveBeenCalledWith(10, 20)
+    await settle()
+    expect(live.sendPointer).toHaveBeenCalledTimes(1)
+    act(() => live.setCursors(new Map([['u2', { x: 40, y: 50, label: 'Mara Okonkwo', colour: '#AA3377' }]])))
+    await settle()
+    const c = named('cursor')
+    expect(c).toHaveLength(1)
+    expect(c[0].x()).toBe(40)
+    expect(c[0].findOne('Text').text()).toBe('Mara Okonkwo')
+    act(() => live.setCursors(new Map()))
+    await settle()
+    expect(named('cursor')).toHaveLength(0)
+  })
+})
+
+describe('BoardCanvas — the view', () => {
+  it('ctrl and the wheel zoom about the pointer; the wheel alone pans', async () => {
+    await mount()
+    const s = stageNow()
+    const x0 = s.x()
+    fireEvent.wheel(host(), { deltaY: 100, deltaX: 0 })
+    expect(s.y()).toBeLessThan(300)
+    expect(s.x()).toBe(x0)
+    fireEvent.wheel(host(), { deltaY: -200, ctrlKey: true, clientX: 400, clientY: 300 })
+    expect(s.scaleX()).toBeGreaterThan(1)
+    expect(document.querySelector('[data-zoom]').textContent).toBe(`${Math.round(s.scaleX() * 100)}%`)
+  })
+
+  it('zoom buttons and fit', async () => {
+    await mount()
+    fireEvent.click(screen.getByTitle('Zoom in'))
+    expect(stageNow().scaleX()).toBeCloseTo(1.25, 5)
+    fireEvent.click(screen.getByTitle('Zoom out'))
+    expect(stageNow().scaleX()).toBeCloseTo(1, 5)
+    fireEvent.click(screen.getByTitle('Show the whole board'))
+    expect(stageNow().scaleX()).toBe(1)
+  })
+
+  it('two fingers pinch to zoom; a finger on empty board pans', async () => {
+    await mount()
+    const s = stageNow()
+    const down = (id, x, y) => act(() => { host().dispatchEvent(pointerEvent('pointerdown', { pointerId: id, pointerType: 'touch', clientX: x, clientY: y })) })
+    const move = (id, x, y) => act(() => { host().dispatchEvent(pointerEvent('pointermove', { pointerId: id, pointerType: 'touch', clientX: x, clientY: y })) })
+    down(1, 100, 100)
+    down(2, 200, 100)
+    move(2, 300, 100)
+    expect(s.scaleX()).toBeCloseTo(2, 5)
+    act(() => { host().dispatchEvent(pointerEvent('pointerup', { pointerId: 2, pointerType: 'touch' })) })
+    act(() => { host().dispatchEvent(pointerEvent('pointerup', { pointerId: 1, pointerType: 'touch' })) })
+    const x0 = s.x()
+    press(s, { x: 500, y: 500 }, { pointerType: 'touch', pointerId: 7 })
+    moveTo({ x: 540, y: 500 }, { pointerId: 7, pointerType: 'touch' })
+    release({ x: 540, y: 500 }, { pointerId: 7, pointerType: 'touch' })
+    expect(s.x()).toBeCloseTo(x0 + 40, 5)
+  })
+
+  it('a finger or a pen makes the handles larger', async () => {
+    const store = fakeStore([RECT, OTHER])
+    const out = render(<BoardCanvas store={store} canWrite inputMode="mouse" />)
+    await settle()
+    press(groupOf('a').findOne('Path'), toScreen({ x: 50, y: 25 }))
+    release(toScreen({ x: 50, y: 25 }))
+    expect(stageNow().findOne('Transformer').anchorSize()).toBe(targetSizes('mouse').anchor)
+    out.rerender(<BoardCanvas store={store} canWrite inputMode="touch" />)
+    await settle()
+    expect(stageNow().findOne('Transformer').anchorSize()).toBe(targetSizes('touch').anchor)
+    expect(document.querySelector('[data-moth-board-canvas]').getAttribute('data-input')).toBe('touch')
+  })
+
+  it('unmounting lets go of the stage and the store', async () => {
+    const { store, unmount } = await mount()
+    const before = Konva.stages.length
+    unmount()
+    expect(Konva.stages.length).toBe(before - 1)
+    act(() => store.say('gone'))
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+})
+
+describe('BoardCanvas: the board\'s background', () => {
+  // A store that knows backgrounds, as boardStore keeps one: getBackground, canSetBackground, setBackground, and the
+  // `board` event.
+  function storeWithBackground(kind = 'dots', { can = true } = {}) {
+    const store = fakeStore([RECT, OTHER])
+    let bg = kind
+    const subs = new Set()
+    const subscribe = store.subscribe
+    store.subscribe = vi.fn((fn) => { subs.add(fn); const off = subscribe(fn); return () => { subs.delete(fn); off() } })
+    store.getBackground = () => bg
+    store.canSetBackground = () => can
+    store.setBackground = vi.fn(async (next) => { bg = next; for (const fn of [...subs]) fn({ type: 'board' }); return true })
+    store.tellBackground = (next) => { bg = next; for (const fn of [...subs]) fn({ type: 'board' }) }
+    return store
+  }
+  // What the backdrop's one shape paints, on its own canvas's stand-in context.
+  function painted() {
+    const back = layer('backdrop')
+    const ctx = back.getCanvas()._canvas.getContext('2d')
+    const calls = { rect: 0, moveTo: 0 }
+    const was = { rect: ctx.rect, moveTo: ctx.moveTo }
+    ctx.rect = () => { calls.rect += 1 }
+    ctx.moveTo = () => { calls.moveTo += 1 }
+    back.draw()
+    Object.assign(ctx, was)
+    return calls
+  }
+
+  it('a layer of its own under the elements, taking no presses, with one shape that paints the grid', async () => {
+    await mount()
+    const layers = stageNow().getLayers()
+    expect(layers.map((l) => l.name())).toEqual(['backdrop', 'content', 'overlay'])
+    const back = layer('backdrop')
+    expect(back.listening()).toBe(false)
+    expect(back.getChildren()).toHaveLength(1)
+    expect(back.findOne('.board-background').listening()).toBe(false)
+    // Nothing of the elements is on it.
+    expect(back.find((n) => n.attrs.elementId)).toHaveLength(0)
+    // A store with no word on backgrounds draws the dotted grid.
+    expect(region().getAttribute('data-background')).toBe('dots')
+    expect(painted().rect).toBeGreaterThan(0)
+  })
+
+  it('painted again when the camera moves or the view is zoomed, never when an element changes', async () => {
+    const { store } = await mount()
+    const back = layer('backdrop')
+    const redraw = vi.spyOn(back, 'batchDraw')
+    act(() => store.update('a', { x: 40 }))
+    act(() => store.put({ ...OTHER, id: 'c', x: 600 }))
+    await settle()
+    expect(groupOf('c')).toBeTruthy()
+    expect(redraw).not.toHaveBeenCalled()
+    fireEvent.wheel(host(), { deltaY: 50, deltaX: 0 })
+    const afterPan = redraw.mock.calls.length
+    expect(afterPan).toBeGreaterThan(0)
+    fireEvent.click(screen.getByTitle('Zoom in'))
+    expect(redraw.mock.calls.length).toBeGreaterThan(afterPan)
+    // And after both, an element's change still does not.
+    const settled = redraw.mock.calls.length
+    act(() => store.update('b', { y: 90 }))
+    await settle()
+    expect(redraw.mock.calls.length).toBe(settled)
+  })
+
+  it('follows the store: its board event repaints it and the wrapper says which one is drawn', async () => {
+    const store = storeWithBackground('dots')
+    await mount({ store })
+    const back = layer('backdrop')
+    const redraw = vi.spyOn(back, 'batchDraw')
+    act(() => store.tellBackground('lines'))
+    expect(region().getAttribute('data-background')).toBe('lines')
+    expect(redraw).toHaveBeenCalledTimes(1)
+    const lines = painted()
+    expect(lines.moveTo).toBeGreaterThan(0)
+    expect(lines.rect).toBe(0)
+    act(() => store.tellBackground('blank'))
+    expect(region().getAttribute('data-background')).toBe('blank')
+    expect(painted()).toEqual({ rect: 0, moveTo: 0 })
+    // The board event moves no element: the drawing is not reconciled for it.
+    expect(store.getElements().size).toBe(2)
+  })
+
+  it('the foot bar offers it where the store allows and hands the choice to the store', async () => {
+    const store = storeWithBackground('dots')
+    await mount({ store })
+    fireEvent.click(document.querySelector('[data-board-background-toggle]'))
+    const picker = document.querySelector('[data-board-background-picker]')
+    expect(picker.querySelector('[data-background="dots"]').getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(screen.getByText('Lined grid'))
+    expect(store.setBackground).toHaveBeenCalledWith('lines')
+    await settle()
+    expect(region().getAttribute('data-background')).toBe('lines')
+    expect(document.querySelector('[data-board-background-picker]')).toBeNull()
+  })
+
+  it('not offered where the store says no, nor on a board this person may only read; still drawn', async () => {
+    await mount({ store: storeWithBackground('lines', { can: false }) })
+    expect(document.querySelector('[data-board-background-toggle]')).toBeNull()
+    expect(region().getAttribute('data-background')).toBe('lines')
+    cleanup()
+    await mount({ store: storeWithBackground('lines'), canWrite: false })
+    expect(document.querySelector('[data-board-background-toggle]')).toBeNull()
+    expect(painted().moveTo).toBeGreaterThan(0)
+  })
+})
+
+describe('BoardCanvas — pictures, dropped files and embeds', () => {
+  // A drag from the desktop as the window hands one on: where it is, and what it carries.
+  function dragEvent(type, { files = [], types = ['Files'], at = { x: 0, y: 0 }, relatedTarget = null } = {}) {
+    const e = new Event(type, { bubbles: true, cancelable: true })
+    Object.defineProperty(e, 'clientX', { value: at.x })
+    Object.defineProperty(e, 'clientY', { value: at.y })
+    Object.defineProperty(e, 'relatedTarget', { value: relatedTarget })
+    Object.defineProperty(e, 'dataTransfer', { value: { types, files, dropEffect: 'none' } })
+    return e
+  }
+  const fire = (e) => { act(() => { region().dispatchEvent(e) }) ; return e }
+  const BOARD = expect.objectContaining({ id: 'b1', folder_id: 'f1', project_id: 'p1' })
+  const placedAs = (kind) => vi.fn(async (board, file, placement) => ({
+    id: `${kind}-${typeof file === 'string' ? file : file.name}`, kind, ...placement, style: {}, missing: false, version: 1,
+    file: typeof file === 'string' ? { id: file, name: 'Script.pdf', mime_type: 'application/pdf' } : { id: `f-${file.name}`, name: file.name, mime_type: file.type },
+  }))
+  const selectedIds = () => stageNow().findOne('Transformer').nodes().map((n) => n.attrs.elementId)
+  const notice = () => document.querySelector('[data-moth-board-notice]')?.textContent ?? null
+  const viewCentre = () => { const s = stageNow(); return { x: (400 - s.x()) / s.scaleX(), y: (300 - s.y()) / s.scaleY() } }
+  const pdf = new File(['%PDF'], 'Brief.pdf', { type: 'application/pdf' })
+  const png = new File(['png'], 'Still.png', { type: 'image/png' })
+
+  // jsdom loads no pictures: a stand-in that reads a chosen picture's own size (or fails to, when there is none).
+  let pictureSize = { w: 960, h: 540 }
+  let realCreate
+  let realRevoke
+  beforeEach(() => {
+    pictureSize = { w: 960, h: 540 }
+    realCreate = URL.createObjectURL
+    realRevoke = URL.revokeObjectURL
+    URL.createObjectURL = vi.fn(() => 'blob:picture')
+    URL.revokeObjectURL = vi.fn()
+    vi.stubGlobal('Image', class {
+      set src(v) {
+        this.current = v
+        queueMicrotask(() => {
+          if (!pictureSize) { this.onerror?.(); return }
+          this.naturalWidth = pictureSize.w
+          this.naturalHeight = pictureSize.h
+          this.onload?.()
+        })
+      }
+      get src() { return this.current }
+    })
+  })
+  afterEach(() => {
+    URL.createObjectURL = realCreate
+    URL.revokeObjectURL = realRevoke
+    vi.unstubAllGlobals()
+  })
+
+  it('a picture\'s and a video\'s address come from boardFileUrl, never from fileUrl', async () => {
+    const adapter = { boardFileUrl: vi.fn(async () => null), fileUrl: vi.fn(async () => 'https://wrong.test/x') }
+    const store = fakeStore([
+      { id: 'pic', kind: 'media', x: 0, y: 0, w: 160, h: 120, z: 1, file: { id: 'f2', name: 'still.png', mime_type: 'image/png' }, missing: false },
+      { id: 'vid', kind: 'media', x: 200, y: 0, w: 160, h: 120, z: 2, file: { id: 'f3', name: 'take.mp4', mime_type: 'video/mp4' }, missing: false },
+      { id: 'emb', kind: 'embed', x: 400, y: 0, w: 160, h: 120, z: 3, file: { id: 'f4', name: 'look.jpg', mime_type: 'image/jpeg' }, missing: false },
+    ])
+    await mount({ store, adapter })
+    await settle()
+    expect(adapter.boardFileUrl).toHaveBeenCalledWith(expect.objectContaining({ id: 'f2' }), { stream: false })
+    expect(adapter.boardFileUrl).toHaveBeenCalledWith(expect.objectContaining({ id: 'f3' }), { stream: true })
+    expect(adapter.boardFileUrl).toHaveBeenCalledWith(expect.objectContaining({ id: 'f4' }), { stream: false })
+    expect(adapter.fileUrl).not.toHaveBeenCalled()
+    // No address to be had: the tile with the file's name.
+    expect(groupOf('pic').findOne('.file-words').text()).toBe('still.png\nPicture')
+  })
+
+  it('a refused address leaves the file\'s tile, not a broken picture', async () => {
+    const adapter = { boardFileUrl: vi.fn(async () => { throw Object.assign(new Error('This file is missing — it may have been moved or deleted.'), { code: '42501' }) }) }
+    await mount({ store: fakeStore([{ id: 'pic', kind: 'media', x: 0, y: 0, w: 160, h: 120, z: 1, file: { id: 'f2', name: 'still.png', mime_type: 'image/png' }, missing: false }]), adapter })
+    await settle()
+    expect(groupOf('pic').findOne('.file-tile')).toBeTruthy()
+    expect(groupOf('pic').findOne('Image')).toBeFalsy()
+  })
+
+  it('files dropped on the board are each uploaded and placed where they were let go, a little apart, then selected', async () => {
+    const adapter = { createMedia: placedAs('media') }
+    const { store } = await mount({ adapter })
+    const at = toScreen({ x: 500, y: 300 })
+    const e = fire(dragEvent('drop', { files: [pdf, png], at }))
+    expect(e.defaultPrevented).toBe(true)
+    expect(notice()).toBe(addingWords(2))
+    await settle()
+    expect(adapter.createMedia).toHaveBeenCalledTimes(2)
+    const [first, second] = adapter.createMedia.mock.calls
+    // A file that is not a picture is a tile; a picture keeps its own shape, fitted (960 by 540 is 480 by 270).
+    expect(first).toEqual([BOARD, pdf, { x: 380, y: 210, w: 240, h: 180, rotation: 0, z: expect.any(Number) }])
+    expect(second).toEqual([BOARD, png, { x: 500 - 240 + 24, y: 300 - 135 + 24, w: 480, h: 270, rotation: 0, z: expect.any(Number) }])
+    expect(second[2].z).toBeGreaterThan(first[2].z)
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:picture')
+    // Saved by the adapter already: the store hears them as the room would, and they are drawn and selected.
+    expect(store.applyRemote).toHaveBeenCalledTimes(2)
+    expect(groupOf('media-Brief.pdf')).toBeTruthy()
+    expect(groupOf('media-Still.png')).toBeTruthy()
+    expect(selectedIds()).toEqual(['media-Brief.pdf', 'media-Still.png'])
+    expect(store.add).not.toHaveBeenCalled()
+    expect(notice()).toBeNull()
+  })
+
+  it('a store that adopts takes a dropped file as its own (undoable)', async () => {
+    const store = fakeStore([RECT])
+    store.adopt = vi.fn((el) => store.put(el))
+    const adapter = { createMedia: placedAs('media') }
+    await mount({ store, adapter })
+    fire(dragEvent('drop', { files: [pdf], at: toScreen({ x: 0, y: 0 }) }))
+    await settle()
+    expect(store.adopt).toHaveBeenCalledWith(expect.objectContaining({ id: 'media-Brief.pdf', kind: 'media' }))
+    expect(store.applyRemote).not.toHaveBeenCalled()
+  })
+
+  it('one upload refused says why in its words; the rest still go', async () => {
+    const createMedia = vi.fn(async (board, file, placement) => {
+      if (file === pdf) throw new Error('This file is larger than the company\'s storage allows.')
+      return placedAs('media')(board, file, placement)
+    })
+    await mount({ adapter: { createMedia } })
+    fire(dragEvent('drop', { files: [pdf, png], at: toScreen({ x: 0, y: 0 }) }))
+    await settle()
+    expect(createMedia).toHaveBeenCalledTimes(2)
+    expect(groupOf('media-Still.png')).toBeTruthy()
+    expect(notice()).toBe('This file is larger than the company\'s storage allows.')
+  })
+
+  it('a drag carrying files is taken, and the board says where to let go; words or a link are not taken', async () => {
+    await mount({ adapter: { createMedia: placedAs('media') } })
+    const over = fire(dragEvent('dragover', { files: [pdf] }))
+    expect(over.defaultPrevented).toBe(true)
+    expect(over.dataTransfer.dropEffect).toBe('copy')
+    expect(document.querySelector('[data-moth-board-drop]').textContent).toBe(DROP_WORDS)
+    fire(dragEvent('dragleave', { files: [pdf] }))
+    expect(document.querySelector('[data-moth-board-drop]')).toBeNull()
+    const words = fire(dragEvent('dragover', { types: ['text/plain'] }))
+    expect(words.defaultPrevented).toBe(false)
+    const dropWords = fire(dragEvent('drop', { types: ['text/plain'] }))
+    expect(dropWords.defaultPrevented).toBe(false)
+    expect(document.querySelector('[data-moth-board-drop]')).toBeNull()
+  })
+
+  it('a board this person may only read takes a dropped file (so it never opens in place of the app) and says so', async () => {
+    const adapter = { createMedia: placedAs('media'), embedFile: placedAs('embed') }
+    await mount({ adapter, canWrite: false, store: fakeStore([RECT], { canWrite: false }) })
+    const over = fire(dragEvent('dragover', { files: [pdf] }))
+    expect(over.defaultPrevented).toBe(true)
+    expect(over.dataTransfer.dropEffect).toBe('none')
+    expect(document.querySelector('[data-moth-board-drop]')).toBeNull()
+    fire(dragEvent('drop', { files: [pdf], at: toScreen({ x: 0, y: 0 }) }))
+    await settle()
+    expect(adapter.createMedia).not.toHaveBeenCalled()
+    expect(notice()).toBe(READ_ONLY_WORDS)
+    expect(screen.queryByTitle('Picture or file (I)')).toBeNull()
+    expect(screen.queryByTitle('Embed a file (E)')).toBeNull()
+    expect(document.querySelector('[data-moth-board-file-input]')).toBeNull()
+    fireEvent.keyDown(region(), { key: 'e' })
+    expect(screen.queryByRole('dialog', { name: 'Embed a file' })).toBeNull()
+  })
+
+  it('an adapter that cannot keep files on a board says so in plain words', async () => {
+    await mount({ adapter: { readStickyText: vi.fn(async () => '') } })
+    fire(dragEvent('drop', { files: [pdf], at: toScreen({ x: 0, y: 0 }) }))
+    await settle()
+    expect(notice()).toBe(NO_FILES_WORDS)
+  })
+
+  it('"Picture or file" opens the file chooser (the tool or I); what is chosen goes to the middle of the view', async () => {
+    const opened = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {})
+    try {
+      const adapter = { createMedia: placedAs('media') }
+      await mount({ adapter })
+      fireEvent.click(screen.getByTitle('Picture or file (I)'))
+      expect(opened).toHaveBeenCalledTimes(1)
+      fireEvent.keyDown(region(), { key: 'i' })
+      expect(opened).toHaveBeenCalledTimes(2)
+      const input = document.querySelector('[data-moth-board-file-input]')
+      expect(input.multiple).toBe(true)
+      const c = viewCentre()
+      // A picture whose size cannot be read is placed at the size a file has.
+      pictureSize = null
+      fireEvent.change(input, { target: { files: [png] } })
+      await settle()
+      expect(adapter.createMedia).toHaveBeenCalledWith(BOARD, png, expect.objectContaining({ x: c.x - 120, y: c.y - 90, w: 240, h: 180 }))
+      expect(selectedIds()).toEqual(['media-Still.png'])
+    } finally {
+      opened.mockRestore()
+    }
+  })
+
+  it('"Embed a file" lists the project\'s files and places the chosen one as a reference in the middle of the view', async () => {
+    const files = [
+      { id: 'f-doc', name: 'Script.pdf', mime_type: 'application/pdf', folder_id: 'scripts' },
+      { id: 'f-own', name: 'Dropped here.png', mime_type: 'image/png', folder_id: 'f1' },
+      { id: 'f-lost', name: 'Lost.mov', mime_type: 'video/quicktime', folder_id: 'scripts', share_missing_since: '2026-11-01T00:00:00Z' },
+    ]
+    const adapter = { listMothFiles: vi.fn(async () => files), listMothFolders: vi.fn(async () => []), embedFile: placedAs('embed'), createMedia: vi.fn() }
+    const { store } = await mount({ adapter })
+    fireEvent.click(screen.getByTitle('Embed a file (E)'))
+    expect(screen.getByRole('dialog', { name: 'Embed a file' })).toBeTruthy()
+    expect(screen.getByTitle('Embed a file (E)').getAttribute('aria-expanded')).toBe('true')
+    await waitFor(() => expect(document.querySelector('[data-embed-file="f-doc"]')).toBeTruthy())
+    expect(adapter.listMothFiles).toHaveBeenCalledWith('p1', null, 500)
+    // The board's own folder and a file the office server could not find are not offered.
+    expect([...document.querySelectorAll('[data-embed-file]')].map((b) => b.getAttribute('data-embed-file'))).toEqual(['f-doc'])
+    const c = viewCentre()
+    fireEvent.click(document.querySelector('[data-embed-file="f-doc"]'))
+    await settle()
+    expect(adapter.embedFile).toHaveBeenCalledWith(BOARD, 'f-doc', { x: c.x - 120, y: c.y - 90, w: 240, h: 180, rotation: 0, z: expect.any(Number) })
+    expect(adapter.createMedia).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog', { name: 'Embed a file' })).toBeNull()
+    expect(store.applyRemote).toHaveBeenCalledWith(expect.objectContaining({ op: 'put', elements: [expect.objectContaining({ id: 'embed-f-doc', kind: 'embed' })] }))
+    expect(selectedIds()).toEqual(['embed-f-doc'])
+  })
+
+  it('the embed list takes Escape first, before the selection; E opens and closes it', async () => {
+    const escape = fakeEscape()
+    const adapter = { listMothFiles: vi.fn(async () => []), embedFile: placedAs('embed') }
+    await mount({ adapter, escape })
+    // Something selected, so the canvas has its own Escape to answer too.
+    press(groupOf('a').findOne('Path'), toScreen({ x: 10, y: 10 }))
+    release(toScreen({ x: 10, y: 10 }))
+    expect(selectedIds()).toEqual(['a'])
+    fireEvent.keyDown(region(), { key: 'e' })
+    expect(screen.getByRole('dialog', { name: 'Embed a file' })).toBeTruthy()
+    act(() => { expect(escape.press()).toBe(true) })
+    expect(screen.queryByRole('dialog', { name: 'Embed a file' })).toBeNull()
+    expect(selectedIds()).toEqual(['a'])
+    act(() => { expect(escape.press()).toBe(true) })
+    expect(selectedIds()).toEqual([])
+    fireEvent.keyDown(region(), { key: 'e' })
+    fireEvent.keyDown(region(), { key: 'e' })
+    expect(screen.queryByRole('dialog', { name: 'Embed a file' })).toBeNull()
+  })
+
+  it('a refused embed is said in the server\'s words', async () => {
+    const adapter = {
+      listMothFiles: vi.fn(async () => [{ id: 'f-doc', name: 'Script.pdf', folder_id: 'scripts' }]),
+      embedFile: vi.fn(async () => { throw Object.assign(new Error('file not found'), { code: '42501' }) }),
+    }
+    await mount({ adapter })
+    fireEvent.click(screen.getByTitle('Embed a file (E)'))
+    await waitFor(() => expect(document.querySelector('[data-embed-file="f-doc"]')).toBeTruthy())
+    fireEvent.click(document.querySelector('[data-embed-file="f-doc"]'))
+    await settle()
+    expect(notice()).toBe('file not found')
+  })
+
+  it('a placed file is drawn at its own shape, fitted; a video wide; anything else a tile', () => {
+    expect(mediaBox('picture', { w: 960, h: 540 })).toEqual({ w: 480, h: 270 })
+    expect(mediaBox('picture', { w: 300, h: 1200 })).toEqual({ w: 90, h: 360 })
+    expect(mediaBox('picture', { w: 100, h: 50 })).toEqual({ w: 100, h: 50 })
+    expect(mediaBox('picture', { w: 4000, h: 10 })).toEqual({ w: 480, h: 40 })
+    expect(mediaBox('picture', null)).toEqual({ w: 240, h: 180 })
+    expect(mediaBox('video')).toEqual({ w: 320, h: 180 })
+    expect(mediaBox('file')).toEqual({ w: 240, h: 180 })
+    expect(dragHasFiles({ dataTransfer: { types: ['text/plain', 'Files'] } })).toBe(true)
+    expect(dragHasFiles({ dataTransfer: { types: { length: 1, 0: 'Files' } } })).toBe(true)
+    expect(dragHasFiles({ dataTransfer: { types: ['text/uri-list'] } })).toBe(false)
+    expect(dragHasFiles({})).toBe(false)
+    expect(addingWords(1)).toBe('Adding the file to the board…')
+    expect(NO_FILES_WORDS).not.toMatch(/[_{}]/)
+  })
+})
+
+describe('BoardCanvas: frames like Figma\'s', () => {
+  const FR = { id: 'fr', kind: 'frame', x: 0, y: 0, w: 400, h: 300, z: 0, body: 'Ideas' }
+  // Half over the frame's right edge, its middle inside; over the edge with its middle outside; wider than the frame.
+  const HALF = { id: 'half', kind: 'shape', shape: 'rectangle', x: 360, y: 20, w: 60, h: 40, z: 1 }
+  const OUTSIDE = { id: 'outside', kind: 'shape', shape: 'rectangle', x: 390, y: 100, w: 60, h: 20, z: 2 }
+  const WIDE = { id: 'wide', kind: 'shape', shape: 'rectangle', x: -50, y: 200, w: 500, h: 20, z: 3 }
+  const FAR = { id: 'far', kind: 'shape', shape: 'rectangle', x: 700, y: 0, w: 50, h: 50, z: 4 }
+
+  // The board's own store over a server stand-in that takes every save, so undo is the store's own.
+  async function realStore(elements) {
+    const rows = new Map(elements.map((e) => [e.id, {
+      rotation: 0, style: {}, body: null, points: null, file: null, missing: false, from_id: null, from_anchor: null,
+      to_id: null, to_anchor: null, shape: null, version: 1, ...e,
+    }]))
+    const adapter = {
+      readBoard: vi.fn(async () => ({ board: { id: 'b1', folder_id: 'f1', project_id: 'p1', title: 'Plans', can_write: true }, elements: [...rows.values()] })),
+      readBoardElements: vi.fn(async () => []),
+      putBoardElements: vi.fn(async (_b, list) => ({ saved: list.map((e) => ({ id: e.id, version: (rows.get(e.id)?.version ?? 0) + 1 })), conflicts: [] })),
+      deleteBoardElements: vi.fn(async (_b, ids) => ({ removed: ids, conflicts: [] })),
+    }
+    const store = createBoardStore({ adapter, boardId: 'b1' })
+    await store.load()
+    return store
+  }
+  const snapshot = (store) => [...store.getElements().values()].map((e) => `${e.id}:${e.x},${e.y},${e.z}`).sort()
+  const pick = (id, extra = {}) => {
+    const g = groupOf(id)
+    const node = g.findOne('Path') || g.findOne('Rect') || g.findOne('Line')
+    const r = node.getClientRect()
+    const at = { x: r.x + r.width / 2, y: r.y + r.height / 2 }
+    press(node, at, extra)
+    release(at, extra)
+  }
+  const selection = () => stageNow().findOne('Transformer').nodes().map((n) => n.attrs.elementId)
+  const order = () => layer('content').getChildren().map((g) => g.attrs.elementId)
+  const ctrlG = (extra = {}) => fireEvent.keyDown(region(), { key: 'g', code: 'KeyG', ctrlKey: true, ...extra })
+  // Apart in time, so no two presses make a double press (which opens the words).
+  const later = () => act(async () => { await new Promise((r) => setTimeout(r, 400)) })
+
+  it('Frame selection: a frame named Frame around the selection, under it, the things on top, the frame selected', async () => {
+    const { store } = await mount()
+    pick('a')
+    pick('b', { shiftKey: true })
+    fireEvent.click(screen.getByTitle('Frame selection (Ctrl+G)'))
+    // a is 0..100 by 0..50, b 300..380 by 0..80: their bounds grown by 24.
+    expect(store.add).toHaveBeenCalledWith({
+      kind: 'frame', x: -24, y: -24, w: 428, h: 128, rotation: 0, z: 3, body: 'Frame',
+      style: { fill: '#FFFFFF', stroke: '#C9D1DB', width: 1 },
+    })
+    expect(store.update).toHaveBeenCalledWith('a', { z: 4 }, { settled: true })
+    expect(store.update).toHaveBeenCalledWith('b', { z: 5 }, { settled: true })
+    await settle()
+    expect(order()).toEqual(['new-1', 'a', 'b'])
+    expect(selection()).toEqual(['new-1'])
+    expect(named('frame-title').map((t) => t.text())).toEqual(['Frame'])
+  })
+
+  it('Frame selection by each key, the browser\'s own Ctrl+G kept off', async () => {
+    const { store } = await mount()
+    pick('a')
+    expect(ctrlG()).toBe(false) // false: the event's default was prevented
+    expect(selection()).toEqual(['new-1'])
+    expect(fireEvent.keyDown(region(), { key: 'g', code: 'KeyG', metaKey: true })).toBe(false)
+    // Figma's Ctrl or Cmd + Alt + G; on a Mac, Alt turns the letter into another, so the key's place is read.
+    expect(fireEvent.keyDown(region(), { key: '©', code: 'KeyG', metaKey: true, altKey: true })).toBe(false)
+    expect(store.add.mock.calls.filter(([el]) => el.kind === 'frame')).toHaveLength(3)
+    // The frame of a frame takes it and what it holds above it.
+    await settle()
+    expect(order()).toEqual(['b', 'new-3', 'new-2', 'new-1', 'a'])
+  })
+
+  it('ONE undo takes back the frame and its re-stacking together', async () => {
+    const store = await realStore([RECT, OTHER])
+    const before = snapshot(store)
+    await mount({ store })
+    pick('a')
+    pick('b', { shiftKey: true })
+    ctrlG()
+    await settle()
+    expect(store.getElements().size).toBe(3)
+    expect(snapshot(store)).not.toEqual(before)
+    fireEvent.keyDown(region(), { key: 'z', ctrlKey: true })
+    await settle()
+    expect(snapshot(store)).toEqual(before)
+    expect(store.canUndo()).toBe(false)
+  })
+
+  it('nothing to frame: tied lines only, or a board this person may only read', async () => {
+    const line = { id: 'c', kind: 'connector', x: 0, y: 100, w: 200, h: 1, z: 3, points: [0, 100, 200, 100], from_id: 'a', from_anchor: 'bottom' }
+    const { store } = await mount({ store: fakeStore([RECT, line]) })
+    act(() => { groupOf('c').findOne('.connector-line').fire('pointerdown', { evt: { button: 0, pointerId: 1, pointerType: 'mouse', clientX: 0, clientY: 0 } }, true) })
+    release({ x: 0, y: 0 })
+    expect(stageNow().findOne('Transformer').nodes()).toHaveLength(0)
+    await settle()
+    expect(screen.getByRole('complementary', { name: 'Style' })).toBeTruthy()
+    expect(document.querySelector('[data-action="frame-selection"]')).toBeNull()
+    expect(ctrlG()).toBe(false)
+    expect(store.add).not.toHaveBeenCalled()
+    cleanup()
+    const ro = fakeStore([RECT, OTHER], { canWrite: false })
+    await mount({ store: ro, canWrite: false })
+    pick('a')
+    expect(ctrlG()).toBe(false)
+    expect(fireEvent.keyDown(region(), { key: 'G', code: 'KeyG', ctrlKey: true, shiftKey: true })).toBe(false)
+    expect(ro.add).not.toHaveBeenCalled()
+    expect(ro.remove).not.toHaveBeenCalled()
+    expect(document.querySelector('[data-action="frame-selection"]')).toBeNull()
+  })
+
+  it('a dragged frame carries what it holds: the middle inside moves, the middle outside and the too large stay', async () => {
+    const live = fakeLive()
+    const { store } = await mount({ store: fakeStore([FR, HALF, OUTSIDE, WIDE, FAR]), live })
+    // The thing it holds selected first, then the frame added by a press on its name.
+    pick('half')
+    const title = groupOf('fr').findOne('.frame-title')
+    const at = title.getClientRect()
+    const from = { x: at.x + 5, y: at.y + at.height / 2 }
+    press(title, from, { shiftKey: true })
+    moveTo({ x: from.x + 40, y: from.y + 30 }, { altKey: true })
+    // The frame first among what the room hears.
+    expect(live.sendDrag.mock.calls[0][0]).toBe('fr')
+    release({ x: from.x + 40, y: from.y + 30 }, { altKey: true })
+    const moved = store.update.mock.calls.map(([id]) => id)
+    expect(moved.sort()).toEqual(['fr', 'half'])
+    const to = (id) => store.update.mock.calls.find(([which]) => which === id)[1]
+    expect(to('fr').x).toBeGreaterThan(0)
+    expect(to('half').x - to('fr').x).toBeCloseTo(360, 1)
+    expect(to('half').y - to('fr').y).toBeCloseTo(20, 1)
+  })
+
+  it('a nudged frame carries what it holds', async () => {
+    const { store } = await mount({ store: fakeStore([FR, HALF, OUTSIDE, WIDE, FAR]) })
+    pick('fr')
+    fireEvent.keyDown(region(), { key: 'ArrowRight', shiftKey: true })
+    expect(store.update).toHaveBeenCalledWith('fr', { x: 10, y: 0 }, { settled: true })
+    expect(store.update).toHaveBeenCalledWith('half', { x: 370, y: 20 }, { settled: true })
+    expect(store.update.mock.calls.map(([id]) => id).sort()).toEqual(['fr', 'half'])
+  })
+
+  it('the frame under a drag is outlined, and let go of when the pointer leaves it, at Escape, and at the drop', async () => {
+    await mount({ store: fakeStore([FR, FAR]) })
+    const start = toScreen({ x: 725, y: 25 })
+    press(groupOf('far').findOne('Path'), start)
+    moveTo(toScreen({ x: 200, y: 150 }), { altKey: true })
+    const outline = named('frame-target')
+    expect(outline).toHaveLength(1)
+    expect(outline[0].getLayer().name()).toBe('overlay')
+    expect([outline[0].x(), outline[0].y(), outline[0].width(), outline[0].height()]).toEqual([0, 0, 400, 300])
+    moveTo(toScreen({ x: 900, y: 150 }), { altKey: true })
+    expect(named('frame-target')).toHaveLength(0)
+    moveTo(toScreen({ x: 100, y: 100 }), { altKey: true })
+    expect(named('frame-target')).toHaveLength(1)
+    fireEvent.keyDown(region(), { key: 'Escape' })
+    expect(named('frame-target')).toHaveLength(0)
+    await later()
+    press(groupOf('far').findOne('Path'), start)
+    moveTo(toScreen({ x: 100, y: 100 }), { altKey: true })
+    expect(named('frame-target')).toHaveLength(1)
+    release(toScreen({ x: 100, y: 100 }), { altKey: true })
+    expect(named('frame-target')).toHaveLength(0)
+  })
+
+  it('the outline says what the drop will do: by the dragged thing\'s middle, not by where the pointer is', async () => {
+    await mount({ store: fakeStore([FR, FAR]) })
+    // Held by its top left corner: the pointer is inside the frame (398 of 400) while the thing's middle (421) is not.
+    press(groupOf('far').findOne('Path'), toScreen({ x: 702, y: 2 }))
+    moveTo(toScreen({ x: 398, y: 100 }), { altKey: true })
+    expect(named('frame-target')).toHaveLength(0)
+    // 28 further in, its middle (393) is inside.
+    moveTo(toScreen({ x: 370, y: 100 }), { altKey: true })
+    expect(named('frame-target')).toHaveLength(1)
+    release(toScreen({ x: 370, y: 100 }), { altKey: true })
+    cleanup()
+    // Held by its bottom right corner: the pointer is outside the frame (405) while the thing's middle (382) is in.
+    await mount({ store: fakeStore([FR, FAR]) })
+    press(groupOf('far').findOne('Path'), toScreen({ x: 748, y: 48 }))
+    moveTo(toScreen({ x: 405, y: 148 }), { altKey: true })
+    expect(named('frame-target')).toHaveLength(1)
+    release(toScreen({ x: 405, y: 148 }), { altKey: true })
+    expect(named('frame-target')).toHaveLength(0)
+  })
+
+  it('a thing dropped into a frame stacked above it is raised above the frame', async () => {
+    const { store } = await mount({ store: fakeStore([{ ...FR, z: 5 }, { ...FAR, z: 1 }]) })
+    press(groupOf('far').findOne('Path'), toScreen({ x: 725, y: 25 }))
+    moveTo(toScreen({ x: 200, y: 150 }), { altKey: true })
+    release(toScreen({ x: 200, y: 150 }), { altKey: true })
+    expect(store.update).toHaveBeenCalledWith('far', { x: 175, y: 125 }, { settled: true })
+    expect(store.update).toHaveBeenCalledWith('far', { z: 6 }, { settled: true })
+    await settle()
+    expect(order()).toEqual(['fr', 'far'])
+  })
+
+  // Its middle (405) just outside the frame's right edge, stacked below the frame.
+  const EDGE = { id: 'edge', kind: 'shape', shape: 'rectangle', x: 395, y: 100, w: 20, h: 20, z: 1 }
+
+  it('a thing nudged into a frame stacked above it is raised above the frame, in the nudge\'s own undo step', async () => {
+    const { store } = await mount({ store: fakeStore([{ ...FR, z: 5 }, EDGE]) })
+    pick('edge')
+    fireEvent.keyDown(region(), { key: 'ArrowLeft', shiftKey: true })
+    expect(store.update).toHaveBeenCalledWith('edge', { x: 385, y: 100 }, { settled: true })
+    expect(store.update).toHaveBeenCalledWith('edge', { z: 6 }, { settled: true })
+    await settle()
+    expect(order()).toEqual(['fr', 'edge'])
+    cleanup()
+    const real = await realStore([{ ...FR, z: 5 }, EDGE])
+    const before = snapshot(real)
+    await mount({ store: real })
+    pick('edge')
+    fireEvent.keyDown(region(), { key: 'ArrowLeft', shiftKey: true })
+    await settle()
+    expect(snapshot(real)).toContain('edge:385,100,6')
+    fireEvent.keyDown(region(), { key: 'z', ctrlKey: true })
+    await settle()
+    expect(snapshot(real)).toEqual(before)
+    expect(real.canUndo()).toBe(false)
+  })
+
+  it('a thing resized so that a frame stacked above it now holds it is raised above the frame', async () => {
+    const { store } = await mount({ store: fakeStore([{ ...FR, z: 5 }, { ...EDGE, x: 390, w: 40 }]) })
+    pick('edge')
+    const tr = stageNow().findOne('Transformer')
+    // Half as wide: its middle goes from 410 to 400, on the frame's edge.
+    act(() => { tr.fire('transformstart'); groupOf('edge').scaleX(0.5); tr.fire('transform'); tr.fire('transformend') })
+    expect(store.update).toHaveBeenCalledWith('edge', expect.objectContaining({ x: 390, w: 20 }), { settled: true })
+    expect(store.update).toHaveBeenCalledWith('edge', { z: 6 }, { settled: true })
+    await settle()
+    expect(order()).toEqual(['fr', 'edge'])
+  })
+
+  it('a frame resized over a thing stacked below it raises that thing above the frame', async () => {
+    const { store } = await mount({ store: fakeStore([{ ...FR, z: 5 }, { ...EDGE, x: 420 }]) })
+    pick('fr')
+    const tr = stageNow().findOne('Transformer')
+    act(() => { tr.fire('transformstart'); groupOf('fr').scaleX(1.2); tr.fire('transform'); tr.fire('transformend') })
+    expect(store.update).toHaveBeenCalledWith('fr', expect.objectContaining({ x: 0, w: 480 }), { settled: true })
+    expect(store.update).toHaveBeenCalledWith('edge', { z: 6 }, { settled: true })
+    await settle()
+    expect(order()).toEqual(['fr', 'edge'])
+  })
+
+  it('a frame drawn by hand inside another frame goes on top of it, what it holds above it', async () => {
+    const inner = { id: 'inner', kind: 'shape', shape: 'rectangle', x: 20, y: 20, w: 50, h: 50, z: 1 }
+    const { store } = await mount({ store: fakeStore([FR, inner, FAR]) })
+    fireEvent.click(screen.getByTitle('Frame (F)'))
+    press(stageNow(), toScreen({ x: 10, y: 10 }))
+    moveTo(toScreen({ x: 200, y: 200 }))
+    release(toScreen({ x: 200, y: 200 }))
+    expect(store.add).toHaveBeenCalledWith(expect.objectContaining({ kind: 'frame', x: 10, y: 10, w: 190, h: 190, z: 5 }))
+    expect(store.update).toHaveBeenCalledWith('inner', { z: 6 }, { settled: true })
+    await settle()
+    expect(order()).toEqual(['fr', 'far', 'new-1', 'inner'])
+  })
+
+  it('Ctrl and a drag from a frame\'s surface selects by rectangle; Ctrl and a press toggles the frame', async () => {
+    const inner = { id: 'inner', kind: 'shape', shape: 'rectangle', x: 20, y: 20, w: 50, h: 50, z: 1 }
+    const { store } = await mount({ store: fakeStore([FR, inner, FAR]) })
+    const from = toScreen({ x: 10, y: 10 })
+    press(groupOf('fr').findOne('Rect'), from, { ctrlKey: true })
+    moveTo(toScreen({ x: 100, y: 100 }), { ctrlKey: true })
+    const near = (v, to) => Math.abs(v - to) < 0.01
+    expect(layer('overlay').find('Rect').some((r) => r.visible() && near(r.width(), 90) && near(r.height(), 90))).toBe(true)
+    release(toScreen({ x: 100, y: 100 }), { ctrlKey: true })
+    expect(selection()).toEqual(['inner'])
+    expect(store.update).not.toHaveBeenCalled()
+    await later()
+    press(groupOf('fr').findOne('Rect'), toScreen({ x: 300, y: 250 }), { ctrlKey: true })
+    release(toScreen({ x: 300, y: 250 }), { ctrlKey: true })
+    expect(selection().sort()).toEqual(['fr', 'inner'])
+    await later()
+    press(groupOf('fr').findOne('Rect'), toScreen({ x: 300, y: 250 }), { metaKey: true })
+    release(toScreen({ x: 300, y: 250 }), { metaKey: true })
+    expect(selection()).toEqual(['inner'])
+  })
+
+  it('Delete on a frame removes what it holds too, says so once, and frees a line tied to what went', async () => {
+    const line = { id: 'c', kind: 'connector', x: 0, y: 0, w: 1, h: 1, z: 9, points: [0, 0, 1, 1], from_id: 'half', from_anchor: 'right', to_id: 'far', to_anchor: 'left', style: { end_head: 'none' } }
+    const { store } = await mount({ store: fakeStore([FR, HALF, OUTSIDE, FAR, line]) })
+    pick('fr')
+    fireEvent.keyDown(region(), { key: 'Delete' })
+    expect(store.remove).toHaveBeenCalledTimes(1)
+    expect([...store.remove.mock.calls[0][0]].sort()).toEqual(['fr', 'half'])
+    expect(store.update).toHaveBeenCalledWith('c', expect.objectContaining({ from_id: null, from_anchor: null }), { settled: true })
+    expect(screen.getByRole('status').textContent).toBe(FRAME_REMOVED_WORDS)
+    expect(store.getElements().has('outside')).toBe(true)
+  })
+
+  it('ONE undo brings a removed frame and all it held back', async () => {
+    const store = await realStore([FR, HALF, OUTSIDE, FAR])
+    const before = snapshot(store)
+    await mount({ store })
+    pick('fr')
+    fireEvent.keyDown(region(), { key: 'Delete' })
+    await settle()
+    expect([...store.getElements().keys()].sort()).toEqual(['far', 'outside'])
+    fireEvent.keyDown(region(), { key: 'z', ctrlKey: true })
+    await settle()
+    expect(snapshot(store)).toEqual(before)
+  })
+
+  it('Remove the frame only, by its key and by its button, leaves what it held', async () => {
+    const { store } = await mount({ store: fakeStore([FR, HALF, OUTSIDE, FAR]) })
+    pick('fr')
+    expect(fireEvent.keyDown(region(), { key: 'G', code: 'KeyG', ctrlKey: true, shiftKey: true })).toBe(false)
+    expect(store.remove).toHaveBeenCalledWith(['fr'])
+    expect(store.getElements().has('half')).toBe(true)
+    expect(selection()).toEqual(['half'])
+    expect(screen.queryByText(FRAME_REMOVED_WORDS)).toBeNull()
+    cleanup()
+    const other = fakeStore([FR, HALF])
+    await mount({ store: other })
+    pick('fr')
+    await settle()
+    fireEvent.click(document.querySelector('[data-action="frame-only"]'))
+    expect(other.remove).toHaveBeenCalledWith(['fr'])
+    expect(other.getElements().has('half')).toBe(true)
+  })
+
+  it('bringing a frame to the front keeps its things above it', async () => {
+    const { store } = await mount({ store: fakeStore([FR, HALF, FAR]) })
+    pick('fr')
+    fireEvent.click(screen.getByTitle('Bring to front'))
+    expect(store.update).toHaveBeenCalledWith('fr', { z: 5 }, { settled: true })
+    expect(store.update).toHaveBeenCalledWith('half', { z: 6 }, { settled: true })
+    await settle()
+    expect(order()).toEqual(['far', 'fr', 'half'])
+  })
+
+  // Lines: free (no end tied), or tied from one element to another.
+  const freeLine = (id, x, y, z) => ({ id, kind: 'connector', x, y, w: 100, h: 40, z, points: [0, 0, 100, 40], from_id: null, to_id: null })
+  const tiedLine = (id, from, to, z) => ({
+    id, kind: 'connector', x: 0, y: 0, w: 1, h: 1, z, points: [0, 0, 1, 1], from_id: from, from_anchor: 'right', to_id: to, to_anchor: 'left',
+    style: { end_head: 'none' },
+  })
+  const zOf = (store, id) => store.getElements().get(id).z
+  const boardOrder = (store) => [...store.getElements().values()].sort((p, q) => (p.z - q.z) || (p.id < q.id ? -1 : p.id > q.id ? 1 : 0)).map((e) => e.id)
+
+  it('a free line inside a frame is held and moves with it, dragged and nudged; a tied line is not moved itself', async () => {
+    const els = [FR, HALF, FAR, freeLine('free', 50, 50, 5), tiedLine('tied', 'half', 'far', 6)]
+    const { store } = await mount({ store: fakeStore(els) })
+    const from = toScreen({ x: 200, y: 150 })
+    press(groupOf('fr').findOne('Rect'), from)
+    moveTo({ x: from.x + 30, y: from.y + 20 }, { altKey: true })
+    release({ x: from.x + 30, y: from.y + 20 }, { altKey: true })
+    expect(store.update.mock.calls.map(([id]) => id).sort()).toEqual(['fr', 'free', 'half'])
+    const to = (id) => store.update.mock.calls.find(([which]) => which === id)[1]
+    expect(to('free').x - to('fr').x).toBeCloseTo(50, 1)
+    store.update.mockClear()
+    await later()
+    fireEvent.keyDown(region(), { key: 'ArrowDown' })
+    expect(store.update.mock.calls.map(([id]) => id).sort()).toEqual(['fr', 'free', 'half'])
+  })
+
+  it('Frame selection frames a free line with the rest, and raises the lines of what it frames above the frame', async () => {
+    const x = { id: 'x', kind: 'shape', shape: 'rectangle', x: 1000, y: 0, w: 50, h: 50, z: 3 }
+    const store = fakeStore([RECT, OTHER, x, tiedLine('ab', 'a', 'b', 0), tiedLine('ax', 'a', 'x', 0), freeLine('free', 120, 100, 0)])
+    await mount({ store })
+    pick('a')
+    pick('b', { shiftKey: true })
+    act(() => { groupOf('free').findOne('.connector-line').fire('pointerdown', { evt: { button: 0, pointerId: 1, pointerType: 'mouse', clientX: 0, clientY: 0, shiftKey: true } }, true) })
+    release({ x: 0, y: 0 })
+    ctrlG()
+    // The free line (120..220 by 100..140) counts toward the box: a and b reach y 80, the line y 140.
+    expect(store.add).toHaveBeenCalledWith(expect.objectContaining({ kind: 'frame', x: -24, y: -24, w: 428, h: 188 }))
+    const f = zOf(store, 'new-1')
+    // Both lines of a: the one joining a to b, and the one leaving the frame for x; and the free line.
+    for (const id of ['ab', 'ax', 'free', 'a', 'b']) expect(zOf(store, id)).toBeGreaterThan(f)
+  })
+
+  it('a drop into a frame takes the dropped thing\'s lines above the frame too', async () => {
+    const out2 = { id: 'out2', kind: 'shape', shape: 'rectangle', x: 1200, y: 0, w: 50, h: 50, z: 2 }
+    const store = fakeStore([{ ...FR, z: 5 }, { ...FAR, z: 1 }, out2, tiedLine('line', 'far', 'out2', 0)])
+    await mount({ store })
+    press(groupOf('far').findOne('Path'), toScreen({ x: 725, y: 25 }))
+    moveTo(toScreen({ x: 200, y: 150 }), { altKey: true })
+    release(toScreen({ x: 200, y: 150 }), { altKey: true })
+    expect(zOf(store, 'far')).toBeGreaterThan(5)
+    expect(zOf(store, 'line')).toBeGreaterThan(5)
+  })
+
+  it('bringing a frame to the front takes the lines of what it holds along', async () => {
+    const store = fakeStore([FR, HALF, FAR, tiedLine('line', 'half', 'far', 2)])
+    await mount({ store })
+    pick('fr')
+    fireEvent.click(screen.getByTitle('Bring to front'))
+    expect(zOf(store, 'line')).toBeGreaterThan(zOf(store, 'fr'))
+    expect(zOf(store, 'half')).toBeGreaterThan(zOf(store, 'fr'))
+  })
+
+  it('what is dragged is drawn on top while it is held; after the drop and after Escape the board\'s own order is back', async () => {
+    // out2 is drawn above the frame; inner lies in the frame, stacked below it.
+    const out2 = { id: 'out2', kind: 'shape', shape: 'rectangle', x: 1200, y: 0, w: 50, h: 50, z: 9 }
+    const inner = { id: 'inner', kind: 'shape', shape: 'rectangle', x: 100, y: 100, w: 50, h: 50, z: 3 }
+    const store = fakeStore([{ ...FR, z: 5 }, { ...FAR, z: 1 }, out2, inner, tiedLine('line', 'far', 'out2', 0)])
+    await mount({ store })
+    const own = ['line', 'far', 'inner', 'fr', 'out2']
+    const start = toScreen({ x: 725, y: 25 })
+    press(groupOf('far').findOne('Path'), start)
+    // Not yet past the slop: nothing lifted.
+    moveTo({ x: start.x + 1, y: start.y }, { altKey: true })
+    expect(order()).toEqual(own)
+    moveTo(toScreen({ x: 200, y: 150 }), { altKey: true })
+    expect(order()).toEqual(['inner', 'fr', 'out2', 'line', 'far'])
+    fireEvent.keyDown(region(), { key: 'Escape' })
+    expect(order()).toEqual(own)
+    expect(store.update).not.toHaveBeenCalled()
+    await later()
+    press(groupOf('far').findOne('Path'), start)
+    moveTo(toScreen({ x: 900, y: 150 }), { altKey: true })
+    expect(order().slice(-2)).toEqual(['line', 'far'])
+    release(toScreen({ x: 900, y: 150 }), { altKey: true })
+    // Dropped clear of the frame: no z saved, the board's own order.
+    expect(store.update.mock.calls.every(([, patch]) => !('z' in patch))).toBe(true)
+    expect(order()).toEqual(boardOrder(store))
+    expect(order()).toEqual(own)
+    // A frame and what it holds, several at once: all of them last, in their own order.
+    await later()
+    press(groupOf('fr').findOne('Rect'), toScreen({ x: 10, y: 10 }))
+    release(toScreen({ x: 10, y: 10 }))
+    await later()
+    const s2 = toScreen({ x: 10, y: 10 })
+    press(groupOf('fr').findOne('Rect'), s2)
+    moveTo({ x: s2.x + 40, y: s2.y + 40 }, { altKey: true })
+    expect(order()).toEqual(['line', 'far', 'out2', 'inner', 'fr'])
+    release({ x: s2.x + 40, y: s2.y + 40 }, { altKey: true })
+    // The drop raised inner above its frame; the order is the board's own, z then id.
+    expect(order()).toEqual(boardOrder(store))
+    expect(order()).toEqual(['line', 'far', 'fr', 'out2', 'inner'])
+  })
+
+  it('Delete on a frame takes a line joining two things it held, frees one leaving it; ONE undo brings all back', async () => {
+    const in2 = { id: 'in2', kind: 'shape', shape: 'rectangle', x: 20, y: 20, w: 50, h: 50, z: 2 }
+    const store = await realStore([FR, HALF, in2, FAR, tiedLine('j', 'half', 'in2', 6), tiedLine('k', 'in2', 'far', 7)])
+    const before = snapshot(store)
+    await mount({ store })
+    pick('fr')
+    fireEvent.keyDown(region(), { key: 'Delete' })
+    await settle()
+    expect([...store.getElements().keys()].sort()).toEqual(['far', 'k'])
+    expect(store.getElements().get('k').from_id).toBeNull()
+    expect(store.getElements().get('k').to_id).toBe('far')
+    fireEvent.keyDown(region(), { key: 'z', ctrlKey: true })
+    await settle()
+    expect(snapshot(store)).toEqual(before)
+    expect(store.getElements().get('k').from_id).toBe('in2')
+  })
+
+  it('Remove the frame only leaves every line', async () => {
+    const in2 = { id: 'in2', kind: 'shape', shape: 'rectangle', x: 20, y: 20, w: 50, h: 50, z: 2 }
+    const { store } = await mount({ store: fakeStore([FR, HALF, in2, FAR, tiedLine('j', 'half', 'in2', 6), tiedLine('k', 'in2', 'far', 7), tiedLine('m', 'fr', 'far', 8)]) })
+    pick('fr')
+    fireEvent.keyDown(region(), { key: 'G', code: 'KeyG', ctrlKey: true, shiftKey: true })
+    expect(store.remove).toHaveBeenCalledWith(['fr'])
+    for (const id of ['j', 'k', 'm']) expect(store.getElements().has(id)).toBe(true)
+  })
+})
+
+// Anyone who may read a board may send on its people's channel, so a drag shown here may be forged. Each write of
+// this window lets go of every other person's preview first and works from the element's own saved place.
+describe('BoardCanvas: a write starts from the settled board, never from another person\'s preview', () => {
+  // The board's store as the canvas sees it: a preview lies over the saved element until dropPreviews lets go.
+  function previewingStore(initial) {
+    const store = fakeStore(initial)
+    const saved = store.getElements
+    const previews = new Map()
+    const subs = new Set()
+    const subscribe = store.subscribe
+    store.subscribe = vi.fn((fn) => { subs.add(fn); const off = subscribe(fn); return () => { subs.delete(fn); off() } })
+    const tell = () => { for (const fn of [...subs]) fn() }
+    store.getElements = () => {
+      if (!previews.size) return saved()
+      const out = new Map(saved())
+      for (const [id, p] of previews) { const el = out.get(id); if (el) out.set(id, { ...el, ...p }) }
+      return out
+    }
+    store.preview = (id, p) => { if (p) previews.set(id, p); else previews.delete(id); tell() }
+    store.dropPreviews = vi.fn(() => { if (!previews.size) return; previews.clear(); tell() })
+    return store
+  }
+  const FR = { id: 'fr', kind: 'frame', x: 0, y: 0, w: 400, h: 300, z: 0, body: 'Ideas' }
+  const E = { id: 'e', kind: 'shape', shape: 'rectangle', x: 1000, y: 1000, w: 50, h: 50, z: 1 }
+  const pickNode = (id) => {
+    const g = groupOf(id)
+    const node = g.findOne('Path') || g.findOne('Rect')
+    const r = node.getClientRect()
+    const at = { x: r.x + r.width / 2, y: r.y + r.height / 2 }
+    press(node, at)
+    release(at)
+  }
+  // Another person's drag, shown here.
+  const shown = async (store, id, at) => { act(() => store.preview(id, at)); await settle() }
+
+  it('a nudge: what is saved is the saved place plus the step', async () => {
+    const store = previewingStore([RECT, OTHER])
+    await mount({ store })
+    pickNode('a')
+    await shown(store, 'a', { x: 500, y: 500 })
+    expect(groupOf('a').x()).toBe(500)
+    fireEvent.keyDown(region(), { key: 'ArrowRight' })
+    expect(store.update).toHaveBeenCalledWith('a', { x: 1, y: 0 }, { settled: true })
+    expect(store.dropPreviews).toHaveBeenCalled()
+  })
+
+  it('a move: what is saved is the saved place plus the move', async () => {
+    const store = previewingStore([RECT, OTHER])
+    await mount({ store })
+    await shown(store, 'a', { x: 500, y: 500 })
+    const from = toScreen({ x: 525, y: 525 })
+    press(groupOf('a').findOne('Path'), from)
+    moveTo({ x: from.x + 40, y: from.y + 30 }, { altKey: true })
+    release({ x: from.x + 40, y: from.y + 30 }, { altKey: true })
+    expect(store.update).toHaveBeenCalledWith('a', { x: 40, y: 30 }, { settled: true })
+  })
+
+  it('a resize: what is saved starts from the saved place', async () => {
+    const store = previewingStore([RECT, OTHER])
+    await mount({ store })
+    pickNode('a')
+    await shown(store, 'a', { x: 500, y: 500 })
+    const tr = stageNow().findOne('Transformer')
+    act(() => { tr.fire('transformstart'); groupOf('a').scaleX(2); tr.fire('transform'); tr.fire('transformend') })
+    expect(store.update).toHaveBeenCalledWith('a', { x: 0, y: 0, w: 200, h: 50, rotation: 0 }, { settled: true })
+  })
+
+  it('a frame dragged or nudged carries only what it holds where things are saved', async () => {
+    const store = previewingStore([FR, E])
+    await mount({ store })
+    pickNode('fr')
+    await shown(store, 'e', { x: 50, y: 50 }) // shown inside the frame, saved far outside
+    fireEvent.keyDown(region(), { key: 'ArrowRight' })
+    expect(store.update.mock.calls.map(([id]) => id)).toEqual(['fr'])
+    await act(async () => { await new Promise((r) => setTimeout(r, 400)) }) // no double press
+    await shown(store, 'e', { x: 50, y: 50 })
+    const at = groupOf('fr').findOne('.frame-title').getClientRect()
+    const from = { x: at.x + 5, y: at.y + at.height / 2 }
+    press(groupOf('fr').findOne('.frame-title'), from)
+    moveTo({ x: from.x + 40, y: from.y }, { altKey: true })
+    release({ x: from.x + 40, y: from.y }, { altKey: true })
+    expect(store.update.mock.calls.map(([id]) => id)).toEqual(['fr', 'fr'])
+  })
+
+  it('a delete takes only what the frame holds where things are saved', async () => {
+    const store = previewingStore([FR, E])
+    await mount({ store })
+    pickNode('fr')
+    await shown(store, 'e', { x: 50, y: 50 })
+    fireEvent.keyDown(region(), { key: 'Delete' })
+    expect(store.remove).toHaveBeenCalledWith(['fr'])
+  })
+
+  it('stacking takes along only what the frame holds where things are saved', async () => {
+    const store = previewingStore([FR, E])
+    await mount({ store })
+    pickNode('fr')
+    await shown(store, 'e', { x: 50, y: 50 })
+    fireEvent.keyDown(region(), { key: ']', ctrlKey: true, shiftKey: true })
+    expect(store.update.mock.calls.map(([id]) => id)).toEqual(['fr'])
+  })
+
+  it('Frame selection frames the things where they are saved', async () => {
+    const store = previewingStore([RECT, OTHER])
+    await mount({ store })
+    pickNode('a')
+    await act(async () => { await new Promise((r) => setTimeout(r, 400)) })
+    const b = groupOf('b').findOne('Path').getClientRect()
+    press(groupOf('b').findOne('Path'), { x: b.x + b.width / 2, y: b.y + b.height / 2 }, { shiftKey: true })
+    release({ x: b.x + b.width / 2, y: b.y + b.height / 2 }, { shiftKey: true })
+    await shown(store, 'b', { x: 5000, y: 5000 })
+    fireEvent.keyDown(region(), { key: 'g', code: 'KeyG', ctrlKey: true })
+    expect(store.add).toHaveBeenCalledWith(expect.objectContaining({ kind: 'frame', x: -24, y: -24, w: 428, h: 128 }))
+  })
+})
+
+// The board's keys work from the moment it opens and straight after any of its own buttons is pressed (a browser
+// leaves the focus on a button it pressed; jsdom does not, so each test puts it there as the browser would).
+describe('BoardCanvas: the board\'s keys after its own buttons', () => {
+  const pressButton = (el) => { act(() => { el.focus() }); fireEvent.click(el) }
+
+  it('a board just opened has the focus on its region, so its keys work at once', async () => {
+    await mount()
+    expect(document.activeElement).toBe(region())
+    fireEvent.keyDown(document.activeElement, { key: 'n' })
+    expect(screen.getByTitle('Sticky note (N)').getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('opening takes the focus from no field or button elsewhere', async () => {
+    const outside = document.createElement('input')
+    document.body.appendChild(outside)
+    outside.focus()
+    await mount()
+    expect(document.activeElement).toBe(outside)
+    outside.remove()
+  })
+
+  it('a key on a board button is the board\'s, but for Space and Enter', async () => {
+    const { store } = await mount()
+    const fit = screen.getByTitle('Show the whole board')
+    fireEvent.keyDown(fit, { key: 'z', ctrlKey: true })
+    expect(store.undo).toHaveBeenCalledTimes(1)
+    fireEvent.keyDown(fit, { key: 't' })
+    expect(screen.getByTitle('Text (T)').getAttribute('aria-pressed')).toBe('true')
+    expect(fireEvent.keyDown(fit, { key: ' ' })).toBe(true)
+    expect(fireEvent.keyDown(fit, { key: 'Enter' })).toBe(true)
+  })
+
+  it('after Frame selection is pressed, the focus is the board\'s and Ctrl+Z undoes', async () => {
+    const { store } = await mount()
+    press(groupOf('a').findOne('Path'), toScreen({ x: 50, y: 25 }))
+    release(toScreen({ x: 50, y: 25 }))
+    await settle()
+    pressButton(screen.getByTitle('Frame selection (Ctrl+G)'))
+    expect(store.add).toHaveBeenCalledWith(expect.objectContaining({ kind: 'frame' }))
+    expect(document.activeElement).toBe(region())
+    fireEvent.keyDown(document.activeElement, { key: 'z', ctrlKey: true })
+    expect(store.undo).toHaveBeenCalledTimes(1)
+  })
+
+  it('after the panel\'s Delete (the button goes with the panel), the focus is the board\'s and Ctrl+Z undoes', async () => {
+    const { store } = await mount()
+    press(groupOf('a').findOne('Path'), toScreen({ x: 50, y: 25 }))
+    release(toScreen({ x: 50, y: 25 }))
+    await settle()
+    pressButton(screen.getByTitle('Delete'))
+    expect(store.remove).toHaveBeenCalledWith(['a'])
+    await settle()
+    expect(screen.queryByTitle('Delete')).toBeNull()
+    expect(document.activeElement).toBe(region())
+    fireEvent.keyDown(document.activeElement, { key: 'z', ctrlKey: true })
+    expect(store.undo).toHaveBeenCalledTimes(1)
+  })
+
+  it('after a tool or a shape from the picker, the focus is the board\'s; the picker\'s toggle keeps it', async () => {
+    await mount()
+    pressButton(screen.getByTitle('Pen (P)'))
+    expect(document.activeElement).toBe(region())
+    const toggle = screen.getByTitle('Choose a shape')
+    pressButton(toggle)
+    expect(document.activeElement).toBe(toggle)
+    pressButton(screen.getByTitle('Star'))
+    expect(document.activeElement).toBe(region())
+    fireEvent.keyDown(document.activeElement, { key: 'v' })
+    expect(screen.getByTitle('Select (V)').getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('a words box keeps the focus when a button is pressed while it has it', async () => {
+    await mount()
+    fireEvent.click(screen.getByTitle('Text (T)'))
+    press(stageNow(), toScreen({ x: 0, y: 300 }))
+    const box = await screen.findByLabelText('Text')
+    expect(document.activeElement).toBe(box)
+    fireEvent.click(screen.getByTitle('Zoom in')) // a press the box's own blur has not taken
+    expect(document.activeElement).toBe(box)
+  })
+})
+
+describe('the helpers', () => {
+  it('targets grow under a finger or a pen', () => {
+    expect(targetSizes('touch').anchor).toBeGreaterThan(targetSizes('mouse').anchor)
+    expect(targetSizes('touch').hit).toBeGreaterThan(targetSizes('mouse').hit)
+  })
+  it('a node tells what it belongs to', () => {
+    const g = new Konva.Group({ elementId: 'x' })
+    const r = new Konva.Rect()
+    g.add(r)
+    expect(elementIdOf(r)).toEqual({ id: 'x' })
+    expect(elementIdOf(new Konva.Circle({ boardHandle: 'to', connId: 'c' }))).toEqual({ handle: 'to', connId: 'c' })
+    expect(elementIdOf(null)).toEqual({})
+    expect(writingWords('Mara Okonkwo')).toBe('Mara Okonkwo is writing on this sticky.')
+    expect(writingWords(null)).toBe('Someone is writing on this sticky.')
+  })
+  it('keeps its words plain', () => {
+    expect(READ_ONLY_WORDS).not.toMatch(/[_{}]/)
+    expect(TURN_ENDED_WORDS).toMatch(/still here/)
+    expect(MISSING_WORDS).toMatch(/missing/)
+  })
+})

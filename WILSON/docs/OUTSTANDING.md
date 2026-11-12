@@ -1224,17 +1224,9 @@ environments that come later.
 are THREE, and only the first two are counted and reported by 0076 at apply
 time. All three are empty on dev and staging today.
 
-1. **A pre-existing receipt is gated at the ROW and not at the BLOB.** The
-   four base `rabbit_files_*` storage policies key on the third PATH segment
-   and never consult `files.is_financial`, so flipping the flag does not move
-   an existing object to the money side of that test. The practical effect is
-   still large — `storage_path` itself becomes manager-only, so the path can no
-   longer be DISCOVERED through the app — but anyone already holding a path
-   keeps object-level read access. Moving the bytes is not a migration's job
-   (`storage.objects.name` IS the S3 key, so renaming the row without moving
-   the object breaks the download); it needs a one-time client-side mover in
-   the shape of C3's `runAttachmentMigration`. Pinned as a fact by suite 78
-   probe 55 rather than left as a comment.
+1. **Closed by 0115.** A pre-existing receipt was gated at the row and not at
+   the blob; since 0115 a claimed key's reads follow its row, whatever the path
+   says, so a path kept from before is no way in.
 2. **A receipt whose body is on a customer's own bucket cannot be flagged at
    all.** `files_money_provider_chk` (0050) refuses a financial row outside
    Supabase, so 0076 scopes its backfill to `storage_provider = 'supabase'`
@@ -1245,8 +1237,8 @@ time. All three are empty on dev and staging today.
 The standing diagnostic for the first two is in `SYSTEMS_HANDBOOK.md` §12.9
 (§12.4 is blob garbage collection — the pointer here was wrong). ⚠️ Read its
 two columns differently: `ungated_on_customer_bucket` must be 0, but
-`blob_outside_money_segment` IS the size of residual 1 and is expected to be
-non-zero wherever receipts predate 0076.
+`blob_outside_money_segment` counts receipts whose path predates 0076, and is
+expected to be non-zero there: since 0115 their reads follow the row.
 
 3. **Local Server receipts uploaded before C4 — counted by nothing.** 0076 is
    a Postgres migration; the desktop keeps its own `is_financial` in its JSON
@@ -1340,6 +1332,9 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| MO3 (M.O.T.H. Session 3, 2026-11-08; `po/moth3-tags`) — typed tags, relationships and workspace notes: migrations 0124 to 0129 on wilson-dev, the notes' tiers and trash, the `[[` and `#` pickers in R.A.B.B.I.T., M.O.T.H.'s typed-tag drawer, notes, tags and links in the graph and its record; two whole-session review rounds. | MO3-01 to MO3-12 (above, after MO2's list). | MO2-03 (links are saved: 0127, and the page's link drop), MO2-09, MO2-10, MO2-11, MO2-12 and MO2-18 (0124). |
+| MO2 (M.O.T.H. Session 2, 2026-11-07; `po/moth2-graph`) — the graph engine merged with its callers, migrations 0122 and 0123 on wilson-dev, the graph, glow, HUD and navigation; two whole-session review rounds. | MO2-01 to MO2-23 (above, after MO2a's list). | MO2a's R1-17, R1-18, R1-4, 5, 22, 52, R1-11, 23, R1-8, 24, R1-25, R1-13, R1-6, R1-3, R1-7, R1-32, R1-33, R1-34. |
+| MO1 (M.O.T.H. Session 1, 2026-11-02 to 2026-11-07; `po/moth1-foundations-9l5hbg`) — migrations 0107 to 0119 and 0121, the Edge Functions, the desktop's trash, moves and office-server routes, and the lazy Moth page; two whole-session review rounds. | MO1-01 to MO1-15 (below, at the end of this file). | The workspace channel's private rows and the write hops on `tasks` and `assets` (A-R1-04, A-R2-03), `files_delete`'s hop (C-R2-01), S4d-01, S4d-02: 0107 to 0109. OSP-01, OSP-07, S4c-12 for claimed keys: 0114, 0115 and the Edge Functions. S4b-06's first half and the receipts' residual 1: 0121, 0115. |
 | Post-overhaul DG8 (2026-11-06; `po/dg8-limit-bar-words` into `feat/post-overhaul-edit-versioning`) — her words, verbatim *"sorry dont say that its an estimate"*: the limit bar's sentence, card 1's header and the hover no longer say it, by the brief's table; *About* and *about* stay; the meter's arithmetic unchanged; one new group of tests over every word and attribute of the bar and the header in each state; walkthrough 94 corrected in place. | DG7-01 restated: the number can still read low, and the bar does not say it is an estimate; recorded, not fixed. DG8-01. | nothing: DG7-01 stays open. Comment markers: 4 → 4. |
 | Post-overhaul DG7 (2026-11-05; `po/dg7-refs-uploads-side-by-side` into `feat/post-overhaul-edit-versioning`) — her ask, verbatim *"lets have references and the uploads be side by side in the card. this makes the card shorter and fills in the negative space a bit. when doing this, the uploads and references selected/uploaded files should show up on the list together showing what its reading."*, and on the limit bar *"Fix it in the D.O.G. session (Recommended)"*: card 1's References and Uploads two columns (416px to the 576px measure, 24 apart, no query), the first controls on one line, one list of every tile with the contract line and the meter under *The deck reads* (the brief's words, her Q1); `focusAfterRemove` by a tile's kind; card 1 40 to 227px shorter at 1280 to 2560 in every state measured but folded (34, unchanged), 20 to 36 taller only where the columns stack with little listed (DG7-07); the meter: the model's input limit in the registry from the provider's documentation (Sonnet 5, 1,000,000, less the 16,384 reserved), a PDF page at 3,000, *(an estimate)* in its words and the number past the limit, the page cap 600 or 100 by the model and on an upload's tile, the count by mode; a 110-page text PDF 248 percent → 34; Help's step 1 in the card's order; two review rounds on Opus; 76 plants each red; no migration, no SQL, no Edge Function | DG7-01 to DG7-08 | DG6-03, MTR-01, MTR-02, MTR-03. Comment markers: 4 → 4. |
 | Post-overhaul SB1 (2026-11-01, night 10; `po/sb1-resizable-sidebars` into `feat/post-overhaul-edit-versioning`) — her ask of 2026-11-01, verbatim *"this divider line from the courses sidebar and the overall otter window should be expanding by grabbing and putting the line to the desired width of the courses sidebar. lets do the same with the sidebar in the dog tool"*: one handle on the kit Panel (`resizable`, `storageKey`, `minWidth`, `maxWidth`, `minBeside`): an 8px strip over the 1px hairline (24 for a finger) that takes no layout width, the line as drawn at rest and a 2px band of the signal on hover, a drag and focus, `role="separator"` with its values, the arrows ±8 and ±40, Home and End, a double-click back to the token, Escape abandoning a drag, the width remembered per device only while it differs from the token and drawn narrower where the row cannot hold it; O.T.T.E.R.'s courses 180 to 480 with 720 kept beside (304 at 1024), D.O.G.'s pages 160 to 480 with 560 kept (464 at 1024); the collapse, its rail and Ctrl/Cmd+\ unchanged, a reopened column at its width; measured at 1280, 1440, 1920 and 2560 (and 1024) before and after, the line and the column beside pixel-identical at rest; C4's preview pin passes at the default; 55 new tests, 50 red on the source before, 112 plants each killed; one design round and two review rounds on Opus (round 1's corrections: the band not drawn in forced colours, a press that changes nothing writes nothing, a window narrowed mid-drag holds the drag, a finger's 8px slop; round 2's: a moved drag owns the width while it lives, the forced-colours ring and the memory's clearing pinned, the Panel measured against its own row in both tools) (Fable's allowance spent until 2026-11-04); no migration, no SQL | SB1-01 to SB1-04 (the design round's three WCAG items: no single-pointer way to set a width, an 8px strip for a mouse, the hairline's 1.48:1 at rest; and the pet over the lesson's *Next* when the courses column is wide at 1280) | nothing |
@@ -1626,66 +1621,8 @@ ruling are Audrey's questions in walkthrough 47 as well.
 
 ## Post-overhaul merge (Track A over the overhaul, `feat/post-overhaul-edit-versioning`) — review round 1 (2026-09-30)
 
-### 🚨 The workspace realtime channel broadcasts a PRIVATE project's rows to every member
-**MEASURED (2026-09-29, merge review round 1, A-R1-04; PRE-EXISTING on the
-overhaul parent `60a8981` — not introduced by the merge, and not fixed by its
-round-1 corrections).**
-`fn_workspace_realtime_broadcast` (`0018_workspace_channel.sql:159`, attached
-to `projects`, `workspace_members`, `tasks`, `assets`, `project_members`)
-passes whole NEW/OLD rows to `realtime.broadcast_changes` on
-`rabbit:workspace:<ws>` with only a workspace filter, on the premise its own
-comment states — "Membership ≡ visibility". 0072 made that premise false:
-`projects_select` gained the private-project arm, and the join gate
-`can_read_workspace_topic` still checks membership only. So a private
-project's **id, title and `is_private` flag** (and its assigned tasks, its
-label-changing asset events, its roster) reach every active member's channel
-— members who cannot SELECT the row. The per-project topic (0016) is
-unaffected: its join gate is `SECURITY INVOKER` over `projects_select`.
-
-**What 0082 closed, and what it did not:** the id the channel leaks now opens
-nothing — `milestones_trash_index` and `fn_trash_authz` (so `soft_delete_row`
-/ `restore_soft_deleted`) carry the privacy arm (0082, suite 82), which was
-the practical harm (A-R1-01). The broadcast itself is untouched, because it is
-a product decision about what the workspace channel carries. The candidate
-fix — skip a `projects` row whose `is_private` is set, and a `tasks` /
-`assets` / `project_members` row whose project is private — means a project
-flipped to private after the fact stays in the other members' project index
-by NAME until their next refetch (they cannot open it; `projects_select`
-refuses), and broadcasting the flip would carry the row that must not be
-carried. Audrey's call, then its own migration (the next free number after
-0082) with a suite-80 probe: no workspace-topic message for a private
-project's insert, with a public-project control. 0082's header records the
-shape.
-
-**Correction (round 2, A-R2-03):** "the id the channel leaks now opens
-nothing" was true of the trash paths only. It still opened a WRITE through
-`milestones_insert` / `milestones_update`, whose WITH CHECK gated on
-`can_write_project` alone — closed in 0082 §3b (both WITH CHECKs gain
-`EXISTS (SELECT 1 FROM public.projects p WHERE p.id = project_id)`, evaluated
-under the caller's `projects_select`; suite 82 probes 20-23). The same gap on
-`tasks` and `assets` is the entry below.
-
 ### Round 2 (2026-09-30) — left open, and a numbering correction
 
-- **`tasks_insert`, `tasks_update`, `assets_insert` and `assets_update` (0013)
-  have no hop to the parent project.** PRE-EXISTING on the overhaul parent
-  `60a8981`; MEASURED by merge review round 2 (A-R2-03), NOT fixed here.
-  Their WITH CHECK is workspace + membership + `can_write_project(project_id)`,
-  and `can_write_project` is TRUE for every admin and manager and for every
-  member of an UNSTAFFED project (0013:115-121), with no privacy arm; the
-  populate trigger (0004) fills only a NULL `workspace_id`, so a client that
-  sends its own passes the workspace arm. So the id the workspace channel
-  leaks (the entry above) admits a write: a second manager can insert a task
-  or an asset into another member's private project over PostgREST
-  (supabase-js's `.insert()` without `.select()` sends `Prefer:
-  return=minimal`, so no SELECT policy is consulted), or move an existing row
-  INTO it through UPDATE's WITH CHECK. The fix is the one-line hop 0082 §3b
-  gives `milestones`, in each of the four policies — but it retypes 0013's
-  policies on tables with their own suites (03, 04), so it belongs with the
-  broadcast ruling above: its own migration, the next free number, with
-  suite-03/04 probes of suite 82's shape (the second manager's INSERT throws
-  42501; the same INSERT on the public project lives; a refused move leaves
-  the row where it was).
 - **Enter on a focused page button outside any overlay opens the pet instead
   of pressing the button.** PRE-EXISTING on the overhaul parent; MEASURED by
   round 2 (A-R2-04), NOT fixed. App's window-level Enter handler (now
@@ -1768,22 +1705,6 @@ class:** `tasks_insert` / `tasks_update` / `assets_insert` / `assets_update`
   return and severs the opener by hand). Out of C-R1-02's scope; not changed.
   One-line fix when a session wants it: the same `opened.opener = null`
   idiom, then a `setError` on a null return.
-- **`files_delete` (0038) still has no hop through `projects`, and a
-  filter-less `DELETE FROM public.files` runs under it alone** — the one
-  DELETE shape `files_select` never sees (a WHERE reads a column, and
-  Postgres then applies `files_select`'s USING to the rows as well).
-  `authenticated` still holds DELETE on `files` (0033 revokes only TRUNCATE /
-  REFERENCES / TRIGGER), so a second manager, or an unstaffed member, could
-  hard-delete every row their `can_write_project` admits — a private
-  project's included, each with a purge certificate in that project's
-  `file_events`. PRE-EXISTS on the overhaul parent (0038 met 0072 there);
-  MEASURED by the merge review's round 2 (C-R2-01), NOT closed here — 0083's
-  "deliberately not changed" list says the same. Reachable only by a
-  statement that reads no column: never a filtered PostgREST request, and
-  one that `pg-safeupdate`, where Supabase preloads it for the API role,
-  refuses outright — unmeasured on this project's three envs, so the hop is
-  the gate to add. Take it with the `tasks_*` / `assets_*` hops above, in
-  one migration (0084 or later, with the DELETE twin of suite 83's probe 20).
 - **No Content-Security-Policy on either build, and a stored body's type is
   the uploader's browser's word.** `rabbit-files` has no
   `allowed_mime_types`, the receipt and invoice pickers take any file, and
@@ -2093,18 +2014,16 @@ walkthrough 54 §5 and the S4b hand-off, not here.
   sees Legal files WITHOUT the seat now (`can_access_project_legal`, Audrey
   2026-10-08). The money half stands as accepted: invoices, the budget and
   the rates still need the seat, and taking it is still unrecorded.
-- **S4b-06 · Storage totals tell a member when a hidden file arrives, and
-  one function answers any company's.** PRE-EXISTING (0055/0057/0073).
-  MEASURED (S1-SEC-03): `workspace_storage_usage()` gives every member the
-  exact workspace total, Legal and exempt objects included (4,300 bytes with
-  a 4,000-byte Legal file beside a 300-byte plain one), so polling it shows
-  when a hidden file appears and its size. And `rabbit_petal_storage_ok(
-  p_project, p_incoming, p_path)` is executable by any signed-in user with
-  no workspace check: a search over the byte argument gives another
-  company's exact usage, given a project id. Fix for the second:
-  `p.workspace_id = current_workspace_id()` and membership inside it.
-  Coarsening the first is a product decision (Add files' courtesy check
-  reads the exact figure). Owner: the next session on storage.
+- **S4b-06 · One function answers any company's storage usage.** PRE-EXISTING
+  (0055/0057/0073). MEASURED (S1-SEC-03; read again on wilson-dev, 2026-11-07:
+  no workspace or membership test in any of its three bodies, and `authenticated`
+  may call them): `rabbit_petal_storage_ok(p_project, p_incoming, p_path)` has no
+  workspace check, so a search over the byte argument gives another company's
+  exact usage, given a project id, and a member's own company's, which 0121 no
+  longer tells a member. Personal-space bodies count in that total. Fix:
+  `p.workspace_id = current_workspace_id()` and membership inside it, and decide
+  what a member's search should be able to learn. Its first half is closed: 0121
+  tells members only full or nearly full. Owner: the next session on storage.
 - **S4b-07 · Knowing a Legal file's id, a member can confirm it exists.**
   PRE-EXISTING, INFORMATIONAL. MEASURED (S1-SEC-06): `INSERT … ON CONFLICT
   (id) DO NOTHING` answers 0 rows for an existing id and 1 for an unknown
@@ -2669,19 +2588,6 @@ column lives only in a search now. Questions for Audrey are in walkthrough
   in two directories until someone moves them by hand. Moving the directory
   and the records on a rename (as the asset route does) is one change on
   each backend. Owner: a session that takes renames.
-- **S4c-12 · Two runs of the move at once are NOT safe against each other.**
-  One tab runs one move per project at a time (`refilingNow` in the
-  adapter), and a second tab or a second person meets the same checks per
-  object — but in one narrow window they can undo each other's step on one
-  file (review round 2: A's row update fails without committing; B counts
-  the object landed and sends its own update; A reads the row before B's
-  commit, sees the old key, and moves the object back; B's update then
-  commits the new key — a row naming a key the object is not at, which only
-  A's result mentions, as an update error). A lock row in the database, or a
-  `pg_advisory_xact_lock` in a function that does the row writes, is the
-  answer; until one exists, run the move from ONE place (walkthrough 56
-  says so). Owner: a session that takes the lock, before a team of two
-  runs it.
 - **S4c-13 · The create form holds while its files are added.** A level or
   experience made with files picked in the form is created, then its files
   are added one by one with the button naming each (*Adding <file> (i of
@@ -2710,45 +2616,6 @@ file's record follow the file's gate for invoices and Legal files alike.
 Money is unchanged and pinned (0092's post-condition 12). Questions for
 Audrey are in walkthrough 54 §6 and the S4d hand-off, not here. S4b-10 and
 S4b-11 are untouched and still hers.
-
-- **S4d-01 · The eight money storage policies carry no private-project hop
-  of their own, so a project manager who did not create a private project
-  can read its invoice OBJECTS while its rows are hidden.** PRE-EXISTING
-  (0042 / 0053 / 0072). INFERRED from the policy text while 0092 copied
-  0072's arm into the Legal predicate: `rabbit_files_money_select` and its
-  seven siblings are `bucket … AND rabbit_money_segment(seg) AND
-  can_access_project_money(project)`, with no `EXISTS (SELECT 1 FROM
-  projects p …)` hop — the eight BASE policies have one, which is how a
-  private project's ordinary objects follow projects_select. The money
-  predicate is SECURITY DEFINER and reads projects with RLS bypassed, so for
-  a project_members row with project_role = manager on a private project it
-  answers true whoever created the project. The ROW is hidden (files_select
-  hops), and such a seat can only be placed by someone who can already see
-  the project; the MANAGER leg 0092 added does carry the privacy arm
-  (inside can_access_project_legal, suite 95 §H), while the predicate's
-  money half is the money gate called as it is — so a non-creator holding a
-  manager seat on a private project reaches its Legal objects through the
-  money half exactly as it reaches its invoice objects (S4d review round 1,
-  finding 9). Would settle it: seat a second manager on a private project
-  and read `storage.objects` under `projects/<id>/INVOICES/` as them. Fix:
-  the hop in all eight money policies, or `passes_project_privacy` inside
-  can_access_project_money (0037's body is pinned WHOLE by 0092's
-  post-condition 12 and suite 95 probe 167; both move with it). Owner: a
-  session on private projects, with Audrey's nod (it narrows the money gate
-  for a non-creator manager).
-- **S4d-02 · `edit_history_select` has no private-project arm, so every
-  workspace admin and manager reads a private project's ordinary edit
-  history.** PRE-EXISTING (0012 / 0072). INFERRED from the policy text while
-  0092 restated it (S4d review round 1, finding 10): the policy is workspace
-  + app role admin/manager + membership + the money / Legal arms, with no
-  hop through `projects` and no `passes_project_privacy`; `edit_history`
-  rows carry `project_id` only for `files` entries (0088), so a hop would
-  need the column for every entity type first. A private project's money
-  rows are already the money audience's and its Legal rows the Legal
-  audience's (the arms); what is open is the rest — a task's or scene's
-  history, with names and notes in the diff. Would settle it: read
-  `edit_history` for a private project's task as a workspace manager who
-  did not create it. Owner: a session on private projects.
 
 ## Post-overhaul DG1 (`po/dg1-dog-references`) — left open (2026-10-16)
 
@@ -3766,16 +3633,6 @@ What P1 (night 4: browser previews on a workspace's own storage) measured
 outside its scope, or built to a limit, and did not fix. The design is
 `NETWORK_STORAGE_DESIGN.md` §9.
 
-- **OSP-01 · `storage-presign` authorises a PATH, not a row.** Its GET signs
-  any row-shaped key under a project the caller can read
-  (`can_presign_project_read` is project-level), so a key kept from before a
-  file was trashed, or of a row purged while its body waits for collection,
-  is still signed — 300 s, one key a call (design round, finding 1). The new
-  `storage-read-urls` checks the row as the caller, so it is closed to a
-  READER (a writer can still forge a row in their own project: OSP-07).
-  Fix shape: the same caller-scoped row read in `storage-presign`'s GET and
-  HEAD. Owner: the next storage session; it needs a redeploy on every
-  environment.
 - **OSP-02 · A download from a company's own bucket reads the whole body into
   memory.** `s3Provider.getUrl` answers null for `{ download }` (the read
   signer signs no attachment disposition, and a cross-origin `a.download` is
@@ -3805,16 +3662,6 @@ outside its scope, or built to a limit, and did not fix. The design is
   is proven by its tests (21 failing controls) and by its refusals on
   wilson-dev to a caller with no sign-in. Walkthrough 85, P1, is the live
   check once the controller has deployed `storage-read-urls` to staging.
-- **OSP-07 · A writer of a project can make a `files` row vouch for any key
-  under it.** `files_insert`/`_update` (0092) let anyone `can_write_project`
-  admits set `storage_path` (and `thumbnail_url`), and no CHECK ties a path to
-  its own project or stops it changing, so a writer can name a trashed file's
-  key, or a stray object's, and have `storage-read-urls` sign it (an hour if
-  it streams) — the reach `storage-presign`'s GET already gives a writer
-  (build review round 1, finding 1). Fix shape, a migration night: a CHECK
-  that `storage_path` sits under `projects/<project_id>/`, and a trigger that
-  refuses a change of it outside the re-filing. Owner: the next migration
-  session.
 - ~~**OSP-08 · `storage-read-urls` bounds its body by the declared length.**~~
   **CLOSED by build review round 2 (2026-10-28):** the body is read by
   `readJsonLimited`, streamed under the 128 KB cap; no declared length is
@@ -4369,3 +4216,680 @@ adds this section, each after reading the code. What is left, none fixed:
   hold a first name, in a public repository: `referenceModel.js` 2 lines, `ReferencesCard.jsx` 7,
   `ReferencesCard.test.jsx` 5, `enterKey.render.test.jsx` 11; DG8 added none. Owner: any
   D.O.G. session the controller names.
+
+## MO1 (2026-11-07, `docs/design/MOTH_DESIGN.md` §1.14) — left open
+
+- **MO1-01 · A listener who joined a project's channel before being demoted or
+  deactivated goes on hearing it until their token next refreshes or runs out.**
+  PRE-EXISTING. MEASURED on 2026-11-07 with a real socket and committed writes, on a
+  throwaway stack at the CLI's Realtime v2.140.3 (runs 42340511711 and 42340999728): a
+  deactivated member and a demoted admin each went on hearing every write, 30 seconds
+  on. A new join by a deactivated member is refused at once. A refreshed token closes
+  the channel, for the demoted admin once that token says so, and a token that runs out closes it,
+  so it is bounded by the token's life, 3,600 s. A control with nothing taken away kept
+  its channel through a refresh. A seat does not come into it: a private project is its creator's
+  and admins' only, and 0109's epoch closes a privacy flip. Not measured on wilson-dev: its
+  Realtime's version may differ, and signing in there needs a password this was not given. Fix
+  shape: end a person's channels when they are deactivated or demoted, or accept the hour.
+- **MO1-02 · An admin reading a personal space through raw REST leaves no
+  record.** INFERRED from what RLS can do: WIL-4114 records every open in WILSON's
+  Files page, and a SELECT cannot be logged. In the handbook's deviations table.
+- **MO1-03 · A stale admin desktop build lists other people's personal spaces in
+  R.A.B.B.I.T.** INFERRED: no minimum-version mechanism exists. Read-only and no
+  wider than Files: writes are owner-only at the database and local bodies are
+  refused. It ends when the build updates.
+- **MO1-04 · A purged moved copy can fall back to its origin's readers.** INFERRED:
+  only if both the queue's enqueue and the purge's certificate fail on one purge,
+  until the next orphan scan removes the object. Two independent arms, pinned apart.
+- **MO1-05 · Moth tells a project member that a file is a receipt, by hiding it.**
+  INFERRED: its own project's expense names it, and they can already open it. No
+  indicator or count. Beside 0076's TRAP 1.
+- **MO1-06 · Office-server leftovers.** INFERRED. (a) Bin items of a project purged
+  whole are never walked again and stay on the server; the certificate says
+  'company server bin'. (b) A rename made on the server and split across a walk's
+  calls gets a new id. (c) Pre-C4 receipts in a share's `<slug>_FILES` carry no flag
+  (handbook §12.9 residual 3). (d) A move whose laptop never comes back is called off
+  from Moth's trash after a day, or closed by the purge past the retention, which
+  leaves its row reading not found.
+- **MO1-07 · A desktop project nobody opens keeps its trash past 30 days.** MEASURED
+  by reading: purge-expired runs when a project opens in R.A.B.B.I.T. and when Moth's
+  trash opens, and at no other time.
+- **MO1-08 · `ingestion_chunks`' select policy hops through the run's project only.**
+  MEASURED while designing moves. A file with extracted text refuses a move, so moves
+  add no leak. The gap in the policy stands.
+- **MO1-09 · A deleted asset's own `.trash` bodies are in no trash view on the
+  desktop.** MEASURED by reading: managed files of a deleted asset are left out of the
+  local restore.
+- **MO1-10 · Script on the page can still steer the desktop's file channels.** The
+  copy itself is fenced (`electron/copyFileFence.cjs`: a picked file or a project body,
+  into the named project's own folder). What is left: (a) a copy may still choose any
+  path inside that folder and overwrite a file there; (b) `rabbit:get-file-stats`,
+  `rabbit:open-in-explorer` and the two thumbnail channels take any path from the page.
+  MEASURED by reading. (c) INFERRED: `rabbit:write-files-config` stores any
+  `defaultRootDir` and `rabbit:set-workspace-root` any absolute folder but a bare root,
+  and those roots are what the fence contains against. Settled by a run: script moves
+  the root, makes a project under it and copies a picked file in.
+- **MO1-11 · `op` then `purge` from script on the page can remove any file a member
+  could rename on the office server.** MEASURED by reading (round 2). Neither route asks
+  the database for an operation. Closing it needs main to ask.
+- **MO1-12 · A link the server resolves itself is invisible to the desktop's checks.**
+  INFERRED (round 2; DFS, round 1): a Samba link to a money folder reads as an ordinary
+  folder, and DFS's real paths may refuse a real child. Settled only on a real server
+  (`docs/RELEASE_TESTING.md` §T).
+- **MO1-13 · A move or a trash on a desktop project whose folder is on a share can
+  freeze the window for the OS timeout.** MEASURED by reading (round 2): synchronous
+  calls, as every desktop route in `main.cjs` makes. 42 s measured for such a call.
+- **MO1-14 · Rows under a folder that reads as a frame series cannot be called missing,
+  and new frames there are not listed,** until the folder stops reading as a series.
+  MEASURED by suite 122's shape; the walk does not go into a series. Nothing is lost.
+  An adopt's old picture also stays when the purge closes its operation, until the
+  bucket's own sweep.
+- **MO1-15 · A money or Legal file deleted on the desktop has only the toast's Undo,**
+  then goes at 30 days, with no screen listing it. MEASURED by reading (round 2). It used
+  to be unlinked at once.
+
+**Recorded with them (R15).** Index liveness of private projects in creators' and admins'
+other windows rests on the join refetch, AUDIENCE and the project topic: accepted. Re-run
+order: 0107 after any replay of 0013, 0020, 0040, 0041, 0044, 0061 or 0082; 0108 after
+0037, 0061 or 0092; 0109 after 0016, 0018, 0098 or 0101. 0092 refuses after 0108, and 0098
+refuses after 0109. The definer re-measure: every SECURITY DEFINER body calling a write
+gate also calls `passes_project_privacy` or reads under a hop.
+
+## MO2a (2026-11-04, the graph engine on `po/moth2a-engine`, merged by MO2 on 2026-11-07) — left open
+
+Copied from the engine's hand-off (`docs/sessions/handoffs/po-moth2a-2026-11-02.md`, its OTHER list), as it asked.
+Each was upheld by a checker told to refute it: MEASURED where the line gives a run or a count, INFERRED
+where it reads the code. Line numbers are of `src/tools/moth_v0.1.0/engine/` at `b72c77ce`. MO2 closes
+what part A needs as it wires the page, and removes each closed entry here. **MO2 closed and removed R1-17, R1-18, R1-4, 5, 22, 52, R1-11, 23, R1-8, 24, R1-25, R1-13, R1-6, R1-3, R1-7, R1-32, R1-33, R1-34** (the session log's MO2 row).
+
+Each stood against a checker told to refute it. R1 is round 1, R2 round 2 on the label fix, RL round 2 on the line fix.
+
+**A. A person will see or save it once the page is wired: decide these first.**
+
+- **R1-2** `frame.js:156` Clustering triggered by lines does not reduce them: the growth tests dots only, so in light mode the 601st line removes every label and about 676 lines still draw.
+- **R1-9** `governor.js:75` The back-off also gates the drop to light: a machine failing in full but fine in light sits failing for stretches of 5.9, 11.9, 21.7 … up to 301 s (fake clock). The manual override is the way out.
+- **R1-10** `renderer.js:366` The model's summed line weight never reaches the frame; cluster lines count edges and nothing draws either.
+- **RL-4** `renderer.js:197` Same-style lines now blend line by line, so fans brighten where many meet, most at a tag dot (a bright star at 138 lines on one fixture tag, in screenshots). Scale 1 already drew so; scale 1.5 used to show a flat haze. Judge it when the page is live.
+
+**B. Robustness of the worker and the frame.**
+
+- **R1-19** `layoutClient.js:63` Watchdog gaps: a refused pin or a `settled` crossing a pin disarms it during a run, and pins keep re-arming it.
+- **R1-20** `layoutWorkerCore.js:134` A coordinate at or above about 9e307 in a saved place or a pin: one tick allocates without limit (over a gigabyte in 5 s) until the watchdog ends it, at every opening of that view. The engine cannot write such a value; validate saved places on read.
+- **R1-21** `layoutWorkerCore.js:39` Bad radii or options, or coordinates past float32, come back as NaN or Infinity under a normal `settled`; marked placed, and the next save silently drops them.
+- **R1-26** `layoutClient.js:94` `run` throws instead of reporting; a failed post leaves it busy, and a spurious timeout later kills a healthy worker.
+- **R1-27** `layoutWorkerCore.js:137` After a capped run, unpinning a dot never pinned sets the whole graph moving, saved dots included.
+- **R1-28** `layoutClient.js:74` An error event from a replaced worker kills the current one (a narrow window).
+- **R1-12** `frame.js:196` FAR culling ignores the radius: a big cluster at the edge pops in up to 12 px late.
+- **R1-15** `navigation.js:46` A two-finger pan at a zoom limit sits one small step inside it (8 to 7.8); no cumulative drift.
+
+**C. Hygiene.**
+
+- **R1-30, 43** `model.js:151` "Never storage_path" has no failing control (the code is right; a one-line check on the fixture closes it).
+- **R1-31** `model.js:271` The header says only drawn columns are copied; `mime`, `sizeBytes`, `fileKind`, `updatedAt`, `tags` and `edge.label` have no reader yet.
+
+**D. Test gaps: the code is right today; a slip would ship green.**
+
+- **R1-35** `renderer.js:170` The governor's mode reaching the draw list (cut it, and the frame draws full while reporting light).
+- **R1-38** `layoutWorkerCore.js:144` `stop` at either end of the protocol.
+- **R1-41** `model.js:290` A view's `edgeKinds`, and hiding kinds other than files.
+- **R1-42** `model.js:67` Tag case folding, duplicate rows, the deep-folder limit.
+- **R1-44** `frame.js:225` FAR details: off-screen cluster lines, negative coordinates, pair merging, lone dots, repeated growth, the radius cap.
+- **R1-45** `glow.js:65,82` The size in fortieths, the flicker's fade, no white core on a first flicker.
+- **R1-46** `renderer.js:492` Calm mode switched on during a tween, and off again.
+- **R1-47** `renderer.js:149` Which frames feed the governor (settling out; zoom, pinch and fly in).
+- **R1-48** `governor.js:71` Hysteresis edges: a bad window resetting the good run, the dwell cap, measuring while overridden.
+- **R1-49** `layoutWorkerCore.js:59` Later runs' bounds, a refused init during a run, a throwing init, hold release, the post throttle, the saved-view entry.
+- **R1-50** `layoutClient.js:63` The watchdog's re-arm on a tick (dropping it would kill every layout over 5 s), the arm on a restart, worker reuse.
+- **R1-51** `renderer.js:485` A repeated hover or selection asking a frame.
+- **R2-1** `renderer.test.js` The label test has no sample far right of the centre, so dropping the max clamp passes and every label right of the light gets the full shadow.
+- **R2-2** `renderer.test.js` Its label is exactly 32 characters, so judging the raw length instead of the drawn text passes.
+- **RL-1** `renderer.test.js` "In the style of its kind" checks only that a colour is in the palette, not that it is the line's kind's.
+- **RL-2** `renderer.test.js:48` The line loops' mist branch: no renderer test has a dim dot, and the fake context records no `globalAlpha`.
+- **RL-3** `renderer.test.js` The test named "at MID and NEAR" runs at NEAR only (the loop has no branch on level).
+
+## MO2 (2026-11-07, M.O.T.H. Session 2 on `po/moth2-graph`) — left open
+
+- **MO2-01 Her saved local test project is not measured.** PLAN_MOTH §5 Session 2 asks for it beside the debug sample;
+  it is in her own app data, which the session's rules say is never read. Asked at the session's close.
+- **MO2-02 The 10,000 replay's p95 was 32.9 ms once in three runs** (17.3 and 17.4 the others), with drawing under 3 ms.
+  The long frames are elsewhere, most likely the layout's ticks on the main thread while it settles. Not a target (the
+  plan's is 1,000 dots, met), not measured further.
+- **MO2-04 A project kept only on this computer keeps no saved view, place or setting**: the signed-out desktop has no
+  table for them, and the page says they last the visit.
+- **MO2-05 The three graph reads are not timed on a large real project.** Dev's projects are small. The runbook's 0122
+  row asks for it on staging and production first.
+- **MO2-06 Five limits are pinned only by their functions' md5, not by rows**: the 20,001st item, the 60,001st line, a
+  1,001-file page, two saves at once against the 200-view cap, the 20,001st place.
+- **MO2-07 The desktop app was not driven this session**: the measurements and pictures are from Chrome, headless, on
+  the dev fixtures.
+- **MO2-08 Looking back reads at most 20,000 rows of the record** (20 pages); past that the slider says only part of
+  the period could be read.
+- **MO2-13 One hidden target refuses a whole write of places** (a file moved where the writer cannot follow, between
+  the read and the write). The page now sends only the dots moved, of the live catalogue, and says so in words; the
+  server could leave a hidden target out instead of refusing, without telling anything. A first save of more than
+  1,000 dots goes in chunks, and a refused chunk leaves the earlier ones written.
+- **MO2-14 A jump whose project takes a while to open still switches the tab** if the person moved to another
+  project meanwhile; the item itself is not opened there (its request names the project). Needs a check after the
+  next render, not before.
+- **MO2-15 A view built from scratch is not reopened on the next visit**: `moth_prefs` keeps only a quick start or a
+  saved view as the last view. Keeping a config needs a key `set_moth_prefs` accepts.
+- **MO2-16 Touch mode changes gaps and padding at once, and inputs, ticks and icons do not grow.** Her ruling asks it to
+  animate; the buttons do.
+- **MO2-17 An asset has no card of its own, and a phase opens R.A.B.B.I.T.'s Timeline without selecting the phase.**
+  Session 3's items work.
+- **MO2-19 "Who last changed it" counts an office-server re-check as a change** (the walker's `updated_by`), and an
+  update with no person names the uploader. Needs the catalogue's writers to keep `updated_by`, or an editor from
+  `file_events`.
+- **MO2-20 The suites do not run a cut answer (20,001 items, 60,001 lines), every same-project arm of the file facts,
+  the places read policy's view term, the S6 scan's escape hatch, or a deactivated and reactivated person's settings;
+  0122's pre-flight does not list every column its plpgsql reads use.** Each is right in the code today (whole-session
+  round 2).
+- **MO2-21 The page, small:** Undo of a deleted shared view brings back only the places its deleter could see, under a
+  new id; a refresh that fails after a move drops that project's last good read; the colour picker writes a setting at
+  every step (the newest answer wins); a bloom shown stays while the camera pans; the canvas does not follow a monitor
+  with another scaling; the Settings drawer has no close button and does not take the focus; the tags list is not
+  grouped by kind; no test holds the HUD's contrast or the development-only switches.
+- **MO2-22 The dev fixtures accept settings the server refuses and count a view's name in UTF-16 units**; on the
+  signed-out desktop no folder-to-item lines are drawn.
+- **MO2-23 R.A.B.B.I.T.'s Files can show the last project's files for a moment during a project switch**, older than
+  Moth, met on the jump path.
+
+## MO3 (2026-11-08, M.O.T.H. Session 3 on `po/moth3-tags`) — left open
+
+- **MO3-01 An approval races a rename, a retire or a delete of the tags it folds** (0126,
+  `moth_tag_nomination_decide` and `rabbit_private.moth_tag_fold`). The fold reads the personal tags it folds without
+  locking them, so a rename, retire or type change made at that moment is folded anyway; an owner deleting or retiring
+  a tag while an admin approves its nomination can deadlock, and the one who loses reads Postgres's own words; rename
+  and retire take no catalogue lock, so an approval can fold into a company tag being renamed or retired at that
+  moment. INFERRED from the code (whole-session round 1); settle with two sessions on dev, one approving while the
+  other renames, retires or deletes.
+- **MO3-02 In a shared note two people edit, a typed link can fail to be made.** Only the person who picked it holds
+  its key (`moth_note_mentions_sync` binds the writer's own reservations, 0127), and their key list is refused as stale
+  when the other person's save lands first; the client sends it once more with a fresh save, which can lose again to a
+  third. INFERRED; settle with two people typing in one shared note on dev.
+- **MO3-03 Two ways a file locks leave the record of its taggings and links stored, unblanked**: a file that becomes
+  money through a receipt (an expense row runs no capture on the file), and a file under a folder that turns Legal.
+  Every other way a file locks blanks those rows. No one reads them (the reader asks the file's own gate), but they
+  stay stored, a link's words included, until the file is written or purged; a receipt-only file that is then
+  hard-deleted keeps them for good (its cascade writes before the file's own capture). INFERRED; settle with a probe
+  that makes a tagged file money by a receipt.
+- **MO3-04 0127 makes a typed link from a money or a Legal file's description** (`rabbit_private.moth_mentions_apply`
+  on `files`). It is never shown (the gate refuses that end) and never recorded (0129), but the row is made; the rule
+  at the source is to make none. INFERRED.
+- **MO3-05 Two reservations made at the same moment can pass the 500-a-day cap by one** (`moth_mention_reserve`
+  counts, then inserts, under no lock). INFERRED.
+- **MO3-06 Looking back to before a note or a thing went to the trash brings back its dot but not its links or
+  typed-tag lines**: the live read leaves out a link or a tagging whose end is in the trash, and no record row says it
+  was there. INFERRED (round B on 0128 and 0129); settle by trashing a linked, tagged note on dev and looking back.
+- **MO3-07 Looking back to before a phase or a task was set aside does not bring it back**: the record keeps no
+  `set_aside_at` (0119's projection), and its reader asks today's gate, which refuses a set-aside row since 0124.
+  INFERRED; settle by setting a phase aside on dev and looking back.
+- **MO3-08 A note's or a typed tag's dot is laid out afresh on each visit**: a saved view keeps only the places of dots
+  in a project (`state/mothViews.js`, `keeps`), so one moved by hand goes back, though `moth_put_positions` takes them
+  since 0126. INFERRED.
+- **MO3-09 The Scenes and Shots tables' cells and the Timeline's asset editor edit a description holding a typed link
+  as its code** (`[[words|m:key]]`; the windows' boxes do too while editing). At rest every place shows the words. A
+  person editing there can cut the token, and its link goes at the next save. INFERRED.
+- **MO3-10 `moth_notes` stops at 5,000 inside the function, before its gate**, so a cut that leaves fewer than 5,000
+  after the gate is not seen; the client marks only a full 5,000 as cut. And the client's read, a page of 1,000 at a
+  time by id, runs the whole function again for each page (up to six for 5,000 notes). An exact sign and one run need
+  the function to take a cursor and answer `{notes, truncated}`, as `moth_relationships_read` does. INFERRED; the cost
+  is not timed (dev's companies are small).
+- **MO3-11 Pinned by no probe, each right in the code today**: the record of an approval's fold (suite 133 has a
+  merge's moves and no approval's); the record's pinned columns of a typed tag (`type_id`, `tier`, `canonical_id`,
+  `retired_at`; suite 121's pinned-column probe names only the older tables); a gone peer project's branch in the
+  capture. INFERRED (the second look on 0128 and 0129).
+- **MO3-12 A link picked in a note can be left out without a word**: when the words before the caret change while its
+  key is being reserved (a co-editor's change merged into a shared note, say), the editor gives up the splice rather
+  than cut the wrong words, and says nothing; the tag of a `#` pick is still put on. INFERRED (whole-session round 2);
+  settle with two people in one shared note, one typing above the other's pick.
+
+## MO4 (2026-11-08, M.O.T.H. Session 4 on `po/moth4-boards`, in progress) — left open
+
+From the review round of 0130 to 0133 (12 reviewers, Opus 5.5; each finding read against the code). The rest were
+fixed in `e3730b7c`.
+
+- **MO4-01 · A project writer can overwrite a sticky's stored object at its key, past the turn.** MEASURED by
+  reading: 0115's update arm on `rabbit-files` lets a writer of the claiming file's project UPDATE the object (its own
+  comment says so); 0133's turn fences the files row's key, not the bytes at it. Fix shape: refuse a client's UPDATE
+  of an object a sticky's file claims, or make claimed bodies immutable to clients.
+- **MO4-02 · A move between projects can put back a sticky's older words.** MEASURED by reading: when a move needs a
+  copy, `fn_moth_apply_moves`' commit takes the copy as the key and retires whatever key is there then, without
+  comparing it to the plan's source or asking for the turn; a publish between the plan and the commit is undone.
+  Fix shape: refuse a file with a live turn, and compare the key to the plan's at commit.
+- **MO4-03 · A save racing a removal of a connector's end fails whole with the key's own words** (23503), not in
+  plain words. INFERRED by reading `board_put_elements`.
+- **MO4-04 · Lock order and stale reads.** INFERRED: folder trash takes files then boards, board saves and stickies
+  the other way; `moth_move_folders` and R.A.B.B.I.T.'s entity-folder rename (supabaseAdapter.js, about line 1430)
+  can each write a path from a read the other has made stale. No deadlock or wrong path seen in a run.
+- **MO4-05 · A move's plan can say a path the move itself will not take** when another folder takes the name between
+  the two. INFERRED.
+- **MO4-06 · Message costs, small:** any role change, a promotion included, renames every board of the company in the
+  admin's transaction; element messages carry no board revision and are cut by count, not bytes; a pen's 4 KB cap on
+  the wire measures the stored (compressed) size. INFERRED by reading 0132.
+- **MO4-07 · A save running while its project is made private can land on the old channel name after AUDIENCE went
+  out.** INFERRED: the name is read at send time inside the save's transaction.
+- **MO4-08 · `moth_trash_folders` judges every file below before it applies its 10,000 cap, under the company's
+  folder lock; `moth_trashed_folders` cuts a page by `deleted_at` and can drop entries that share one.** INFERRED.
+- **MO4-09 · A folder can go to the trash while an office-server file in it has a trash pending**, and that trash's
+  failure revert then meets a folder in the trash. INFERRED.
+- **MO4-10 · A sticky whose file left its board's folder stays a sticky element on the board** (shown, its words
+  saved where the file now is, `board_sticky_publish` refusing in words). MEASURED by suite 138.
+- **MO4-11 · Three plants are green by design**, each held by a clause no single-transaction probe can trip: the
+  writers' second permission check under the board's lock (two sessions), the 64 MB board cap (64 MB of rows), and
+  the restore's parent check (rows coming back child first). Named in the plants' record.
+- **MO4-12 · Probes still owed:** a sticky published to a money or Legal key; which boards each person sees, not only
+  how many (suite 134's counts).
+- **MO4-13 · A board's folder can come to sit in a thing's own folder, and deleting that thing deletes the board
+  outright, with no trash.** INFERRED by reading (round 2, check of finding 8): no trigger watches a folder's `kind`
+  or its entity keys, so a project writer's plain UPDATE can make a board's folder (or one above it) a shot's own
+  folder; and `board_create` and `moth_move_folders` take different locks, so a move into an entity folder racing a
+  new board on the same folder can leave the board there. The entity key's cascade then passes `fn_folders_board_guard`
+  (it lets every cascade through). Fix shape: refuse a cascaded delete that reaches a board's folder unless the project
+  itself is going; refuse a client's change of `kind` or the entity keys with a board at or below; re-check the chain
+  under the parent's row lock in `board_create`.
+- **MO4-14 · A board's existence is not in `moth_history`, `edit_history` or the takeout.** INFERRED by reading (round
+  2): looking back shows a board's folder as a plain folder. 0130's header names 0134 for it, and 0134 is the projects
+  hop; no file does it yet. And no file bumps a board's `audience_gen` when its folder changes project (0132's header
+  names 0134 for that too); nothing allows that change today (0111 refuses it, `moth_move_folders` refuses a move
+  between projects). Fix shape: a later file records a board's making and its trash in the three, and a cross-project
+  move of a board, when one is allowed, renames its channels.
+- **MO4-15 · A folder move goes through with an office-server file in the trash below it, and that file's restore
+  then puts it back at the old place.** INFERRED by reading (round 2, check of finding 21): the move's check counts
+  only live files; `network_share_restore` takes the old locator, so the file lands in the old directory while its
+  folder's new uploads go to the new one, and later walks mis-file. A pending office-server move out of the folder
+  reverts the same way. Fix shape: let a trashed office-server file below refuse the move too, and refuse while a
+  pending office-server operation names a file in the subtree; a suite 136 probe (trash cut.mov, then move nas).
+- **MO4-16 · Suite 138's `heard`, `want` and `leaks` skip suite 137's partition probe.** INFERRED by reading (round
+  2, check of finding 42): on a stack with the realtime schema but no partition for today, E fails rather than reading
+  as a no-partition stack, and the leak check runs on no rows. CI excludes realtime, so CI never sees it. Fix shape:
+  use 137's `rt_env()` in all three.
+- **MO4-17 · A project with no top folder is refused a board, in the words "You cannot make a board here. The folder
+  may have moved, or you may not change it."** MEASURED on wilson-dev: four of the probe workspace's six projects
+  have no top folder (made before folders, or seeded). The words name the wrong reason. Fix shape: make the top folder
+  when a board is asked for, or say the true reason. Count such projects on staging and production first.
+- **MO4-18 · A person's own sticky did not open for writing on a double press, once.** MEASURED once: the first try
+  of the board spec between two people on a throwaway stack (run 43157769791) waited 20 s for the words box after a
+  double press on a sticky that person had just written; the retry, the next run and every run on wilson-dev
+  passed. Not reproduced, not explained. Where to look: `beginEdit` returns without a word when the earlier words
+  box is still closing, and when the sticky has no file yet in the store.
+- **MO4-19 · The board spec can leave an empty board behind on wilson-dev.** MEASURED 2026-11-12: two CI runs
+  pushed two minutes apart ran the sign-in and board specs on wilson-dev at once; `board_create` answered so late
+  that the app's connection watchdog had cancelled the request, the spec read that as a refusal, and the board was
+  made after it had given up (one empty board, "e2e board 2026-11-12 05:13:13", is live in the probe workspace).
+  Fix shape: the spec puts any live "e2e board" of an earlier run in the trash as it starts; and pushes are not
+  made within a few minutes of each other.
+- **MO4-20 · 0132's header says a board message carries at most 50 elements; the function sends 25** (and 200
+  removed ids). MEASURED by reading `0132_board_channels.sql` (line 21 against the two chunk sizes). The code is the
+  smaller and safer of the two; the header is wrong. Fix shape: correct the comment in the next file that restates
+  the function (an applied migration is not edited).
+- **MO4-21 · A board has no copy, no duplicate and no right-click menu, so a frame cannot be copied with what it
+  holds.** MEASURED by reading: `BoardCanvas.jsx` takes no copy, paste or duplicate key and draws no menu on a right
+  press, and the design note (s4b, the readings) leaves all three untouched. Her words asked for frames like Figma's,
+  and in Figma a frame copied or duplicated takes what it holds. Fix shape: when copy and duplicate come to boards, a
+  frame is copied with `heldBy` of it and the lines whose two ends are both among those, in one undo step, and the
+  right-click menu offers *Frame selection* and *Remove the frame only* beside them.
+- **MO4-22 · What a frame holds is worked out from positions and stored nowhere.** MEASURED by reading `frames.js`
+  (`frameHolds`, `heldBy`): a thing whose bounds' middle is inside a frame and which is no larger than it belongs to
+  it, so a thing that merely lies over a frame travels with it when it is dragged or nudged and goes with it on Delete,
+  and there is no way to keep a thing over a frame without it belonging. A curved or elbow free line is judged by its
+  stored box (its ends and bends, `connectorRecord`), not by the path drawn, so its middle can sit inside a frame the
+  line seems to leave. Positions were judged enough in the design note (section B): frames then need no database
+  change, and every window works out the same membership from the same positions. Storing membership would take a column on `board_elements`, a
+  guard against a frame held by itself through a loop and against a frame of another board, and a rule for a thing
+  that someone else drags out of a frame while this window is moving it. Fix shape: only if she asks for a thing to lie
+  over a frame without belonging; until then, positions stay the one rule, the same in every window.
+- **MO4-23 · While a frame is dragged, the others see only part of it move.** MEASURED by reading `BoardCanvas.jsx`:
+  a drag sends at most `MAX_DRAG_SENDS` (20) positions a step, the frames first, so the others see the frame and up to
+  19 of what it holds move live; the rest jump to their places when it is let go and the save arrives. Fix shape: one
+  message for a frame's move (its id and the offset, which each window applies to what it holds there), or a cap that
+  counts a frame's things as one.
+- **MO4-24 · A background change is not an undo step and is not in the history or the takeout.** MEASURED by reading
+  `boardStore.js` (its header: the background is the board's, not an element's, and not an undo step) and 0136's
+  header (history and the takeout are not in it, MO4-14): Ctrl+Z does not take a background back, and looking back
+  shows nothing of who changed it, though `updated_by` and `updated_at` are stamped on the board's row. Fix shape: with
+  MO4-14, the later file that records a board's making and its trash also records a background's change; an undo step
+  for it only if she asks.
+- **MO4-25 · Delete on a frame leaves a line from a held thing to something outside, loose at that end.** MEASURED by
+  reading `BoardCanvas.jsx` (`removeSelection`, `removeIds`), as built: the frame, what it holds and a line whose two
+  ends both go are removed, and a line with one end outside stays, its end at the removed thing freed where it was
+  drawn. The walkthrough's picture 27 shows it, and one undo brings it all back (picture 28). Fix shape: none needed if
+  she keeps it; else remove such a line with the frame too, in the same undo step.
+- **MO4-26 · Suite 134 has no check of the background version's own CHECK or its NOT NULL.** MEASURED by reading
+  suite 134's section F (lines 257 to 332) and the planted breakages' record (plants136/NOTES.md): only 0136's
+  post-conditions hold `boards_background_version_chk` and the column's NOT NULL, so plants 45 (the check dropped) and
+  46 (the NOT NULL dropped) are caught only with the post-conditions kept. A later file that restated the column would
+  have no suite to fail. Fix shape: two probes in section F: `UPDATE ... SET background_version = NULL` refused with
+  23502, and a board inserted as the owner with `background_version = -1` refused with 23514 (the guard fires only on
+  UPDATE).
+- **MO4-27 · Two different people changing a background at the same moment has not been run between real
+  accounts.** INFERRED by reading: the end-to-end spec's step 3c (`tests/e2e/boards.spec.ts`) runs between two windows
+  of one person on wilson-dev; the ordering by version has unit tests (`boardStore.test.js`, the dev fixtures' tests)
+  and suite 134's version checks, and no run between two accounts. The release test list's pair check (RELEASE_TESTING
+  §W: A and B choose at nearly the same moment and both screens end on the same background) is the manual one. Fix
+  shape: run §W's pair check on staging with two real accounts before boards reach people; and when the spec has a
+  second seeded person, a step where each changes the background at once.
+- **MO4-28 · The planted breakage 25 (0136's REVOKE narrowed to PUBLIC) stays green.** MEASURED on wilson-dev
+  2026-11-12 (`pg_default_acl` read there) and by the plants' run 43173011494: a function made by the role that runs migrations
+  grants anon nothing by default on this project (postgres's default privileges for functions in public name postgres,
+  authenticated and service_role), so suite 134's "anon may not" check cannot fail for that breakage, and the REVOKE's
+  `anon` is a second belt. On a database whose defaults differ, 0136's post-condition (anon may not execute
+  `board_set_background`) is what would refuse it. Fix shape: none for 0136; read the default privileges on staging and
+  production before the apply (`select defaclrole::regrole, defaclacl from pg_default_acl where defaclnamespace =
+  'public'::regnamespace and defaclobjtype = 'f'`), and keep each new function's REVOKE naming anon.
+
+From the first whole-session round (12 reviewers by lens and their checkers, Opus 5.5; MOTH_DESIGN §5.3, "The first
+whole-session round"): the findings not taken into the code, the most serious first. A finding with no checker was
+read by its reviewer alone, so it is INFERRED by reading. The seven taken are in MOTH_DESIGN §5.3.
+
+- **MO4-29 · A new text's add and its words are two undo steps, so one undo leaves an empty text nobody can see.**
+  MEASURED by a scratch test on the real store (add, a tick, the words, a tick, undo: one element left, its words
+  empty) and by reading (round 1, checked: real, major). `placeText` adds the text and opens its words box
+  (`BoardCanvas.jsx`); the store closes a step on the next microtask (`boardStore.js`, `record`); `endEdit` saves the
+  words, or removes a text closed empty, later, so in a step of its own. Ctrl+Z after typing takes back only the
+  words: the text stays, empty, drawn as nothing, yet selectable by a marquee or Ctrl+A, counted by snapping, fit and
+  frames, saved and in every window; a second Ctrl+Z removes it. A text closed empty is an add and then a removal, so
+  Ctrl+Z right after brings back an empty text instead of undoing what came before. Closing the words box by its own
+  close (a discard), or losing write while typing, leaves a fresh empty text on the board with no undo at all. Fix
+  shape: let the words' update or the removal join the add's step (the store's `combine` already makes add and update
+  one add, and add and remove no step); remove a fresh empty text on a discard too; tests in `boardStore.test.js`
+  (add, tick, joined update: one step; add, tick, joined removal: no step) and `BoardCanvas.test.jsx` (place a text,
+  type, close, undo: no element).
+- **MO4-30 · On a company that keeps its files in its own s3 bucket, a sticky cannot hold words.** MEASURED by
+  reading (round 1, checked: real in part, minor). "New board" is offered whatever the storage (`MothPage.jsx`), and
+  the sticky tool makes a sticky through the ordinary upload: an empty note file in the company's bucket
+  (`createSticky`). Every save of its words is refused before anything is uploaded (`saveStickyText`, code
+  `s3_sticky_off`), and 0133's `board_sticky_publish` refuses the same on the server. What the person meets: they
+  type, and at the first pause (1.5 s) the words box says "A sticky's words cannot be saved on the company's own
+  storage yet." with a Close button and takes no more typing; the sticky stays empty, for them and for everyone, and
+  each new sticky leaves one more empty note file in the board's folder. Earlier entries here record no s3 company on
+  any environment (measured 2026-09-06); no board was run on an s3 or an office-share company this session. Fix
+  shape: refuse the sticky tool, or `createSticky`, on an s3 company before the upload, in the same words, with a test
+  in `boardsCloud.test.js`; and save a sticky's words to a company's own bucket when its moves learn to (0120).
+- **MO4-31 · Every picture, video and sticky's words on a board are fetched when it opens, and its videos are not
+  stopped when it closes.** MEASURED by reading (round 1, checked: real, minor). `reconcile` builds every element,
+  in view or not, and `cull` only hides; a picture or a video signs its URL and starts loading (a video with
+  `preload = 'auto'`), and each sticky reads its row and its object, with no queue and no cap, so a board of 300
+  stickies and 100 videos asks 600 reads and 100 preloading videos at once. `destroy()` never walks the pictures, so a
+  video keeps downloading after the board closes, and a reopen signs and fetches everything again. Nothing shown is
+  untrue and no rule is broken; it is a cost that grows with a board. Fix shape: in `destroy()` pause each video,
+  remove its `src` and call `load()`, then clear the map; `preload = 'metadata'`; optionally fetch only what is near
+  the view, or through a small queue; a unit test that a closed board's video is stopped and an off-view sticky not
+  read.
+- **MO4-32 · A passing database error is taken as a refusal, and the batch's changes are thrown away.** INFERRED by
+  reading (round 1, not checked): `isRefusal` (`boardStore.js`) counts any code outside the network list as the
+  server saying no, so a deadlock (40P01, which MO4-04's lock order allows), a serialization failure (40001), a
+  statement timeout (57014) or a schema cache reload during a restart (PGRST002) is said in Postgres words, the board
+  is read again, and the whole batch's changes are dropped instead of kept and tried again. Fix shape: list these
+  classes with the passing ones, and a store test for each.
+- **MO4-33 · A save of more than 500 that fails partway is tried again whole, and its undo steps come back as
+  someone else's changes.** INFERRED by reading (round 1, two reviewers, not checked; the server's answer to a
+  repeated readd not measured): the adapter saves in calls of 500 and marks the part that landed (`err.partial`),
+  and nothing on the board reads it; the store sends every pending put in one round and, on an error that is not a
+  refusal, queues them all again with their versions unmoved. Undo the removal of 600 things on a link that drops
+  after the first call: the retry meets the first 500 at version 1, the server names them as conflicts, the board
+  says someone else changed 500 of them, and they are dropped from the undo step. The drawing is right after the
+  re-read; the words and the step are not. Fix shape: read `err.partial` and treat the part that landed as saved
+  (its versions moved), or cap a round at 500 in the store.
+- **MO4-34 · An embed of a file a reader may not see still reaches that reader's window in the board's messages.**
+  INFERRED by reading (round 1, not checked): the element guard asks the file gate of the writer only, and an embed's
+  file need not be in the board's project; `board_elements_select` (0134) hides the row from a reader without the
+  file, but `board_announce` (0132) sends every element to every reader of the board: its place, size, order, style,
+  version and `updated_by`. The client does not draw it (a new file-bearing element is read through `board_read`,
+  which gives the stop-sign tile), so the file's id and name never travel; what travels is that an element is there
+  and how it moves. Fix shape: leave out of a message an embed whose file is not in the board's project, so its
+  readers read it through `board_read`, as they do a new element that carries a file.
+- **MO4-35 · Whose pointer, presence or drag a message is, is the sender's own word.** INFERRED by reading (round 1,
+  not checked): `boardLive.js` takes a cursor's or a drag's person, name and element from the payload, and a
+  presence's person from its own `user_id` before the adapter's key; `boardStore.js`'s preview moves any element of
+  the board. A reader who may not change the board can send drags for any element, which every window shows moving
+  for two seconds a message, though nothing is saved; or track presence with another member's id and name, so "who
+  is here" lists someone who is not. Fix shape: take a presence's person from the channel's own key, and a cursor's
+  or a drag's person and name from that presence, not from the payload. Its worst case, found by the second round (a
+  forged drag drawn in a writer's window and then saved or deleted by that window's own next drag or Delete of a
+  frame), is fixed in the session's last fix commit (MOTH_DESIGN §5.3, the second whole-session round): a person's own
+  gestures start from the settled board and live places out of range are dropped; the forged identity and the moving
+  preview others see stay open here.
+- **MO4-36 · On a Local Server every sticky save leaves the earlier words on the office computer for good.**
+  INFERRED by reading (round 1, not checked): each pause in typing writes the words to a fresh key and moves the row
+  to it; nothing deletes the earlier key. On Supabase, `storage-gc` removes an object no row names after 24 hours;
+  nothing sweeps a Local Server's disk (`storage-gc` reads rows only, `localMedia.cjs` collects nothing). Words typed
+  and then taken out of a sticky stay on that disk, and the folder grows with every save. Fix shape: after a publish
+  that took, delete the earlier key on a Local Server, or sweep the keys no row names there.
+- **MO4-37 · A placed file put in the trash reaches no open board.** INFERRED by reading (round 1, not checked): the
+  board's messages are sent only by its elements' triggers, the saves and the sticky turns (0132), and
+  `moth_trash_files` predates boards; a picture or an embed trashed in Files changes no element, so two people with
+  the board open keep its name and picture, and someone writing in a sticky whose file went meets "sticky not found
+  or not writable" only at the next save. The stop-sign tile shows when the board is read again. Fix shape: a
+  trigger on a file's trash that sends a message to the boards holding it, which read those elements again.
+- **MO4-38 · Any coded error from `board_channels` closes the board as gone, in the server's raw words.** INFERRED
+  by reading (round 1, not checked; which codes a live server answers there not measured): when a channel drops,
+  `boardLive.js` asks for the names again, and `isRefusal` reads a statement timeout (57014), an expired token's
+  PGRST301 after a sleep or a busy pooler as a refusal, so the board closes and Moth says the server's sentence, for
+  a board that is still there and still the person's. Fix shape: close only on 42501 or the board's own refusal
+  codes, and treat the rest as passing (with MO4-32).
+- **MO4-39 · A first join that fails says nothing, and "Could not reach the others on this board just now. Your
+  changes still save." is never shown.** INFERRED by reading (round 1, not checked): `joinBoard` catches a failed
+  first `board_channels` call, schedules its retries and resolves; no link event is sent, since the link was never
+  up, and the panel shows those words only when `joinBoard` throws, which it never does. The panel's test mocks a
+  throw the real function cannot make. While the retries keep failing, the board looks live and others' changes do
+  not arrive. Fix shape: tell the panel of a first join that failed (an event, or a resolve that says so), and test it
+  against the real `joinBoard`.
+- **MO4-40 · A dragged frame sends up to about 210 messages a second, and no cost table counts them.** INFERRED by
+  reading (round 1, not checked): each dragged thing has its own lane at ten a second, up to `MAX_DRAG_SENDS` (20)
+  things a step, and the pointer keeps sending while it drags, so a frame drag of 20 or more things sends about 200
+  drag messages and 10 pointer messages a second; with five people, about 840 receipts a second from one drag.
+  `boardLive.js`'s header ("each sent at most ten times a second") holds a lane at a time; MOTH_DESIGN §5.3 and the
+  plan's table count pointer messages only. Whether Supabase's per-project message rate would cut a board during a
+  large frame drag is not known. Fix shape: one message for a frame's move (with MO4-23), and drags in the cost
+  table.
+- **MO4-41 · A board at its 5,000-element cap was never drawn or measured.** INFERRED by reading (round 1, not
+  checked; no timing exists): Ctrl+A selects all 5,000, and `cull` then keeps every selected thing visible, so every
+  later paint draws all 5,000; every store change, a remote save included, hands all 5,000 to the Transformer again;
+  a drag of a loose selection of S things with F frames outside it runs up to F times S frame checks a pointer move
+  (100 frames and 2,500 things: 250,000). MOTH_DESIGN §5.3 measures only the debug sample's board, and the plan asks
+  a limit beyond the datasets to be said. Fix shape: measure a board of 5,000 (open, select all, drag, a remote save)
+  and say the figures, or say in MOTH_DESIGN §5.3 that it is not measured.
+- **MO4-42 · Things a dragged frame holds that were out of view stay hidden until it is dropped.** INFERRED by
+  reading (round 1, not checked): `cull` hides what lies more than 200 px off screen, and nothing calls it during a
+  move, so a large frame dragged into view brings its far things in unseen; they appear at the drop, or earlier on a
+  wheel or a remote save. Fix shape: cull during a frame's move, at most once a frame of the screen.
+- **MO4-43 · The 5,000-elements-a-board cap has no test.** MEASURED by reading (round 1, checked: real, minor): no
+  suite from 134 to 138 brings a board past 5,000 elements, so the three lines of `board_put_elements` (0130) that
+  refuse it with 54000 can go and every suite stays green; `boardStore.test.js` tests only the words. It is one of
+  the cost bounds MOTH_DESIGN §5.1 and the handbook promise, and unlike the 64 MB cap (MO4-11) one transaction can
+  reach it. Fix shape: in suite 135, fill a board to 5,000 (ten saves of 500), check that a new element is refused
+  with 54000 and the words, and that a change to an existing element at 5,000 still saves.
+- **MO4-44 · Suite 135's "each change counts the board's revision" cannot fail for a removal.** INFERRED by reading
+  (round 1, not checked): eight saves on the board before the check take its revision to 8 alone, and the check reads
+  `revision >= 8`, so the revision's UPDATE in `board_delete_elements` (0130) can go and it stays green. Fix shape:
+  read the revision just before the two removals and check that it is exactly two more after them.
+- **MO4-45 · The end-to-end spec's step 9 says the other window is told why, and never looks.** INFERRED by reading
+  (round 1, two reviewers, not checked): its header and its title say the second window closes "with the reason", and
+  the step checks only that the board is gone there; "You cannot see this board any more, so it was closed." is never
+  looked for, so a board closed for another reason, or with no words, passes. When step 8b has run, the second window
+  is closed before step 9 and the check is true by default. Fix shape: look for those words in the second window, and
+  when 8b has run, say the step is the first window's only.
+- **MO4-46 · Step 8b of the end-to-end spec turns the second person off and never back on.** INFERRED by reading
+  (round 1, not checked): it sets `is_active = false` for the second seeded person, and the spec's `finally` restores
+  nothing; with CI's one retry, a failure after 8b makes the retry sign in as an inactive person and fail at step 2,
+  and so does every later run on that throwaway stack. It runs only with `PSQL` and a second person set, never on
+  wilson-dev. Fix shape: set `is_active` back in the `finally` when 8b ran.
+- **MO4-47 · The check that Konva stays in the board's own chunk cannot fail for a static import of the canvas.**
+  INFERRED by reading (round 1, not checked): the scans in `BoardToolbar.test.jsx` and `MothPage.test.jsx` read fixed
+  lists of files that leave out `BoardPanel.jsx`, `boardPanelState.js`, `frames.js`, `boardStore.js`, `boardLive.js`
+  and `stickyTurn.js`, and look only for an import of `konva`; a static import of `BoardCanvas.jsx` in the panel or
+  in Moth's page would put Konva in their chunk with every test green, and the panel's tests mock the lazy target.
+  Fix shape: scan every file of the board's folder and Moth's page for a static import of `BoardCanvas.jsx` or
+  `konva`, or read the built chunks' contents after a build.
+
+From the second whole-session round (12 reviewers by lens and 22 checkers, Opus 5.5, over `1923b430`; MOTH_DESIGN
+§5.3, "The second whole-session round"): the findings not taken into the code, the most serious first. Each checker
+said whether its finding breaks security, her acceptance list as written, or neither; the seven taken are the ones it
+called security or acceptance, and MOTH_DESIGN §5.3 names them. A finding with no checker was read by its reviewer
+alone, so it is INFERRED by reading.
+
+- **MO4-48 · A demoted admin keeps a private project's board, hearing it and sending pointers, until their sign-in
+  token refreshes.** INFERRED by reading (round 2, checked: real, minor, breaks security, bounded); the hour itself is
+  MO1-01's measurement, not measured again for boards. A private project's board is its creator's and the admins'.
+  When an admin who did not create the project is made a member while the board is open, 0132's trigger on
+  `workspace_members` renames every board channel of the company and sends AUDIENCE to the old names, and their
+  window asks `board_channels` for the new ones at once (`boardLive.js`, `rejoin`). That ask is judged by
+  `board_for` (0130) through `moth_can_read_target` and `passes_project_privacy` (0082), whose admin arm is
+  `current_app_role()` (0008): the role in the sign-in token, not in the table. The token still says admin, so
+  `board_channels` answers the new names and `board_topic_readable` (0132, the same gate) lets the join through. The
+  demoted admin then goes on hearing every save, pointer and presence on that board, and may send pointers and
+  presence on its live channel, until the token refreshes with the new role or runs out: up to 3,600 s, the
+  platform's known window (MO1-01; MO4-07 is the same kind of window for a project made private). `board_read` over
+  REST gives them the board for the same hour through the same token arm, so the channel shows nothing `board_read`
+  would not. Removal and deactivation are closed at once, since `has_active_membership` reads the table. 0132's header
+  still says a role change is closed by the rename; the handbook's §13.6 and MOTH_DESIGN §5.2 now name this
+  exception. The checker's fix (a
+  new migration so that `board_topic_readable`, for a private project the caller did not create, also asks the
+  table, `is_live_workspace_admin`) would close the channels and not `board_read`, nor any other gate that reads the
+  role from the token. A whole fix reads the role from the table at every gate, or ends a demoted person's session at
+  once, platform-wide. Not taken this session; hers to decide: accept the hour, as MO1-01 does, or have the whole fix
+  built.
+- **MO4-49 · Undoing an earlier step overwrites another person's later change, and nobody is told.** MEASURED by a
+  probe on the real store (round 2, checked: real, major, breaks neither). `boardStore.js` keeps one version per
+  element (`myVersion`), not one per step: `rebase` moves it past someone else's save when this person makes a new
+  change, and each own save sets it again; an undo sends `expect` set to it. A moves X to 100; B moves it to 500; A
+  changes X's fill; A presses undo twice. The first undo takes back the fill; the second sends x 0 with an `expect`
+  that now passes, and the server saves it. B's move is gone in every window, unsaid, and B's own undo of it is then
+  skipped as someone else's change. The fence works only for the newest step (the store's tests cover only that).
+  Fix shape: fence each step: record, when a save answers, the version each element of that step was saved at, and
+  keep per element the highest version heard from others; an undo whose element was changed by someone else since
+  that step is skipped and said. Test: the probe's sequence ends with x 500 and the conflict said.
+- **MO4-50 · Moving a shape or a pen stroke that someone has just deleted refuses the mover's whole save.** MEASURED by
+  a probe on the real store with its test server made to refuse as 0130 does (round 2, checked: real, major, breaks
+  neither). A move goes out as a patch: the id, the kind and the changed keys (`wireOf`). In `board_put_elements`
+  (0130) an id the board no longer holds is inserted from those keys, so a shape has no `shape` and a pen no `points`,
+  the table's CHECK (`board_elements_shape_chk`, or `board_points_ok`) refuses it (23514 or 22023), and the whole call
+  rolls back. The store takes that as a refusal: it says the raw Postgres words, reads the batch again, and keeps
+  nothing, so the mover's other moves in that round snap back and anything they added in it vanishes. The store's
+  "made it again" path, built for this race, is reached only by kinds whose bare patch passes the checks. The store's
+  own test server accepts the fragment, so no test meets it. MO4-03 is the sibling for a connector's end. Fix shape: a
+  new migration so that `board_put_elements` answers a patch for an id not on the board in `conflicts`, not by an
+  insert (the client marks a patch as such); the store's conflict path already drops it. Tests in
+  `boardStore.test.js` and a suite.
+- **MO4-51 · A sticky deleted by one person while another types in it drops the typist's unsaved words.** INFERRED by
+  reading (round 2, checked: real, major, breaks neither). A sticky's words save at a pause of 1.5 s
+  (`STICKY_SAVE_MS`, a debounce with no longest wait), so while A types steadily nothing is saved. Nothing stops B
+  deleting a sticky whose turn A holds (`removeIds` asks nothing of the turns; 0133's lock goes with the element by its
+  cascade). When B's removal reaches A's window, `reconcile` calls `closeEditorGone` (`BoardCanvas.jsx`), which closes
+  the words box and lets go of the turn and saves and says nothing. A's words since the last pause are gone; if B
+  undoes the removal the sticky comes back with the older words. Fix shape: in `closeEditorGone`, for a sticky whose
+  words differ from the saved ones, keep the box open as ended with words such as "This sticky was removed. Your
+  words are still here to copy."; a test that removes the element before the timer fires and finds the words.
+- **MO4-52 · A closed board's waiting changes are dropped with nothing said after eight tries.** INFERRED by reading
+  (round 2, checked: real, major, breaks neither; the store's test asserts the give-up). With the network off, the
+  board says "Your last changes are not saved yet. WILSON will keep trying." The person closes it; `saveOnClose`
+  (`boardStore.js`) tries eight times (1 + 2 + 5 + 10 + 30 + 30 + 30 s, about 108 s) and then ends with the changes
+  still waiting; the store is let go and the panel forgets the close. The network back later and the board opened
+  again, it reads the server and the changes are gone, unsaid. MOTH_DESIGN §5.3 gives the bound; until this round the
+  handbook said a save is kept and tried again, unqualified. Fix shape: `saveOnClose` answers whether it saved; on
+  not, the panel keeps the close, sends it first on a reopen or when the window comes back online, and the page says
+  once that the board's changes could not be saved. Test: an offline close past eight tries is kept and sent on
+  online.
+- **MO4-53 · In the desktop app, Ctrl+=, Ctrl+- and Ctrl+0 on a board also zoom the whole window.** INFERRED by reading
+  (round 2, checked: real, major, breaks neither). The board takes these keys (zoom in, out, 100%) and calls
+  `preventDefault`; `App.jsx`'s document keydown listener, set up only where `electronAPI.zoomIn` exists, runs after
+  React's and does not look at `defaultPrevented`, so it zooms the window too, and Ctrl+0 also throws away a window
+  zoom the person had set. The web build is not touched. Fix shape: `if (e.defaultPrevented) return` first in that
+  handler, with a test (a key on a child that prevents it does not zoom the window; on a plain target it does).
+- **MO4-54 · An element's `z` has no range, so one written near the top of bigint, or past 2^53, breaks adding,
+  raising and opening the board for everyone.** INFERRED by reading, with node confirming how JSON rounds the numbers
+  (round 2, two findings, each checked: real in part; minor and major; breaks neither). `board_elements.z` is a
+  bigint with no CHECK (0130), and `board_put_elements` takes any `z` a writer sends. Only a writer calling the
+  function by hand can get there; the app's own steps never do. At 9223372036854775807 every window reads it as a
+  double, `nextZ` adds one and sends a number bigint refuses (22003): every add, Bring to front, new frame and drop
+  into a frame is refused for every member, in Postgres words, with the round's other changes lost, until someone
+  sends that element back; and on a board of more than 2,000 elements, `board_read`'s paging cursor at such a `z`
+  fails the same way, so the board does not open. Past 2^53 (5,000 elements at 4611686018427387905), `readBoard`'s cursor rounds: a page comes back empty or
+  repeats, the loop ends as complete with 2,000 drawn, nothing is said, and the hidden rows still count toward the
+  5,000 cap, so adds are refused while the people see 2,000 things. Fix shape: a new migration adding a CHECK that `z`
+  lies between -(2^53 - 1) and 2^53 - 1 (NOT VALID, then existing rows clamped and validated), with a suite case;
+  `readBoard` throws, rather than answering complete, when a page does not move the cursor on.
+- **MO4-55 · Nothing says what a board does when the month's Realtime messages run out, nor how she would know
+  first.** INFERRED by reading (round 2, checked: real in part, minor, breaks neither). PLAN_MOTH §5's Session 4 item
+  10 asks for "degraded quota states" and the plan asks for a truthful quota failure; no board code reads a quota
+  answer, and no document or item names the state. Saves go through the database, not Realtime, so a save is never
+  said done when it is not; a channel that will not join shows "Not connected to the others on this board just now.
+  WILSON keeps trying." after 4 s, without its cause, and the names are asked again every 30 s at most, with no end.
+  What Supabase does at the allowance's end with the spend cap on is not in the repository. Fix shape: say the state
+  in MOTH_DESIGN §5.4 (saves go on, others' changes stop arriving, the board says it is not connected); the operator's
+  signal is the usage page, read before each release and through the month; optionally tell a quota or limit refusal
+  apart in the channel's status and say so.
+- **MO4-56 · The brief's dashboard deltas were taken once, for the automated spec, and not for the plan's three
+  scenarios.** MEASURED (round 2, checked as part of the operator's cost finding: real in part, minor, breaks
+  neither; then a second reading by the session). The brief asks the plan's three scenarios to be measured "with two
+  browser contexts and the dashboard's deltas"; the two-to-five-person runs ran on a throwaway stack the usage page
+  does not see. The page was read twice on 2026-11-12: 1,057 Realtime messages at 06:01 UTC and 1,703 at 08:27 UTC, a
+  rise of 646, over three CI runs of the end-to-end specs on wilson-dev (pushed 05:54, 07:41 and 08:12 UTC; the page
+  refreshes hourly, so the first may lie inside the earlier figure and the third outside the later one). One run of
+  the board spec, counted on the wire, is 85 sends and 119 receipts, 204 messages as the page counts them: 612 for
+  three, within 34 of the page's own rise. So the page's count and the wire's agree for the spec; the plan's
+  two-person and five-person scenarios have no dashboard figure of their own. Fix shape: read the usage page just
+  before and an hour after one scenario run between real accounts on wilson-dev, with nothing else running.
+- **MO4-57 · Send backward or Send to back on a thing in a frame hides it under the frame's fill, still held.**
+  MEASURED by a node run of the pure modules (round 2, checked: real in part, minor, breaks neither). `stack`
+  (`BoardCanvas.jsx`) takes a frame's things along only when a frame is chosen; a lone held thing is restacked over
+  the whole board with no floor, and a frame holds by position, not order. A sticky on a frame sent to back lies under
+  the frame's opaque fill, unseen, still held: Delete on the frame removes it too (said once, and Undo brings it all
+  back). The first drag or nudge of the frame raises it again, and Ctrl+Z takes the send back. Fix shape: in `stack`,
+  for back and backward, stop a held thing just above its innermost holding frame, in the same step; a test.
+- **MO4-58 · A turned frame holds, raises and deletes things that lie visibly outside it.** INFERRED by reading, with
+  a scratch test on the real modules (round 2, not checked). A frame holds by its axis-aligned bounds (`frames.js`),
+  and a turned frame's bounds are the box around its turned corners. A frame of 200 by 200 at (0, 0) turned 45
+  degrees has a box reaching x = -141, so a sticky of 40 by 40 at (-130, 10), plainly outside it, is held: turning the frame raises it and saves its `z`, every
+  drag of the frame carries it, and Delete on the frame removes it. No document says a turned frame holds by its box
+  (MO4-22 names curved lines only). Fix shape: test a turned frame's own outline (its corners turned back), or say
+  the rule in MOTH_DESIGN §5.4.
+- **MO4-59 · A background change whose answer is lost is said not saved, then appears saved.** INFERRED by reading
+  (round 2, checked: real, minor, breaks neither). `saveBackground` (`boardStore.js`) treats every error alike: the
+  old background is drawn again and "That change could not be saved." is said, with no retry. If the server had saved
+  it, the `board` message or the read after a rejoin carries the higher version and the window turns to the new
+  background. The end state is true; the words and the moment back are not. The same shape was fixed for stickies and
+  placements in the first round. Fix shape: on an error that is not a refusal, read the board and take its background
+  and version; say the words only if that read does not show the choice saved.
+- **MO4-60 · Any undo or redo whose answer is lost comes back as someone else's change.** INFERRED by reading (round
+  2, not checked; the server's answer to a resend not measured). An undo is sent with `expect`; the server saves it
+  and the answer is lost (no code, so the store queues it again with its version unmoved). The resend meets the new
+  version, is named a conflict, the window says "Someone else changed this since, so it stays as they left it", and
+  the change is dropped from its step; a redone removal (a readd, `expect` 0) meets the row it made. MO4-33 says this
+  for a save of more than 500 split partway; this is any size, and MO4-33's fix shapes do not reach it. Fix shape: on
+  a conflict for a resent undo, read the row and take it as saved when it matches what was sent.
+- **MO4-61 · A clock set back freezes this person's pointer for the others, and keeps a dropped drag drawn.** INFERRED
+  by reading (round 2, not checked). `boardLive.js` times its send lanes and its sweep by the wall clock (`now()`):
+  after the clock goes back by H, a lane waits about H before it sends again, so the others see this pointer stand
+  still until a rejoin; and a peer's drag is swept when it has been silent 2 s by this clock, so with the clock behind
+  it stays drawn at its mid-drag place over the saved one until the clock catches up. Fix shape: time lanes and sweeps
+  by `performance.now()`.
+- **MO4-62 · A passing failure ends a sticky's words box for good, and the first Escape then drops the words.**
+  INFERRED by reading (round 2, not checked). `saveSticky` (`BoardCanvas.jsx`) sets the box to ended on every failed
+  save, a passing network error included, so it turns read-only with only Close, while its words say "Your words could
+  not be saved just now. They are still here.", which promises a later try that never comes. Escape then ends the
+  edit, and for an ended sticky that closes the box and drops the words without a question. Fix shape: keep the box
+  editing on a passing failure and try again at the next pause; on an ended box, Escape asks first or copies the
+  words.
+- **MO4-63 · The board itself shows no focus ring.** INFERRED by reading (round 2, not checked). The canvas region is
+  the one element every board key acts on (`tabIndex` 0), and its inline `outline: 'none'` beats the kit's global
+  `:focus-visible` ring; no style draws one for it. A keyboard user cannot see that the board has the keys. Fix shape:
+  drop the inline outline, or draw a ring for the region on `:focus-visible`.
+- **MO4-64 · The background's promise of crisp whole-pixel lines fails at a fractional device pixel ratio.** INFERRED
+  by reading (round 2, not checked). `background.js` rounds lines to whole CSS pixels and strokes at half a pixel, and
+  the canvas applies the device pixel ratio whole, so at 125% or 150% a line is 1.25 or 1.5 device pixels wide at a
+  fractional place, blurred unevenly, and dots are uneven; its comment says lines stay on whole pixels at every zoom.
+  The test checks CSS pixels only. Fix shape: round in device pixels (the ratio inside the rounding), or soften the
+  comment.
+- **MO4-65 · Walkthrough 97's 28 pictures are not in the repository.** MEASURED by `git ls-files` and `git log --all`
+  (round 2, checked: real, minor, breaks neither). The walkthrough says they are in the folder *97_moth_session_4
+  pictures* beside it, and PLAN_MOTH §6 cites them by number; the folder is only in her Desktop copy, never committed
+  (walkthroughs 93, 95 and 96 have theirs in the repository). Fix shape: copy the 28 pictures in under the names the
+  walkthrough lists, after checking that none shows a real name or email address.
+- **MO4-66 · A client may still send an event named AUDIENCE on a board's live channel.** INFERRED by reading (round 1's
+  checker of its AUDIENCE finding, the optional hardening it named; not built). Since the first round's fix the client
+  takes AUDIENCE only from the database's channel and ignores it on the people's channel, and since the second round
+  the fixtures do the same; but 0132's write policy on `moth:board-live:` still lets a reader send an event of that
+  name to every window there. Fix shape: a new migration narrowing `moth_board_live_write` so that no client may send
+  an event named AUDIENCE on the live channel, with a suite case.

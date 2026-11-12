@@ -61,6 +61,8 @@ import {
   itemsOfTask, tasksAbout, buildItemLookup, sortItemsForDisplay, typeRunsOf,
 } from '../state/taskItemsModel'
 import { assetTypeLabel } from '../state/assetTypes'
+import { useRabbit } from '../state/RabbitProvider'
+import MentionTextArea from './mentions/MentionTextArea'
 import '../views/rabbitFiles.css'
 
 // A priority's words, in sentence case ("low" -> "Low"). A status's words
@@ -458,6 +460,8 @@ export function NewTaskSidePopup({
   // or chosen, so the popup it sits in asks before it goes with it.
   onDirtyChange = null,
 }) {
+  // MO3: `[[` in the description links a thing the writer sees, as the new-asset form's does.
+  const getAdapter = useRabbit()?.getAdapter
   const [initial] = useState(() => ({
     title: '',
     status: 'waiting_to_start',
@@ -680,10 +684,11 @@ export function NewTaskSidePopup({
 
         {/* Description */}
         <Field label="Description">
-          <textarea value={draft.description} onChange={e => upd({ description: e.target.value })}
+          <MentionTextArea value={draft.description} onChange={v => upd({ description: v })}
+            getAdapter={getAdapter}
             rows={3}
             className="ui-input"
-            placeholder="Task description…" />
+            placeholder="Task description… ([[ links a thing)" />
         </Field>
       </div>
 

@@ -191,9 +191,16 @@ export async function collectBlobPaths(
     return seg.length >= 3 && seg[0] === 'projects' && projectIds.has(seg[1])
   }
 
+  // Keys this workspace's rows name under a project it does not own now, for the tenancy
+  // question below: a moved file keeps its key, and that project may since have been purged.
+  const otherBodies = new Set<string>()
+  const otherThumbs = new Set<string>()
   const take = (p: unknown) => {
     if (owned(p)) paths.add(p as string)
-    else if (typeof p === 'string' && p.length > 0) rejected.add(p)
+    else if (typeof p === 'string' && p.length > 0) {
+      rejected.add(p)
+      otherBodies.add(p)
+    }
   }
 
   for (let from = 0; ; from += PAGE) {
@@ -235,7 +242,10 @@ export async function collectBlobPaths(
   // beneath it is how the next session confidently reverts a fix.
   const takeThumb = (p: unknown) => {
     if (owned(p)) thumbs.add(p as string)
-    else if (typeof p === 'string' && p.length > 0) rejected.add(p)
+    else if (typeof p === 'string' && p.length > 0) {
+      rejected.add(p)
+      otherThumbs.add(p)
+    }
   }
 
   // 🚨 S44: EXCLUDE s3, AND ONLY s3. S39 deliberately did NOT filter by provider
@@ -319,6 +329,38 @@ export async function collectBlobPaths(
     await walkPosters(`projects/${projectId}/bin_files`, 1)
   }
 
+  // MO1 (0115): a key under a project that no longer exists is still ours when file_events ties
+  // that id to this workspace, the same proof the drain asks. A project that exists is someone
+  // else's, or ours and already above, so a key under another workspace stays refused. A failed
+  // read refuses the teardown, as every read here does: after the cascade nothing can derive this
+  // set again, and a key refused on a failed read would stay in the bucket for good.
+  const prefixOf = (p: string): string | null => {
+    const seg = p.split('/')
+    // A uuid, or nothing: 0114 came after these rows, and a value that is not one would stop the whole read
+    // with a type error, and the company's teardown with it.
+    return seg.length >= 3 && seg[0] === 'projects' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(seg[1]) ? seg[1] : null
+  }
+  const ours = new Set<string>()
+  for (const prefix of new Set([...otherBodies, ...otherThumbs].map(prefixOf).filter((x): x is string => x !== null))) {
+    {
+      const { data: live, error: liveErr } = await ctx.admin.from('projects').select('id').eq('id', prefix).maybeSingle()
+      if (liveErr) throw new Error(`project read failed: ${liveErr.message}`)
+      if (live) continue
+      const { data: seen, error: seenErr } = await ctx.admin
+        .from('file_events').select('workspace_id').eq('project_id', prefix).eq('workspace_id', workspaceId).limit(1).maybeSingle()
+      if (seenErr) throw new Error(`file_events read failed: ${seenErr.message}`)
+      if (seen) ours.add(prefix)
+    }
+  }
+  for (const p of otherBodies) {
+    const prefix = prefixOf(p)
+    if (prefix && ours.has(prefix)) { paths.add(p); rejected.delete(p) }
+  }
+  for (const p of otherThumbs) {
+    const prefix = prefixOf(p)
+    if (prefix && ours.has(prefix)) { thumbs.add(p); rejected.delete(p) }
+  }
+
   // The row-less objects, built from the project ids this workspace provably
   // owns — the same tenancy proof `owned()` applies to the row-derived paths,
   // so these need no separate check and can never be cross-tenant.
@@ -327,7 +369,27 @@ export async function collectBlobPaths(
   // (storage_path is client-writable), and deleting the same key in two
   // batches would count it once as removed and once as missing.
   const reserved = new Set<string>()
-  for (const projectId of projectIds) {
+  // MO1: a project purged before this teardown leaves its manifest and rates, which no row names and the
+  // orphan scan skips as reserved. file_events still ties its id to this company, and a project that exists
+  // is ours and above, or someone else's. After the cascade nothing could reach these again.
+  const tied = new Set<string>()
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await ctx.admin
+      .from('file_events').select('project_id').eq('workspace_id', workspaceId)
+      .order('id', { ascending: true }).range(from, from + PAGE - 1)
+    if (error) throw new Error(`file_events scan failed: ${error.message}`)
+    for (const row of (data ?? []) as Array<{ project_id: string | null }>) {
+      if (row.project_id && !projectIds.has(row.project_id)) tied.add(row.project_id)
+    }
+    if (!data || data.length < PAGE) break
+  }
+  const gone: string[] = []
+  for (const id of tied) {
+    const { data: live, error } = await ctx.admin.from('projects').select('id').eq('id', id).maybeSingle()
+    if (error) throw new Error(`project read failed: ${error.message}`)
+    if (!live) gone.push(id)
+  }
+  for (const projectId of [...projectIds, ...gone]) {
     for (const p of reservedProjectObjectPaths(projectId)) {
       if (!paths.has(p)) reserved.add(p)
     }

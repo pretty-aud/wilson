@@ -314,6 +314,16 @@ No automated test covers the two-factor path end to end: re-run the first three 
   shows as on every other page (DG3-02): two of plan §3's nine defects. `[BLOCKING]` D.O.G. reading past a project's first 1,000
   cloud files rests on walkthrough 82.
 - The corner dot: green when the database and the files' home answer, amber when only the database does, red offline. `[NOTE]`
+- `[Cloud]` Private projects, two windows (MO1, 0107 and 0109): an admin makes a shared project private while a teammate has it open,
+  once on a build without 0109's client and once on a new one. The teammate's list drops it and the open project closes with *This
+  project is no longer shared with you.*; the creator's and the admin's stay open; the old build stops hearing the project. `[BLOCKING]`
+- `[Cloud]` Stored copies follow the file (MO1, 0115): as a member and as an admin, Project Files' pictures and previews load, a new upload lands with its picture, and a shot re-file moves its file and picture. As a member with no money access, a receipt's file does not open. `[BLOCKING]`
+- `[Cloud]` A file's log and private time (MO1, 0116): make a project private, upload a file to it, then open it to the company. As a member, the file's activity shows only what happened after it was opened, and the panel's foot says why. As the project's creator and as an admin, the same panel also shows the upload from its private time.
+- `[Cloud]` Project folders (MO1, 0117): a desktop-to-cloud migration still brings up a project called Finance and one whose title has no letters. In a company on an office server, a second project with the same folder name stops with *This folder is already used by another project or space on the company server.* As a member, changing a project's folder name is refused; as an admin or a manager it works. The office server's list, bin and move have no screen until the Moth page lands.
+- `[Cloud]` Moving a file, and undoing it (MO1, 0118): in M.O.T.H., move a file between two shared projects and undo it, and it comes back to its folder with its links, and the page says if anything could not come back. Move one out of a private project: a new copy is made first. On a company with its own bucket, a file that needs a new copy says *A file cannot move into a company's own storage yet.*
+- `[Cloud]` The record of what changed (MO1, 0119): nothing shows it yet, so there is nothing to click until Moth's timeline ships. Rename, move, trash and restore a few files and check the app stays as quick as it was: a move of a few hundred files, and deleting a folder with many in it.
+- `[Cloud]` A member seat (not a manager of the project's team) opens a project: the Producer select is grey with *Only someone who
+  manages this project's team can choose its producer.*; an app manager or the team's manager chooses one. `[BLOCKING]`
 
 ## §H. Scenes, shot lists and edits (20 min · walkthroughs 51, 53, 67)
 
@@ -592,3 +602,96 @@ Plan §0, the four conditions, as boxes:
       Vercel's production branch is `feat/multi-user-v1` (`docs/WEB_DEPLOY.md`), so merging into `main` deploys nothing on the
       beta. By her ruling of 2026-10-28 (walkthrough 85 Q3, (a)), 1.0.0's web app is a second Vercel project, on production at
       its own address, and the beta stays on staging (`docs/PRODUCTION_RUNBOOK.md` (f)).
+
+## §T. M.O.T.H.'s first page (20 min) `[Cloud][Desktop]`
+
+- [ ] `[Cloud]` Open M.O.T.H. as an ordinary member. **My personal space** is in the list. Leave and come back: still one.
+- [ ] `[Cloud]` As a workspace admin, open M.O.T.H.: another person's space is not in the list. Open it from Files: it is read-only, and Logs has the line saying so.
+- [ ] `[Cloud]` Move a file from your personal space into a project with **Move to…**. Files shows it there and it still opens.
+- [ ] `[Cloud]` As a reviewer on a project, tick a file: **Move to…** and **Delete** are greyed, and hovering says why.
+- [ ] `[Cloud]` Delete a file in M.O.T.H. It asks first, and **Cancel** changes nothing. Say yes: **Undo** brings it back, and Ctrl+Z does the same while you are on the page. Delete it again, open **Trash**, and **Restore** it.
+- [ ] `[Cloud]` Tick two files, then search so only one shows. The page says *2 ticked, 1 not shown by this search*, and **Delete** asks about both.
+- [ ] `[Cloud]` Move a file linked to a task to another project. The page says the links stayed behind. **Undo** brings it back with them; delete the task first and it says what could not come back.
+- [ ] `[Cloud]` Open **Move to…** and press Ctrl+Z behind it: nothing happens. Hold Ctrl+Z on the page: one undo.
+- [ ] `[Cloud]` As an admin, make a member inactive who has files in a personal space. Open that space in Files: it offers **Move files to a project…**, without their invoices or Legal files. Move one: it is in the project and still opens, and Logs has the line saying so. Make them active again: the offer has gone.
+- [ ] `[Cloud]` As a plain member on Petal storage with the plan nearly full, add a file: it says *This company's Petal cloud storage is nearly full.*, with no amounts. When it is full, a file is refused with *This company's Petal cloud storage is full*, again with no amounts. As an admin, the Admin Terminal still shows the figures.
+- [ ] `[Cloud]` Look through a project with invoices and a Legal file, in the list, the search and the trash: neither appears, for any role.
+- [ ] `[Desktop]` In a project kept on this computer, delete a file. The dialog says *It stays in this project's trash for 30 days.* **Undo** brings back the same file.
+- [ ] `[Local]` Move a file between two projects kept on this computer. It lands in the new one and has left the old one. **Undo** puts it back in its folder with its links. Open a file in another program and move it with another: it says that file is open, and nothing moved. Unplug a project's drive and try: it says the folder cannot be reached.
+- [ ] `[Desktop]` On a real office server: open a project in Files and read *Listed from the company server.* with when it was last checked. **Refresh**. Delete a file: the dialog says *It moves to the company server's bin for 30 days.*, and the file is in `.wilson-bin` on the server. Restore it.
+- [ ] `[Cloud]` In a browser, on that same project: the banner says *Refresh from the desktop app*, and a delete says *Do this from the WILSON desktop app*, and the file stays listed.
+- [ ] `[Desktop]` On that server, delete a file from its folder in Explorer, then **Refresh**: the banner counts it and its row says *Not found on the server at the last check*, in Files and in M.O.T.H. Change a file's folder inside a project in M.O.T.H.: it says to move it on the server itself. Disconnect from the server and move a file between projects: it says the server cannot be reached, and nothing moved.
+- [ ] `[Desktop]` On a company with an office server, add a file to your personal space from M.O.T.H. The panel says *In this company, your personal space keeps its files on the office server.*
+- [ ] `[Cloud]` On a company on its own S3-compatible bucket (a real one: dev has none), move a file between two open projects. It moves at once, and opens, its picture with it. As someone in the old project only, it is gone and its link no longer opens.
+- [ ] `[Cloud]` On that company, move a file out of a private project into an open one. It takes a moment longer (a new copy, and WILSON's server checks it arrived), then opens from the new project; the old copy goes at the next Cleanup. Move ten at once: all ten land.
+- [ ] `[Cloud]` On that company, take away the bucket key's right to read (HeadObject) and move a file that needs a copy: it says the bucket refused WILSON's server a look, nothing moves, and the bucket holds no new copy. Put the right back.
+
+## §U. M.O.T.H.'s graph (20 min) `[Cloud][Desktop]`
+
+- [ ] `[Cloud]` Open M.O.T.H. for the first time on an account: it asks *What do you want to map?* Choose **Everything by folders**. Leave and come back: it opens the same view and asks nothing.
+- [ ] `[Cloud]` Your projects show as islands of light, each with its folders. The light is larger on a company with more files. Double-click a folder: it opens into its files.
+- [ ] `[Cloud]` Drag empty space to move around, scroll to zoom. Click a dot: it is ringed and the list on the right goes to it. Rest the mouse on an image or a video for half a second: a small preview appears beside it, and goes the moment you press or move away.
+- [ ] `[Cloud]` Drag a file onto a folder of the same project: the folder opens wider and *move into* follows the pointer. Let go: the file moves, as with **Move to…**, and **Undo** puts it back. Press Escape during a drag: it goes back and nothing changes.
+- [ ] `[Cloud]` Choose **Everything by tags**: files gather around their tags. Change what shows, then **Save as…** with a name: it is in the view list next time.
+- [ ] `[Cloud]` As a project's reviewer, open its shared view and drag a dot: it moves on screen. Reload: it is back where it was. Click a dot of that project, then **Save as…**: *Who sees it* offers only *Just me*. As a writer on the project, the same steps offer *Everyone on the project of what is selected* too.
+- [ ] `[Cloud]` Two writers on one shared view each drag a different dot. Reload both: each dot is where its mover left it.
+- [ ] `[Cloud]` Select a task and press **Open in R.A.B.B.I.T.**: it asks first. **Stay here** changes nothing. Say yes: R.A.B.B.I.T. opens that project at Tasks with the task open. Do the same for a file: Files, with it selected.
+- [ ] `[Cloud]` Open **M.O.T.H. settings** (the cog beside Help): change the light's colour and *Colour by*; reload, and they are kept. On a computer that asks for less motion, the light holds still.
+- [ ] `[Cloud]` Pin a folder card, then four more: a sixth is refused with *Five cards at most. Unpin one to pin this.* The clock icon bottom left lists the folders opened last, and shows nothing until pressed.
+- [ ] `[Cloud]` On a company whose record is more than a week old, drag **Look back** a week: the picture shows the projects as they were, says from when it is recorded, and changes nothing. **Back to now**.
+- [ ] `[Cloud]` On a tablet or with a pen, touch the graph: the controls grow. Move a real mouse: they shrink again.
+- [ ] `[Cloud]` Look for invoices, Legal files, a private project you are not on, and someone else's personal space: none is a dot, a line, a search result or a card, for any role.
+- [ ] `[Desktop]` Signed out, on a project kept on this computer: the graph shows it; **Save as…** is greyed and the panel says *This view lasts for this visit only*. Quit and reopen WILSON: the first question is asked again.
+
+## §V. Typed tags, links and notes (25 min · walkthrough 96) `[Cloud]`
+
+Two accounts of one company, in two browsers (or a browser and a private window): **A**, an admin, and **B**, a member
+with no admin rights. Do it on staging first.
+
+- [ ] `[Cloud]` As A, in the Dashboard's **Notes**, write a note: it is under **Mine**. Set it to **Shared with the company**: as B, it is under **Shared**, and opens to read if B may not change it, saying why.
+- [ ] `[Cloud]` As A, make a note the company standard. As B, it opens to read: *This is the company standard. You can read it; the company's admins change it.*
+- [ ] `[Cloud]` Delete a note: *Moved to the trash. It stays there 30 days.* with **Undo**. Undo it; delete it again, then find it under **Trash** and **Bring back**.
+- [ ] `[Cloud]` Both of you type in one shared note at once, each saving: both texts are kept when each saves. Neither sees the other type, as the note says above its words.
+- [ ] `[Cloud]` As B, in M.O.T.H.'s **Typed tags**, the drawer says *None yet. Only you see the tags you make.* Make a type and a tag of your own: it is listed under *Your own tags*. As A, open the same drawer and the same thing: B's tag and B's use of it are not there at all.
+- [ ] `[Cloud]` As B, type the name of a company tag as a new tag: the drawer says the company has it and offers it. As B, **Put forward** a tag of your own; as A, **Approve** it: it is the company's, and B's use of it stays B's.
+- [ ] `[Cloud]` As A, rename and merge company tags: every use follows. As B (a member), there is no rename, merge or approve.
+- [ ] `[Cloud]` In a task's description, type `[[` and part of a name: a list of things you can see; **Enter** puts the link in. Save: the task lists it under **Links**, and the thing linked lists the task under **Mentioned in**. `#` and a tag's name tags the task and leaves nothing in the words.
+- [ ] `[Cloud]` As A, link from a shared note to a file in A's personal space. As B, open the note: the link's words are plain words, with nothing to say a link was there. The note's **Links** list has only what B can see.
+- [ ] `[Cloud]` A shared note that links things in two projects, one private to A: as B, only the other project's thing is a link.
+- [ ] `[Cloud]` Try to tag or link an invoice or a Legal file: none is offered, and none appears as a dot, a line or a link, for any role.
+- [ ] `[Cloud]` In M.O.T.H., notes and typed tags show as dots and saved links as lines; a note's dot opens it in the Dashboard. **Look back** before the record began for them: it says from when they are recorded.
+- [ ] `[Cloud]` In D.O.G., reference a note with links: the words come through as written, with no link codes.
+
+## §W. Boards and live editing (45 min · walkthrough 97) `[Cloud][Desktop]`
+
+Two accounts of one company, in two browsers (or a browser and a private window): **A**, an admin, and **B**, a member
+who can change the project. Use a project that has folders. Do it on staging first, with two real accounts, before
+boards reach anyone. Before you start and after you finish, write down from the Supabase usage page: the plan's name,
+the Realtime messages left this month, the peak connections, and that the spend cap is on.
+
+- [ ] `[Cloud]` As A, in M.O.T.H., open a project's **⋯** (*More for this project*): it offers **New board**. Make one: it opens in its small frame, and on the map it is a dot of its own colour.
+- [ ] `[Cloud]` The three size buttons, *Show in a frame*, *Fill the view* and *Maximise*, each change the panel. **Back to the map** closes it and the map is as it was. Open it again and press Escape: the same. With the shape list open, words being typed or something selected, Escape lets go of that first.
+- [ ] `[Cloud]` In the small frame, drag a corner: the frame resizes and stays open. Pull the right edge far out: it says *Let go to close*, and letting go closes it. Pulled a little, it stays. Filling the view or maximised, an edge does nothing.
+- [ ] `[Cloud]` Draw each of the nineteen shapes from *Choose a shape*; draw a straight, a curved and a square-turned connector between shapes, with dashes, a width, each end's head and words on a line. Drag a joined shape: its lines follow. Draw a frame, a pen line, text and a sticky with words. Reload: all of it is there.
+- [ ] `[Cloud]` Select a shape: the panel changes its fill, line, width, dashes, words and stacking. Undo and redo (and Control+Z) put things back.
+- [ ] `[Cloud]` A new board is on the dotted grid. The last button of the bar at the bottom left, *Background*, opens a list of *Dotted grid*, *Blank* and *Lined grid*, the one in use marked. Choose each: the board changes at once, and the list closes. It also closes on Escape (the board stays open) and on a press elsewhere. Zoom in, zoom far out and move around: the grid moves with the drawing and has fewer dots or lines far out. Close the board and open it again: the choice is kept.
+- [ ] `[Cloud]` A and B on one board: A chooses *Lined grid*; B's board changes without reloading. B chooses *Blank*; A's changes. Both choose at nearly the same moment: both screens end on the same background.
+- [ ] `[Cloud]` Open the board as someone who may look at the project but not change it: there is no *Background* button, selecting something shows no panel (so no *Frame selection (Ctrl+G)* and no *Remove the frame only (Ctrl+Shift+G)*), and Ctrl+G changes nothing. The background the others chose is the one shown.
+- [ ] `[Cloud]` Select two shapes and a sticky, and press *Frame selection (Ctrl+G)* in the panel's *Arrange* row (then again with Ctrl+G, and with Ctrl+Alt+G): a frame named *Frame* appears round them, selected. One Control+Z takes the frame away and leaves the three as they were. The *Frame (F)* tool still draws an empty frame.
+- [ ] `[Cloud]` Drag the frame by its name, by its edge and by its middle, and nudge it with the arrow keys: what it holds moves with it each time, and lines joined to those follow. Reload: everything is where it was left.
+- [ ] `[Cloud]` Drag a shape over the frame: while held, the shape stays in sight on top of the frame, and the frame is outlined. Let go: the shape is on top of the frame and moves with it. Drag it out and let go: moving the frame leaves it behind. A shape larger than the frame, dropped on it, is not taken.
+- [ ] `[Cloud]` Hold Ctrl and drag from inside the frame: a selection rectangle is drawn and the frame does not move; the things inside it are selected. Ctrl and a single press on the frame adds it to the selection or takes it out.
+- [ ] `[Cloud]` Select the frame and press Delete: the frame and what it holds go, and the board says *The frame was removed with what it held. Undo brings it all back.* One Control+Z brings all of it back. With a line joining two things in the frame, Delete on the frame takes the line too, and one Control+Z brings it back joined; a line from a thing in the frame to something outside stays, loose at that end. A line drawn on its own (joined to nothing) inside the frame moves with the frame and goes with it on Delete. Select the frame and press *Remove the frame only (Ctrl+Shift+G)* (then again with Ctrl+Shift+G): only the frame goes, and what it held stays, selected.
+- [ ] `[Cloud]` Put a frame behind another shape, then press *Bring to front* on the frame: what it holds comes forward with it and is still on top of it.
+- [ ] `[Cloud]` A and B on one board: A drags a frame that holds things. B sees the frame and its things move, and when A lets go everything on B's screen is where A left it.
+- [ ] `[Cloud]` Choose a picture with **Picture or file**, and drop a picture and a text file on the board (it says *Drop to add to the board*): each is a tile. Close the board: its folder in M.O.T.H. and in Files lists them and a file for the sticky.
+- [ ] `[Cloud]` **Embed a file** from another folder: it shows on the board, and the board's folder gains no copy of it.
+- [ ] `[Cloud]` Put that embedded file in the trash, then open the board: the tile is a stop sign with *This file is missing — it may have been moved or deleted*, and no file name. As B, with that file private to A, the tile is the same.
+- [ ] `[Cloud]` A and B on one board: each sees the other's name at the top. Each moves a different shape at the same time: both changes stay, on both screens. Each sees the other's pointer with their name; it stops when they stop.
+- [ ] `[Cloud]` A writes in a sticky; B tries the same sticky: B reads *A's name is writing on this sticky.* and cannot type. When A is done, B can.
+- [ ] `[Cloud]` Turn B's network off for at least 30 seconds: B's board says *Not connected to the others on this board just now. WILSON keeps trying.* The words come only once the board's channel has been reported down for 4 seconds, and with the socket still open that report waits for an unanswered heartbeat (one every 25 seconds), so a shorter break may say nothing. Meanwhile A changes something. Turn it on: within a few seconds B has A's change and the words go. If the board could not join at all it says *Could not reach the others on this board just now. Your changes still save.*
+- [ ] `[Cloud]` With B's board open, A takes B off the company (or makes the project private without B): B's board closes at once and M.O.T.H. says *This board is not open to you any more. It may have gone to the trash or moved.*
+- [ ] `[Cloud]` On the board, press **Put in the trash**: it asks *Put this board in the trash? Its notes and pictures go with it. You can bring it back from Moth's trash for 30 days.* **Keep it** changes nothing. **Put it in the trash**: the board closes and M.O.T.H. says *The board is in the trash. You can bring it back from Moth's trash for 30 days.* In M.O.T.H.'s **Trash** it is under *Folders and boards*; **Bring back** returns it with everything on it, and its files.
+- [ ] `[Desktop]` On a project kept only on this computer, its **⋯** menu offers no **New board** and says *A board needs this project in the cloud.*; M.O.T.H.'s settings say *Boards need the project in the cloud.* Nothing on the page tries to connect to others.
+- [ ] `[Cloud]` On a project with no folders, **New board** is refused with *You cannot make a board here. The folder may have moved, or you may not change it.* (known, OUTSTANDING MO4-17); count such projects before release.
+- [ ] `[Cloud]` Do the steps above on both approved projects (the debug sample and LEGEND ROAD), then read the usage page again: the messages used fit what is left, and the spend cap is still on. As a guide, a pointer sends at most ten times a second and nothing while still; two people moving without pause cost about 144,000 messages a board-hour, five about 900,000.

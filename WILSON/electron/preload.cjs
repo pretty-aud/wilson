@@ -104,6 +104,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // after loading workspace_storage (and null on sign-out); the Admin
     // Terminal's Storage section probes a candidate before saving it.
     setWorkspaceRoot:     (opts) => ipcRenderer.invoke('rabbit:set-workspace-root', opts),
+    // MO1 (PS-7): who is signed in, for the office-server add route (networkShare.cjs).
+    setSignedInUser:      (opts) => ipcRenderer.invoke('rabbit:set-signed-in-user', opts),
     probeStorageRoot:     (opts) => ipcRenderer.invoke('rabbit:probe-storage-root', opts),
     pickDirectory:        ()    => ipcRenderer.invoke('rabbit:pick-directory'),
     pickFiles:            ()    => ipcRenderer.invoke('rabbit:pick-files'),

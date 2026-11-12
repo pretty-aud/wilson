@@ -61,10 +61,13 @@ import {
   selectVarianceForProject,
 } from './selectors';
 import { applyRealtimeEvent, isStaleIncoming } from './realtimeMerge';
+import { isPersonalSpace } from '../../../cloud/personalSpace';
 import { useTableViewsState, groupingsNaming, sweepGroupings, restoreGroupingsInTurn, groupingRestoreNotice } from './tableViewsState';
 import { byMilestoneDate } from './milestoneOrder';
 import { buildRevertPlan } from '../components/editHistoryRevert';
 import { hasLocalServer, loadOtterSettings, saveOtterSettings } from '../../../lib/localData';
+import { createNetworkShareCatalogue } from './networkShareCatalogue';
+import { desktopFileOps, DESKTOP_ACTION_SENTENCE } from '../storage/desktopFileOps';
 import { devFixtures } from '../../../dev/devFixtures';
 import { probeInBrowser } from '../bins/binProbeFallback';
 import { previewKindFor, needsBrowserProbe, rowsToReprobeAfterRelink } from '../bins/binMedia';
@@ -274,6 +277,20 @@ export function markLoadedBinFiles(nextFiles, prevFiles, caps, { markOnline = nu
   if (caps.backend !== 'desktop_cloud' && caps.backend !== 'gateway_cloud') return nextFiles;
   const known = new Map((prevFiles || []).filter(f => typeof f?.online === 'boolean').map(f => [f.id, f.online]));
   return nextFiles.map(f => ({ ...f, online: known.has(f.id) ? known.get(f.id) : false }));
+}
+
+// MO1 (0109, 0110): a projects row no listener merges into the project list.
+function isHiddenProjectRecord(record) {
+  return record?.is_private === true || isPersonalSpace(record);
+}
+function dropPersonalFromIndex(setProjectsIndex, record) {
+  if (!record?.id || !isPersonalSpace(record)) return;
+  setProjectsIndex(idx => {
+    if (!(record.id in idx)) return idx;
+    const next = { ...idx };
+    delete next[record.id];
+    return next;
+  });
 }
 
 export function RabbitProvider({ children }) {
@@ -763,16 +780,49 @@ export function RabbitProvider({ children }) {
   }, [dismissUndoToast]);
 
   // ── refresh ─────────────────────────────────────────────
+  // MO1 (0109, R11): each read of the list carries a sequence number. A read
+  // a newer one overtook is dropped (never landed over the newer list), and
+  // the list is returned. A revalidation (AUDIENCE, or a project made
+  // private: who may see a project changed) is answered by the first list
+  // landed from a read started after it was asked (revalidateFromSeqRef): if
+  // the open project is not in it, this window may no longer see it, and it
+  // closes as a trashed project does, with a notice.
+  const projectsIndexSeqRef = useRef(0);
+  const revalidateFromSeqRef = useRef(null);
   const refreshProjectsIndex = useCallback(async () => {
-    if (!adapterRef.current) return;
+    if (!adapterRef.current) return null;
+    const seq = ++projectsIndexSeqRef.current;
+    // The project open when the read STARTS: a project opened while it was in
+    // flight may postdate the list's snapshot (review round 1, finding 6).
+    const openAtStart = activeProjectIdRef.current;
     try {
       const list = await adapterRef.current.listProjects();
+      if (seq !== projectsIndexSeqRef.current) return null;
       setProjectsIndex(indexById(list));
       setAdapterStatus(s => ({ ...s, online: true, lastSyncAt: new Date(), error: null }));
+      const from = revalidateFromSeqRef.current;
+      if (from !== null && seq >= from) {
+        revalidateFromSeqRef.current = null;
+        const open = activeProjectIdRef.current;
+        if (open && open === openAtStart && !(Array.isArray(list) && list.some(p => p?.id === open))) {
+          // A load of the hidden project still in flight must not land after
+          // the close (review round 1, finding 7): retire it as a switch does.
+          bundleLoadSeqRef.current++;
+          setActiveProjectIdState(null);
+          setBundle(EMPTY_BUNDLE);
+          clearHistory();
+          saveRabbitSettings({ activeProjectId: null });
+          setError('This project is no longer shared with you.');
+        }
+      }
+      return list;
     } catch (err) {
-      setAdapterStatus(s => ({ ...s, online: false, error: err.message || String(err) }));
+      if (seq === projectsIndexSeqRef.current) {
+        setAdapterStatus(s => ({ ...s, online: false, error: err.message || String(err) }));
+      }
+      return null;
     }
-  }, []);
+  }, [clearHistory]);
 
   const setActiveProject = useCallback(async (projectId, persist = true) => {
     if (!adapterRef.current) return;
@@ -1131,11 +1181,20 @@ export function RabbitProvider({ children }) {
     for (const eff of effects) {
       if (eff.type === 'roster') {
         roster = true;
+      } else if (eff.type === 'audience') {
+        // MO1 (0109): who may see the open project changed (realtimeMerge).
+        requestIndexRevalidationRef.current?.();
       } else if (eff.type === 'refetch') {
         refetch = true;
       } else if (eff.type === 'versions-refetch') {
         // S5b: another window opened or closed a bid version (realtimeMerge).
         versionsRefetch = true;
+      } else if (eff.type === 'project-patch' && eff.record?.id && isHiddenProjectRecord(eff.record)) {
+        // MO1 (0110, MOTH_DESIGN §2.2 PSA-08): the workspace path's rule, on
+        // this path too. A private or personal row is never merged: the list
+        // is read again through RLS. A personal space leaves it at once.
+        dropPersonalFromIndex(setProjectsIndex, eff.record);
+        requestIndexRevalidationRef.current?.();
       } else if (eff.type === 'project-patch' && eff.record?.id) {
         setProjectsIndex(idx => {
           // Same stale guard as the workspace path (Session 8): the same
@@ -1168,6 +1227,10 @@ export function RabbitProvider({ children }) {
     if (versionsRefetch && !refetch) mutationsRef.current.refreshBudgetVersions?.();
   }, [effectTick, activeProjectId, clearHistory, refreshProjectMembers, scheduleRealtimeRefetch]);
 
+  // MO1 (0109, R11): the channel's name carries the project's topic epoch
+  // (bumped by every narrowing, 0107), read from the list; a new epoch
+  // re-joins the new topic, whose join refetch closes the missed window.
+  const activeTopicEpoch = Number(projectsIndex[activeProjectId]?.topic_epoch) || 0;
   useEffect(() => {
     if (adapterMode !== 'supabase' || !activeProjectId
         || typeof adapterRef.current?.subscribeProjectChanges !== 'function') {
@@ -1184,6 +1247,7 @@ export function RabbitProvider({ children }) {
         handleRealtimeEvent(evt);
       },
       {
+        topicEpoch: activeTopicEpoch,
         onStatus: (status) => {
           if (seq !== realtimeSeqRef.current) return;
           if (status === 'SUBSCRIBED') {
@@ -1216,7 +1280,7 @@ export function RabbitProvider({ children }) {
       }
       setPresentUsers([]);
     };
-  }, [adapterMode, activeProjectId, handleRealtimeEvent, scheduleRealtimeRefetch]);
+  }, [adapterMode, activeProjectId, activeTopicEpoch, handleRealtimeEvent, scheduleRealtimeRefetch]);
 
   // ── workspace realtime (Session 8, migration 0018) ──────
   // One private channel per signed-in workspace, independent of the open
@@ -1236,13 +1300,31 @@ export function RabbitProvider({ children }) {
     return () => { wsListenersRef.current.delete(cb); };
   }, []);
 
+  // MO1 (0109, R11): the reason for a refetch lives in a ref, so a join
+  // refetch already pending still revalidates (the debounce coalesces the
+  // timers, not the reasons). The debounced run reads and clears it, and the
+  // read it starts (or any later one) answers it (refreshProjectsIndex).
+  const revalidateRef = useRef(false);
+  const requestIndexRevalidationRef = useRef(null);
   const scheduleProjectsIndexRefetch = useCallback(() => {
     if (wsIndexRefetchTimerRef.current) clearTimeout(wsIndexRefetchTimerRef.current);
     wsIndexRefetchTimerRef.current = setTimeout(() => {
       wsIndexRefetchTimerRef.current = null;
+      if (revalidateRef.current) {
+        revalidateRef.current = false;
+        revalidateFromSeqRef.current = projectsIndexSeqRef.current + 1;
+      }
       refreshProjectsIndex();
     }, 400);
   }, [refreshProjectsIndex]);
+  const requestIndexRevalidation = useCallback(() => {
+    revalidateRef.current = true;
+    scheduleProjectsIndexRefetch();
+  }, [scheduleProjectsIndexRefetch]);
+  // Reached through a ref by handleWorkspaceEvent (kept stable: the
+  // workspace channel's effect depends on it) and by the effects reducer
+  // above (an 'audience' effect from the project channel).
+  requestIndexRevalidationRef.current = requestIndexRevalidation;
 
   const handleWorkspaceEvent = useCallback((evt) => {
     // Index liveness: projects events land whether or not the project is
@@ -1251,7 +1333,14 @@ export function RabbitProvider({ children }) {
     // delivers the same event; isStaleIncoming + spread-merge make the
     // double delivery idempotent, and active-project teardown stays with
     // the per-project channel (single owner).
-    if (evt.table === 'projects') {
+    // MO1 (0109): AUDIENCE (a visibility flip, no row) and a private row (a
+    // server without 0109 still sends them) are never merged: the list is
+    // read again through RLS, and the open project closes if it is gone.
+    // 0110: the same for a personal space, which also leaves the list at once.
+    if (evt.table === 'projects' && (evt.op === 'AUDIENCE' || isHiddenProjectRecord(evt.record))) {
+      dropPersonalFromIndex(setProjectsIndex, evt.record);
+      requestIndexRevalidationRef.current?.();
+    } else if (evt.table === 'projects') {
       const rec = evt.record;
       if (evt.op === 'DELETE' || (rec && rec.deleted_at)) {
         const gone = rec?.id ?? evt.oldRecord?.id;
@@ -5334,8 +5423,8 @@ export function RabbitProvider({ children }) {
   // RESOURCES → FILES edits any project's files without opening it, and
   // only the OPEN project's rows live in the bundle — so a write for another
   // project goes straight to the adapter WITH ITS OWN id (the Local Server
-  // builds the URL from it, and in the cloud project_id is a column: sending
-  // the open project's id would move the row into it). Omitted, it is the
+  // builds the URL from it; the cloud adapter takes it out of the patch, 0114,
+  // because a file changes project only through Move to). Omitted, it is the
   // open project, exactly as before.
   //
   // Review round 2 (R2-UI-01, measured): the optimistic write kept the row's
@@ -5407,10 +5496,78 @@ export function RabbitProvider({ children }) {
   // Session 27. `files` had upload and patch on the context but no delete and
   // no download, because the only consumer was a read-mostly table. FileManager
   // now serves this store too and needs the whole verb set.
-  const deleteFile = useCallback((fileId) => optimistic(
-    prev => ({ ...prev, files: prev.files.filter(f => f.id !== fileId) }),
-    () => adapterRef.current.deleteFile(fileId, activeProjectId),
-  ), [optimistic, activeProjectId]);
+  // MO1 (MOTH_DESIGN §1.9): another page moved or deleted files. The open project re-reads its list, so
+  // Files agrees and the file still opens.
+  const noteFilesChangedElsewhere = useCallback(async (projectIds = []) => {
+    if (!activeProjectId || !projectIds.includes(activeProjectId) || !adapterRef.current?.listFiles) return;
+    const asked = activeProjectId;
+    const files = await adapterRef.current.listFiles(asked);
+    if (activeProjectIdRef.current === asked) setBundle(prev => ({ ...prev, files: files || [] }));
+  }, [activeProjectId]);
+
+  // MO1: a file on the office server is deleted server first, then renamed into the bin (NS-D12).
+  // The desktop and the server both, asked before the server's row is touched: a browser's delete, or one with
+  // the server off, must not go through on the row and then say it failed.
+  const shareCatalogue = useCallback(() => createNetworkShareCatalogue({ adapter: adapterRef.current }), []);
+  const readyForShare = useCallback(async () => {
+    if (!desktopFileOps.available()) throw new Error(DESKTOP_ACTION_SENTENCE);
+    await desktopFileOps.reachable();
+  }, []);
+  const refusedByShare = (outcome, verb) => {
+    if (!outcome?.notMoved?.length) return;
+    throw new Error(outcome.notMoved[0].code === 'in_use'
+      ? `Could not ${verb} this file, because a program has it open on the office server. Close it and try again.`
+      : `The office server would not ${verb} this file, so it stayed where it was.`);
+  };
+  // Moth's batch reads a file filed with money or Legal as not there, on purpose. Here it is on screen.
+  const sayLockedPlainly = (err) => {
+    if (err?.code === 'not_found') throw new Error('This file on the office server is filed with the project\'s money or Legal files, so it stays as it is.');
+    throw err;
+  };
+  const restoreFile = useCallback(async (row, projectId = activeProjectId) => {
+    if (row?.storage_provider === 'network_share') {
+      await readyForShare();
+      const answer = await adapterRef.current.restoreFiles([row.id], projectId).catch(sayLockedPlainly);
+      const outcome = await shareCatalogue().runNasOp(answer?.ops ?? [], { kind: 'restore' });
+      if (outcome.notMoved?.length) await noteFilesChangedElsewhere([projectId]);
+      refusedByShare(outcome, 'restore');
+    } else {
+      await adapterRef.current.restoreFile(row.id, projectId);
+    }
+    await noteFilesChangedElsewhere([projectId]);
+  }, [activeProjectId, noteFilesChangedElsewhere, shareCatalogue, readyForShare]);
+
+  const deleteFile = useCallback(async (fileId) => {
+    const projectId = activeProjectId;
+    const row = (bundleRef.current.files || []).find(f => f.id === fileId) || null;
+    const result = await optimistic(
+      prev => ({ ...prev, files: prev.files.filter(f => f.id !== fileId) }),
+      async () => {
+        if (row?.storage_provider !== 'network_share') return adapterRef.current.deleteFile(fileId, projectId);
+        await readyForShare();
+        const answer = await adapterRef.current.trashFiles([fileId], projectId).catch(sayLockedPlainly);
+        const outcome = await shareCatalogue().runNasOp(answer?.ops ?? [], { kind: 'trash' });
+        refusedByShare(outcome, 'delete');
+        return outcome;
+      },
+    );
+    if (row) showUndoToast(`Deleted "${row.name || 'file'}"`, () => restoreFile(row, projectId));
+    return result;
+  }, [optimistic, activeProjectId, showUndoToast, restoreFile, shareCatalogue, readyForShare]);
+
+  // A desktop project's trash: what has been kept its 30 days goes when the project opens (fileTrash.cjs).
+  useEffect(() => {
+    if (!activeProjectId || adapterMode !== 'local_server') return;
+    Promise.resolve().then(() => adapterRef.current?.purgeExpiredTrash?.(activeProjectId)).catch(() => {});
+  }, [activeProjectId, adapterMode]);
+
+  // An operation left unfinished on this computer, at sign-in. Only the desktop has the files.
+  const adapterOnline = adapterStatus.online;
+  useEffect(() => {
+    const adapter = adapterRef.current;
+    if (!adapterOnline || !hasLocalServer() || typeof adapter?.networkSharePending !== 'function') return;
+    createNetworkShareCatalogue({ adapter }).settlePending().catch(() => {});
+  }, [adapterOnline, adapterMode]);
 
   // Returns a Blob. Not optimistic and not state — a read straight through to
   // the backend, which is the only one that can turn a storage_path into bytes.
@@ -5511,6 +5668,17 @@ export function RabbitProvider({ children }) {
     );
   }, [writeFileRow, activeProjectId]);
 
+  // MO1: the way back from a soft delete, which only marks the row.
+  const restoreManagedFile = useCallback(async (id, projectId = activeProjectId) => {
+    await adapterRef.current.restoreManagedFile(id, projectId);
+    if (activeProjectIdRef.current === projectId) {
+      setBundle(prev => ({
+        ...prev,
+        managedFiles: (prev.managedFiles || []).map(f => (f.id === id ? { ...f, deleted_at: null } : f)),
+      }));
+    }
+  }, [activeProjectId]);
+
   const deleteManagedFile = useCallback(async (id, hard = false) => {
     if (hard) {
       return optimistic(
@@ -5522,16 +5690,22 @@ export function RabbitProvider({ children }) {
       );
     }
     // Soft delete
-    return optimistic(
+    const projectId = activeProjectId;
+    const row = (bundleRef.current.managedFiles || []).find(f => f.id === id) || null;
+    const result = await optimistic(
       prev => ({
         ...prev,
         managedFiles: (prev.managedFiles || []).map(f =>
           f.id === id ? { ...f, deleted_at: new Date().toISOString() } : f
         ),
       }),
-      () => adapterRef.current.deleteManagedFile(id, activeProjectId, false),
+      () => adapterRef.current.deleteManagedFile(id, projectId, false),
     );
-  }, [optimistic, activeProjectId]);
+    if (row && typeof adapterRef.current?.restoreManagedFile === 'function') {
+      showUndoToast(`Deleted "${row.file_name || row.name || 'file'}"`, () => restoreManagedFile(id, projectId));
+    }
+    return result;
+  }, [optimistic, activeProjectId, showUndoToast, restoreManagedFile]);
 
   const refreshManagedFiles = useCallback(async () => {
     if (!adapterRef.current || !activeProjectId) return;
@@ -8861,6 +9035,7 @@ export function RabbitProvider({ children }) {
     uploadFile, markFileCoreDefiner, patchFile, deleteFile, downloadFile, thumbnailUrls, fileUrl,
     downloadUrl,
     addManagedFile, updateManagedFile, deleteManagedFile, refreshManagedFiles,
+    noteFilesChangedElsewhere, restoreFile, restoreManagedFile,
 
     // Session 27. WHICH file store this backend actually has.
     //
@@ -8996,6 +9171,7 @@ export function RabbitProvider({ children }) {
     uploadFile, markFileCoreDefiner, patchFile, deleteFile, downloadFile, thumbnailUrls, fileUrl,
     downloadUrl,
     addManagedFile, updateManagedFile, deleteManagedFile, refreshManagedFiles,
+    noteFilesChangedElsewhere, restoreFile, restoreManagedFile,
     binsInfo, refreshBins, addBin, updateBin, deleteBin, reorderBins,
     pickBinFiles, pickBinFolder, prepareBinFiles, addBinFiles, findDuplicateBinFiles,
     updateBinFile, bulkUpdateBinFiles, moveBinFiles, copyBinFiles, removeBinFiles, restoreBinFiles,

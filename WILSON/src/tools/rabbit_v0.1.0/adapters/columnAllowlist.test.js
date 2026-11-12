@@ -17,15 +17,18 @@
 // — it imports the real COLUMN_ALLOWLIST and the real toColumns. A mirrored
 // copy would keep passing while the adapter regressed, which that file names
 // as its own honest limitation. The Supabase client module is stubbed because
-// supabaseAdapter imports it at module scope; nothing here touches a client.
+// supabaseAdapter imports it at module scope; nothing here touches a real client
+// (updateFile's own strip, 0114, is read through a recorder: see that describe).
 // =============================================================================
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { readFileSync } from 'node:fs'
 
-vi.mock('../../../cloud/auth/supabaseClient.js', () => ({ supabase: null }))
+vi.mock('../../../cloud/auth/supabaseClient.js', () => ({
+  get supabase() { return globalThis.__testSupabase ?? null },
+}))
 
-const { toColumns, COLUMN_ALLOWLIST, DEPENDENCY_TABLE, dependencyKind } =
+const { toColumns, COLUMN_ALLOWLIST, DEPENDENCY_TABLE, dependencyKind, supabaseAdapter, resetSupabaseAdapter } =
   await import('./supabaseAdapter')
 
 let warn
@@ -249,6 +252,78 @@ describe('files — the local managedFiles field names that have no columns', ()
     // Moving a file out of a scene relies on the second.
     expect(toColumns('files', { id: 'f1', scene_id: null, folder_id: null }))
       .toEqual({ id: 'f1', scene_id: null, folder_id: null })
+  })
+})
+
+describe('updateFile: the columns a client never changes on a file row (0114, MOTH §2.1)', () => {
+  // The allowlist above keeps these seven: an INSERT needs them, and uploadFile
+  // writes them all. An UPDATE may not change them. fn_files_body_guard refuses it
+  // (42501), resending the same value passes, and a caller's project_id is there
+  // for localServerAdapter's URL, so updateFile drops all seven before .update().
+  const GUARDED = {
+    project_id: 'p-other', workspace_id: 'w-other', folder_id: 'fo-other',
+    storage_provider: 's3', storage_path: 'projects/p-other/files/f1/x.pdf',
+    thumbnail_url: 'projects/p-other/files/f1/x.pdf.jpg', is_financial: true,
+  }
+
+  function recorder() {
+    const updates = []
+    const builder = () => {
+      let payload = null
+      const b = {
+        select: () => b,
+        eq: () => b,
+        single: () => b,
+        update: (row) => { payload = row; return b },
+        then: (resolve, reject) => {
+          updates.push(payload)
+          return Promise.resolve({ data: { id: 'f1', project_id: 'p1', ...payload }, error: null }).then(resolve, reject)
+        },
+      }
+      return b
+    }
+    return {
+      updates,
+      auth: { getSession: async () => ({ data: { session: { user: { id: 'u1' } } } }) },
+      from: (table) => {
+        if (table !== 'files') throw new Error(`unexpected table ${table}`)
+        return builder()
+      },
+      rpc: async () => ({ data: null, error: null }),
+    }
+  }
+
+  beforeEach(() => { resetSupabaseAdapter() })
+  afterEach(() => { resetSupabaseAdapter(); delete globalThis.__testSupabase })
+
+  it('strips all seven, as it strips id and uploaded_at, and sends the rest', async () => {
+    const client = recorder()
+    globalThis.__testSupabase = client
+    const saved = await supabaseAdapter().updateFile('f1', { ...GUARDED, id: 'f9', uploaded_at: 'x', description: 'note', document_kind: 'brief' })
+    expect(client.updates).toEqual([{ description: 'note', document_kind: 'brief' }])
+    // The answer is still the row, which the caller lands in its copy.
+    expect(saved).toMatchObject({ id: 'f1', project_id: 'p1', description: 'note' })
+  })
+
+  it('RabbitProvider\'s and ProjectsPage\'s project_id reaches no column, and the edit beside it still saves', async () => {
+    const client = recorder()
+    globalThis.__testSupabase = client
+    await supabaseAdapter().updateFile('f1', { is_core_definer: true, project_id: 'p1' })
+    expect(client.updates).toEqual([{ is_core_definer: true }])
+  })
+
+  it('a patch with nothing left refuses in words and writes nothing: an empty PATCH would answer no row', async () => {
+    const client = recorder()
+    globalThis.__testSupabase = client
+    await expect(supabaseAdapter().updateFile('f1', { folder_id: 'fo2', project_id: 'p1' }))
+      .rejects.toThrow('a file\'s project, folder and storage change only through Move to')
+    await expect(supabaseAdapter().updateFile('f1', { ...GUARDED })).rejects.toThrow('Nothing in this change can be saved')
+    expect(client.updates).toEqual([])
+  })
+
+  it('CONTROL: the allowlist keeps them for the INSERT, so only the UPDATE drops them', () => {
+    expect(toColumns('files', GUARDED)).toEqual(GUARDED)
+    expect(warn).not.toHaveBeenCalled()
   })
 })
 

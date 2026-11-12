@@ -37,6 +37,10 @@ export function diskSourceFor(node, { adapterMode, projectId } = {}) {
   if (row.storage_provider === 'local_server' && row.storage_path) {
     return { source: 'media', mediaKey: row.storage_path }
   }
+  // MO1 (NS-D13): a file on the company's office server. The desktop resolves it, without a sync call.
+  if (row.storage_provider === 'network_share' && row.storage_path) {
+    return { source: 'share', locator: row.storage_path.replace(/^nas:/, '') }
+  }
   return null
 }
 
