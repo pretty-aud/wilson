@@ -1237,8 +1237,8 @@ describe('BoardCanvas: frames like Figma\'s', () => {
     expect(store.canUndo()).toBe(false)
   })
 
-  it('nothing to frame: connectors only, or a board this person may only read', async () => {
-    const line = { id: 'c', kind: 'connector', x: 0, y: 100, w: 200, h: 1, z: 3, points: [0, 100, 200, 100] }
+  it('nothing to frame: tied lines only, or a board this person may only read', async () => {
+    const line = { id: 'c', kind: 'connector', x: 0, y: 100, w: 200, h: 1, z: 3, points: [0, 100, 200, 100], from_id: 'a', from_anchor: 'bottom' }
     const { store } = await mount({ store: fakeStore([RECT, line]) })
     act(() => { groupOf('c').findOne('.connector-line').fire('pointerdown', { evt: { button: 0, pointerId: 1, pointerType: 'mouse', clientX: 0, clientY: 0 } }, true) })
     release({ x: 0, y: 0 })
@@ -1428,6 +1428,134 @@ describe('BoardCanvas: frames like Figma\'s', () => {
     expect(store.update).toHaveBeenCalledWith('half', { z: 6 }, { settled: true })
     await settle()
     expect(order()).toEqual(['far', 'fr', 'half'])
+  })
+
+  // Lines: free (no end tied), or tied from one element to another.
+  const freeLine = (id, x, y, z) => ({ id, kind: 'connector', x, y, w: 100, h: 40, z, points: [0, 0, 100, 40], from_id: null, to_id: null })
+  const tiedLine = (id, from, to, z) => ({
+    id, kind: 'connector', x: 0, y: 0, w: 1, h: 1, z, points: [0, 0, 1, 1], from_id: from, from_anchor: 'right', to_id: to, to_anchor: 'left',
+    style: { end_head: 'none' },
+  })
+  const zOf = (store, id) => store.getElements().get(id).z
+  const boardOrder = (store) => [...store.getElements().values()].sort((p, q) => (p.z - q.z) || (p.id < q.id ? -1 : p.id > q.id ? 1 : 0)).map((e) => e.id)
+
+  it('a free line inside a frame is held and moves with it, dragged and nudged; a tied line is not moved itself', async () => {
+    const els = [FR, HALF, FAR, freeLine('free', 50, 50, 5), tiedLine('tied', 'half', 'far', 6)]
+    const { store } = await mount({ store: fakeStore(els) })
+    const from = toScreen({ x: 200, y: 150 })
+    press(groupOf('fr').findOne('Rect'), from)
+    moveTo({ x: from.x + 30, y: from.y + 20 }, { altKey: true })
+    release({ x: from.x + 30, y: from.y + 20 }, { altKey: true })
+    expect(store.update.mock.calls.map(([id]) => id).sort()).toEqual(['fr', 'free', 'half'])
+    const to = (id) => store.update.mock.calls.find(([which]) => which === id)[1]
+    expect(to('free').x - to('fr').x).toBeCloseTo(50, 1)
+    store.update.mockClear()
+    await later()
+    fireEvent.keyDown(region(), { key: 'ArrowDown' })
+    expect(store.update.mock.calls.map(([id]) => id).sort()).toEqual(['fr', 'free', 'half'])
+  })
+
+  it('Frame selection frames a free line with the rest, and raises the lines of what it frames above the frame', async () => {
+    const x = { id: 'x', kind: 'shape', shape: 'rectangle', x: 1000, y: 0, w: 50, h: 50, z: 3 }
+    const store = fakeStore([RECT, OTHER, x, tiedLine('ab', 'a', 'b', 0), tiedLine('ax', 'a', 'x', 0), freeLine('free', 120, 100, 0)])
+    await mount({ store })
+    pick('a')
+    pick('b', { shiftKey: true })
+    act(() => { groupOf('free').findOne('.connector-line').fire('pointerdown', { evt: { button: 0, pointerId: 1, pointerType: 'mouse', clientX: 0, clientY: 0, shiftKey: true } }, true) })
+    release({ x: 0, y: 0 })
+    ctrlG()
+    // The free line (120..220 by 100..140) counts toward the box: a and b reach y 80, the line y 140.
+    expect(store.add).toHaveBeenCalledWith(expect.objectContaining({ kind: 'frame', x: -24, y: -24, w: 428, h: 188 }))
+    const f = zOf(store, 'new-1')
+    // Both lines of a: the one joining a to b, and the one leaving the frame for x; and the free line.
+    for (const id of ['ab', 'ax', 'free', 'a', 'b']) expect(zOf(store, id)).toBeGreaterThan(f)
+  })
+
+  it('a drop into a frame takes the dropped thing\'s lines above the frame too', async () => {
+    const out2 = { id: 'out2', kind: 'shape', shape: 'rectangle', x: 1200, y: 0, w: 50, h: 50, z: 2 }
+    const store = fakeStore([{ ...FR, z: 5 }, { ...FAR, z: 1 }, out2, tiedLine('line', 'far', 'out2', 0)])
+    await mount({ store })
+    press(groupOf('far').findOne('Path'), toScreen({ x: 725, y: 25 }))
+    moveTo(toScreen({ x: 200, y: 150 }), { altKey: true })
+    release(toScreen({ x: 200, y: 150 }), { altKey: true })
+    expect(zOf(store, 'far')).toBeGreaterThan(5)
+    expect(zOf(store, 'line')).toBeGreaterThan(5)
+  })
+
+  it('bringing a frame to the front takes the lines of what it holds along', async () => {
+    const store = fakeStore([FR, HALF, FAR, tiedLine('line', 'half', 'far', 2)])
+    await mount({ store })
+    pick('fr')
+    fireEvent.click(screen.getByTitle('Bring to front'))
+    expect(zOf(store, 'line')).toBeGreaterThan(zOf(store, 'fr'))
+    expect(zOf(store, 'half')).toBeGreaterThan(zOf(store, 'fr'))
+  })
+
+  it('what is dragged is drawn on top while it is held; after the drop and after Escape the board\'s own order is back', async () => {
+    // out2 is drawn above the frame; inner lies in the frame, stacked below it.
+    const out2 = { id: 'out2', kind: 'shape', shape: 'rectangle', x: 1200, y: 0, w: 50, h: 50, z: 9 }
+    const inner = { id: 'inner', kind: 'shape', shape: 'rectangle', x: 100, y: 100, w: 50, h: 50, z: 3 }
+    const store = fakeStore([{ ...FR, z: 5 }, { ...FAR, z: 1 }, out2, inner, tiedLine('line', 'far', 'out2', 0)])
+    await mount({ store })
+    const own = ['line', 'far', 'inner', 'fr', 'out2']
+    const start = toScreen({ x: 725, y: 25 })
+    press(groupOf('far').findOne('Path'), start)
+    // Not yet past the slop: nothing lifted.
+    moveTo({ x: start.x + 1, y: start.y }, { altKey: true })
+    expect(order()).toEqual(own)
+    moveTo(toScreen({ x: 200, y: 150 }), { altKey: true })
+    expect(order()).toEqual(['inner', 'fr', 'out2', 'line', 'far'])
+    fireEvent.keyDown(region(), { key: 'Escape' })
+    expect(order()).toEqual(own)
+    expect(store.update).not.toHaveBeenCalled()
+    await later()
+    press(groupOf('far').findOne('Path'), start)
+    moveTo(toScreen({ x: 900, y: 150 }), { altKey: true })
+    expect(order().slice(-2)).toEqual(['line', 'far'])
+    release(toScreen({ x: 900, y: 150 }), { altKey: true })
+    // Dropped clear of the frame: no z saved, the board's own order.
+    expect(store.update.mock.calls.every(([, patch]) => !('z' in patch))).toBe(true)
+    expect(order()).toEqual(boardOrder(store))
+    expect(order()).toEqual(own)
+    // A frame and what it holds, several at once: all of them last, in their own order.
+    await later()
+    press(groupOf('fr').findOne('Rect'), toScreen({ x: 10, y: 10 }))
+    release(toScreen({ x: 10, y: 10 }))
+    await later()
+    const s2 = toScreen({ x: 10, y: 10 })
+    press(groupOf('fr').findOne('Rect'), s2)
+    moveTo({ x: s2.x + 40, y: s2.y + 40 }, { altKey: true })
+    expect(order()).toEqual(['line', 'far', 'out2', 'inner', 'fr'])
+    release({ x: s2.x + 40, y: s2.y + 40 }, { altKey: true })
+    // The drop raised inner above its frame; the order is the board's own, z then id.
+    expect(order()).toEqual(boardOrder(store))
+    expect(order()).toEqual(['line', 'far', 'fr', 'out2', 'inner'])
+  })
+
+  it('Delete on a frame takes a line joining two things it held, frees one leaving it; ONE undo brings all back', async () => {
+    const in2 = { id: 'in2', kind: 'shape', shape: 'rectangle', x: 20, y: 20, w: 50, h: 50, z: 2 }
+    const store = await realStore([FR, HALF, in2, FAR, tiedLine('j', 'half', 'in2', 6), tiedLine('k', 'in2', 'far', 7)])
+    const before = snapshot(store)
+    await mount({ store })
+    pick('fr')
+    fireEvent.keyDown(region(), { key: 'Delete' })
+    await settle()
+    expect([...store.getElements().keys()].sort()).toEqual(['far', 'k'])
+    expect(store.getElements().get('k').from_id).toBeNull()
+    expect(store.getElements().get('k').to_id).toBe('far')
+    fireEvent.keyDown(region(), { key: 'z', ctrlKey: true })
+    await settle()
+    expect(snapshot(store)).toEqual(before)
+    expect(store.getElements().get('k').from_id).toBe('in2')
+  })
+
+  it('Remove the frame only leaves every line', async () => {
+    const in2 = { id: 'in2', kind: 'shape', shape: 'rectangle', x: 20, y: 20, w: 50, h: 50, z: 2 }
+    const { store } = await mount({ store: fakeStore([FR, HALF, in2, FAR, tiedLine('j', 'half', 'in2', 6), tiedLine('k', 'in2', 'far', 7), tiedLine('m', 'fr', 'far', 8)]) })
+    pick('fr')
+    fireEvent.keyDown(region(), { key: 'G', code: 'KeyG', ctrlKey: true, shiftKey: true })
+    expect(store.remove).toHaveBeenCalledWith(['fr'])
+    for (const id of ['j', 'k', 'm']) expect(store.getElements().has(id)).toBe(true)
   })
 })
 

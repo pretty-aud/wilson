@@ -17,6 +17,9 @@
 // frame under a drag is outlined and what is dropped into it is stacked above it, stacking a frame takes its things
 // along, and deleting a frame removes what it holds in the same undo step ("Remove the frame only" leaves them).
 // Ctrl or Cmd + a drag that begins on a frame selects by rectangle, so things inside a frame can be picked.
+// A free line is held as any thing; a line tied at an end follows its ends, is raised with the things it is tied
+// to whenever they go above a frame, and goes with a frame only when both its ends go. While a move is in hand,
+// what it moves is drawn on top; when it ends the drawing order is the board's own again.
 //
 // Under everything, the board's background (background.js: a dotted grid, blank, or a lined grid) on a layer of its
 // own that takes no presses. It is painted again only when the camera, the size of the view or the background
@@ -53,7 +56,7 @@ import {
   viewRect, zoomAt,
 } from './snapping.js'
 import { backgroundOf, paintBackground } from './background.js'
-import { frameBoxAround, frameHolds, frameTaking, heldBy, raisePlan } from './frames.js'
+import { frameBoxAround, frameHolds, frameTaking, heldBy, isTied, raisePlan } from './frames.js'
 import { TYPE, FONT_SANS } from '../../../ui/tokens.js'
 
 export const READ_ONLY_WORDS = 'You can look at this board but not change it.'
@@ -590,10 +593,14 @@ export function mountBoard(host, init) {
   }
 
   // ---- reconciling with the store ---------------------------------------------------------------------------
+  // The board's drawing order, z then id. While a move is in hand, what it moves (and the lines that follow it) is
+  // drawn above everything else, in its own order; once the move ends the order is the board's own again.
   function sortLayer() {
     const ordered = [...nodes.values()].sort((a, b) => byStack(a.el, b.el))
+    const lift = action?.type === 'move' && action.lift ? action.lift : null
     content.removeChildren()
-    for (const r of ordered) content.add(r.group)
+    for (const r of ordered) if (!lift?.has(r.group.attrs.elementId)) content.add(r.group)
+    if (lift) for (const r of ordered) if (lift.has(r.group.attrs.elementId)) content.add(r.group)
   }
 
   let reconRaf = 0
@@ -789,6 +796,8 @@ export function mountBoard(host, init) {
       refreshSelection()
     }
     finish()
+    // The lift of a move is let go of: the board's own order, nothing saved for it.
+    if (a.type === 'move' && a.lift) sortLayer()
     content.batchDraw()
   }
 
@@ -902,7 +911,14 @@ export function mountBoard(host, init) {
     if (!all().has(frameId)) list.push({ ...made, id: frameId })
     const held = heldBy(list, [frameId])
     for (const id of also) if (id !== frameId) held.add(id)
-    for (const p of raisePlan(list, frameId, held)) store.update(p.id, { z: p.z }, { settled: true })
+    for (const p of raisePlan(list, frameId, withLines(list, held))) store.update(p.id, { z: p.z }, { settled: true })
+  }
+  // Things raised above a frame take the lines tied to them along (either end), so the frame's fill never covers
+  // the stretch of a line that leaves a thing inside it.
+  function withLines(list, ids) {
+    const out = new Set(ids)
+    for (const cid of connectorsTouching(list, out)) out.add(cid)
+    return out
   }
 
   // At a drop: each moved thing a frame now holds but that is stacked below that frame goes above it, with what
@@ -914,12 +930,12 @@ export function mountBoard(host, init) {
     const below = new Set()
     for (const id of movedIds) {
       const el = all().get(id)
-      if (!el || el.kind === 'connector') continue
+      if (!el || isTied(el)) continue
       if (frames.some((f) => frameHolds(f, el) && byStack(el, f) < 0)) below.add(id)
     }
     if (!below.size) return
     for (const id of heldBy(list, framesIn(below))) below.add(id)
-    for (const p of raisePlan(list, null, below)) store.update(p.id, { z: p.z }, { settled: true })
+    for (const p of raisePlan(list, null, withLines(list, below))) store.update(p.id, { z: p.z }, { settled: true })
   }
 
   function step(evt) {
@@ -970,6 +986,11 @@ export function mountBoard(host, init) {
 
   function moveStep(a, p, evt) {
     if (!a.moved && Math.hypot(num(evt.clientX) - a.screen.x, num(evt.clientY) - a.screen.y) < sizes.slop) return
+    if (!a.moved) {
+      // The move really starts: what it moves is drawn on top while it is held, so no frame's fill hides it.
+      a.lift = new Set([...a.moving, ...a.touching])
+      sortLayer()
+    }
     a.moved = true
     let dx = p.x - a.start.x
     let dy = p.y - a.start.y
@@ -1021,6 +1042,9 @@ export function mountBoard(host, init) {
       if (canWrite) raiseIntoFrames(done.map(([id]) => id))
       finish()
       reconcileNow()
+      // The lift is let go of: the board's own order, with any z the drop gave.
+      sortLayer()
+      content.batchDraw()
       return
     }
     if (a.type === 'marquee') {
@@ -1544,20 +1568,26 @@ export function mountBoard(host, init) {
   }
   function stack(dir) {
     if (!canWrite || !selected.size) return
-    // A frame takes what it holds along, so it never lands on top of its own things.
+    // A frame takes what it holds along, and the lines tied to those, so it never lands on top of its own things.
     const els = all()
-    const ids = new Set(selected)
-    for (const id of heldBy(els.values(), framesIn(selected, els))) ids.add(id)
+    let ids = new Set(selected)
+    const frames = framesIn(selected, els)
+    if (frames.length) {
+      for (const id of heldBy(els.values(), frames)) ids.add(id)
+      ids = withLines([...els.values()], ids)
+    }
     for (const p of restack([...els.values()], [...ids], dir)) store.update(p.id, { z: p.z }, { settled: true })
     reconcileNow()
   }
-  // Frame selection: a frame named "Frame" around the selected things (not connectors), at the top, with them and
-  // what they hold re-stacked above it; the new frame becomes the selection. One run of the code: one undo step.
-  const canFrame = () => canWrite && [...selected].some((id) => { const el = all().get(id); return !!el && el.kind !== 'connector' })
+  // Frame selection: a frame named "Frame" around the selected things (a line tied at an end is not framed alone:
+  // it follows its ends), at the top, with them, what they hold and their lines re-stacked above it; the new frame
+  // becomes the selection. One run of the code: one undo step.
+  const frameable = (el) => !!el && !isTied(el)
+  const canFrame = () => canWrite && [...selected].some((id) => frameable(all().get(id)))
   function frameSelection() {
     if (!canFrame()) return null
     const els = all()
-    const picked = [...selected].filter((id) => { const el = els.get(id); return !!el && el.kind !== 'connector' })
+    const picked = [...selected].filter((id) => frameable(els.get(id)))
     const b = frameBoxAround(picked.map((id) => boundsOf(els.get(id))))
     if (!b) return null
     const box = { x: round2(b.x), y: round2(b.y), w: round2(b.w), h: round2(b.h) }
@@ -1577,7 +1607,16 @@ export function mountBoard(host, init) {
     const els0 = all()
     const gone = new Set(selected)
     let withFrame = false
-    for (const id of heldBy(els0.values(), framesIn(selected, els0))) { if (!gone.has(id)) withFrame = true; gone.add(id) }
+    const frames = framesIn(selected, els0)
+    for (const id of heldBy(els0.values(), frames)) { if (!gone.has(id)) withFrame = true; gone.add(id) }
+    // A line whose two ends are both tied to what goes would be left loose where the group was: it goes too. A line
+    // with one end outside keeps that end and is freed at the other (removeIds).
+    if (frames.length) {
+      for (const cid of connectorsTouching(els0.values(), gone)) {
+        const c = els0.get(cid)
+        if (!gone.has(cid) && c?.from_id && c?.to_id && gone.has(c.from_id) && gone.has(c.to_id)) { gone.add(cid); withFrame = true }
+      }
+    }
     removeIds(gone)
     if (withFrame) say(FRAME_REMOVED_WORDS)
   }

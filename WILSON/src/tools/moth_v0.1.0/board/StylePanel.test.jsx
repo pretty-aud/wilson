@@ -86,7 +86,8 @@ describe('StylePanel', () => {
 
   it('Frame selection when something selected is not a connector; Remove the frame only when every one is a frame', () => {
     const frameEl = (id) => ({ id, kind: 'frame', style: {} })
-    const line = { id: 'c', kind: 'connector', style: {} }
+    const line = { id: 'c', kind: 'connector', style: {}, from_id: 'a', to_id: null }
+    const free = { id: 'k', kind: 'connector', style: {}, from_id: null, to_id: null }
     const offers = () => [
       !!document.querySelector('[data-action="frame-selection"]'),
       !!document.querySelector('[data-action="frame-only"]'),
@@ -106,6 +107,10 @@ describe('StylePanel', () => {
     cleanup()
     mount([line])
     expect(offers()).toEqual([false, false])
+    cleanup()
+    // A free line (no end tied) is framed as any thing.
+    mount([free])
+    expect(offers()).toEqual([true, false])
     cleanup()
     mount([line, frameEl('f')])
     expect(offers()).toEqual([true, false])

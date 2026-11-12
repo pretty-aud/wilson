@@ -20,8 +20,11 @@ describe('frameHolds', () => {
     expect(frameHolds(f, frame('g', 10, 10, 50, 50))).toBe(true)
     expect(frameHolds(f, frame('g', 160, 10, 50, 50))).toBe(false) // its middle is inside, its edge is not
   })
-  it('never a connector, never itself, never by a thing that is not a frame', () => {
-    expect(frameHolds(f, box('k', 10, 10, 20, 20, 1, 'connector'))).toBe(false)
+  it('a free line as any thing; never a line tied at an end, never itself, never by a thing that is not a frame', () => {
+    expect(frameHolds(f, box('k', 10, 10, 20, 20, 1, 'connector'))).toBe(true)
+    expect(frameHolds(f, { ...box('k', -50, 10, 300, 20, 1, 'connector') })).toBe(false) // wider than the frame
+    expect(frameHolds(f, { ...box('k', 10, 10, 20, 20, 1, 'connector'), from_id: 'a' })).toBe(false)
+    expect(frameHolds(f, { ...box('k', 10, 10, 20, 20, 1, 'connector'), to_id: 'b' })).toBe(false)
     expect(frameHolds(f, f)).toBe(false)
     expect(frameHolds(box('s', 0, 0, 200, 100), box('a', 10, 10, 20, 20))).toBe(false)
   })
@@ -33,13 +36,14 @@ describe('frameHolds', () => {
 })
 
 describe('heldBy', () => {
-  it('follows frames inside frames, never a connector, never the frames asked about', () => {
+  it('follows frames inside frames, a free line too, never a tied line, never the frames asked about', () => {
     const els = [
       frame('outer', 0, 0, 500, 500), frame('inner', 10, 10, 200, 200), box('deep', 20, 20, 10, 10),
-      box('mid', 300, 300, 10, 10), box('away', 900, 900, 10, 10), box('line', 20, 20, 10, 10, 1, 'connector'),
+      box('mid', 300, 300, 10, 10), box('away', 900, 900, 10, 10),
+      { ...box('line', 20, 20, 10, 10, 1, 'connector'), from_id: 'deep' }, box('free', 30, 30, 10, 10, 1, 'connector'),
     ]
-    expect(heldBy(els, ['outer'])).toEqual(new Set(['inner', 'deep', 'mid']))
-    expect(heldBy(els, ['inner'])).toEqual(new Set(['deep']))
+    expect(heldBy(els, ['outer'])).toEqual(new Set(['inner', 'deep', 'mid', 'free']))
+    expect(heldBy(els, ['inner'])).toEqual(new Set(['deep', 'free']))
     expect(heldBy(new Map(els.map((e) => [e.id, e])), ['outer']).has('line')).toBe(false)
   })
   it('never loops: two frames on the same spot hold each other once', () => {

@@ -4,11 +4,12 @@
 // shows a value when the selection shares it, blank when it does not. A change is a patch of style keys
 // (onStyle); a null value puts that key back to the kind's default. The shape itself changes through onShape, the
 // drawing order through onStack ('forward', 'backward', 'front', 'back'), and Delete removes the selection.
-// "Frame selection" (onFrame) is offered when something selected is not a connector, and "Remove the frame only"
+// "Frame selection" (onFrame) is offered when something selected is not a line tied at an end, and "Remove the frame only"
 // (onFrameOnly) when every selected thing is a frame.
 import { ArrowDown, ArrowUp, BringToFront, SendToBack, Trash2, AlignLeft, AlignCenter, AlignRight, Frame, Ungroup } from 'lucide-react'
 import { IconButton, Select } from '../../../ui'
 import { SHAPES, SHAPE_LABELS, styleKeysFor, resolveStyle } from './shapes.js'
+import { isTied } from './frames.js'
 
 export const SWATCHES = [
   { value: '#FFFFFF', label: 'White' },
@@ -102,8 +103,9 @@ function Row({ label, children }) {
 
 export default function StylePanel({ elements = [], canWrite = false, inputMode = 'mouse', onStyle, onShape, onStack, onRemove, onFrame, onFrameOnly }) {
   if (!canWrite || !elements.length) return null
-  // Frame selection needs something that is not a connector; "Remove the frame only" needs every one a frame.
-  const canFrame = elements.some((el) => el.kind !== 'connector')
+  // Frame selection needs something that is not a line tied at an end (a free line is framed as any thing);
+  // "Remove the frame only" needs every one a frame.
+  const canFrame = elements.some((el) => !isTied(el))
   const allFrames = elements.every((el) => el.kind === 'frame')
   const touch = inputMode === 'touch'
   const swatch = touch ? 30 : 20

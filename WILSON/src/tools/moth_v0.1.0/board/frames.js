@@ -2,7 +2,8 @@
 // no DOM.
 //
 //   * a frame holds a thing whose bounds' middle is inside the frame's bounds and which is no larger than the frame,
-//     and a frame wholly inside it; never a connector (a connector follows its ends) and never itself;
+//     and a frame wholly inside it; a free line (no end tied) as any thing, never a line tied at an end (it
+//     follows its ends) and never itself;
 //   * what frames hold, and what the frames among those hold, and so on, without looping;
 //   * the frame that would take what is being dragged, for the outline a drag shows;
 //   * the box a new frame takes around a selection;
@@ -12,9 +13,14 @@ import { boundsOf, byStack, contains, grow, unionBounds } from './snapping.js'
 const num = (n, d = 0) => (Number.isFinite(Number(n)) ? Number(n) : d)
 const listOf = (elements) => (elements instanceof Map ? [...elements.values()] : [...(elements ?? [])])
 
+/** A connector tied at an end follows its ends and is never held; a free one is held as any thing is. */
+export function isTied(el) {
+  return el?.kind === 'connector' && (el.from_id != null || el.to_id != null)
+}
+
 /** Whether a frame holds an element: by the axis-aligned bounds the board uses, so a turned thing by its bounds. */
 export function frameHolds(frame, el) {
-  if (!frame || !el || frame.kind !== 'frame' || el.id === frame.id || el.kind === 'connector') return false
+  if (!frame || !el || frame.kind !== 'frame' || el.id === frame.id || isTied(el)) return false
   const fb = boundsOf(frame)
   const b = boundsOf(el)
   if (el.kind === 'frame') return contains(fb, b)
@@ -25,7 +31,7 @@ export function frameHolds(frame, el) {
 
 /**
  * Everything the given frames hold, and what the frames among those hold, and so on: a set of ids, never a
- * connector, never one of the given frames.
+ * connector tied at an end, never one of the given frames.
  */
 export function heldBy(elements, frameIds) {
   const list = listOf(elements)
