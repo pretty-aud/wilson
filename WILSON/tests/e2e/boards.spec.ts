@@ -10,7 +10,8 @@
 //   1. A board made from a project's menu opens in its panel, its channels join.
 //   2. A second window opens the same board from the list.
 //   3. A shape drawn in one window appears in the other, both ways (the
-//      database's own message, never one a client sent).
+//      database's own message, never one a client sent), and a save a window
+//      forges on the board's own channel reaches nobody.
 //   4. A sticky's words, typed in one window, are read in the other (the note
 //      is a real markdown file; its words go through the sticky's turn).
 //   5. While one window is writing on the sticky, the other is told who is, and
@@ -26,8 +27,11 @@
 // window of the same person is another session to the sticky's turn (it is
 // refused, with the name), and the channels carry every message between the
 // two; what one account cannot show is another PERSON's cursor and name, which
-// the page drops when the sender is itself. Two different people are measured
-// on a throwaway stack, and by her on staging (RELEASE_TESTING §W).
+// the page drops when the sender is itself. Given a second seeded person
+// (WILSON_E2E_USERNAME_2 and its password, on a throwaway stack) the second
+// window is theirs: each names the other, the pointer is drawn with a name, and
+// with that stack's database the second is taken off the company while the
+// board is open. Two real people are hers to try on staging (RELEASE_TESTING §W).
 //
 // What is on a board is read from the page's own Konva stage (the dev server's
 // build puts Konva on window): the canvas has no DOM to ask.
@@ -38,11 +42,21 @@
 // two credential checks on resolve-login's per-address limiter.
 // =============================================================================
 
+import { execFileSync } from 'node:child_process'
 import { test, expect, type Page, type BrowserContext } from '@playwright/test'
 import { signInHere } from './authFlow'
 
 // A seeded project of the probe workspace that has its folders (a board is a folder of its own under them).
 const PROJECT = new RegExp(process.env.WILSON_E2E_BOARD_PROJECT || 'Northwind', 'i')
+
+// A second seeded person, where the environment has one. A throwaway stack seeds several, and then the second
+// window is another person's: each names the other, the first's pointer is drawn in the second with a name, and
+// (given that stack's database) the second is taken off the company while the board is open. CI's dev project
+// gives the one probe account, and the second window is that same person's.
+const SECOND = process.env.WILSON_E2E_USERNAME_2 && process.env.WILSON_E2E_PASSWORD_2
+  ? { username: process.env.WILSON_E2E_USERNAME_2, password: process.env.WILSON_E2E_PASSWORD_2 }
+  : null
+const PSQL = process.env.WILSON_E2E_PSQL || ''
 
 // One retry at most: every try makes a board, and the job has fifteen minutes for every spec.
 test.describe.configure({ retries: process.env.CI ? 1 : 0 })
@@ -69,17 +83,34 @@ const things = (page: Page): Promise<Thing[] | null> => page.evaluate(() => {
 })
 const count = async (page: Page) => (await things(page))?.length ?? -1
 
-/** The board's channels on the wire: broadcasts by event, sent and received (a Phoenix frame is an object or an array). */
+/**
+ * The board's channels on the wire: broadcasts by event, sent and received. The client's serializer (realtime-js
+ * 2.101, lib/serializer.js) sends and receives a broadcast as a BINARY frame, and everything else as text: the
+ * first run of this spec counted text frames only and saw no broadcast at all while the shapes crossed. A sent
+ * broadcast is [3, join ref's length, ref's, topic's, event's, metadata's, encoding] then those strings; a received
+ * one is [4, topic's length, event's, metadata's, encoding] then those strings.
+ */
 function listen(page: Page): Wire {
   const wire: Wire = { sent: {}, got: {} }
+  const tally = (topic: unknown, key: string | null, into: Record<string, number>) => {
+    if (typeof topic !== 'string' || !topic.includes('moth:board') || !key) return
+    into[key] = (into[key] ?? 0) + 1
+  }
   const read = (payload: string | Buffer, into: Record<string, number>) => {
-    if (typeof payload !== 'string') return
+    if (typeof payload !== 'string') {
+      const buf = Buffer.from(payload)
+      if (buf[0] === 3 && buf.length > 7) {
+        const at = 7 + buf[1] + buf[2]
+        tally(buf.toString('utf8', at, at + buf[3]), buf.toString('utf8', at + buf[3], at + buf[3] + buf[4]), into)
+      } else if (buf[0] === 4 && buf.length > 5) {
+        tally(buf.toString('utf8', 5, 5 + buf[1]), buf.toString('utf8', 5 + buf[1], 5 + buf[1] + buf[2]), into)
+      }
+      return
+    }
     let m: any
     try { m = JSON.parse(payload) } catch { return }
     const [topic, event, body] = Array.isArray(m) ? [m[2], m[3], m[4]] : [m?.topic, m?.event, m?.payload]
-    if (typeof topic !== 'string' || !topic.includes('moth:board')) return
-    const key = event === 'broadcast' ? String(body?.event ?? 'broadcast') : event === 'presence' || event === 'presence_diff' || event === 'presence_state' ? 'presence' : null
-    if (key) into[key] = (into[key] ?? 0) + 1
+    tally(topic, event === 'broadcast' ? String(body?.event ?? 'broadcast') : event === 'presence' || event === 'presence_diff' || event === 'presence_state' ? 'presence' : null, into)
   }
   page.on('websocket', (ws) => {
     ws.on('framesent', (f) => read(f.payload, wire.sent))
@@ -107,13 +138,17 @@ async function drag(page: Page, from: { x: number; y: number }, to: { x: number;
 }
 
 /** Signed in and on M.O.T.H., inside the project, whatever view the person last had. */
-async function intoProject(page: Page) {
+async function intoProject(page: Page, who: { username: string; password: string } | null = null) {
+  // Whenever that prompt is in the way of a press, it is put off first (signInHere does the same, once, at sign-in).
+  await page.addLocatorHandler(page.getByRole('button', { name: /set up later/i }), async (later) => { await later.click() })
   await page.goto('/moth')
-  await signInHere(page)
+  await signInHere(page, who?.username, who?.password)
   const moth = page.locator('[data-moth-page]')
   await expect(moth).toBeVisible({ timeout: 45_000 })
-  // The very first visit asks what to map (later ones reopen the last view), and the sign-in's own reveal can still
-  // be over the page: whichever is in the way is answered, then the list on the right is walked from its top.
+  // The very first visit asks what to map (later ones reopen the last view), and an admin's sign-in asks to set up
+  // a second step, over the whole page: on a dev server still cold that prompt came after signInHere had stopped
+  // waiting for it, and took every press for 75 s (this spec's first run). Whichever is in the way is answered,
+  // then the list on the right is walked from its top.
   const firstVisit = page.locator('.ui-dialog').getByText('Everything by folders', { exact: true })
   const project = moth.getByRole('button', { name: PROJECT }).first()
   const top = moth.getByRole('button', { name: 'Everything', exact: true }).first()
@@ -129,9 +164,9 @@ async function intoProject(page: Page) {
 }
 
 test('a board is live between two windows: shapes, a sticky and its turn, the pointer, a network gone and back, a picture, the trash', async ({ browser }) => {
-  test.setTimeout(210_000)
+  test.setTimeout(300_000)
   const title = `e2e board ${new Date().toISOString().slice(0, 19).replace('T', ' ')} ${Math.random().toString(36).slice(2, 6)}`
-  const seen: Record<string, unknown> = { title }
+  const seen: Record<string, unknown> = { title, who: SECOND ? 'two people' : 'one person, two windows' }
   let ctxA: BrowserContext | null = null
   let ctxB: BrowserContext | null = null
   let made = false
@@ -161,13 +196,25 @@ test('a board is live between two windows: shapes, a sticky and its turn, the po
     })
 
     await test.step('2. a second window opens the same board from the list', async () => {
-      const moth = await intoProject(b)
+      const moth = await intoProject(b, SECOND)
       await moth.getByRole('button', { name: new RegExp(title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) }).first().click({ timeout: 30_000 })
       await moth.getByRole('button', { name: 'Open board', exact: true }).click()
       await expect(canvas(b)).toBeVisible({ timeout: 30_000 })
       await expect(b.locator('[data-moth-board-live-failed]')).toHaveCount(0)
       // Joined: the people's channel has told this window who is here.
       await expect.poll(() => wireB.got.presence ?? 0, { timeout: 20_000 }).toBeGreaterThan(0)
+      if (SECOND) {
+        // Two people: each window names the other, and never by an email.
+        for (const page of [a, b]) {
+          const here = page.locator('[data-moth-board-people] li')
+          await expect(here).toHaveCount(1, { timeout: 20_000 })
+          expect(await here.first().innerText()).not.toContain('@')
+        }
+        seen.people = { a: await a.locator('[data-moth-board-people]').innerText(), b: await b.locator('[data-moth-board-people]').innerText() }
+      } else {
+        // One person in two windows is nobody else: nothing is named.
+        await expect(a.locator('[data-moth-board-people]')).toHaveCount(0)
+      }
       lap('second window open')
     })
 
@@ -184,9 +231,32 @@ test('a board is live between two windows: shapes, a sticky and its turn, the po
       await expect.poll(() => count(a), { timeout: 20_000 }).toBe(n)
       expect(new Set((await things(a))!.map((t) => t.id))).toEqual(new Set((await things(b))!.map((t) => t.id)))
       seen.elementsHeard = { a: wireA.got.elements ?? 0, b: wireB.got.elements ?? 0, sentByAClient: (wireA.sent.elements ?? 0) + (wireB.sent.elements ?? 0) }
-      // A save is told by the database: no window ever sends one on the board's own channel.
+      // Each window heard the other's save on the wire (a read made again would also bring it, later, and would
+      // prove nothing about the channel), and a save is told by the database: no window sends one itself.
+      expect(wireA.got.elements ?? 0).toBeGreaterThan(0)
+      expect(wireB.got.elements ?? 0).toBeGreaterThan(0)
       expect((wireA.sent.elements ?? 0) + (wireB.sent.elements ?? 0)).toBe(0)
       lap('shapes both ways')
+    })
+
+    await test.step('3b. a save forged by a window on the board\'s own channel reaches nobody', async () => {
+      // A window may listen on the board's own channel and never send there. Here the second window sends, through
+      // the page's own client, what the database would say if everything on the board had been removed.
+      const heard = wireA.got.elements ?? 0
+      const ids = (await things(a))!.map((t) => t.id)
+      const sent = await b.evaluate(`import('/src/cloud/auth/supabaseClient.js').then(async (m) => {
+        const ch = m.supabase.getChannels().find((c) => /^realtime:moth:board:[0-9a-f-]+:/.test(c.topic))
+        if (!ch) return 'no channel'
+        return ch.send({ type: 'broadcast', event: 'elements', payload: { board: ch.topic.split(':')[3], op: 'remove', ids: ${JSON.stringify(ids)} } })
+      })`)
+      seen.forgedSend = sent
+      expect(sent).not.toBe('no channel')
+      expect(wireB.sent.elements ?? 0).toBe(1)
+      await a.waitForTimeout(3_000)
+      expect(wireA.got.elements ?? 0).toBe(heard)
+      expect(await count(a)).toBe(n)
+      expect(await count(b)).toBe(n)
+      lap('forged save dropped')
     })
 
     await test.step('4. a sticky\'s words typed in one window are read in the other', async () => {
@@ -244,6 +314,17 @@ test('a board is live between two windows: shapes, a sticky and its turn, the po
         await a.waitForTimeout(12)
       }
       const moved = (Date.now() - started) / 1000
+      if (SECOND) {
+        // Another person's pointer is drawn in the second window, with their name and never an email.
+        const names: string[] = await b.evaluate(() => {
+          const K = (window as any).Konva
+          return K.stages[K.stages.length - 1].find('.cursor').map((g: any) => g.find('Text').map((t: any) => t.text()).join(''))
+        })
+        seen.pointerDrawnAs = names
+        expect(names).toHaveLength(1)
+        expect(names[0]).not.toContain('@')
+        expect(names[0].trim().length).toBeGreaterThan(0)
+      }
       await a.waitForTimeout(500)
       const sent = (wireA.sent.cursor ?? 0) - before.sent
       await expect.poll(() => (wireB.got.cursor ?? 0) - before.got, { timeout: 10_000 }).toBeGreaterThanOrEqual(sent - 2)
@@ -290,6 +371,25 @@ test('a board is live between two windows: shapes, a sticky and its turn, the po
       seen.pictureDrawn ??= 'yes'
       lap('picture')
     })
+
+    if (SECOND && PSQL) {
+      await test.step('8b. a person taken off the company while the board is open: it closes for them', async () => {
+        // An admin's act, made from outside the page on a throwaway stack: the second person is no longer active.
+        // Their window was joined before it; the board's channels are renamed, and theirs is refused the new names.
+        execFileSync('psql', [PSQL, '-v', 'ON_ERROR_STOP=1', '-c',
+          `UPDATE public.workspace_members SET is_active = false WHERE username = '${SECOND.username.replace(/[^a-z0-9_]/gi, '')}'`], { stdio: 'pipe' })
+        const since = Date.now()
+        await expect(board(b)).toHaveCount(0, { timeout: 45_000 })
+        seen.closedForTheRemovedAfter = `${Date.now() - since} ms`
+        // The first window goes on as before: a shape drawn now is saved.
+        await tool(a, 'Shape (S)')
+        await drag(a, await spot(a, 0.72, 0.62), await spot(a, 0.84, 0.84))
+        n += 1
+        await expect.poll(() => count(a), { timeout: 10_000 }).toBe(n)
+        await expect(a.locator('[data-moth-board-people]')).toHaveCount(0, { timeout: 20_000 })
+        lap('removed person closed')
+      })
+    }
 
     await test.step('9. the board put in the trash closes here, and in the other window with the reason', async () => {
       await board(a).getByTitle('Put in the trash').click()

@@ -38,6 +38,14 @@ const PINS = [
   ["page.locator('.ui-dialog')", 'src/ui/Dialog.jsx', '`ui-dialog ${className}`'],
   ["import('/src/cloud/auth/supabaseClient.js')", 'src/cloud/auth/supabaseClient.js', 'export const supabase = createClient('],
   ['n.attrs.elementId', `${MOTH}/board/BoardCanvas.jsx`, 'elementId'],
+  ["'[data-moth-board-people]", `${MOTH}/board/BoardPanel.jsx`, 'data-moth-board-people'],
+  ["find('.cursor')", `${MOTH}/board/BoardCanvas.jsx`, "name: 'cursor'"],
+  ['name: /set up later/i', 'src/cloud/auth/MfaSection.jsx', 'Set up later'],
+  // The channel's name as the server makes it, and the client's wire format the spec counts broadcasts in.
+  ['realtime:moth:board:', 'supabase/migrations/0132_board_channels.sql', "'moth:board:'"],
+  ['buf[0] === 3', 'node_modules/@supabase/realtime-js/dist/module/lib/serializer.js', 'this.KINDS = { userBroadcastPush: 3, userBroadcast: 4 }'],
+  ['const at = 7 + buf[1] + buf[2]', 'node_modules/@supabase/realtime-js/dist/module/lib/serializer.js', 'this.USER_BROADCAST_PUSH_META_LENGTH = 6'],
+  ['buf.toString(\'utf8\', 5, 5 + buf[1])', 'node_modules/@supabase/realtime-js/dist/module/lib/serializer.js', 'let offset = this.HEADER_LENGTH + 4'],
 ]
 
 describe('tests/e2e/boards.spec.ts selects what the board draws', () => {
