@@ -141,13 +141,15 @@ async function drag(page: Page, from: { x: number; y: number }, to: { x: number;
 async function intoProject(page: Page, who: { username: string; password: string } | null = null) {
   // Whenever that prompt is in the way of a press, it is put off first (signInHere does the same, once, at sign-in).
   const later = page.getByRole('button', { name: /set up later/i })
-  await page.addLocatorHandler(later, async (btn) => { await btn.click() })
+  // Its button is pressed as an event, not by the pointer: on a slow start the sign-in's own curtain lay over it
+  // for more than ten seconds (a throwaway stack's run), and a pointer's press waited that long and gave up.
+  await page.addLocatorHandler(later, async (btn) => { await btn.dispatchEvent('click').catch(() => {}) })
   await page.goto('/moth')
   await signInHere(page, who?.username, who?.password)
   const moth = page.locator('[data-moth-page]')
   // The prompt stands in place of the page until it is put off; a wait presses nothing, so it is looked for here.
   await expect(async () => {
-    if (await later.isVisible()) await later.click({ timeout: 5_000 })
+    if (await later.isVisible()) await later.dispatchEvent('click')
     await expect(moth).toBeVisible({ timeout: 3_000 })
   }).toPass({ timeout: 75_000 }).catch(async (err) => {
     // What the page says instead, for whoever reads the run without its pictures.
