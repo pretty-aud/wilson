@@ -10,11 +10,13 @@
 --    nothing.
 -- D. On a stack with realtime: one save is one message on the board's channel, with no file's id and without a
 --    long pen's points; a removal one more; a renaming says AUDIENCE on both old names; a reader reads the board's
---    channel and sends on its live one only; nobody else reads either. Elsewhere 'vacuous', as 20, 23 and 112.
+--    channel and sends on its live one only; nobody else reads either; a board's background changed (0136) is one
+--    'board' message on the board's channel, carrying the background and the row's version, and the same value
+--    again is none. Elsewhere 'vacuous', as 20, 23 and 112.
 -- =============================================================================
 
 BEGIN;
-SELECT plan(42);
+SELECT plan(45);
 
 SELECT * FROM tests.rls_setup();
 
@@ -328,6 +330,24 @@ SELECT is(pg_temp.joined_sends('cccccccc-cccc-cccc-cccc-cccccccccccc', 'user', p
   pg_temp.want('sends'), 'but sends a cursor on the live one');
 SELECT is(pg_temp.joined_sends('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'user', public.t137_name('13700000-0000-0000-0000-0000000000f2', true)),
   pg_temp.want('refused'), 'someone who cannot read a board sends nothing on its live channel');
+-- 0136: a board's background, changed, is one 'board' message on the board's channel; the same value again is none.
+SELECT public.t137_as('cccccccc-cccc-cccc-cccc-cccccccccccc', 'user');
+SET LOCAL ROLE authenticated;
+SELECT public.board_set_background('13700000-0000-0000-0000-0000000000f1', 'blank');
+RESET ROLE;
+SELECT is(pg_temp.heard(public.t137_name('13700000-0000-0000-0000-0000000000f1', false)),
+  pg_temp.want('board/background elements/put elements/remove'), 'a background changed is one board message on its channel');
+SELECT public.t137_as('cccccccc-cccc-cccc-cccc-cccccccccccc', 'user');
+SET LOCAL ROLE authenticated;
+SELECT public.board_set_background('13700000-0000-0000-0000-0000000000f1', 'blank');
+RESET ROLE;
+SELECT is(pg_temp.heard(public.t137_name('13700000-0000-0000-0000-0000000000f1', false)),
+  pg_temp.want('board/background elements/put elements/remove'), 'and the same background again says nothing more');
+SELECT is(COALESCE((SELECT string_agg((e ->> 'background') || ':' || (e ->> 'version'), ' ')
+                      FROM jsonb_array_elements(pg_temp.payloads(public.t137_name('13700000-0000-0000-0000-0000000000f1', false))) e
+                     WHERE e ->> 'op' = 'background'), 'vacuous'),
+  pg_temp.want('blank:' || (SELECT background_version FROM public.boards WHERE id = '13700000-0000-0000-0000-0000000000f1')::text),
+  'the board message carries the background set and the row''s background version');
 
 SELECT * FROM finish();
 ROLLBACK;

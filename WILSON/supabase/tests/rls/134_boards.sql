@@ -10,10 +10,17 @@
 -- D. A board stays with its folder: a client neither deletes nor moves a board's folder (nor deletes an ancestor of
 --    one); renaming it is fine; a board's own keys never change; its project follows its folder's.
 -- E. At most 500 boards a project.
+-- F. A board's background (0136): a new board is on the dotted grid at version 0; a writer who is not the board's
+--    maker changes it through board_set_background, which board_read then shows, stamped with who, at version 1;
+--    the same value again changes nothing, keeps the version and leaves the row where it lies; the next change is
+--    version 2; a value outside the three, or none, is refused; a reader who may not write, another company and
+--    someone who has left are refused alike; anon may not ask; no client holds a column grant beyond SELECT on
+--    either board table, a client never writes the column by hand, and the check holds even for the owner;
+--    revision and audience_gen do not move; the version never goes down, even for the owner.
 -- =============================================================================
 
 BEGIN;
-SELECT plan(43);
+SELECT plan(64);
 
 SELECT * FROM tests.rls_setup();
 
@@ -234,6 +241,95 @@ SELECT ok((public.board_create('aaaa1340-0000-0000-0000-00000000000a', NULL, 'Fi
 SELECT is(public.t134_err($$SELECT public.board_create('aaaa1340-0000-0000-0000-00000000000a', NULL, 'One more')$$),
   '54000', 'the 501st is refused');
 RESET ROLE;
+
+-- ── F. A board's background (0136) ──────────────────────────────────────────
+-- A board by its folder's path in a project, as the database sees it.
+CREATE FUNCTION public.t134_board(p_project uuid, p_path text) RETURNS uuid LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public AS $f$
+  SELECT b.id FROM public.boards b JOIN public.folders fo ON fo.id = b.folder_id
+   WHERE fo.project_id = p_project AND fo.path = p_path
+$f$;
+GRANT EXECUTE ON FUNCTION public.t134_board(uuid, text) TO authenticated;
+-- P's board "mood" as it stands before its background changes.
+CREATE TEMP TABLE t134_bg_before AS
+  SELECT revision, audience_gen FROM public.boards WHERE id = public.t134_board('aaaa1340-0000-0000-0000-00000000000a', 'mood');
+
+SELECT is((SELECT pg_get_expr(d.adbin, d.adrelid) FROM pg_attrdef d
+             JOIN pg_attribute a ON a.attrelid = d.adrelid AND a.attnum = d.adnum
+            WHERE a.attrelid = 'public.boards'::regclass AND a.attname = 'background'),
+  '''dots''::text', 'boards.background starts on the dotted grid');
+SELECT ok(has_function_privilege('authenticated', 'public.board_set_background(uuid,text)', 'EXECUTE')
+          AND NOT has_function_privilege('anon', 'public.board_set_background(uuid,text)', 'EXECUTE'),
+  'a signed-in person may ask to change a background; anon may not');
+SELECT ok(NOT EXISTS (SELECT 1 FROM information_schema.column_privileges
+                       WHERE table_schema = 'public' AND table_name IN ('boards', 'board_elements')
+                         AND grantee IN ('authenticated', 'anon', 'PUBLIC') AND privilege_type <> 'SELECT'),
+  'no client holds a column grant beyond SELECT on either board table');
+SET LOCAL ROLE authenticated;
+SELECT public.t134_c();
+SELECT public.board_create('aaaa1340-0000-0000-0000-00000000000b', NULL, 'Fresh');
+SELECT is(public.board_read(public.t134_board('aaaa1340-0000-0000-0000-00000000000b', 'fresh')) -> 'board' ->> 'background',
+  'dots', 'a new board reads the dotted grid');
+SELECT is(public.board_read(public.t134_board('aaaa1340-0000-0000-0000-00000000000b', 'fresh')) -> 'board'
+            ->> 'background_version',
+  '0', 'at background version 0');
+-- "mood" is user_c's; an admin, who may also write it, changes it, so the stamp can only be the change's own.
+SELECT public.t134_a();
+SELECT is(public.board_set_background(public.t134_board('aaaa1340-0000-0000-0000-00000000000a', 'mood'), 'lines'),
+  jsonb_build_object('board_id', public.t134_board('aaaa1340-0000-0000-0000-00000000000a', 'mood'),
+                     'background', 'lines', 'version', 1, 'changed', true),
+  'a writer sets the lined grid and is told it changed, at version 1');
+SELECT is((public.board_read(public.t134_board('aaaa1340-0000-0000-0000-00000000000a', 'mood')) -> 'board' ->> 'background')
+          || ':' || (public.board_read(public.t134_board('aaaa1340-0000-0000-0000-00000000000a', 'mood')) -> 'board'
+                       ->> 'background_version'),
+  'lines:1', 'and board_read shows it, at version 1');
+SELECT is((SELECT updated_by FROM public.boards WHERE id = public.t134_board('aaaa1340-0000-0000-0000-00000000000a', 'mood')),
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, 'the change is stamped with who made it, not the board''s maker');
+RESET ROLE;
+-- Where the row lies before a call that changes nothing.
+CREATE TEMP TABLE t134_bg_row AS
+  SELECT ctid::text AS before FROM public.boards WHERE id = public.t134_board('aaaa1340-0000-0000-0000-00000000000a', 'mood');
+SET LOCAL ROLE authenticated;
+SELECT is(public.board_set_background(public.t134_board('aaaa1340-0000-0000-0000-00000000000a', 'mood'), 'lines'),
+  jsonb_build_object('board_id', public.t134_board('aaaa1340-0000-0000-0000-00000000000a', 'mood'),
+                     'background', 'lines', 'version', 1, 'changed', false),
+  'the same value again changes nothing and keeps version 1');
+RESET ROLE;
+SELECT is((SELECT ctid::text FROM public.boards WHERE id = public.t134_board('aaaa1340-0000-0000-0000-00000000000a', 'mood')),
+  (SELECT before FROM t134_bg_row), 'and does not rewrite the row');
+SET LOCAL ROLE authenticated;
+SELECT is(public.board_set_background(public.t134_board('aaaa1340-0000-0000-0000-00000000000a', 'mood'), 'dots') ->> 'version',
+  '2', 'the next change is version 2');
+SELECT throws_ok($$SELECT public.board_set_background(public.t134_board('aaaa1340-0000-0000-0000-00000000000a', 'mood'), 'grid')$$,
+  '22023', 'A board''s background is dotted, blank or lined.', 'a value outside the three is refused');
+SELECT throws_ok($$SELECT public.board_set_background(public.t134_board('aaaa1340-0000-0000-0000-00000000000a', 'mood'), NULL)$$,
+  '22023', 'A board''s background is dotted, blank or lined.', 'and so is none');
+SELECT throws_ok($$UPDATE public.boards SET background = 'blank'
+                    WHERE id = public.t134_board('aaaa1340-0000-0000-0000-00000000000a', 'mood')$$,
+  '42501', NULL, 'a client never writes a background by hand');
+SELECT public.t134_r();
+SELECT throws_ok($$SELECT public.board_set_background(public.t134_board('aaaa1340-0000-0000-0000-00000000000a', 'mood'), 'blank')$$,
+  '42501', 'board not found or not writable', 'a reviewer, who reads the board, may not change it');
+SELECT throws_ok($$SELECT public.board_set_background(public.t134_board('aaaa1340-0000-0000-0000-00000000000a', 'mood'), 'grid')$$,
+  '42501', 'board not found or not writable', 'and is refused as a non-writer before the value is weighed');
+SELECT public.t134_b();
+SELECT throws_ok($$SELECT public.board_set_background(public.t134_board('aaaa1340-0000-0000-0000-00000000000a', 'mood'), 'blank')$$,
+  '42501', 'board not found or not writable', 'nor another company''s admin');
+SELECT public.t134_n();
+SELECT throws_ok($$SELECT public.board_set_background(public.t134_board('aaaa1340-0000-0000-0000-00000000000a', 'mood'), 'blank')$$,
+  '42501', 'board not found or not writable', 'nor someone who has left');
+RESET ROLE;
+SELECT set_config('request.jwt.claims', '{}', true);
+SELECT throws_ok($$UPDATE public.boards SET background = 'grid'
+                    WHERE id = public.t134_board('aaaa1340-0000-0000-0000-00000000000a', 'mood')$$,
+  '23514', NULL, 'boards_background_chk refuses a value outside the three, even for the owner');
+SELECT is((SELECT revision || '.' || audience_gen FROM public.boards
+            WHERE id = public.t134_board('aaaa1340-0000-0000-0000-00000000000a', 'mood')),
+  (SELECT revision || '.' || audience_gen FROM t134_bg_before), 'a background moves neither revision nor audience_gen');
+-- The version stands at 2 here. A window keeps the highest it has heard, so it must never go down, whoever writes.
+SELECT throws_ok($$UPDATE public.boards SET background_version = background_version - 1
+                    WHERE id = public.t134_board('aaaa1340-0000-0000-0000-00000000000a', 'mood')$$,
+  '42501', 'A board''s counts only go up.', 'a background''s version never goes down, even for the owner');
 
 SELECT * FROM finish();
 ROLLBACK;
