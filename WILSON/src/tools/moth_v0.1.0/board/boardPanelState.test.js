@@ -5,7 +5,8 @@ import {
   SIZES, normalizeSize, canPullAway, canResize, PULL_CLOSE_PX, PULL_SHRINK, MIN_FRAME, FALLBACK_BOUNDS, EDGE_BAND_PX,
   CORNER_PX, TOUCH_EDGE_BAND_PX, hitSizes, boundsFrom, defaultFrame, clampFrame, hitZone, isCorner, isEdge, cursorFor,
   pullDistance, pullScale, pullCloses, resizeFrame, collapseTransform, createEscapeStack, boardWords, BOARD_NEEDS_CLOUD,
-  TRASH_WORDS, trashWords, whoKey, PET_REACH_PX,
+  TRASH_WORDS, trashWords, whoKey, PET_REACH_PX, pullCloseAt, PULL_CLOSE_MIN_PX, keepLeaving, doneLeaving, leavingOf,
+  dropLeaving,
 } from './boardPanelState.js'
 
 const R = { x: 100, y: 50, w: 600, h: 400 }
@@ -122,6 +123,39 @@ describe('🚨 the pull distance that closes', () => {
     expect(pullCloses(PULL_CLOSE_PX - 1)).toBe(false)
     expect(pullCloses(PULL_CLOSE_PX)).toBe(true)
     expect(pullCloses(NaN)).toBe(false)
+  })
+  it('🚨 the set distance wherever the window has room for it', () => {
+    const view = { w: 1920, h: 1080 }
+    expect(pullCloseAt('e', { x: 1000, y: 500 }, view)).toBe(PULL_CLOSE_PX)
+    expect(pullCloseAt('s', { x: 1000, y: 500 }, view)).toBe(PULL_CLOSE_PX)
+    expect(pullCloseAt('n', { x: 1000, y: 500 }, view)).toBe(PULL_CLOSE_PX)
+    expect(pullCloseAt('w', { x: 1000, y: 500 }, view)).toBe(PULL_CLOSE_PX)
+    // Room enough, just: still the set distance.
+    expect(pullCloseAt('e', { x: 1919 - PULL_CLOSE_PX - 4, y: 500 }, view)).toBe(PULL_CLOSE_PX)
+    // Nothing measured: the set distance.
+    expect(pullCloseAt('e', { x: 1000, y: 500 }, null)).toBe(PULL_CLOSE_PX)
+    expect(pullCloseAt('nw', { x: 1000, y: 500 }, view)).toBe(PULL_CLOSE_PX)
+  })
+  it('🚨 a maximised window: the frame 88 px from its right edge closes short of the window\'s edge, never under the least', () => {
+    const view = { w: 1920, h: 1080 }
+    // The right edge pressed 9 px inside the frame, 88 px from the window's edge: the pointer stops 96 px out.
+    const right = pullCloseAt('e', { x: 1920 - 88 - 9, y: 500 }, view)
+    expect(right).toBe(92)
+    expect(pullCloses(96, right)).toBe(true)
+    expect(pullCloses(96)).toBe(false)
+    expect(pullCloses(right - 1, right)).toBe(false)
+    expect(pullScale(right, right)).toBeCloseTo(1 - PULL_SHRINK)
+    expect(pullScale(right / 2, right)).toBeCloseTo(1 - PULL_SHRINK / 2)
+    // The bottom, 48 px from the window's edge.
+    const bottom = pullCloseAt('s', { x: 900, y: 1080 - 48 - 9 }, view)
+    expect(bottom).toBe(52)
+    expect(pullCloses(56, bottom)).toBe(true)
+    // Pressed at the window's very edge: the least distance still closes, nothing nearer.
+    expect(pullCloseAt('n', { x: 900, y: 2 }, view)).toBe(PULL_CLOSE_MIN_PX)
+    expect(pullCloseAt('e', { x: 1950, y: 2 }, view)).toBe(PULL_CLOSE_MIN_PX)
+    // No distance given is the set one.
+    expect(pullCloses(PULL_CLOSE_PX - 1, undefined)).toBe(false)
+    expect(pullCloses(PULL_CLOSE_PX - 1, NaN)).toBe(false)
   })
 })
 
@@ -247,5 +281,41 @@ describe('who the panel is open for', () => {
     expect(whoKey({ id: 'u1' }, 'w1')).not.toBe(whoKey({ id: 'u1' }, 'w2'))
     expect(whoKey({ id: 'u1' }, 'w1')).not.toBe(whoKey({ id: null }, 'w1'))
     expect(whoKey(null, null)).toBe('|')
+  })
+})
+
+describe('🚨 closes still trying', () => {
+  const close = (who) => ({ store: { dispose: vi.fn() }, who })
+  it('a board closed twice holds both; each ending forgets only itself', () => {
+    const first = close('u1|w1')
+    const second = close('u1|w1')
+    keepLeaving('two-closes', first)
+    keepLeaving('two-closes', second)
+    expect(leavingOf('two-closes')).toEqual([first, second])
+    // The second close ended at once (nothing was waiting): the first is still held.
+    doneLeaving('two-closes', second)
+    expect(leavingOf('two-closes')).toEqual([first])
+    doneLeaving('two-closes', second)
+    expect(leavingOf('two-closes')).toEqual([first])
+    doneLeaving('two-closes', first)
+    expect(leavingOf('two-closes')).toEqual([])
+    expect(leavingOf('never-closed')).toEqual([])
+  })
+  it('another person or company drops every close that is not theirs, the first of two of one board too', () => {
+    const first = close('u1|w1')
+    const second = close('u1|w1')
+    const theirs = close('u2|w1')
+    keepLeaving('dropped-board', first)
+    keepLeaving('dropped-board', second)
+    doneLeaving('dropped-board', second)
+    keepLeaving('dropped-board', theirs)
+    dropLeaving('u2|w1')
+    expect(first.store.dispose).toHaveBeenCalledWith({ save: false })
+    expect(second.store.dispose).not.toHaveBeenCalled()
+    expect(theirs.store.dispose).not.toHaveBeenCalled()
+    expect(leavingOf('dropped-board')).toEqual([theirs])
+    dropLeaving('u1|w1')
+    expect(theirs.store.dispose).toHaveBeenCalledWith({ save: false })
+    expect(leavingOf('dropped-board')).toEqual([])
   })
 })

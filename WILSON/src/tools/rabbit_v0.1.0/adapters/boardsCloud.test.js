@@ -365,13 +365,42 @@ describe('a sticky\'s words', () => {
       return client
     }
 
-    it('the row, read again, names the new key: it is kept, and the error is thrown as before', async () => {
+    it('🚨 the row, read again, names the new key: the save landed, it is kept and answered as saved, and the next save goes over it', async () => {
       const client = savedClient((c) => ({ data: { ...FILE, storage_path: c.bucket.uploads[0].key }, error: null }))
       globalThis.__testSupabase = client
-      await expect(adapter.saveStickyText(EL, 3, 'Words')).rejects.toMatchObject({ message: 'TypeError: Failed to fetch' })
+      expect(await adapter.saveStickyText(EL, 3, 'Words')).toEqual({ ok: true })
       expect(client.calls.filter(c => c.table === 'files')).toHaveLength(2)
       expect(client.bucket.removed).toEqual([])
-      expect(client.bucket.objects.get(client.bucket.uploads[0].key)).toBe('Words')
+      const landed = client.bucket.uploads[0].key
+      expect(client.bucket.objects.get(landed)).toBe('Words')
+      // (This one's answer is lost too, and its row names the first key: it is taken back and thrown.)
+      await expect(adapter.saveStickyText(EL, 3, 'More words')).rejects.toMatchObject({ message: 'TypeError: Failed to fetch' })
+      expect(rpcCalls(client, 'board_sticky_publish')[1].p_from_path).toBe(landed)
+    })
+
+    it('🚨 the row cannot be read again: the key remembered is forgotten, and the next save goes over the row\'s own', async () => {
+      let reads = 0
+      let landed = null
+      const client = makeClient({
+        tables: {
+          files: () => {
+            reads += 1
+            // 1: the first save's read; 2: the second save's; 3: its read again fails; 4: the third save's, the row
+            // naming the second save's key (it landed).
+            if (reads === 3) return { data: null, error: { message: 'TypeError: Failed to fetch', code: '' } }
+            return { data: reads === 4 ? { ...FILE, storage_path: landed } : FILE, error: null }
+          },
+        },
+        rpc: { board_sticky_publish: (args, n) => { if (n === 1) { landed = args.p_to_path; return lost } return { data: true, error: null } } },
+      })
+      globalThis.__testSupabase = client
+      expect(await adapter.saveStickyText(EL, 3, 'First')).toEqual({ ok: true })
+      const first = rpcCalls(client, 'board_sticky_publish')[0].p_to_path
+      await expect(adapter.saveStickyText(EL, 3, 'Second')).rejects.toMatchObject({ message: 'TypeError: Failed to fetch' })
+      expect(rpcCalls(client, 'board_sticky_publish')[1].p_from_path).toBe(first)
+      expect(client.bucket.removed).toEqual([])
+      expect(await adapter.saveStickyText(EL, 3, 'Third')).toEqual({ ok: true })
+      expect(rpcCalls(client, 'board_sticky_publish')[2].p_from_path).toBe(landed)
     })
 
     it('the row, read again, names the old key: the new copy is taken back', async () => {

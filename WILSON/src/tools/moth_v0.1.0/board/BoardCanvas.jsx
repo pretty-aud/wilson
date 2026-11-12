@@ -263,6 +263,14 @@ export function mountBoard(host, init) {
     return o ? { ...el, ...o } : el
   }
   const boxOf = (id) => nodes.get(id)?.box ?? (geom(id) ? boundsOf(geom(id)) : null)
+  // Every write of this window starts from the settled board: what other people only show (a drag in flight, which
+  // anyone who may read the board can send) is let go of and drawn where it was saved before anything is read, so
+  // nothing saved or removed here is worked out from a place someone else only showed.
+  function settle() {
+    if (typeof store.dropPreviews !== 'function') return
+    store.dropPreviews()
+    reconcileNow()
+  }
 
   // ---- the camera -------------------------------------------------------------------------------------------
   function applyCamera(next) {
@@ -816,12 +824,14 @@ export function mountBoard(host, init) {
       return
     }
     if (hit.handle && canWrite) {
+      settle()
       endDrag = { id: hit.connId, end: hit.handle, point: p }
       begin({ type: 'end', id: hit.connId, end: hit.handle }, evt)
       return
     }
     if (tool === 'select') { selectDown(hit.id, p, screen, evt); return }
     if (!canWrite) return
+    settle()
     if (tool === 'shape' || tool === 'frame') { begin({ type: 'draw', kind: tool, start: p, screen }, evt); return }
     if (tool === 'text') { placeText(p); return }
     if (tool === 'sticky') { placeSticky(p); return }
@@ -879,6 +889,7 @@ export function mountBoard(host, init) {
     return [...frames, ...[...moving].filter((id) => els.get(id)?.kind !== 'frame')]
   }
   function startMove(p, screen, evt, clickSelect) {
+    settle()
     const els = all()
     const moving = new Set(carried())
     if (!moving.size) return
@@ -1032,6 +1043,8 @@ export function mountBoard(host, init) {
   function end(evt) {
     const a = action
     const p = boardAt(evt)
+    // What a drop reads of other things (the frames it raises into, the ends a line is tied to) is read settled too.
+    if (a.type !== 'pan' && a.type !== 'marquee') settle()
     if (a.type === 'move') {
       if (!a.moved) {
         finish()
@@ -1337,6 +1350,8 @@ export function mountBoard(host, init) {
     return { x: back.x, y: back.y }
   }
   tr.on('transformstart', () => {
+    settle()
+    if (typeof store.dropPreviews === 'function') tr.forceUpdate?.()
     const ids = new Set(tr.nodes().map((n) => n.attrs.elementId))
     transforming = { candidates: pickCandidates(snapEntries(ids), ids, viewRect(cam, view)) }
     ui.onBusy?.(true)
@@ -1573,6 +1588,7 @@ export function mountBoard(host, init) {
   }
   function stack(dir) {
     if (!canWrite || !selected.size) return
+    settle()
     // A frame takes what it holds along, and the lines tied to those, so it never lands on top of its own things.
     const els = all()
     let ids = new Set(selected)
@@ -1591,6 +1607,7 @@ export function mountBoard(host, init) {
   const canFrame = () => canWrite && [...selected].some((id) => frameable(all().get(id)))
   function frameSelection() {
     if (!canFrame()) return null
+    settle()
     const els = all()
     const picked = [...selected].filter((id) => frameable(els.get(id)))
     const b = frameBoxAround(picked.map((id) => boundsOf(els.get(id))))
@@ -1608,6 +1625,7 @@ export function mountBoard(host, init) {
   }
   function removeSelection() {
     if (!canWrite || !selected.size) return
+    settle()
     // A frame goes with what it holds (Figma's), in the same undo step, and the board says so once.
     const els0 = all()
     const gone = new Set(selected)
@@ -1628,6 +1646,7 @@ export function mountBoard(host, init) {
   // Remove the frame only (Figma's ungroup): the selected frames go, what they held stays and becomes the selection.
   function removeFrameOnly() {
     if (!canWrite) return
+    settle()
     const els = all()
     const frames = framesIn(selected, els)
     if (!frames.length) return
@@ -1656,6 +1675,7 @@ export function mountBoard(host, init) {
   }
   function nudge(dx, dy) {
     if (!canWrite) return
+    settle()
     const els = all()
     // A frame carries what it holds, and what lands in a frame goes above it, as a drag does.
     const moved = carried()
@@ -1678,10 +1698,13 @@ export function mountBoard(host, init) {
   function key(e) {
     const t = e.target
     const tag = t?.tagName
-    // Keys typed into a field, or pressed on a button or a link (Space and Enter press it), are theirs.
-    if (tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT' || tag === 'BUTTON' || tag === 'A' || t?.isContentEditable) return false
+    // Keys typed into a field, or pressed in a dialog, are theirs. On a button or a link, Space and Enter press it
+    // and are its own; every other key is the board's, so a button just pressed does not hold the board's keys.
+    if (tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT' || t?.isContentEditable) return false
+    if (t?.closest?.('[role="dialog"],[role="alertdialog"]')) return false
     const mod = e.ctrlKey || e.metaKey
     const k = e.key
+    if ((tag === 'BUTTON' || tag === 'A') && (k === ' ' || k === 'Enter')) return false
     if (k === ' ') { spaceHeld = true; return true }
     if (mod && (k === 'z' || k === 'Z')) { if (canWrite) { if (e.shiftKey) store.redo(); else store.undo(); reconcileNow() } return true }
     if (mod && (k === 'y' || k === 'Y')) { if (canWrite) { store.redo(); reconcileNow() } return true }
@@ -2096,6 +2119,13 @@ export default function BoardCanvas({ store, live = null, turns = null, adapter 
       },
     })
     ctlRef.current = ctl
+    // A board just opened takes the keys at once: the focus comes to the board's region, but only from nowhere
+    // (the page itself) or from the panel around it, never from a field, a dialog or anything else in the app.
+    const region = host.parentElement
+    const active = typeof document !== 'undefined' ? document.activeElement : null
+    if (region && (!active || active === document.body || (active !== region && active.contains?.(region)))) {
+      try { region.focus({ preventScroll: true }) } catch { /* focus is a courtesy */ }
+    }
     return () => { ctl.destroy(); ctlRef.current = null }
   }, [store])
 
@@ -2171,6 +2201,22 @@ export default function BoardCanvas({ store, live = null, turns = null, adapter 
     ctlRef.current?.placeEmbed(file)
     try { hostRef.current?.parentElement?.focus({ preventScroll: true }) } catch { /* focus is a courtesy */ }
   }
+  // A press of one of the board's own buttons (a tool, a style, Frame selection, a background, undo, zoom) gives the
+  // focus back to the board's region once the button has done its work, as a pick from the embed list does, so the
+  // board's keys work straight after it and a button that goes away does not drop the focus to the page. Not a
+  // button that opens a list (it keeps the focus, for the list is reached from it), not one in a dialog, and never
+  // when the focus is in a words box, a field or a select.
+  const onRegionClick = (e) => {
+    const region = hostRef.current?.parentElement
+    const button = e.target?.closest?.('button')
+    if (!region || !button || !region.contains(button)) return
+    if (button.hasAttribute('aria-expanded') || button.closest('[role="dialog"],[role="alertdialog"]')) return
+    const active = typeof document !== 'undefined' ? document.activeElement : null
+    const tag = active?.tagName
+    if (tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT' || active?.isContentEditable) return
+    if (active?.closest?.('[role="dialog"],[role="alertdialog"]')) return
+    try { region.focus({ preventScroll: true }) } catch { /* focus is a courtesy */ }
+  }
 
   return (
     <div
@@ -2184,6 +2230,7 @@ export default function BoardCanvas({ store, live = null, turns = null, adapter 
       aria-label="Board"
       tabIndex={0}
       onKeyDown={onKeyDown}
+      onClick={onRegionClick}
       onKeyUp={(e) => ctlRef.current?.keyUp(e)}
       onBlur={() => ctlRef.current?.keyUp({ key: ' ' })}
       onDragOver={(e) => { ctlRef.current?.dragOver(e) }}

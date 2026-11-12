@@ -337,6 +337,26 @@ describe('the board\'s channels on the page\'s bus', () => {
     oc.leave()
   })
 
+  it('an AUDIENCE sent on the people\'s channel is dropped; the database\'s own is still heard once', async () => {
+    const { mara, theo } = company()
+    const { board } = await newBoard(mara)
+    const names = await theo.boardChannels(board.id)
+    const t = ears()
+    const tc = theo.openBoardChannels(names, t.handlers)
+    const mc = mara.openBoardChannels(await mara.boardChannels(board.id), ears().handlers)
+    await flush()
+    expect(mc.sendLive('AUDIENCE', { board: board.id, op: 'audience' })).toBe(true)
+    mc.sendLive('audience', { board: board.id, op: 'audience' })
+    await flush()
+    expect(t.heard.audience).toEqual([])
+    expect(t.heard.live).toEqual([])
+    mc.leave()
+    expect(await mara.trashFolders([board.folder_id])).toEqual({ batches: 1, folders: 1, files: 0 })
+    await flush()
+    expect(t.heard.audience).toEqual([{ board: board.id, op: 'audience' }])
+    tc.leave()
+  })
+
   it('someone who may not read the board joins nothing (a person\'s own space)', async () => {
     const { store, mara, theo } = company()
     const space = store.projects.find(p => p.personal_owner_id === MEMBER_ID.mara)

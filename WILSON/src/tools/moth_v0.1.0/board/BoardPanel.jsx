@@ -20,7 +20,7 @@ import { joinBoard } from './boardLive.js'
 import { createStickyTurns } from './stickyTurn.js'
 import {
   SIZES, SIZE_WORDS, normalizeSize, canPullAway, canResize, FALLBACK_BOUNDS, COLLAPSE_MS, boundsFrom, defaultFrame,
-  clampFrame, hitZone, hitSizes, isCorner, isEdge, cursorFor, pullDistance, pullScale, pullCloses, resizeFrame,
+  clampFrame, hitZone, hitSizes, isCorner, isEdge, cursorFor, pullDistance, pullCloseAt, pullScale, pullCloses, resizeFrame,
   collapseTransform, createEscapeStack, boardWords, TRASH_WORDS, trashWords, whoKey, keepLeaving, doneLeaving, leavingOf,
   dropLeaving,
 } from './boardPanelState.js'
@@ -204,9 +204,8 @@ export function BoardPanel({
     setParts(null)
     setLiveWords('')
     ;(async () => {
-      // This board's last close still trying: it is sent once more now, so the read below has it.
-      const earlier = leavingOf(board.id)
-      if (earlier) {
+      // This board's closes still trying: each is sent once more now, oldest first, so the read below has them.
+      for (const earlier of leavingOf(board.id)) {
         try { await earlier.store.flush?.() } catch { /* it goes as the server has it */ }
         if (!alive) return
       }
@@ -353,15 +352,19 @@ export function BoardPanel({
     if (!kind) return
     e.preventDefault()
     e.stopPropagation()
-    const g = { kind, zone, pointerId: e.pointerId, start: localPoint(e), startRect: rectRef.current, startFrame: frame, distance: 0 }
-    setGesture({ kind, zone, distance: 0 })
+    // A pull closes at the set distance, or nearer when the window's edge leaves no room for it.
+    const closeAt = kind === 'pull'
+      ? pullCloseAt(zone, { x: e.clientX, y: e.clientY }, { w: window.innerWidth, h: window.innerHeight })
+      : undefined
+    const g = { kind, zone, pointerId: e.pointerId, start: localPoint(e), startRect: rectRef.current, startFrame: frame, distance: 0, closeAt }
+    setGesture({ kind, zone, distance: 0, closeAt })
     const same = (ev) => g.pointerId === undefined || ev.pointerId === undefined || ev.pointerId === g.pointerId
     const move = (ev) => {
       if (!same(ev)) return
       const at = localPoint(ev)
       if (kind === 'pull') {
         g.distance = pullDistance(zone, g.start, at)
-        setGesture({ kind, zone, distance: g.distance })
+        setGesture({ kind, zone, distance: g.distance, closeAt })
       } else {
         setFrame(resizeFrame(g.startRect, zone, at.x - g.start.x, at.y - g.start.y, boundsRef.current))
       }
@@ -380,7 +383,7 @@ export function BoardPanel({
     const up = (ev) => {
       if (!same(ev)) return
       end(false)
-      if (kind === 'pull' && pullCloses(g.distance)) collapse()
+      if (kind === 'pull' && pullCloses(g.distance, g.closeAt)) collapse()
     }
     const lost = (ev) => { if (same(ev)) end(true) }
     popEscape = escape.push(() => { end(true); return true })
@@ -399,11 +402,11 @@ export function BoardPanel({
 
   const framed = size === 'framed'
   const pulling = gesture?.kind === 'pull'
-  const willClose = pulling && pullCloses(gesture.distance)
+  const willClose = pulling && pullCloses(gesture.distance, gesture.closeAt)
   const style = framed
     ? {
       left: rect.x, top: rect.y, width: rect.w, height: rect.h,
-      transform: collapsing ? collapseTransform(rect, origin) : pulling ? `scale(${pullScale(gesture.distance).toFixed(4)})` : undefined,
+      transform: collapsing ? collapseTransform(rect, origin) : pulling ? `scale(${pullScale(gesture.distance, gesture.closeAt).toFixed(4)})` : undefined,
       cursor: gesture ? (pulling ? 'grabbing' : cursorFor(gesture.zone)) : cursorFor(hoverZone) || undefined,
     }
     : undefined

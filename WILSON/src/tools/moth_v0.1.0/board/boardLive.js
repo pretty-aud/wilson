@@ -28,6 +28,8 @@ const CURSOR_GONE_MS = 5000
 const DRAG_GONE_MS = 2000
 const DRAG_HUSH_MS = 600
 const SWEEP_MS = 1000
+// The board's own bounds: the database keeps an element's x and y within plus or minus this.
+const COORD_LIMIT = 1e7
 const RETRY_MS = [2000, 5000, 10000, 30000]
 // A channel that keeps failing asks the names again no more often than this.
 const CHECK_EVERY_MS = 5000
@@ -161,7 +163,8 @@ export async function joinBoard({ adapter, boardId, me, store, turns, onClosed =
     if (!user || user === self.id) return
     const x = Number(p.x)
     const y = Number(p.y)
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return
+    // A place off the board is no place anyone could drag to: dropped, so it is never drawn or built on.
+    if (!Number.isFinite(x) || !Number.isFinite(y) || Math.abs(x) > COORD_LIMIT || Math.abs(y) > COORD_LIMIT) return
     const t = now()
     if (event === 'cursor') {
       aim(cursorTracks, user, x, y, t, { label: plainLabel(p.label ?? present.get(user)?.label) })

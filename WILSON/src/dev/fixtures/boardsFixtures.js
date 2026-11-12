@@ -1021,11 +1021,13 @@ export function createBoardsFixtures(store, ctx) {
           else if (event === 'AUDIENCE') audience(payload)
         },
       }
+      // Any reader of the board may send on the live channel, so an AUDIENCE there is dropped, as the cloud adapter
+      // drops it: the database's own copy on its channel is the one heard.
       const liveSub = {
         userId, meta: null,
         deliver(event, payload) {
           if (event === PRESENCE) call('onPresence', payload)
-          else if (String(event).toUpperCase() === 'AUDIENCE') audience(payload)
+          else if (String(event).toUpperCase() === 'AUDIENCE') return
           else call('onLive', event, payload)
         },
       }

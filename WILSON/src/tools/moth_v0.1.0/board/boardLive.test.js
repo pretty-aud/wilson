@@ -221,6 +221,21 @@ describe('boardLive: receiving', () => {
     vi.advanceTimersByTime(20)
     expect(store.preview).toHaveBeenLastCalledWith('el-1', null)
   })
+
+  it('a drag or a pointer off the board (past plus or minus 1e7, or not a number) is dropped on receipt', async () => {
+    const { live, store, conn } = await joined()
+    for (const [x, y] of [[1e300, 0], [0, -1e300], [1e7 + 1, 0], [0, -(1e7 + 1)], ['x', 0], [Infinity, 0]]) {
+      conn().handlers.onLive('drag', { user: 'u-theo', element: 'el-1', x, y })
+      conn().handlers.onLive('cursor', { user: 'u-theo', x, y })
+    }
+    vi.advanceTimersByTime(20)
+    expect(store.preview).not.toHaveBeenCalled()
+    expect(live.cursors().size).toBe(0)
+    // The board's own edge is still on it.
+    conn().handlers.onLive('drag', { user: 'u-theo', element: 'el-1', x: 1e7, y: -1e7 })
+    vi.advanceTimersByTime(20)
+    expect(store.preview).toHaveBeenLastCalledWith('el-1', { x: 1e7, y: -1e7 })
+  })
 })
 
 describe('boardLive: renamed channels and leaving', () => {

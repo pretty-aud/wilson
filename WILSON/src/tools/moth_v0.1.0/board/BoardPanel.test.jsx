@@ -333,8 +333,27 @@ describe('🚨 the Escape stack', () => {
 })
 
 describe('🚨 pull-away, on the framed size only', () => {
-  const topX = F.x + F.w / 2
-  const topY = F.y + 4
+  // The panel's layer sits O in from the window's left and top, in a window with room round the frame on every side,
+  // as in the app: a pull closes at the set distance there. (The test DOM's own layer is at the window's corner.)
+  const O = 200
+  const OY = O
+  const view = { w: window.innerWidth, h: window.innerHeight }
+  let rectSpy = null
+  beforeEach(() => {
+    window.innerWidth = O + FALLBACK_BOUNDS.w + 400
+    window.innerHeight = O + FALLBACK_BOUNDS.h + 400
+    rectSpy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function rect() {
+      const at = this.hasAttribute?.('data-moth-board-layer') ? O : 0
+      return { left: at, top: at, right: at, bottom: at, width: 0, height: 0, x: at, y: at, toJSON() {} }
+    })
+  })
+  afterEach(() => {
+    rectSpy?.mockRestore()
+    window.innerWidth = view.w
+    window.innerHeight = view.h
+  })
+  const topX = O + F.x + F.w / 2
+  const topY = OY + F.y + 4
   it('the frame shrinks as an edge is pulled, and short of the distance it springs back', async () => {
     const { panel, onClose } = await open()
     down(panel(), topX, topY)
@@ -364,9 +383,9 @@ describe('🚨 pull-away, on the framed size only', () => {
   it('every edge pulls outward', async () => {
     const { panel, onClose } = await open()
     const edges = [
-      ['w', F.x + 3, F.y + F.h / 2, -1, 0],
-      ['e', F.x + F.w - 3, F.y + F.h / 2, 1, 0],
-      ['s', F.x + F.w / 2, F.y + F.h - 3, 0, 1],
+      ['w', O + F.x + 3, OY + F.y + F.h / 2, -1, 0],
+      ['e', O + F.x + F.w - 3, OY + F.y + F.h / 2, 1, 0],
+      ['s', O + F.x + F.w / 2, OY + F.y + F.h - 3, 0, 1],
     ]
     for (const [, x, y, ux, uy] of edges) {
       down(panel(), x, y)
@@ -375,6 +394,19 @@ describe('🚨 pull-away, on the framed size only', () => {
       up(x + ux * 60, y + uy * 60)
     }
     expect(onClose).not.toHaveBeenCalled()
+  })
+  it('🚨 a window with no room for the distance past the right edge (maximised): pulled as far as it goes, it closes', async () => {
+    const { panel, onClose } = await open()
+    const x = O + F.x + F.w - 3
+    const y = OY + F.y + F.h / 2
+    // The pointer stops at the window's last pixel, 97 px from the press.
+    window.innerWidth = x + 98
+    down(panel(), x, y)
+    move(x + 97, y)
+    expect(panel().dataset.willClose).toBe('true')
+    expect(screen.getByText('Let go to close')).toBeTruthy()
+    up(x + 97, y)
+    await waitFor(() => expect(onClose).toHaveBeenCalledWith({ how: 'pull' }))
   })
   it('Escape during a pull cancels it, and the next Escape goes back', async () => {
     const { panel, onClose } = await open()
@@ -507,6 +539,32 @@ describe('🚨 leaving cleanly', () => {
     await open({ me: { id: 'u2', label: 'Theo Lindqvist' } })
     expect(h.stores[0].dispose).toHaveBeenLastCalledWith({ save: false })
     expect(h.stores[0].flush).toHaveBeenCalledTimes(1)
+    await trying.done()
+  })
+  it('🚨 the same board closed again while its first close still tries: the first stays held, and another person drops it', async () => {
+    const trying = stillTrying()
+    const first = await open()
+    first.view.unmount()
+    await waitFor(() => expect(h.stores[0].dispose).toHaveBeenCalledTimes(1))
+    // Opened again, still offline: the read fails; then closed again, with nothing of its own waiting.
+    const s1 = h.makeStore
+    h.makeStore = (opts) => {
+      const s = s1(opts)
+      if (h.stores.length === 2) s.load = vi.fn(async () => { throw new Error('offline') })
+      return s
+    }
+    const second = render(<BoardPanel board={BOARD} adapter={adapter} me={ME} onClose={vi.fn()} reducedMotion />)
+    await waitFor(() => expect(h.stores[1].load).toHaveBeenCalledTimes(1))
+    expect(h.stores[0].flush).toHaveBeenCalledTimes(2)
+    second.unmount()
+    await waitFor(() => expect(h.stores[1].dispose).toHaveBeenCalledTimes(1))
+    await act(async () => {})
+    // Someone else signs in: the first close, still trying, goes with nothing more sent.
+    h.makeStore = s1
+    h.lives.length = 0
+    await open({ me: { id: 'u2', label: 'Theo Lindqvist' } })
+    expect(h.stores[0].dispose).toHaveBeenLastCalledWith({ save: false })
+    expect(h.stores[0].flush).toHaveBeenCalledTimes(2)
     await trying.done()
   })
   it('the same person under a new name is no change: nothing is left', async () => {

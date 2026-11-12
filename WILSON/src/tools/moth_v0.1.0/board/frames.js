@@ -2,13 +2,13 @@
 // no DOM.
 //
 //   * a frame holds a thing whose bounds' middle is inside the frame's bounds and which is no larger than the frame,
-//     and a frame wholly inside it; a free line (no end tied) as any thing, never a line tied at an end (it
-//     follows its ends) and never itself;
+//     a frame by the same rule (of two frames that would hold each other, the lower holds the higher); a free line
+//     (no end tied) as any thing, never a line tied at an end (it follows its ends) and never itself;
 //   * what frames hold, and what the frames among those hold, and so on, without looping;
 //   * the frame that would take what is being dragged, for the outline a drag shows;
 //   * the box a new frame takes around a selection;
 //   * the z values that put a frame and what it holds above everything else, in their own order.
-import { boundsOf, byStack, contains, grow, unionBounds } from './snapping.js'
+import { boundsOf, byStack, grow, unionBounds } from './snapping.js'
 
 const num = (n, d = 0) => (Number.isFinite(Number(n)) ? Number(n) : d)
 const listOf = (elements) => (elements instanceof Map ? [...elements.values()] : [...(elements ?? [])])
@@ -18,15 +18,25 @@ export function isTied(el) {
   return el?.kind === 'connector' && (el.from_id != null || el.to_id != null)
 }
 
-/** Whether a frame holds an element: by the axis-aligned bounds the board uses, so a turned thing by its bounds. */
+// Whether a box's middle lies inside another box and it is no larger.
+function sitsIn(outer, inner) {
+  const cx = inner.x + inner.w / 2
+  const cy = inner.y + inner.h / 2
+  return cx >= outer.x && cx <= outer.x + outer.w && cy >= outer.y && cy <= outer.y + outer.h
+    && inner.w <= outer.w && inner.h <= outer.h
+}
+
+/**
+ * Whether a frame holds an element: by the axis-aligned bounds the board uses, so a turned thing by its bounds. A
+ * frame is held as any thing is; where two frames would hold each other, only the lower in the drawing order holds.
+ */
 export function frameHolds(frame, el) {
   if (!frame || !el || frame.kind !== 'frame' || el.id === frame.id || isTied(el)) return false
   const fb = boundsOf(frame)
   const b = boundsOf(el)
-  if (el.kind === 'frame') return contains(fb, b)
-  const cx = b.x + b.w / 2
-  const cy = b.y + b.h / 2
-  return cx >= fb.x && cx <= fb.x + fb.w && cy >= fb.y && cy <= fb.y + fb.h && b.w <= fb.w && b.h <= fb.h
+  if (!sitsIn(fb, b)) return false
+  if (el.kind === 'frame' && sitsIn(b, fb)) return byStack(frame, el) < 0
+  return true
 }
 
 /**

@@ -305,9 +305,12 @@ describe('BoardCanvas — select, move, snap', () => {
     expect(store.remove).toHaveBeenCalledWith(['a'])
     fireEvent.keyDown(region(), { key: 'p' })
     expect(screen.getByTitle('Pen (P)').getAttribute('aria-pressed')).toBe('true')
-    // A key pressed on a button is the button's (Space presses it), not the board's.
-    fireEvent.keyDown(screen.getByTitle('Select (V)'), { key: 't' })
+    // On a button, Space and Enter are the button's (they press it); every other key is the board's.
+    expect(fireEvent.keyDown(screen.getByTitle('Select (V)'), { key: ' ' })).toBe(true) // not taken
+    expect(fireEvent.keyDown(screen.getByTitle('Select (V)'), { key: 'Enter' })).toBe(true)
     expect(screen.getByTitle('Pen (P)').getAttribute('aria-pressed')).toBe('true')
+    fireEvent.keyDown(screen.getByTitle('Select (V)'), { key: 't' })
+    expect(screen.getByTitle('Text (T)').getAttribute('aria-pressed')).toBe('true')
   })
 
   it('deleting an element keeps a connector\'s end where it was drawn', async () => {
@@ -1604,6 +1607,204 @@ describe('BoardCanvas: frames like Figma\'s', () => {
     fireEvent.keyDown(region(), { key: 'G', code: 'KeyG', ctrlKey: true, shiftKey: true })
     expect(store.remove).toHaveBeenCalledWith(['fr'])
     for (const id of ['j', 'k', 'm']) expect(store.getElements().has(id)).toBe(true)
+  })
+})
+
+// Anyone who may read a board may send on its people's channel, so a drag shown here may be forged. Each write of
+// this window lets go of every other person's preview first and works from the element's own saved place.
+describe('BoardCanvas: a write starts from the settled board, never from another person\'s preview', () => {
+  // The board's store as the canvas sees it: a preview lies over the saved element until dropPreviews lets go.
+  function previewingStore(initial) {
+    const store = fakeStore(initial)
+    const saved = store.getElements
+    const previews = new Map()
+    const subs = new Set()
+    const subscribe = store.subscribe
+    store.subscribe = vi.fn((fn) => { subs.add(fn); const off = subscribe(fn); return () => { subs.delete(fn); off() } })
+    const tell = () => { for (const fn of [...subs]) fn() }
+    store.getElements = () => {
+      if (!previews.size) return saved()
+      const out = new Map(saved())
+      for (const [id, p] of previews) { const el = out.get(id); if (el) out.set(id, { ...el, ...p }) }
+      return out
+    }
+    store.preview = (id, p) => { if (p) previews.set(id, p); else previews.delete(id); tell() }
+    store.dropPreviews = vi.fn(() => { if (!previews.size) return; previews.clear(); tell() })
+    return store
+  }
+  const FR = { id: 'fr', kind: 'frame', x: 0, y: 0, w: 400, h: 300, z: 0, body: 'Ideas' }
+  const E = { id: 'e', kind: 'shape', shape: 'rectangle', x: 1000, y: 1000, w: 50, h: 50, z: 1 }
+  const pickNode = (id) => {
+    const g = groupOf(id)
+    const node = g.findOne('Path') || g.findOne('Rect')
+    const r = node.getClientRect()
+    const at = { x: r.x + r.width / 2, y: r.y + r.height / 2 }
+    press(node, at)
+    release(at)
+  }
+  // Another person's drag, shown here.
+  const shown = async (store, id, at) => { act(() => store.preview(id, at)); await settle() }
+
+  it('a nudge: what is saved is the saved place plus the step', async () => {
+    const store = previewingStore([RECT, OTHER])
+    await mount({ store })
+    pickNode('a')
+    await shown(store, 'a', { x: 500, y: 500 })
+    expect(groupOf('a').x()).toBe(500)
+    fireEvent.keyDown(region(), { key: 'ArrowRight' })
+    expect(store.update).toHaveBeenCalledWith('a', { x: 1, y: 0 }, { settled: true })
+    expect(store.dropPreviews).toHaveBeenCalled()
+  })
+
+  it('a move: what is saved is the saved place plus the move', async () => {
+    const store = previewingStore([RECT, OTHER])
+    await mount({ store })
+    await shown(store, 'a', { x: 500, y: 500 })
+    const from = toScreen({ x: 525, y: 525 })
+    press(groupOf('a').findOne('Path'), from)
+    moveTo({ x: from.x + 40, y: from.y + 30 }, { altKey: true })
+    release({ x: from.x + 40, y: from.y + 30 }, { altKey: true })
+    expect(store.update).toHaveBeenCalledWith('a', { x: 40, y: 30 }, { settled: true })
+  })
+
+  it('a resize: what is saved starts from the saved place', async () => {
+    const store = previewingStore([RECT, OTHER])
+    await mount({ store })
+    pickNode('a')
+    await shown(store, 'a', { x: 500, y: 500 })
+    const tr = stageNow().findOne('Transformer')
+    act(() => { tr.fire('transformstart'); groupOf('a').scaleX(2); tr.fire('transform'); tr.fire('transformend') })
+    expect(store.update).toHaveBeenCalledWith('a', { x: 0, y: 0, w: 200, h: 50, rotation: 0 }, { settled: true })
+  })
+
+  it('a frame dragged or nudged carries only what it holds where things are saved', async () => {
+    const store = previewingStore([FR, E])
+    await mount({ store })
+    pickNode('fr')
+    await shown(store, 'e', { x: 50, y: 50 }) // shown inside the frame, saved far outside
+    fireEvent.keyDown(region(), { key: 'ArrowRight' })
+    expect(store.update.mock.calls.map(([id]) => id)).toEqual(['fr'])
+    await act(async () => { await new Promise((r) => setTimeout(r, 400)) }) // no double press
+    await shown(store, 'e', { x: 50, y: 50 })
+    const at = groupOf('fr').findOne('.frame-title').getClientRect()
+    const from = { x: at.x + 5, y: at.y + at.height / 2 }
+    press(groupOf('fr').findOne('.frame-title'), from)
+    moveTo({ x: from.x + 40, y: from.y }, { altKey: true })
+    release({ x: from.x + 40, y: from.y }, { altKey: true })
+    expect(store.update.mock.calls.map(([id]) => id)).toEqual(['fr', 'fr'])
+  })
+
+  it('a delete takes only what the frame holds where things are saved', async () => {
+    const store = previewingStore([FR, E])
+    await mount({ store })
+    pickNode('fr')
+    await shown(store, 'e', { x: 50, y: 50 })
+    fireEvent.keyDown(region(), { key: 'Delete' })
+    expect(store.remove).toHaveBeenCalledWith(['fr'])
+  })
+
+  it('stacking takes along only what the frame holds where things are saved', async () => {
+    const store = previewingStore([FR, E])
+    await mount({ store })
+    pickNode('fr')
+    await shown(store, 'e', { x: 50, y: 50 })
+    fireEvent.keyDown(region(), { key: ']', ctrlKey: true, shiftKey: true })
+    expect(store.update.mock.calls.map(([id]) => id)).toEqual(['fr'])
+  })
+
+  it('Frame selection frames the things where they are saved', async () => {
+    const store = previewingStore([RECT, OTHER])
+    await mount({ store })
+    pickNode('a')
+    await act(async () => { await new Promise((r) => setTimeout(r, 400)) })
+    const b = groupOf('b').findOne('Path').getClientRect()
+    press(groupOf('b').findOne('Path'), { x: b.x + b.width / 2, y: b.y + b.height / 2 }, { shiftKey: true })
+    release({ x: b.x + b.width / 2, y: b.y + b.height / 2 }, { shiftKey: true })
+    await shown(store, 'b', { x: 5000, y: 5000 })
+    fireEvent.keyDown(region(), { key: 'g', code: 'KeyG', ctrlKey: true })
+    expect(store.add).toHaveBeenCalledWith(expect.objectContaining({ kind: 'frame', x: -24, y: -24, w: 428, h: 128 }))
+  })
+})
+
+// The board's keys work from the moment it opens and straight after any of its own buttons is pressed (a browser
+// leaves the focus on a button it pressed; jsdom does not, so each test puts it there as the browser would).
+describe('BoardCanvas: the board\'s keys after its own buttons', () => {
+  const pressButton = (el) => { act(() => { el.focus() }); fireEvent.click(el) }
+
+  it('a board just opened has the focus on its region, so its keys work at once', async () => {
+    await mount()
+    expect(document.activeElement).toBe(region())
+    fireEvent.keyDown(document.activeElement, { key: 'n' })
+    expect(screen.getByTitle('Sticky note (N)').getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('opening takes the focus from no field or button elsewhere', async () => {
+    const outside = document.createElement('input')
+    document.body.appendChild(outside)
+    outside.focus()
+    await mount()
+    expect(document.activeElement).toBe(outside)
+    outside.remove()
+  })
+
+  it('a key on a board button is the board\'s, but for Space and Enter', async () => {
+    const { store } = await mount()
+    const fit = screen.getByTitle('Show the whole board')
+    fireEvent.keyDown(fit, { key: 'z', ctrlKey: true })
+    expect(store.undo).toHaveBeenCalledTimes(1)
+    fireEvent.keyDown(fit, { key: 't' })
+    expect(screen.getByTitle('Text (T)').getAttribute('aria-pressed')).toBe('true')
+    expect(fireEvent.keyDown(fit, { key: ' ' })).toBe(true)
+    expect(fireEvent.keyDown(fit, { key: 'Enter' })).toBe(true)
+  })
+
+  it('after Frame selection is pressed, the focus is the board\'s and Ctrl+Z undoes', async () => {
+    const { store } = await mount()
+    press(groupOf('a').findOne('Path'), toScreen({ x: 50, y: 25 }))
+    release(toScreen({ x: 50, y: 25 }))
+    await settle()
+    pressButton(screen.getByTitle('Frame selection (Ctrl+G)'))
+    expect(store.add).toHaveBeenCalledWith(expect.objectContaining({ kind: 'frame' }))
+    expect(document.activeElement).toBe(region())
+    fireEvent.keyDown(document.activeElement, { key: 'z', ctrlKey: true })
+    expect(store.undo).toHaveBeenCalledTimes(1)
+  })
+
+  it('after the panel\'s Delete (the button goes with the panel), the focus is the board\'s and Ctrl+Z undoes', async () => {
+    const { store } = await mount()
+    press(groupOf('a').findOne('Path'), toScreen({ x: 50, y: 25 }))
+    release(toScreen({ x: 50, y: 25 }))
+    await settle()
+    pressButton(screen.getByTitle('Delete'))
+    expect(store.remove).toHaveBeenCalledWith(['a'])
+    await settle()
+    expect(screen.queryByTitle('Delete')).toBeNull()
+    expect(document.activeElement).toBe(region())
+    fireEvent.keyDown(document.activeElement, { key: 'z', ctrlKey: true })
+    expect(store.undo).toHaveBeenCalledTimes(1)
+  })
+
+  it('after a tool or a shape from the picker, the focus is the board\'s; the picker\'s toggle keeps it', async () => {
+    await mount()
+    pressButton(screen.getByTitle('Pen (P)'))
+    expect(document.activeElement).toBe(region())
+    const toggle = screen.getByTitle('Choose a shape')
+    pressButton(toggle)
+    expect(document.activeElement).toBe(toggle)
+    pressButton(screen.getByTitle('Star'))
+    expect(document.activeElement).toBe(region())
+    fireEvent.keyDown(document.activeElement, { key: 'v' })
+    expect(screen.getByTitle('Select (V)').getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('a words box keeps the focus when a button is pressed while it has it', async () => {
+    await mount()
+    fireEvent.click(screen.getByTitle('Text (T)'))
+    press(stageNow(), toScreen({ x: 0, y: 300 }))
+    const box = await screen.findByLabelText('Text')
+    expect(document.activeElement).toBe(box)
+    fireEvent.click(screen.getByTitle('Zoom in')) // a press the box's own blur has not taken
+    expect(document.activeElement).toBe(box)
   })
 })
 

@@ -6896,13 +6896,25 @@ export function supabaseAdapter() {
       const res = await client.rpc('board_sticky_publish', { p_element: elementId, p_generation: generation, p_from_path: from, p_to_path: to });
       if (res.error || res.data !== true) {
         // An error with no code is a lost answer (a network gone, a timeout): the save may have taken the new
-        // object, so it goes only when the row, read again, names something else. A row that cannot be read keeps it.
+        // object, so it goes only when the row, read again, names something else. A row that names it is a save
+        // that landed: its key is the one remembered, and it is answered as saved. A row that cannot be read keeps
+        // the object, and the key remembered is forgotten, so the next save goes over the row's own.
         let takeBack = !res.error || !!res.error.code;
+        let landed = false;
         if (!takeBack) {
-          try { takeBack = (await stickyFileRow(client, fileId)).storage_path !== to; } catch { /* kept */ }
+          try {
+            landed = (await stickyFileRow(client, fileId)).storage_path === to;
+            takeBack = !landed;
+          } catch { stickyKeys.delete(row.id); }
         }
         if (takeBack) {
           try { await store.del(to); } catch (err) { console.warn('[supabase] a sticky\'s unsaved copy could not be taken back:', err?.message || err); }
+        }
+        if (landed) {
+          stickyKeys.set(row.id, to);
+          lastError  = null;
+          lastSyncAt = new Date();
+          return { ok: true };
         }
       }
       if (res.error) {

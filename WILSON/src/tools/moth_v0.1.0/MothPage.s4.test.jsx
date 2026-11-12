@@ -241,19 +241,23 @@ describe('🚨 a board on the graph', () => {
   })
   it('🚨 another account with no board open drops a close that is still trying; the same account keeps it', async () => {
     // A board closed while its last changes could not reach the server: its store keeps trying after the close.
+    // The same board closed twice, the first close still trying: both are held, and both go.
     const mine = { store: { dispose: vi.fn() }, who: whoKey({ id: 'u1' }, 'w1') }
+    const again = { store: { dispose: vi.fn() }, who: whoKey({ id: 'u1' }, 'w1') }
     keepLeaving('board-still-saving', mine)
+    keepLeaving('board-still-saving', again)
     const view = render(<MothPage worldFactory={fakeWorld} />)
     await world()
     expect(panel()).toBeNull()
     view.rerender(<MothPage worldFactory={fakeWorld} />)
     expect(mine.store.dispose).not.toHaveBeenCalled()
-    expect(leavingOf('board-still-saving')).toBe(mine)
+    expect(leavingOf('board-still-saving')).toEqual([mine, again])
     // Someone else signs in on this computer while no board is open: what was waiting must not go out as them.
     state.perms = { ...state.perms, userId: 'u2' }
     view.rerender(<MothPage worldFactory={fakeWorld} />)
     await waitFor(() => expect(mine.store.dispose).toHaveBeenCalledWith({ save: false }))
-    expect(leavingOf('board-still-saving')).toBeNull()
+    expect(again.store.dispose).toHaveBeenCalledWith({ save: false })
+    expect(leavingOf('board-still-saving')).toEqual([])
   })
   it('🚨 Ctrl+Z is the board\'s while it is open, and Moth\'s again after', async () => {
     render(<MothPage worldFactory={fakeWorld} />)

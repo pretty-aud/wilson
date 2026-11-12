@@ -116,13 +116,33 @@ export function pullDistance(edge, start, now) {
   return Math.max(0, out)
 }
 
+/** The least distance that closes, however near the window's edge the frame is pressed. */
+export const PULL_CLOSE_MIN_PX = 40
+const closeDistance = (closeAt) => (Number.isFinite(closeAt) && closeAt > 0 ? closeAt : PULL_CLOSE_PX)
+
+/**
+ * The distance that closes a pull of `edge` pressed at `press` (window coordinates) in a window of `view` ({ w, h }):
+ * PULL_CLOSE_PX where there is room for it, else the room the pointer has before the window's edge in the pull's
+ * direction, less a little (a maximised window stops the pointer at the screen's edge), and never under
+ * PULL_CLOSE_MIN_PX. Nothing measured is PULL_CLOSE_PX.
+ */
+export function pullCloseAt(edge, press, view) {
+  const x = finite(press?.x, NaN)
+  const y = finite(press?.y, NaN)
+  const vw = finite(view?.w, NaN)
+  const vh = finite(view?.h, NaN)
+  const room = edge === 'n' ? y : edge === 's' ? vh - 1 - y : edge === 'w' ? x : edge === 'e' ? vw - 1 - x : NaN
+  if (!Number.isFinite(room)) return PULL_CLOSE_PX
+  return Math.min(PULL_CLOSE_PX, Math.max(PULL_CLOSE_MIN_PX, Math.floor(room) - 4))
+}
+
 /** The frame's scale while pulled: 1 at rest, smaller the farther it is pulled, and no smaller past the distance. */
-export function pullScale(distance) {
-  const t = Math.min(1, Math.max(0, finite(distance, 0)) / PULL_CLOSE_PX)
+export function pullScale(distance, closeAt = PULL_CLOSE_PX) {
+  const t = Math.min(1, Math.max(0, finite(distance, 0)) / closeDistance(closeAt))
   return 1 - PULL_SHRINK * t
 }
 /** Let go at this distance or beyond, and the board closes into its dot; short of it, the frame springs back. */
-export const pullCloses = (distance) => finite(distance, 0) >= PULL_CLOSE_PX
+export const pullCloses = (distance, closeAt = PULL_CLOSE_PX) => finite(distance, 0) >= closeDistance(closeAt)
 
 /** A corner dragged by (dx, dy): the two edges it joins move, kept inside the space and no smaller than the least. */
 export function resizeFrame(rect, corner, dx, dy, bounds = FALLBACK_BOUNDS, min = MIN_FRAME) {
@@ -239,19 +259,32 @@ export const whoKey = (me, companyId) => `${me?.id ?? ''}|${companyId ?? ''}`
 // (boardStore's dispose). They are held here, by board id, and not in the panel's own file, for two reasons: the same
 // board opened again sends those changes first and then reads; and the page, which is there when no board is open,
 // lets them all go the moment the person or the company changes. What was waiting must never go out under the next
-// account.
-const leaving = new Map() // board id -> { store, who }
+// account. A board closed again while an earlier close still tries has both held: each is forgotten only when it
+// itself has ended.
+const leaving = new Map() // board id -> Set of { store, who }
 /** Remember a close that is still trying. */
-export function keepLeaving(boardId, entry) { leaving.set(boardId, entry) }
-/** Forget it once it has ended (only if it is still the one held for that board). */
-export function doneLeaving(boardId, entry) { if (leaving.get(boardId) === entry) leaving.delete(boardId) }
-/** The close still trying for a board, or null. */
-export function leavingOf(boardId) { return leaving.get(boardId) ?? null }
+export function keepLeaving(boardId, entry) {
+  const held = leaving.get(boardId) ?? new Set()
+  held.add(entry)
+  leaving.set(boardId, held)
+}
+/** Forget it once it has ended (that close only: another of the same board stays held). */
+export function doneLeaving(boardId, entry) {
+  const held = leaving.get(boardId)
+  if (!held) return
+  held.delete(entry)
+  if (!held.size) leaving.delete(boardId)
+}
+/** Every close of a board still trying, oldest first (none is an empty list). */
+export function leavingOf(boardId) { return [...(leaving.get(boardId) ?? [])] }
 /** Let go of every close that is not this person's in this company: dropped, with nothing more sent. */
 export function dropLeaving(who) {
-  for (const [id, l] of leaving) {
-    if (l.who === who) continue
-    leaving.delete(id)
-    try { l.store.dispose?.({ save: false }) } catch { /* already gone */ }
+  for (const [id, held] of leaving) {
+    for (const l of [...held]) {
+      if (l.who === who) continue
+      held.delete(l)
+      try { l.store.dispose?.({ save: false }) } catch { /* already gone */ }
+    }
+    if (!held.size) leaving.delete(id)
   }
 }

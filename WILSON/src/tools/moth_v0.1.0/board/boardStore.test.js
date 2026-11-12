@@ -288,6 +288,53 @@ describe('boardStore: others\' changes', () => {
     expect(store.getElements().get('a').x).toBe(18)
   })
 
+  it('🚨 dropPreviews lets go of every other person\'s drag at once and draws what changed; nothing is sent', async () => {
+    const { adapter, store, events } = await loaded([el('a'), el('b', { x: 200 }), el('c')])
+    store.dropPreviews()
+    expect(events.length).toBe(1)
+    store.preview('a', { x: 15, y: 25 })
+    store.preview('b', { x: 900 })
+    const count = events.length
+    store.dropPreviews()
+    expect(events.slice(count)).toEqual([{ type: 'change', ids: ['a', 'b'] }])
+    expect(store.getElements().get('a')).toMatchObject({ x: 0, y: 0 })
+    expect(store.getElements().get('b').x).toBe(200)
+    // Nothing more to let go: nothing is drawn again or said.
+    store.dropPreviews()
+    expect(events.length).toBe(count + 1)
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(adapter.putBoardElements).not.toHaveBeenCalled()
+    expect(adapter.deleteBoardElements).not.toHaveBeenCalled()
+    expect(store.canUndo()).toBe(false)
+  })
+
+  it('🚨 a patch saved after a preview carries this window\'s own fields only, and its undo the server\'s place', async () => {
+    const { adapter, store } = await loaded([el('a', { x: 10, y: 20 }), el('b', { x: 30 })])
+    // A reader's forged drag of a, drawn here.
+    store.preview('a', { x: 5000, y: 6000 })
+    store.update('a', { w: 300 })
+    await store.flush()
+    expect(adapter.putBoardElements.mock.calls[0][1]).toEqual([{ id: 'a', kind: 'shape', w: 300 }])
+    store.preview('a', { x: 5000, y: 6000 })
+    store.update('a', { x: 11 })
+    await store.flush()
+    expect(adapter.putBoardElements.mock.calls[1][1]).toEqual([{ id: 'a', kind: 'shape', x: 11 }])
+    // Undone, it goes back to where the server had it, not to the preview.
+    store.preview('a', { x: 5000, y: 6000 })
+    await store.undo()
+    expect(adapter.putBoardElements.mock.calls[2][1]).toEqual([{ id: 'a', kind: 'shape', x: 10, expect: 3 }])
+    expect(adapter.rows.get('a')).toMatchObject({ x: 10, y: 20 })
+    // A removal and its undo: made again where the server had it.
+    store.preview('b', { x: 7000, y: 8000 })
+    store.remove(['b'])
+    await store.flush()
+    expect(adapter.rows.has('b')).toBe(false)
+    await store.undo()
+    expect(adapter.rows.get('b')).toMatchObject({ x: 30, y: 0 })
+    const sent = adapter.putBoardElements.mock.calls.flatMap((c) => c[1])
+    expect(sent.some((s) => s.x >= 5000 || s.y >= 6000)).toBe(false)
+  })
+
   it('a second load keeps the changes not yet saved', async () => {
     const { adapter, store } = await loaded([el('a'), el('b')])
     store.update('a', { x: 33 })
@@ -644,6 +691,55 @@ describe('boardStore: the server\'s answers', () => {
     expect(second.adapter.putBoardElements).toHaveBeenCalledTimes(2)
     await vi.advanceTimersByTimeAsync(600000)
     expect(second.adapter.putBoardElements).toHaveBeenCalledTimes(2)
+  })
+
+  it('🚨 a close still trying does not write over what was saved since on the board opened again', async () => {
+    const first = await loaded([el('a'), el('b')])
+    const { adapter } = first
+    const net = offline(adapter)
+    const realDelete = adapter.deleteBoardElements.getMockImplementation()
+    adapter.deleteBoardElements.mockImplementation(async (...args) => {
+      if (!net.online) throw new TypeError('Failed to fetch')
+      return realDelete(...args)
+    })
+    first.store.update('a', { x: 111 })
+    first.store.remove(['b'])
+    await first.store.flush()
+    first.store.dispose()
+    await vi.advanceTimersByTimeAsync(0)
+    // Opened again: the earlier close is sent once more, still offline; the board is read once the network is back.
+    await first.store.flush()
+    net.online = true
+    const second = createBoardStore({ adapter, boardId: BOARD })
+    await second.load()
+    expect(second.getElements().get('a').x).toBe(0)
+    second.update('a', { x: 222 })
+    second.update('b', { x: 50 })
+    await second.flush()
+    expect(adapter.rows.get('a').x).toBe(222)
+    // The earlier close's next try: each is fenced by the version it was made over, and the newer stands.
+    await vi.advanceTimersByTimeAsync(60000)
+    const late = adapter.putBoardElements.mock.calls.at(-1)[1]
+    expect(late).toEqual([{ id: 'a', kind: 'shape', x: 111, expect: 1 }])
+    expect(adapter.rows.get('a').x).toBe(222)
+    expect(adapter.deleteBoardElements).toHaveBeenLastCalledWith(BOARD, ['b'], [1])
+    expect(adapter.rows.get('b')).toMatchObject({ x: 50 })
+    const sent = adapter.putBoardElements.mock.calls.length
+    await vi.advanceTimersByTimeAsync(600000)
+    expect(adapter.putBoardElements).toHaveBeenCalledTimes(sent)
+    second.dispose()
+  })
+
+  it('a close still trying with nothing in the way saves as before', async () => {
+    const { adapter, store } = await loaded([el('a'), el('b')])
+    const net = offline(adapter)
+    store.update('a', { x: 9 })
+    await store.flush()
+    store.dispose()
+    await vi.advanceTimersByTimeAsync(1500)
+    net.online = true
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(adapter.rows.get('a')).toMatchObject({ x: 9, version: 2 })
   })
 })
 

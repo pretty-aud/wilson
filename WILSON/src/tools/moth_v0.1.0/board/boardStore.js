@@ -133,7 +133,8 @@ export function createBoardStore({ adapter, boardId, now = Date.now, delay = DEB
   const hasWork = () => !dropped && (pending.size > 0 || removing.size > 0)
 
   // ── What is drawn ─────────────────────────────────────────────────────────────────────────────────────────────
-  function compute(id, withTransient = true) {
+  // Without previews: what this window's own changes are measured from (another person's drag is never saved here).
+  function compute(id, withTransient = true, withPreview = true) {
     if (hidden.has(id)) return null
     const b = base.get(id)
     const inf = inflight.get(id)
@@ -141,7 +142,7 @@ export function createBoardStore({ adapter, boardId, now = Date.now, delay = DEB
     const whole = (inf && inf.mode !== 'patch') || (pen && pen.mode !== 'patch')
     if (!b && !whole) return null
     const el = { ...(b ?? {}) }
-    const pv = previews.get(id)
+    const pv = withPreview ? previews.get(id) : null
     if (pv) Object.assign(el, pv.fields)
     if (inf) Object.assign(el, inf.fields)
     if (pen) Object.assign(el, pen.fields)
@@ -271,7 +272,9 @@ export function createBoardStore({ adapter, boardId, now = Date.now, delay = DEB
     if (kind) out.kind = kind
     if (e.mode === 'patch') {
       for (const k of SENT_KEYS) if (k !== 'kind' && k in e.fields) out[k] = e.fields[k]
-      if (e.expect) {
+      // After the close, a change still trying is sent over the version it was made over: one saved over since (by
+      // someone, or by this person on the board opened again) is skipped as a clash, never written over the newer.
+      if (e.expect || closing) {
         const v = myVersion.get(id) ?? base.get(id)?.version
         if (v != null) out.expect = Number(v)
       }
@@ -393,7 +396,9 @@ export function createBoardStore({ adapter, boardId, now = Date.now, delay = DEB
 
   async function saveRemovals(rms) {
     let ok = true
-    const groups = [rms.filter(([, r]) => !r.expect), rms.filter(([, r]) => r.expect)]
+    // After the close, a removal still trying is fenced as a change is (wireOf).
+    const fenced = (r) => r.expect || closing
+    const groups = [rms.filter(([, r]) => !fenced(r)), rms.filter(([, r]) => fenced(r))]
     for (const [i, group] of groups.entries()) {
       if (dropped) break
       if (!group.length) continue
@@ -556,7 +561,7 @@ export function createBoardStore({ adapter, boardId, now = Date.now, delay = DEB
     if (!drawn.has(id) || !writable()) return false
     const current = drawn.get(id)
     const clean = cleanPatch(current, patch)
-    const without = compute(id, false) ?? current
+    const without = compute(id, false, false) ?? current
     if (!settled) {
       const before = transientBefore.get(id) ?? {}
       for (const k of Object.keys(clean)) if (!(k in before)) before[k] = without[k]
@@ -597,7 +602,7 @@ export function createBoardStore({ adapter, boardId, now = Date.now, delay = DEB
     const list = [...new Set([].concat(ids ?? []))].filter((id) => drawn.has(id))
     if (!list.length || !writable()) return
     for (const id of list) {
-      const el = compute(id, false) ?? drawn.get(id)
+      const el = compute(id, false, false) ?? drawn.get(id)
       rebase(id)
       record({ type: 'remove', id, el: { ...el } })
       removeLocal(id)
@@ -740,6 +745,13 @@ export function createBoardStore({ adapter, boardId, now = Date.now, delay = DEB
     for (const k of DRAG_KEYS) if (Number.isFinite(fields[k])) f[k] = fields[k]
     previews.set(id, { fields: f })
     redraw([id])
+  }
+  /** Every other person's drag let go at once, drawn again as the server has it; nothing is sent or saved. */
+  function dropPreviews() {
+    if (!previews.size) return
+    const ids = [...previews.keys()]
+    previews.clear()
+    redraw(ids)
   }
 
   /** An element the server already saved for this window (a sticky placed by createSticky): drawn and undoable. */
@@ -944,6 +956,7 @@ export function createBoardStore({ adapter, boardId, now = Date.now, delay = DEB
     setBackground,
     applyBoard,
     preview,
+    dropPreviews,
     adopt,
     flush,
     dispose,

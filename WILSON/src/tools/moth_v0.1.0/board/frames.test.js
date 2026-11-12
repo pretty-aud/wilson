@@ -16,9 +16,20 @@ describe('frameHolds', () => {
     expect(frameHolds(f, box('a', -50, 10, 300, 20))).toBe(false)
     expect(frameHolds(f, box('b', 10, -50, 20, 200))).toBe(false)
   })
-  it('a frame in a frame only when wholly inside', () => {
+  it('a frame in a frame as any thing: by its middle, no larger', () => {
     expect(frameHolds(f, frame('g', 10, 10, 50, 50))).toBe(true)
-    expect(frameHolds(f, frame('g', 160, 10, 50, 50))).toBe(false) // its middle is inside, its edge is not
+    expect(frameHolds(f, frame('g', 160, 10, 50, 50))).toBe(true) // its middle is inside, its edge is not
+    expect(frameHolds(f, frame('g', 190, 10, 50, 50))).toBe(false) // its middle is outside
+    expect(frameHolds(f, frame('g', -10, 10, 220, 50))).toBe(false) // wider than the frame
+  })
+  it('two frames that would hold each other: only the lower in the drawing order holds the higher', () => {
+    const p = frame('p', 0, 0, 100, 100, 1)
+    const q = frame('q', 10, 10, 100, 100, 2)
+    expect(frameHolds(p, q)).toBe(true)
+    expect(frameHolds(q, p)).toBe(false)
+    // the same z: the later id is drawn on top
+    expect(frameHolds(frame('a', 0, 0, 100, 100), frame('b', 0, 0, 100, 100))).toBe(true)
+    expect(frameHolds(frame('b', 0, 0, 100, 100), frame('a', 0, 0, 100, 100))).toBe(false)
   })
   it('a free line as any thing; never a line tied at an end, never itself, never by a thing that is not a frame', () => {
     expect(frameHolds(f, box('k', 10, 10, 20, 20, 1, 'connector'))).toBe(true)
@@ -46,10 +57,30 @@ describe('heldBy', () => {
     expect(heldBy(els, ['inner'])).toEqual(new Set(['deep', 'free']))
     expect(heldBy(new Map(els.map((e) => [e.id, e])), ['outer']).has('line')).toBe(false)
   })
-  it('never loops: two frames on the same spot hold each other once', () => {
+  it('never loops: two frames on the same spot, the lower holds the higher and not the other way', () => {
     const els = [frame('p', 0, 0, 100, 100), frame('q', 0, 0, 100, 100), box('a', 10, 10, 10, 10)]
     expect(heldBy(els, ['p'])).toEqual(new Set(['q', 'a']))
+    expect(heldBy(els, ['q'])).toEqual(new Set(['a']))
     expect(heldBy(els, ['p', 'q'])).toEqual(new Set(['a']))
+  })
+  it('a frame poking over its outer frame\'s edge goes with the outer frame, and with it what it holds', () => {
+    // Frame selection near the outer frame's edge: the new frame sticks out by its pad of 24.
+    const outer = frame('outer', 0, 0, 400, 400, 0)
+    const a = box('a', 10, 10, 50, 50, 2)
+    const b = box('b', 100, 10, 50, 50, 3)
+    const inner = { ...frame('inner', 0, 0, 0, 0, 1), ...frameBoxAround([a, b]) }
+    expect(inner.x).toBeLessThan(0)
+    expect(heldBy([outer, inner, a, b], ['outer'])).toEqual(new Set(['inner', 'a', 'b']))
+    expect(heldBy([outer, inner, a, b], ['inner'])).toEqual(new Set(['a', 'b']))
+  })
+  it('three frames deep, each poking over the edge of the one around it', () => {
+    const els = [
+      frame('f1', 0, 0, 400, 400, 0), frame('f2', 300, 300, 150, 150, 1), frame('f3', 420, 420, 60, 60, 2),
+      box('t', 440, 440, 10, 10, 3),
+    ]
+    expect(heldBy(els, ['f1'])).toEqual(new Set(['f2', 'f3', 't']))
+    expect(heldBy(els, ['f2'])).toEqual(new Set(['f3', 't']))
+    expect(heldBy(els, ['f3'])).toEqual(new Set(['t']))
   })
   it('a thing that is not a frame holds nothing', () => {
     expect(heldBy([box('s', 0, 0, 500, 500), box('a', 10, 10, 10, 10)], ['s']).size).toBe(0)
@@ -82,8 +113,9 @@ describe('frameTaking', () => {
     expect(frameTaking(els, [])).toBeNull()
     expect(frameTaking(els, [null, undefined])).toBeNull()
   })
-  it('a dragged frame is taken only by a frame it lies wholly inside', () => {
+  it('a dragged frame is taken as any thing: by its middle', () => {
     expect(frameTaking(els, [frame('g', 200, 200, 50, 50)])?.id).toBe('low')
+    expect(frameTaking(els, [frame('g', 260, 200, 50, 50)])?.id).toBe('low') // over the edge, its middle inside
     expect(frameTaking(els, [frame('g', 280, 200, 50, 50)])).toBeNull()
   })
   it('the same z: the later id is drawn on top', () => {
