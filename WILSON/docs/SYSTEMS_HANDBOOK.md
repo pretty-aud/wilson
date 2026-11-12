@@ -5352,7 +5352,7 @@ writer's name and then taken, the pointer's rate counted on the wire, a lost net
 trash closing both windows. Given a second seeded person it also asks that each window names the other and that a person
 taken off the company has the board closed. It is a Playwright project of its own (`chromium-boards`, after `chromium`
 and `chromium-web`), and runs only in CI (it signs in with a password this computer does not have), so
-`boardsE2ePins.test.js` pins the 30 things it presses or reads to the source lines that draw them, and
+`boardsE2ePins.test.js` pins the 38 things it presses or reads to the source lines that draw them, and
 `authSelectors.test.js` names it as pinned there.
 
 ## 14. Who talks to whom

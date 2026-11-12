@@ -75,7 +75,8 @@ branch until it is merged into the integration branch.
 5. The background belongs to the board, not to you. Anyone who opens the board sees the same one, and anyone who may
    change the board may change it. Someone who may only look at the board has no **Background** button. *No picture
    of a second person: the pretend company is one person in one window. That the change reaches the other person
-   without reloading is checked by the automated test that opens one board in two windows on the test copy.*
+   without reloading is checked by the automated test that opens one board in two windows on the test copy. On its
+   first run, the second window turned to the lined grid by itself, without reloading.*
 
 ### 3b. Frames that group things, as in Figma.
 
@@ -144,8 +145,9 @@ Two accounts, A and B, on the same board in two browsers. *No picture: the prete
 
 1. In the desktop app, open a project kept only on this computer, and press its three dots. It offers no **New board**;
    it says instead *A board needs this project in the cloud.* M.O.T.H.'s settings say *Boards need the project in the
-   cloud.* *Not seen yet on the
-   desktop app: see below.*
+   cloud.* *Seen on the desktop app, with a copy of your saved test project LEGEND ROAD: the three dots offer no
+   **New board** and say* A board needs this project in the cloud., *and M.O.T.H. says* History is not recorded for
+   projects kept only on this computer. *The settings' sentence was not seen there; automated tests check it.*
 
 ### 8. Full walkthrough, both approved projects, verified current plan/cap enabled/remaining usage and measured messages.
 
@@ -169,7 +171,8 @@ Two accounts, A and B, on the same board in two browsers. *No picture: the prete
   files did not show in its folder after it closed, and each person was "Someone" to the others).
 - **End to end on the test copy**, with one account in two windows: a board made and opened twice, each window seeing
   the other's shapes and sticky words, the sticky's turn refused with the writer's name and then taken, a forged save
-  thrown away, a picture drawn from its file, and the trash closing both windows.
+  thrown away, a picture drawn from its file, the background chosen in one window showing in the other, and the trash
+  closing both windows.
 - **Between two and five pretend people** on a temporary copy that was thrown away afterwards: each named the others,
   every pointer reached exactly the others, and nothing was sent while nobody moved.
 - **The numbers:** a pointer sends at most ten times a second, and nothing while it is still. Every send reaches each
@@ -177,6 +180,15 @@ Two accounts, A and B, on the same board in two browsers. *No picture: the prete
   and two people about 144,000. A window that lost its connection caught up about a second after it came back. A person
   taken off the company while the board was open had it closed for them at once (in 49 thousandths of a second).
 - **The map** stays as quick with a board open as without one, on the debug sample.
+- **On the desktop app**, with a copy of LEGEND ROAD (never your own app's data): the map by folders showed 7 dots and
+  5 lines, and with every kind of item 30 dots and 46 lines. In both, 95 pictures in 100 came within 16.8
+  thousandths of a second of the one before, the screen's usual pace of about 60 a second, and drawing the map took
+  at most 0.6 thousandths of a second for 95 pictures in 100, against a limit of 20.
+- **The Supabase plan**, read on 12 November from Supabase's own pages after you signed in (nothing was changed):
+  the Pro plan, with the spend cap on. One allowance covers the test copy, staging and production together. In the
+  month from 17 October to 17 November, 1,057 live messages were used of 5,000,000, and at most 8 connections were
+  open at once, of 500. Two people moving on a board without a pause for an hour would use about 2.9% of a month's
+  messages; five people, about 18%.
 - **The background and frames**, in a real browser on the pretend company: the three backgrounds and their list, the
   grid while zooming and moving, a frame put round a selection by its button and by Ctrl+G, a frame dragged and nudged
   with what it holds, a sticky dragged in and out, Ctrl and a drag inside a frame, *Remove the frame only*, and Delete
@@ -191,6 +203,10 @@ Two accounts, A and B, on the same board in two browsers. *No picture: the prete
 - A board's place in the looking-back record: looking back shows its folder as a plain folder, and a board is not in
   the company's takeout yet.
 - A project with no folders cannot have a board yet (see *Before you start*).
+- Sticky notes for a company that keeps its files in its own storage, rather than WILSON's. Such a company can make a
+  board and put a sticky note on it, but as soon as you type, the sticky says *A sticky's words cannot be saved on
+  the company's own storage yet.*, with a **Close** button, and takes no more typing. The sticky stays empty, for
+  you and for everyone, and each new one leaves an empty note file in the board's folder.
 
 ## How the background and frames work now
 
@@ -206,11 +222,10 @@ These are choices made while building, not your words. Each is how it works now;
 
 ## Still to confirm with you
 
-- **The test copy's Supabase plan**: its name, the live messages it has left this month, the most connections at once,
-  and that the spend cap is on. The command line cannot read these; you will be asked once, with choices.
 - **The check with two real accounts on staging**: steps 5 and 6 with two people, before boards reach anyone. The
   release checklist's section *§W. Boards and live editing* walks it.
-- **The desktop app**: step 7, and the map on LEGEND ROAD, have not been seen on the desktop app yet.
+- **The desktop app**: step 7's words and the map on LEGEND ROAD were seen there (see *What was checked for you*).
+  Only M.O.T.H.'s settings sentence, *Boards need the project in the cloud.*, has not been seen on the desktop app.
 
 ## Pictures
 
@@ -255,4 +270,5 @@ In the folder *97_moth_session_4 pictures* beside this file, all from the preten
 
 ## Questions
 
-None in this file. The Supabase plan question above comes to you on its own.
+None in this file. You answered the Supabase plan question on 12 November, and its numbers are under *What was
+checked for you*.

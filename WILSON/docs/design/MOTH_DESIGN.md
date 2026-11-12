@@ -2277,8 +2277,9 @@ as one in §5.4 and hers to overturn.
   lock). A folder in the trash is out of its table's reads and no target of Moth's gate; the trash index lists the
   folder, not its files; the purge takes a folder 30 days on, its board and elements with it.
 - **`0132_board_channels`.** Two channels a board, so that what a client may say and what only the database says
-  never share one. `moth:board:…` is the database's own: one message for each statement that saves or removes
-  elements, at most 50 elements a message, never a file's id or a pen's long points. A client reads it and never sends
+  never share one. `moth:board:…` is the database's own: each statement that saves or removes elements sends its
+  changes there, at most 25 elements a message (a larger save goes as several) and at most 200 removed ids a message,
+  never a file's id or a pen's long points. 0132's own header says 50 elements; the function sends 25 (MO4-20). A client reads it and never sends
   on it, so no save can be forged. `moth:board-live:…` carries a reader's broadcast and presence (pointers, drags, who
   is here). Both are open only to a reader of the board, named by the project's epoch and the board's `audience_gen`.
   When the audience narrows (the folder to the trash; a member leaving, removed or their role changed) the channels
@@ -2527,8 +2528,13 @@ server after its client had given up, is left in the probe workspace. Step 3c, n
 the board on the dotted grid; the first opens "Background" and chooses "Lined grid", and shows it at once; the
 second shows it within 20 seconds, having heard at least one `board` message on the database's channel while no
 window sent one; neither window's count of elements moves. The spec's pins test holds the step to the source.
-Step 3c runs on wilson-dev for the first time with the push that carries this text (0136 was applied there first, at
-07:20 UTC); its result is in the hand-off, `docs/sessions/handoffs/po-moth4-2026-11-08.md`.
+Step 3c's first run on wilson-dev (0136 applied there at 07:20 UTC) was CI on `aa89a238`: six of six checks green;
+Playwright from 07:41:07 to 07:46:24 UTC, 14 passed and 2 skipped. In the board spec's run (one person in two
+windows, a board made for the run), the second window heard 1 `board` message on the database's channel and showed
+the lined grid within the step's 20 seconds, and no window sent a `board` message. The same run: shapes heard 2 and 2
+as the database's messages, none sent by a window; the forged save dropped; the turn refused with the writer's name;
+the pointer 49 sends in 5 s (9.7 a second), 49 received, none while still; a window caught up 1,031 ms after its
+socket came back; the picture drawn; the trash closing both windows.
 
 **Between two and five people** on a throwaway Actions stack, the same spec with seeded people: each window names the
 others; the turn refused with the writer's name; the forged save dropped; a person taken off the company while the
@@ -2570,8 +2576,47 @@ connections of 500, 23,484 Edge Function calls of 2,000,000. Against that allowa
 people moving without pause on one board for an hour are 144,000 messages, about 2.9% of a month's allowance; five,
 900,000, 18%. The page counts a broadcast as the one sent and each receipt, as §5.3's measured runs do.
 
+**The first whole-session round** (a Workflow run on Opus 5.5 over the session at `aa89a238`, both additions in):
+27 agents, 12 reviewers by lens and 15 checkers, 3,594,153 tokens. The lenses: who may reach the database; who may
+hear and send on a board's channels; who may reach its files; the store's sync with the server; the live session and
+the stickies' turns; working on the canvas; what the canvas costs; the panel and Moth's page; the adapters and the
+fixtures; her acceptance list; the documents' truth; tests that can fail. 37 findings, 13 called major by their
+reviewers and 24 minor, no blocker; the database-access reviewer found nothing. The round's rule: take into the code
+what breaks security or a point of her acceptance list (PLAN_MOTH §5 Session 4), record the rest. Seven were taken,
+all in the client and none a migration, in `fd7274f7` (vitest, the whole set with them: 506 of 509 files, 13,066
+passed, 9 skipped; the three red files are loopback connects refused under the run's own load, green alone, 28 of 28):
+
+- An AUDIENCE forged by a reader on the live channel made every other window deaf to the database's own, so others'
+  saves stopped arriving and someone who had lost access was not told (security, and point 6: two browsers'
+  independent edits). AUDIENCE is now taken from the database's channel only.
+- An AUDIENCE heard while a rejoin was under way was dropped, and the window stayed on the old names (point 6:
+  disconnect recovery). The window now rejoins once more.
+- A sticky save whose answer was lost deleted the new words its file then named, on a Local Server (point 3:
+  stickies). The new copy now goes only on a real refusal; on an error with no code the row is read first.
+- A placement whose answer was lost sent the new note or picture to the trash (point 4: dropped media appears in
+  Files; two reviewers). The same rule.
+- A save's answer that skipped versions was taken, and the changes it skipped were then ignored, so a window could
+  keep another person's change undone (point 6: independent edits). Only the next version is taken; else the row is
+  read again.
+- Closing a board while its saves could not reach the server dropped them, though the board had said WILSON keeps
+  trying (point 6: disconnect recovery; two reviewers). The saves are now tried after the close too, for a bounded
+  time (eight tries, about 108 seconds). Another person or company drops them at once with nothing more sent: the
+  panel does it when a board is open, and the page does it when none is, which the first version of this fix left
+  out and the session added (a close still trying would otherwise have gone out under the next account).
+- A thing nudged or resized into a frame was not raised above it and hid under its fill (point 3: frames, and her
+  frames addition). It is now raised as a drop raises it.
+
+Their checkers judged six of the seven major and one minor, and none a leak of what a person may not read; the
+session took them on the points named, since each leaves a window showing what is not true, or loses work with
+nothing said, on a path her list walks. The documents' findings are answered in the documents: this section and
+§5.4, PLAN_MOTH §6's evidence, walkthrough 97, the handbook's count; the hand-off is rewritten at the session's end.
+The rest are open items MO4-29 to MO4-47, the most serious first (MO4-29: a new text's add and its words are two
+undo steps, so one undo leaves an empty text); MO4-30 is a sticky on a company's own s3 bucket (§5.4). The second
+whole-session round has not run.
+
 **Not measured:** a board's Local Server words in the desktop app (unit tests hold them); two real accounts on
-staging (hers, RELEASE_TESTING §W).
+staging (hers, RELEASE_TESTING §W); a board on a company that keeps its files in its own s3 bucket or on an office
+server: no such run was made this session.
 
 ### 5.4 Not built, and owed
 
@@ -2584,6 +2629,12 @@ staging (hers, RELEASE_TESTING §W).
   words (MO4-02); a board's folder made a thing's own folder is deleted outright with that thing (MO4-13); a folder
   moved with an office-server file in the trash below brings that file back to the old place (MO4-15).
   OUTSTANDING holds each, MO4-01 to MO4-17.
+- **A sticky on a company's own s3 bucket holds no words.** "New board" is offered whatever the storage, and the
+  sticky tool makes a sticky there (an empty note file in the company's bucket), but each save of its words is
+  refused, by the adapter before any upload and by 0133's `board_sticky_publish` (`s3_sticky_off`). The person types,
+  and at the first pause the words box says "A sticky's words cannot be saved on the company's own storage yet." with
+  a Close button and takes no more typing; the sticky stays empty for everyone, and each new sticky leaves one more
+  empty note file in the board's folder (MO4-30).
 - **The two additions' readings**, each a reading where her words leave the detail open, and each hers to
   overturn. The background is the board's, not each person's: everyone who opens a board sees the same one, and
   whoever may change the board may change it. A new board starts on the dotted grid. "Lined grid" is a square grid
@@ -2596,9 +2647,10 @@ staging (hers, RELEASE_TESTING §W).
   the top of the board; Ctrl or Cmd, Shift and a press on a frame keeps toggle-and-move. The board has no copy, no
   duplicate and no right-click menu yet, so frames add none. While a frame is dragged the others see it and up to
   nineteen of its things move live (twenty places a step in all); the rest arrive when it is let go.
-- **Owed by the two additions:** the frames' refinements in the working tree are not yet committed; the two
-  whole-session rounds (Opus 5.5) have still not run, and they read both additions with the rest of the session. A
-  board's background is in neither the record nor the takeout, as boards are not (MO4-14).
+- **Owed by the two additions:** the first whole-session round (Opus 5.5) has run, both additions read with the rest
+  of the session (§5.3); the second has not. A board's background is in neither the record nor the takeout, as
+  boards are not (MO4-14).
+- **From the first whole-session round**, open: MO4-29 to MO4-47 (§5.3 names the seven taken).
 - **Before staging and production:** the runbook's 0130 to 0136 rows. Count the projects with no top folder on each
   first. Apply in numeric order. 0134 takes a brief ACCESS EXCLUSIVE lock on `boards` and `board_elements` while it
   restates their policies; 0135 takes no table lock; 0136 takes a moment's ACCESS EXCLUSIVE lock on `boards` (a

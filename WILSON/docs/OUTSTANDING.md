@@ -4577,3 +4577,144 @@ fixed in `e3730b7c`.
   `board_set_background`) is what would refuse it. Fix shape: none for 0136; read the default privileges on staging and
   production before the apply (`select defaclrole::regrole, defaclacl from pg_default_acl where defaclnamespace =
   'public'::regnamespace and defaclobjtype = 'f'`), and keep each new function's REVOKE naming anon.
+
+From the first whole-session round (12 reviewers by lens and their checkers, Opus 5.5; MOTH_DESIGN §5.3, "The first
+whole-session round"): the findings not taken into the code, the most serious first. A finding with no checker was
+read by its reviewer alone, so it is INFERRED by reading. The seven taken are in MOTH_DESIGN §5.3.
+
+- **MO4-29 · A new text's add and its words are two undo steps, so one undo leaves an empty text nobody can see.**
+  MEASURED by a scratch test on the real store (add, a tick, the words, a tick, undo: one element left, its words
+  empty) and by reading (round 1, checked: real, major). `placeText` adds the text and opens its words box
+  (`BoardCanvas.jsx`); the store closes a step on the next microtask (`boardStore.js`, `record`); `endEdit` saves the
+  words, or removes a text closed empty, later, so in a step of its own. Ctrl+Z after typing takes back only the
+  words: the text stays, empty, drawn as nothing, yet selectable by a marquee or Ctrl+A, counted by snapping, fit and
+  frames, saved and in every window; a second Ctrl+Z removes it. A text closed empty is an add and then a removal, so
+  Ctrl+Z right after brings back an empty text instead of undoing what came before. Closing the words box by its own
+  close (a discard), or losing write while typing, leaves a fresh empty text on the board with no undo at all. Fix
+  shape: let the words' update or the removal join the add's step (the store's `combine` already makes add and update
+  one add, and add and remove no step); remove a fresh empty text on a discard too; tests in `boardStore.test.js`
+  (add, tick, joined update: one step; add, tick, joined removal: no step) and `BoardCanvas.test.jsx` (place a text,
+  type, close, undo: no element).
+- **MO4-30 · On a company that keeps its files in its own s3 bucket, a sticky cannot hold words.** MEASURED by
+  reading (round 1, checked: real in part, minor). "New board" is offered whatever the storage (`MothPage.jsx`), and
+  the sticky tool makes a sticky through the ordinary upload: an empty note file in the company's bucket
+  (`createSticky`). Every save of its words is refused before anything is uploaded (`saveStickyText`, code
+  `s3_sticky_off`), and 0133's `board_sticky_publish` refuses the same on the server. What the person meets: they
+  type, and at the first pause (1.5 s) the words box says "A sticky's words cannot be saved on the company's own
+  storage yet." with a Close button and takes no more typing; the sticky stays empty, for them and for everyone, and
+  each new sticky leaves one more empty note file in the board's folder. Earlier entries here record no s3 company on
+  any environment (measured 2026-09-06); no board was run on an s3 or an office-share company this session. Fix
+  shape: refuse the sticky tool, or `createSticky`, on an s3 company before the upload, in the same words, with a test
+  in `boardsCloud.test.js`; and save a sticky's words to a company's own bucket when its moves learn to (0120).
+- **MO4-31 · Every picture, video and sticky's words on a board are fetched when it opens, and its videos are not
+  stopped when it closes.** MEASURED by reading (round 1, checked: real, minor). `reconcile` builds every element,
+  in view or not, and `cull` only hides; a picture or a video signs its URL and starts loading (a video with
+  `preload = 'auto'`), and each sticky reads its row and its object, with no queue and no cap, so a board of 300
+  stickies and 100 videos asks 600 reads and 100 preloading videos at once. `destroy()` never walks the pictures, so a
+  video keeps downloading after the board closes, and a reopen signs and fetches everything again. Nothing shown is
+  untrue and no rule is broken; it is a cost that grows with a board. Fix shape: in `destroy()` pause each video,
+  remove its `src` and call `load()`, then clear the map; `preload = 'metadata'`; optionally fetch only what is near
+  the view, or through a small queue; a unit test that a closed board's video is stopped and an off-view sticky not
+  read.
+- **MO4-32 · A passing database error is taken as a refusal, and the batch's changes are thrown away.** INFERRED by
+  reading (round 1, not checked): `isRefusal` (`boardStore.js`) counts any code outside the network list as the
+  server saying no, so a deadlock (40P01, which MO4-04's lock order allows), a serialization failure (40001), a
+  statement timeout (57014) or a schema cache reload during a restart (PGRST002) is said in Postgres words, the board
+  is read again, and the whole batch's changes are dropped instead of kept and tried again. Fix shape: list these
+  classes with the passing ones, and a store test for each.
+- **MO4-33 · A save of more than 500 that fails partway is tried again whole, and its undo steps come back as
+  someone else's changes.** INFERRED by reading (round 1, two reviewers, not checked; the server's answer to a
+  repeated readd not measured): the adapter saves in calls of 500 and marks the part that landed (`err.partial`),
+  and nothing on the board reads it; the store sends every pending put in one round and, on an error that is not a
+  refusal, queues them all again with their versions unmoved. Undo the removal of 600 things on a link that drops
+  after the first call: the retry meets the first 500 at version 1, the server names them as conflicts, the board
+  says someone else changed 500 of them, and they are dropped from the undo step. The drawing is right after the
+  re-read; the words and the step are not. Fix shape: read `err.partial` and treat the part that landed as saved
+  (its versions moved), or cap a round at 500 in the store.
+- **MO4-34 · An embed of a file a reader may not see still reaches that reader's window in the board's messages.**
+  INFERRED by reading (round 1, not checked): the element guard asks the file gate of the writer only, and an embed's
+  file need not be in the board's project; `board_elements_select` (0134) hides the row from a reader without the
+  file, but `board_announce` (0132) sends every element to every reader of the board: its place, size, order, style,
+  version and `updated_by`. The client does not draw it (a new file-bearing element is read through `board_read`,
+  which gives the stop-sign tile), so the file's id and name never travel; what travels is that an element is there
+  and how it moves. Fix shape: leave out of a message an embed whose file is not in the board's project, so its
+  readers read it through `board_read`, as they do a new element that carries a file.
+- **MO4-35 · Whose pointer, presence or drag a message is, is the sender's own word.** INFERRED by reading (round 1,
+  not checked): `boardLive.js` takes a cursor's or a drag's person, name and element from the payload, and a
+  presence's person from its own `user_id` before the adapter's key; `boardStore.js`'s preview moves any element of
+  the board. A reader who may not change the board can send drags for any element, which every window shows moving
+  for two seconds a message, though nothing is saved; or track presence with another member's id and name, so "who
+  is here" lists someone who is not. Fix shape: take a presence's person from the channel's own key, and a cursor's
+  or a drag's person and name from that presence, not from the payload.
+- **MO4-36 · On a Local Server every sticky save leaves the earlier words on the office computer for good.**
+  INFERRED by reading (round 1, not checked): each pause in typing writes the words to a fresh key and moves the row
+  to it; nothing deletes the earlier key. On Supabase, `storage-gc` removes an object no row names after 24 hours;
+  nothing sweeps a Local Server's disk (`storage-gc` reads rows only, `localMedia.cjs` collects nothing). Words typed
+  and then taken out of a sticky stay on that disk, and the folder grows with every save. Fix shape: after a publish
+  that took, delete the earlier key on a Local Server, or sweep the keys no row names there.
+- **MO4-37 · A placed file put in the trash reaches no open board.** INFERRED by reading (round 1, not checked): the
+  board's messages are sent only by its elements' triggers, the saves and the sticky turns (0132), and
+  `moth_trash_files` predates boards; a picture or an embed trashed in Files changes no element, so two people with
+  the board open keep its name and picture, and someone writing in a sticky whose file went meets "sticky not found
+  or not writable" only at the next save. The stop-sign tile shows when the board is read again. Fix shape: a
+  trigger on a file's trash that sends a message to the boards holding it, which read those elements again.
+- **MO4-38 · Any coded error from `board_channels` closes the board as gone, in the server's raw words.** INFERRED
+  by reading (round 1, not checked; which codes a live server answers there not measured): when a channel drops,
+  `boardLive.js` asks for the names again, and `isRefusal` reads a statement timeout (57014), an expired token's
+  PGRST301 after a sleep or a busy pooler as a refusal, so the board closes and Moth says the server's sentence, for
+  a board that is still there and still the person's. Fix shape: close only on 42501 or the board's own refusal
+  codes, and treat the rest as passing (with MO4-32).
+- **MO4-39 · A first join that fails says nothing, and "Could not reach the others on this board just now. Your
+  changes still save." is never shown.** INFERRED by reading (round 1, not checked): `joinBoard` catches a failed
+  first `board_channels` call, schedules its retries and resolves; no link event is sent, since the link was never
+  up, and the panel shows those words only when `joinBoard` throws, which it never does. The panel's test mocks a
+  throw the real function cannot make. While the retries keep failing, the board looks live and others' changes do
+  not arrive. Fix shape: tell the panel of a first join that failed (an event, or a resolve that says so), and test it
+  against the real `joinBoard`.
+- **MO4-40 · A dragged frame sends up to about 210 messages a second, and no cost table counts them.** INFERRED by
+  reading (round 1, not checked): each dragged thing has its own lane at ten a second, up to `MAX_DRAG_SENDS` (20)
+  things a step, and the pointer keeps sending while it drags, so a frame drag of 20 or more things sends about 200
+  drag messages and 10 pointer messages a second; with five people, about 840 receipts a second from one drag.
+  `boardLive.js`'s header ("each sent at most ten times a second") holds a lane at a time; MOTH_DESIGN §5.3 and the
+  plan's table count pointer messages only. Whether Supabase's per-project message rate would cut a board during a
+  large frame drag is not known. Fix shape: one message for a frame's move (with MO4-23), and drags in the cost
+  table.
+- **MO4-41 · A board at its 5,000-element cap was never drawn or measured.** INFERRED by reading (round 1, not
+  checked; no timing exists): Ctrl+A selects all 5,000, and `cull` then keeps every selected thing visible, so every
+  later paint draws all 5,000; every store change, a remote save included, hands all 5,000 to the Transformer again;
+  a drag of a loose selection of S things with F frames outside it runs up to F times S frame checks a pointer move
+  (100 frames and 2,500 things: 250,000). MOTH_DESIGN §5.3 measures only the debug sample's board, and the plan asks
+  a limit beyond the datasets to be said. Fix shape: measure a board of 5,000 (open, select all, drag, a remote save)
+  and say the figures, or say in MOTH_DESIGN §5.3 that it is not measured.
+- **MO4-42 · Things a dragged frame holds that were out of view stay hidden until it is dropped.** INFERRED by
+  reading (round 1, not checked): `cull` hides what lies more than 200 px off screen, and nothing calls it during a
+  move, so a large frame dragged into view brings its far things in unseen; they appear at the drop, or earlier on a
+  wheel or a remote save. Fix shape: cull during a frame's move, at most once a frame of the screen.
+- **MO4-43 · The 5,000-elements-a-board cap has no test.** MEASURED by reading (round 1, checked: real, minor): no
+  suite from 134 to 138 brings a board past 5,000 elements, so the three lines of `board_put_elements` (0130) that
+  refuse it with 54000 can go and every suite stays green; `boardStore.test.js` tests only the words. It is one of
+  the cost bounds MOTH_DESIGN §5.1 and the handbook promise, and unlike the 64 MB cap (MO4-11) one transaction can
+  reach it. Fix shape: in suite 135, fill a board to 5,000 (ten saves of 500), check that a new element is refused
+  with 54000 and the words, and that a change to an existing element at 5,000 still saves.
+- **MO4-44 · Suite 135's "each change counts the board's revision" cannot fail for a removal.** INFERRED by reading
+  (round 1, not checked): eight saves on the board before the check take its revision to 8 alone, and the check reads
+  `revision >= 8`, so the revision's UPDATE in `board_delete_elements` (0130) can go and it stays green. Fix shape:
+  read the revision just before the two removals and check that it is exactly two more after them.
+- **MO4-45 · The end-to-end spec's step 9 says the other window is told why, and never looks.** INFERRED by reading
+  (round 1, two reviewers, not checked): its header and its title say the second window closes "with the reason", and
+  the step checks only that the board is gone there; "You cannot see this board any more, so it was closed." is never
+  looked for, so a board closed for another reason, or with no words, passes. When step 8b has run, the second window
+  is closed before step 9 and the check is true by default. Fix shape: look for those words in the second window, and
+  when 8b has run, say the step is the first window's only.
+- **MO4-46 · Step 8b of the end-to-end spec turns the second person off and never back on.** INFERRED by reading
+  (round 1, not checked): it sets `is_active = false` for the second seeded person, and the spec's `finally` restores
+  nothing; with CI's one retry, a failure after 8b makes the retry sign in as an inactive person and fail at step 2,
+  and so does every later run on that throwaway stack. It runs only with `PSQL` and a second person set, never on
+  wilson-dev. Fix shape: set `is_active` back in the `finally` when 8b ran.
+- **MO4-47 · The check that Konva stays in the board's own chunk cannot fail for a static import of the canvas.**
+  INFERRED by reading (round 1, not checked): the scans in `BoardToolbar.test.jsx` and `MothPage.test.jsx` read fixed
+  lists of files that leave out `BoardPanel.jsx`, `boardPanelState.js`, `frames.js`, `boardStore.js`, `boardLive.js`
+  and `stickyTurn.js`, and look only for an import of `konva`; a static import of `BoardCanvas.jsx` in the panel or
+  in Moth's page would put Konva in their chunk with every test green, and the panel's tests mock the lazy target.
+  Fix shape: scan every file of the board's folder and Moth's page for a static import of `BoardCanvas.jsx` or
+  `konva`, or read the built chunks' contents after a build.
