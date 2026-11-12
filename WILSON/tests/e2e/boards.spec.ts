@@ -140,11 +140,20 @@ async function drag(page: Page, from: { x: number; y: number }, to: { x: number;
 /** Signed in and on M.O.T.H., inside the project, whatever view the person last had. */
 async function intoProject(page: Page, who: { username: string; password: string } | null = null) {
   // Whenever that prompt is in the way of a press, it is put off first (signInHere does the same, once, at sign-in).
-  await page.addLocatorHandler(page.getByRole('button', { name: /set up later/i }), async (later) => { await later.click() })
+  const later = page.getByRole('button', { name: /set up later/i })
+  await page.addLocatorHandler(later, async (btn) => { await btn.click() })
   await page.goto('/moth')
   await signInHere(page, who?.username, who?.password)
   const moth = page.locator('[data-moth-page]')
-  await expect(moth).toBeVisible({ timeout: 45_000 })
+  // The prompt stands in place of the page until it is put off; a wait presses nothing, so it is looked for here.
+  await expect(async () => {
+    if (await later.isVisible()) await later.click({ timeout: 5_000 })
+    await expect(moth).toBeVisible({ timeout: 3_000 })
+  }).toPass({ timeout: 75_000 }).catch(async (err) => {
+    // What the page says instead, for whoever reads the run without its pictures.
+    const says = (await page.locator('body').innerText().catch(() => '')).replace(/\s+/g, ' ').slice(0, 300)
+    throw new Error(`M.O.T.H. did not open after signing in. The page says: "${says}". ${String(err).slice(0, 200)}`)
+  })
   // The very first visit asks what to map (later ones reopen the last view), and an admin's sign-in asks to set up
   // a second step, over the whole page: on a dev server still cold that prompt came after signInHere had stopped
   // waiting for it, and took every press for 75 s (this spec's first run). Whichever is in the way is answered,
