@@ -13,10 +13,12 @@
 -- F. Moving: within a project, with every path below, never into itself, the trash, money or Legal; a name made
 --    unique; a plan changes nothing; another project is the move between projects'; a reviewer moves nothing.
 -- G. The purge: a folder 30 days in the trash goes with its board and elements, once no file row is left below it.
+-- H. A batch whose folder is deleted outright (0135): a folder in the trash inside a scene's own folder goes when the
+--    scene is deleted, and its file is left an ordinary file in the trash, listed and brought back on its own.
 -- =============================================================================
 
 BEGIN;
-SELECT plan(63);
+SELECT plan(73);
 
 SELECT * FROM tests.rls_setup();
 
@@ -295,6 +297,63 @@ SELECT is((SELECT count(*)::int FROM public.folders WHERE id IN ('13600000-0000-
           + (SELECT count(*)::int FROM public.boards WHERE id = '13600000-0000-0000-0000-0000000000f1')
           + (SELECT count(*)::int FROM public.board_elements WHERE board_id = '13600000-0000-0000-0000-0000000000f1'),
   0, 'the two folders, the board and its elements are gone');
+
+-- ── H. A batch whose folder is deleted outright (0135) ──────────────────────
+-- The scene Dawn and its own folder, a custom folder notes inside that, and notes.txt and draft.txt in it.
+INSERT INTO public.scenes (id, project_id, workspace_id, name) VALUES
+  ('13600000-0000-0000-0000-0000000000d1', 'aaaa1360-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111', 'Dawn');
+INSERT INTO public.folders (id, project_id, parent_id, kind, entity_type, scene_id, slug, path) VALUES
+  ('13600000-0000-0000-0000-0000000000d2', 'aaaa1360-0000-0000-0000-00000000000a', '13600000-0000-0000-0000-0000000000a0', 'entity', 'scene',
+   '13600000-0000-0000-0000-0000000000d1', 'dawn', 'dawn');
+INSERT INTO public.folders (id, project_id, parent_id, kind, slug, path) VALUES
+  ('13600000-0000-0000-0000-0000000000d3', 'aaaa1360-0000-0000-0000-00000000000a', '13600000-0000-0000-0000-0000000000d2', 'custom', 'notes', 'dawn/notes');
+INSERT INTO public.files (id, project_id, folder_id, name, mime_type, storage_provider, storage_path, tags, is_financial) VALUES
+  ('13600000-0000-0000-0000-000000000088', 'aaaa1360-0000-0000-0000-00000000000a', '13600000-0000-0000-0000-0000000000d3', 'notes.txt', 'text/plain', 'supabase', 'projects/aaaa1360-0000-0000-0000-00000000000a/files/13600000-0000-0000-0000-000000000088/notes.txt', '{}', false),
+  ('13600000-0000-0000-0000-000000000089', 'aaaa1360-0000-0000-0000-00000000000a', '13600000-0000-0000-0000-0000000000d3', 'draft.txt', 'text/plain', 'supabase', 'projects/aaaa1360-0000-0000-0000-00000000000a/files/13600000-0000-0000-0000-000000000089/draft.txt', '{}', false);
+-- A client's own write, run by a definer so the row in the trash is seen: row security alone would hide the file
+-- and prove nothing. The session is still bound as a client, so the files' trash guard asks it as it asks any client.
+CREATE FUNCTION public.t136_words_seen(p_sql text) RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $f$
+BEGIN
+  EXECUTE p_sql;
+  RETURN 'no refusal';
+EXCEPTION WHEN OTHERS THEN
+  RETURN SQLERRM;
+END;
+$f$;
+GRANT EXECUTE ON FUNCTION public.t136_words_seen(text) TO authenticated;
+SET LOCAL ROLE authenticated;
+SELECT public.t136_c();
+SELECT is((public.moth_trash_folders(ARRAY['13600000-0000-0000-0000-0000000000d3']::uuid[]) - 'batches')::text,
+  '{"files": 2, "folders": 1}', 'a member puts notes, inside the scene''s own folder, in the trash with its files');
+-- CONTROLS, on draft.txt, whose folder is still there (in the trash). The arm is for a folder that is gone and a
+-- write that changes folder_id alone; a write that only looks like the key's own keeps the batch.
+SELECT is(public.t136_words_seen($$UPDATE public.files SET folder_id = NULL, deleted_at = NULL WHERE id = '13600000-0000-0000-0000-000000000089'$$),
+  'This file went to the trash with its folder: bring back the folder to bring it back.',
+  'a batch''s file does not come back alone by dropping its folder');
+-- Dropping the folder alone is no write the guard refuses (the trash stamp and the batch stay), so it goes through,
+-- and the batch must still be on the file.
+SELECT is(public.t136_words_seen($$UPDATE public.files SET folder_id = NULL WHERE id = '13600000-0000-0000-0000-000000000089'$$),
+  'no refusal', 'dropping a batch''s file''s folder while that folder is there goes through');
+SELECT ok((public.t136_file('13600000-0000-0000-0000-000000000089')).folder_id IS NULL
+          AND (public.t136_file('13600000-0000-0000-0000-000000000089')).trash_batch IS NOT NULL
+          AND (public.t136_file('13600000-0000-0000-0000-000000000089')).deleted_at IS NOT NULL,
+  'and the file keeps its batch: its folder is still there to bring it back');
+-- The scene's delete, as R.A.B.B.I.T. sends it: its own folder goes by key, and notes, in the trash, below it.
+SELECT is(public.t136_err($$DELETE FROM public.scenes WHERE id = '13600000-0000-0000-0000-0000000000d1'$$),
+  'no refusal', 'a member deletes the scene');
+SELECT ok((public.t136_f('13600000-0000-0000-0000-0000000000d2')).id IS NULL
+          AND (public.t136_f('13600000-0000-0000-0000-0000000000d3')).id IS NULL,
+  'its own folder and the folder in the trash inside it are gone');
+SELECT ok((public.t136_file('13600000-0000-0000-0000-000000000088')).folder_id IS NULL
+          AND (public.t136_file('13600000-0000-0000-0000-000000000088')).trash_batch IS NULL
+          AND (public.t136_file('13600000-0000-0000-0000-000000000088')).deleted_at IS NOT NULL,
+  'the file is still in the trash, with no folder and no batch');
+SELECT is((SELECT count(*)::int FROM public.moth_trash_index() WHERE id = '13600000-0000-0000-0000-000000000088'), 1,
+  'Moth''s trash lists it as a file of its own');
+SELECT ok(public.restore_soft_deleted('files', '13600000-0000-0000-0000-000000000088'), 'and it comes back on its own');
+SELECT ok((public.t136_file('13600000-0000-0000-0000-000000000088')).deleted_at IS NULL
+          AND (public.t136_file('13600000-0000-0000-0000-000000000088')).folder_id IS NULL,
+  'to the project''s top');
 
 SELECT * FROM finish();
 ROLLBACK;

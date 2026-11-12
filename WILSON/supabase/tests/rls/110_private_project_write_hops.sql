@@ -163,7 +163,11 @@ SELECT s.tbl, s.col
        -- 0130's board_elements.file_id: an embed is a reference to a file wherever it is (her ruling, the brief
        -- §7.1), never a copy; each reader reaches it through the file's own gate (board_elements_select and
        -- board_element_json), and a sticky's or a picture's file is checked into the board's folder at placement.
-       AND NOT (c.conrelid::regclass::text = 'board_elements' AND c.confrelid = 'public.files'::regclass)
+       -- That one column only: a later link from board_elements to files (a thumbnail, say) is asked as any other.
+       AND NOT (c.conrelid::regclass::text = 'board_elements' AND c.confrelid = 'public.files'::regclass
+                AND cardinality(c.conkey) = 1
+                AND EXISTS (SELECT 1 FROM pg_attribute a
+                             WHERE a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey) AND a.attname = 'file_id'))
        AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.conrelid AND a.attname = 'project_id' AND NOT a.attisdropped)
        AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.confrelid AND a.attname = 'project_id' AND NOT a.attisdropped)
   ) s,

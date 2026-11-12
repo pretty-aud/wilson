@@ -4480,3 +4480,31 @@ fixed in `e3730b7c`.
   the restore's parent check (rows coming back child first). Named in the plants' record.
 - **MO4-12 · Probes still owed:** a sticky published to a money or Legal key; which boards each person sees, not only
   how many (suite 134's counts).
+- **MO4-13 · A board's folder can come to sit in a thing's own folder, and deleting that thing deletes the board
+  outright, with no trash.** INFERRED by reading (round 2, check of finding 8): no trigger watches a folder's `kind`
+  or its entity keys, so a project writer's plain UPDATE can make a board's folder (or one above it) a shot's own
+  folder; and `board_create` and `moth_move_folders` take different locks, so a move into an entity folder racing a
+  new board on the same folder can leave the board there. The entity key's cascade then passes `fn_folders_board_guard`
+  (it lets every cascade through). Fix shape: refuse a cascaded delete that reaches a board's folder unless the project
+  itself is going; refuse a client's change of `kind` or the entity keys with a board at or below; re-check the chain
+  under the parent's row lock in `board_create`.
+- **MO4-14 · A board's existence is not in `moth_history`, `edit_history` or the takeout.** INFERRED by reading (round
+  2): looking back shows a board's folder as a plain folder. 0130's header names 0134 for it, and 0134 is the projects
+  hop; no file does it yet. And no file bumps a board's `audience_gen` when its folder changes project (0132's header
+  names 0134 for that too); nothing allows that change today (0111 refuses it, `moth_move_folders` refuses a move
+  between projects). Fix shape: a later file records a board's making and its trash in the three, and a cross-project
+  move of a board, when one is allowed, renames its channels.
+- **MO4-15 · A folder move goes through with an office-server file in the trash below it, and that file's restore
+  then puts it back at the old place.** INFERRED by reading (round 2, check of finding 21): the move's check counts
+  only live files; `network_share_restore` takes the old locator, so the file lands in the old directory while its
+  folder's new uploads go to the new one, and later walks mis-file. A pending office-server move out of the folder
+  reverts the same way. Fix shape: let a trashed office-server file below refuse the move too, and refuse while a
+  pending office-server operation names a file in the subtree; a suite 136 probe (trash cut.mov, then move nas).
+- **MO4-16 · Suite 138's `heard`, `want` and `leaks` skip suite 137's partition probe.** INFERRED by reading (round
+  2, check of finding 42): on a stack with the realtime schema but no partition for today, E fails rather than reading
+  as a no-partition stack, and the leak check runs on no rows. CI excludes realtime, so CI never sees it. Fix shape:
+  use 137's `rt_env()` in all three.
+- **MO4-17 · A project with no top folder is refused a board, in the words "You cannot make a board here. The folder
+  may have moved, or you may not change it."** MEASURED on wilson-dev: four of the probe workspace's six projects
+  have no top folder (made before folders, or seeded). The words name the wrong reason. Fix shape: make the top folder
+  when a board is asked for, or say the true reason. Count such projects on staging and production first.
