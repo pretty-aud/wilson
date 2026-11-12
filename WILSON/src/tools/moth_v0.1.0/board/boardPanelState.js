@@ -23,7 +23,13 @@ export const TOUCH_CORNER_PX = 32
 export const MIN_FRAME = Object.freeze({ w: 360, h: 240 })
 /** A frame's space when it cannot be measured (a test's DOM, a hidden page). */
 export const FALLBACK_BOUNDS = Object.freeze({ w: 1200, h: 800 })
-const MARGIN = Object.freeze({ x: 64, y: 48 })
+/**
+ * How far in from the page's right edge WILSON's pet reaches (it sits fixed in the bottom right corner, above every
+ * page, and takes a press itself): the frame opens clear of it, so its bottom right corner can be taken hold of.
+ * Seen in a running browser: at 64 px the corner lay under the pet, and a press there opened the pet instead.
+ */
+export const PET_REACH_PX = 80
+const MARGIN = Object.freeze({ x: PET_REACH_PX + 8, y: 48 })
 /** How long the frame takes to collapse into its dot. */
 export const COLLAPSE_MS = 200
 

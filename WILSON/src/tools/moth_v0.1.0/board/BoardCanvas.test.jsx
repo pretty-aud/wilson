@@ -405,6 +405,29 @@ describe('BoardCanvas — the tools', () => {
     expect(store.remove).toHaveBeenCalledWith(['new-2'])
   })
 
+  // A browser sends a press's mousedown after its pointerdown, and gives the focus to the canvas on it. Seen in a
+  // running browser: that took the focus from the words box the pointerdown had just opened, and the box closed.
+  it('a press on the stage moves no focus by itself: the words box that press opened keeps it', async () => {
+    await mount()
+    const stageCanvas = document.querySelector('[data-moth-board-stage] canvas')
+    const mouseDown = () => {
+      const e = new MouseEvent('mousedown', { bubbles: true, cancelable: true })
+      act(() => { stageCanvas.dispatchEvent(e) })
+      return e
+    }
+    // No words box open: the canvas takes the focus, as it did when the browser gave it.
+    expect(mouseDown().defaultPrevented).toBe(true)
+    expect(document.activeElement).toBe(region())
+    // A new text: its box opens on the pointerdown with the focus in it, and the mousedown that follows leaves it there.
+    fireEvent.click(screen.getByTitle('Text (T)'))
+    press(stageNow(), toScreen({ x: 0, y: 300 }))
+    const box = await screen.findByLabelText('Text')
+    expect(document.activeElement).toBe(box)
+    expect(mouseDown().defaultPrevented).toBe(true)
+    expect(document.activeElement).toBe(box)
+    expect(screen.getByLabelText('Text')).toBe(box)
+  })
+
   it('a sticky is made through the adapter and opens for writing', async () => {
     const turns = fakeTurns()
     const made = { id: 'st1', kind: 'sticky', x: 400, y: 200, w: 200, h: 200, z: 3, file: STICKY_FILE, missing: false, version: 1, style: {} }

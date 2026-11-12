@@ -1669,7 +1669,19 @@ export function mountBoard(host, init) {
     touches.delete(evt.pointerId)
     if (touches.size < 2) pinch = null
   }
+  // A press on the stage moves no focus by itself. A browser sends a press's mousedown after its pointerdown, and
+  // that mousedown's own doing is to give the focus to the canvas: by then the stage may have opened a words box on
+  // the pointerdown (a new text, a new sticky, a double press on a shape) and put the focus in it, and losing it
+  // closed the box before a letter could be typed. So the canvas takes the focus here unless a words box has it.
+  function onHostMouseDown(evt) {
+    evt.preventDefault?.()
+    const holder = host.parentElement
+    const active = typeof document !== 'undefined' ? document.activeElement : null
+    if (editor && active?.tagName === 'TEXTAREA' && holder?.contains?.(active)) return
+    try { holder?.focus?.({ preventScroll: true }) } catch { /* focus is a courtesy */ }
+  }
   host.addEventListener('wheel', onWheel, { passive: false })
+  host.addEventListener('mousedown', onHostMouseDown, true)
   host.addEventListener('pointerdown', onHostDown, true)
   host.addEventListener('pointermove', onHostMove, true)
   host.addEventListener('pointerup', onHostUp, true)
@@ -1756,6 +1768,7 @@ export function mountBoard(host, init) {
       if (typeof liveOff === 'function') liveOff()
       if (typeof turnsOff === 'function') turnsOff()
       host.removeEventListener('wheel', onWheel, { passive: false })
+      host.removeEventListener('mousedown', onHostMouseDown, true)
       host.removeEventListener('pointerdown', onHostDown, true)
       host.removeEventListener('pointermove', onHostMove, true)
       host.removeEventListener('pointerup', onHostUp, true)

@@ -210,18 +210,23 @@ describe('🚨 a board on the graph', () => {
     expect(row.textContent).toMatch(/Board Plans/)
     expect(within(row).getByRole('button', { name: 'Bring back' })).toBeTruthy()
   })
-  it('closed for any other reason, a board stays on the graph', async () => {
+  // A sticky or a dropped file is a real file in the board's folder, made while the board was open: the map and
+  // R.A.B.B.I.T.'s Files hear of it when the board closes (seen in a running browser: without this the board's own
+  // folder said "Nothing here" after a picture was dropped on the board).
+  it('closed for any other reason, a board stays on the graph, and its project is read again', async () => {
     render(<MothPage worldFactory={fakeWorld} />)
     const w = await world()
     await boardsRead(w)
     act(() => w.handlers.pick('folder:bf', {}))
     await waitFor(() => expect(panel()).toBeTruthy())
     const before = adapter.listBoards.mock.calls.length
+    const foldersBefore = adapter.listMothFolders.mock.calls.length
     fireEvent.click(screen.getByRole('button', { name: 'Close the test board' }))
     await waitFor(() => expect(panel()).toBeNull())
     expect(w.colourOf({ kind: 'folder', rowId: 'bf' })).toBe(BOARD_DOT_COLOUR)
     expect(adapter.listBoards.mock.calls.length).toBe(before)
-    expect(state.rabbit.noteFilesChangedElsewhere).not.toHaveBeenCalled()
+    await waitFor(() => expect(adapter.listMothFolders.mock.calls.length).toBeGreaterThan(foldersBefore))
+    expect(state.rabbit.noteFilesChangedElsewhere).toHaveBeenCalledWith(['p1'])
   })
   it('🚨 another account or company closes the open board', async () => {
     const view = render(<MothPage worldFactory={fakeWorld} />)

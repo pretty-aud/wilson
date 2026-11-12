@@ -5,7 +5,7 @@ import {
   SIZES, normalizeSize, canPullAway, canResize, PULL_CLOSE_PX, PULL_SHRINK, MIN_FRAME, FALLBACK_BOUNDS, EDGE_BAND_PX,
   CORNER_PX, TOUCH_EDGE_BAND_PX, hitSizes, boundsFrom, defaultFrame, clampFrame, hitZone, isCorner, isEdge, cursorFor,
   pullDistance, pullScale, pullCloses, resizeFrame, collapseTransform, createEscapeStack, boardWords, BOARD_NEEDS_CLOUD,
-  TRASH_WORDS, trashWords, whoKey,
+  TRASH_WORDS, trashWords, whoKey, PET_REACH_PX,
 } from './boardPanelState.js'
 
 const R = { x: 100, y: 50, w: 600, h: 400 }
@@ -34,6 +34,12 @@ describe('the frame in its space', () => {
     expect(f.y).toBeGreaterThan(0)
     expect(f.x * 2 + f.w).toBe(1000)
     expect(f.y * 2 + f.h).toBe(700)
+  })
+  it('opens clear of the pet in the page\'s bottom right corner, so that corner can be taken hold of', () => {
+    for (const w of [1440, 1280, 1920]) {
+      const f = defaultFrame({ w, h: 749 })
+      expect(w - (f.x + f.w)).toBeGreaterThan(PET_REACH_PX)
+    }
   })
   it('a small space gives at least the least frame, and never more than the space', () => {
     expect(defaultFrame({ w: 400, h: 300 })).toEqual({ x: 20, y: 30, w: MIN_FRAME.w, h: MIN_FRAME.h })

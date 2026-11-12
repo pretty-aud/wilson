@@ -470,18 +470,22 @@ export default function MothPage({ isActive = true, worldFactory }) {
   // Leaving the page, or another account, company or adapter: no board of the last one stays open.
   useEffect(() => { if (!isActive) closeBoard() }, [isActive, closeBoard])
   useEffect(() => { closeBoard() }, [scope, adapter, closeBoard])
-  // The panel closed: a board put in the trash leaves the graph (its dot, its project read again) and the trash
-  // lists it with Bring back.
+  // The panel closed: a board put in the trash leaves the graph (its dot gone) and the trash lists it with Bring
+  // back. However it closed, its project is read again and R.A.B.B.I.T.'s Files are told: a board's stickies and
+  // dropped files are real files in its folder, made while it was open, and nothing else tells the map of them
+  // (seen in a running browser: the board's own folder said "Nothing here" after a picture was dropped on it).
   const boardClosed = useCallback((result) => {
     const was = openBoardRef.current
     closeBoard(result)
-    if (result?.how !== 'trashed' || !was) return
+    if (!was) return
     const folderId = String(was.board.folder_id)
     const pid = was.board.project_id != null ? String(was.board.project_id) : null
-    setBoardRows((rows) => { if (!rows.has(folderId)) return rows; const next = new Map(rows); next.delete(folderId); return next })
-    setSelected((sel) => sel.filter((id) => id !== nodeId('folder', folderId)))
-    setBoardsAsked((n) => n + 1)
-    setChangeKey((k) => k + 1)
+    if (result?.how === 'trashed') {
+      setBoardRows((rows) => { if (!rows.has(folderId)) return rows; const next = new Map(rows); next.delete(folderId); return next })
+      setSelected((sel) => sel.filter((id) => id !== nodeId('folder', folderId)))
+      setBoardsAsked((n) => n + 1)
+      setChangeKey((k) => k + 1)
+    }
     if (pid) {
       notify([pid])
       Promise.resolve().then(() => store?.refresh([pid])).catch(() => {})
