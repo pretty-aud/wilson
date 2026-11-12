@@ -4645,7 +4645,11 @@ read by its reviewer alone, so it is INFERRED by reading. The seven taken are in
   the board. A reader who may not change the board can send drags for any element, which every window shows moving
   for two seconds a message, though nothing is saved; or track presence with another member's id and name, so "who
   is here" lists someone who is not. Fix shape: take a presence's person from the channel's own key, and a cursor's
-  or a drag's person and name from that presence, not from the payload.
+  or a drag's person and name from that presence, not from the payload. Its worst case, found by the second round (a
+  forged drag drawn in a writer's window and then saved or deleted by that window's own next drag or Delete of a
+  frame), is fixed in the session's last fix commit (MOTH_DESIGN §5.3, the second whole-session round): a person's own
+  gestures start from the settled board and live places out of range are dropped; the forged identity and the moving
+  preview others see stay open here.
 - **MO4-36 · On a Local Server every sticky save leaves the earlier words on the office computer for good.**
   INFERRED by reading (round 1, not checked): each pause in typing writes the words to a fresh key and moves the row
   to it; nothing deletes the earlier key. On Supabase, `storage-gc` removes an object no row names after 24 hours;
@@ -4718,3 +4722,174 @@ read by its reviewer alone, so it is INFERRED by reading. The seven taken are in
   in Moth's page would put Konva in their chunk with every test green, and the panel's tests mock the lazy target.
   Fix shape: scan every file of the board's folder and Moth's page for a static import of `BoardCanvas.jsx` or
   `konva`, or read the built chunks' contents after a build.
+
+From the second whole-session round (12 reviewers by lens and 22 checkers, Opus 5.5, over `1923b430`; MOTH_DESIGN
+§5.3, "The second whole-session round"): the findings not taken into the code, the most serious first. Each checker
+said whether its finding breaks security, her acceptance list as written, or neither; the seven taken are the ones it
+called security or acceptance, and MOTH_DESIGN §5.3 names them. A finding with no checker was read by its reviewer
+alone, so it is INFERRED by reading.
+
+- **MO4-48 · A demoted admin keeps a private project's board, hearing it and sending pointers, until their sign-in
+  token refreshes.** INFERRED by reading (round 2, checked: real, minor, breaks security, bounded); the hour itself is
+  MO1-01's measurement, not measured again for boards. A private project's board is its creator's and the admins'.
+  When an admin who did not create the project is made a member while the board is open, 0132's trigger on
+  `workspace_members` renames every board channel of the company and sends AUDIENCE to the old names, and their
+  window asks `board_channels` for the new ones at once (`boardLive.js`, `rejoin`). That ask is judged by
+  `board_for` (0130) through `moth_can_read_target` and `passes_project_privacy` (0082), whose admin arm is
+  `current_app_role()` (0008): the role in the sign-in token, not in the table. The token still says admin, so
+  `board_channels` answers the new names and `board_topic_readable` (0132, the same gate) lets the join through. The
+  demoted admin then goes on hearing every save, pointer and presence on that board, and may send pointers and
+  presence on its live channel, until the token refreshes with the new role or runs out: up to 3,600 s, the
+  platform's known window (MO1-01; MO4-07 is the same kind of window for a project made private). `board_read` over
+  REST gives them the board for the same hour through the same token arm, so the channel shows nothing `board_read`
+  would not. Removal and deactivation are closed at once, since `has_active_membership` reads the table. 0132's header
+  still says a role change is closed by the rename; the handbook's §13.6 and MOTH_DESIGN §5.2 now name this
+  exception. The checker's fix (a
+  new migration so that `board_topic_readable`, for a private project the caller did not create, also asks the
+  table, `is_live_workspace_admin`) would close the channels and not `board_read`, nor any other gate that reads the
+  role from the token. A whole fix reads the role from the table at every gate, or ends a demoted person's session at
+  once, platform-wide. Not taken this session; hers to decide: accept the hour, as MO1-01 does, or have the whole fix
+  built.
+- **MO4-49 · Undoing an earlier step overwrites another person's later change, and nobody is told.** MEASURED by a
+  probe on the real store (round 2, checked: real, major, breaks neither). `boardStore.js` keeps one version per
+  element (`myVersion`), not one per step: `rebase` moves it past someone else's save when this person makes a new
+  change, and each own save sets it again; an undo sends `expect` set to it. A moves X to 100; B moves it to 500; A
+  changes X's fill; A presses undo twice. The first undo takes back the fill; the second sends x 0 with an `expect`
+  that now passes, and the server saves it. B's move is gone in every window, unsaid, and B's own undo of it is then
+  skipped as someone else's change. The fence works only for the newest step (the store's tests cover only that).
+  Fix shape: fence each step: record, when a save answers, the version each element of that step was saved at, and
+  keep per element the highest version heard from others; an undo whose element was changed by someone else since
+  that step is skipped and said. Test: the probe's sequence ends with x 500 and the conflict said.
+- **MO4-50 · Moving a shape or a pen stroke that someone has just deleted refuses the mover's whole save.** MEASURED by
+  a probe on the real store with its test server made to refuse as 0130 does (round 2, checked: real, major, breaks
+  neither). A move goes out as a patch: the id, the kind and the changed keys (`wireOf`). In `board_put_elements`
+  (0130) an id the board no longer holds is inserted from those keys, so a shape has no `shape` and a pen no `points`,
+  the table's CHECK (`board_elements_shape_chk`, or `board_points_ok`) refuses it (23514 or 22023), and the whole call
+  rolls back. The store takes that as a refusal: it says the raw Postgres words, reads the batch again, and keeps
+  nothing, so the mover's other moves in that round snap back and anything they added in it vanishes. The store's
+  "made it again" path, built for this race, is reached only by kinds whose bare patch passes the checks. The store's
+  own test server accepts the fragment, so no test meets it. MO4-03 is the sibling for a connector's end. Fix shape: a
+  new migration so that `board_put_elements` answers a patch for an id not on the board in `conflicts`, not by an
+  insert (the client marks a patch as such); the store's conflict path already drops it. Tests in
+  `boardStore.test.js` and a suite.
+- **MO4-51 · A sticky deleted by one person while another types in it drops the typist's unsaved words.** INFERRED by
+  reading (round 2, checked: real, major, breaks neither). A sticky's words save at a pause of 1.5 s
+  (`STICKY_SAVE_MS`, a debounce with no longest wait), so while A types steadily nothing is saved. Nothing stops B
+  deleting a sticky whose turn A holds (`removeIds` asks nothing of the turns; 0133's lock goes with the element by its
+  cascade). When B's removal reaches A's window, `reconcile` calls `closeEditorGone` (`BoardCanvas.jsx`), which closes
+  the words box and lets go of the turn and saves and says nothing. A's words since the last pause are gone; if B
+  undoes the removal the sticky comes back with the older words. Fix shape: in `closeEditorGone`, for a sticky whose
+  words differ from the saved ones, keep the box open as ended with words such as "This sticky was removed. Your
+  words are still here to copy."; a test that removes the element before the timer fires and finds the words.
+- **MO4-52 · A closed board's waiting changes are dropped with nothing said after eight tries.** INFERRED by reading
+  (round 2, checked: real, major, breaks neither; the store's test asserts the give-up). With the network off, the
+  board says "Your last changes are not saved yet. WILSON will keep trying." The person closes it; `saveOnClose`
+  (`boardStore.js`) tries eight times (1 + 2 + 5 + 10 + 30 + 30 + 30 s, about 108 s) and then ends with the changes
+  still waiting; the store is let go and the panel forgets the close. The network back later and the board opened
+  again, it reads the server and the changes are gone, unsaid. MOTH_DESIGN §5.3 gives the bound; until this round the
+  handbook said a save is kept and tried again, unqualified. Fix shape: `saveOnClose` answers whether it saved; on
+  not, the panel keeps the close, sends it first on a reopen or when the window comes back online, and the page says
+  once that the board's changes could not be saved. Test: an offline close past eight tries is kept and sent on
+  online.
+- **MO4-53 · In the desktop app, Ctrl+=, Ctrl+- and Ctrl+0 on a board also zoom the whole window.** INFERRED by reading
+  (round 2, checked: real, major, breaks neither). The board takes these keys (zoom in, out, 100%) and calls
+  `preventDefault`; `App.jsx`'s document keydown listener, set up only where `electronAPI.zoomIn` exists, runs after
+  React's and does not look at `defaultPrevented`, so it zooms the window too, and Ctrl+0 also throws away a window
+  zoom the person had set. The web build is not touched. Fix shape: `if (e.defaultPrevented) return` first in that
+  handler, with a test (a key on a child that prevents it does not zoom the window; on a plain target it does).
+- **MO4-54 · An element's `z` has no range, so one written near the top of bigint, or past 2^53, breaks adding,
+  raising and opening the board for everyone.** INFERRED by reading, with node confirming how JSON rounds the numbers
+  (round 2, two findings, each checked: real in part; minor and major; breaks neither). `board_elements.z` is a
+  bigint with no CHECK (0130), and `board_put_elements` takes any `z` a writer sends. Only a writer calling the
+  function by hand can get there; the app's own steps never do. At 9223372036854775807 every window reads it as a
+  double, `nextZ` adds one and sends a number bigint refuses (22003): every add, Bring to front, new frame and drop
+  into a frame is refused for every member, in Postgres words, with the round's other changes lost, until someone
+  sends that element back; and on a board of more than 2,000 elements, `board_read`'s paging cursor at such a `z`
+  fails the same way, so the board does not open. Past 2^53 (5,000 elements at 4611686018427387905), `readBoard`'s cursor rounds: a page comes back empty or
+  repeats, the loop ends as complete with 2,000 drawn, nothing is said, and the hidden rows still count toward the
+  5,000 cap, so adds are refused while the people see 2,000 things. Fix shape: a new migration adding a CHECK that `z`
+  lies between -(2^53 - 1) and 2^53 - 1 (NOT VALID, then existing rows clamped and validated), with a suite case;
+  `readBoard` throws, rather than answering complete, when a page does not move the cursor on.
+- **MO4-55 · Nothing says what a board does when the month's Realtime messages run out, nor how she would know
+  first.** INFERRED by reading (round 2, checked: real in part, minor, breaks neither). PLAN_MOTH §5's Session 4 item
+  10 asks for "degraded quota states" and the plan asks for a truthful quota failure; no board code reads a quota
+  answer, and no document or item names the state. Saves go through the database, not Realtime, so a save is never
+  said done when it is not; a channel that will not join shows "Not connected to the others on this board just now.
+  WILSON keeps trying." after 4 s, without its cause, and the names are asked again every 30 s at most, with no end.
+  What Supabase does at the allowance's end with the spend cap on is not in the repository. Fix shape: say the state
+  in MOTH_DESIGN §5.4 (saves go on, others' changes stop arriving, the board says it is not connected); the operator's
+  signal is the usage page, read before each release and through the month; optionally tell a quota or limit refusal
+  apart in the channel's status and say so.
+- **MO4-56 · The brief's dashboard deltas were taken once, for the automated spec, and not for the plan's three
+  scenarios.** MEASURED (round 2, checked as part of the operator's cost finding: real in part, minor, breaks
+  neither; then a second reading by the session). The brief asks the plan's three scenarios to be measured "with two
+  browser contexts and the dashboard's deltas"; the two-to-five-person runs ran on a throwaway stack the usage page
+  does not see. The page was read twice on 2026-11-12: 1,057 Realtime messages at 06:01 UTC and 1,703 at 08:27 UTC, a
+  rise of 646, over three CI runs of the end-to-end specs on wilson-dev (pushed 05:54, 07:41 and 08:12 UTC; the page
+  refreshes hourly, so the first may lie inside the earlier figure and the third outside the later one). One run of
+  the board spec, counted on the wire, is 85 sends and 119 receipts, 204 messages as the page counts them: 612 for
+  three, within 34 of the page's own rise. So the page's count and the wire's agree for the spec; the plan's
+  two-person and five-person scenarios have no dashboard figure of their own. Fix shape: read the usage page just
+  before and an hour after one scenario run between real accounts on wilson-dev, with nothing else running.
+- **MO4-57 · Send backward or Send to back on a thing in a frame hides it under the frame's fill, still held.**
+  MEASURED by a node run of the pure modules (round 2, checked: real in part, minor, breaks neither). `stack`
+  (`BoardCanvas.jsx`) takes a frame's things along only when a frame is chosen; a lone held thing is restacked over
+  the whole board with no floor, and a frame holds by position, not order. A sticky on a frame sent to back lies under
+  the frame's opaque fill, unseen, still held: Delete on the frame removes it too (said once, and Undo brings it all
+  back). The first drag or nudge of the frame raises it again, and Ctrl+Z takes the send back. Fix shape: in `stack`,
+  for back and backward, stop a held thing just above its innermost holding frame, in the same step; a test.
+- **MO4-58 · A turned frame holds, raises and deletes things that lie visibly outside it.** INFERRED by reading, with
+  a scratch test on the real modules (round 2, not checked). A frame holds by its axis-aligned bounds (`frames.js`),
+  and a turned frame's bounds are the box around its turned corners. A frame of 200 by 200 at (0, 0) turned 45
+  degrees has a box reaching x = -141, so a sticky of 40 by 40 at (-130, 10), plainly outside it, is held: turning the frame raises it and saves its `z`, every
+  drag of the frame carries it, and Delete on the frame removes it. No document says a turned frame holds by its box
+  (MO4-22 names curved lines only). Fix shape: test a turned frame's own outline (its corners turned back), or say
+  the rule in MOTH_DESIGN §5.4.
+- **MO4-59 · A background change whose answer is lost is said not saved, then appears saved.** INFERRED by reading
+  (round 2, checked: real, minor, breaks neither). `saveBackground` (`boardStore.js`) treats every error alike: the
+  old background is drawn again and "That change could not be saved." is said, with no retry. If the server had saved
+  it, the `board` message or the read after a rejoin carries the higher version and the window turns to the new
+  background. The end state is true; the words and the moment back are not. The same shape was fixed for stickies and
+  placements in the first round. Fix shape: on an error that is not a refusal, read the board and take its background
+  and version; say the words only if that read does not show the choice saved.
+- **MO4-60 · Any undo or redo whose answer is lost comes back as someone else's change.** INFERRED by reading (round
+  2, not checked; the server's answer to a resend not measured). An undo is sent with `expect`; the server saves it
+  and the answer is lost (no code, so the store queues it again with its version unmoved). The resend meets the new
+  version, is named a conflict, the window says "Someone else changed this since, so it stays as they left it", and
+  the change is dropped from its step; a redone removal (a readd, `expect` 0) meets the row it made. MO4-33 says this
+  for a save of more than 500 split partway; this is any size, and MO4-33's fix shapes do not reach it. Fix shape: on
+  a conflict for a resent undo, read the row and take it as saved when it matches what was sent.
+- **MO4-61 · A clock set back freezes this person's pointer for the others, and keeps a dropped drag drawn.** INFERRED
+  by reading (round 2, not checked). `boardLive.js` times its send lanes and its sweep by the wall clock (`now()`):
+  after the clock goes back by H, a lane waits about H before it sends again, so the others see this pointer stand
+  still until a rejoin; and a peer's drag is swept when it has been silent 2 s by this clock, so with the clock behind
+  it stays drawn at its mid-drag place over the saved one until the clock catches up. Fix shape: time lanes and sweeps
+  by `performance.now()`.
+- **MO4-62 · A passing failure ends a sticky's words box for good, and the first Escape then drops the words.**
+  INFERRED by reading (round 2, not checked). `saveSticky` (`BoardCanvas.jsx`) sets the box to ended on every failed
+  save, a passing network error included, so it turns read-only with only Close, while its words say "Your words could
+  not be saved just now. They are still here.", which promises a later try that never comes. Escape then ends the
+  edit, and for an ended sticky that closes the box and drops the words without a question. Fix shape: keep the box
+  editing on a passing failure and try again at the next pause; on an ended box, Escape asks first or copies the
+  words.
+- **MO4-63 · The board itself shows no focus ring.** INFERRED by reading (round 2, not checked). The canvas region is
+  the one element every board key acts on (`tabIndex` 0), and its inline `outline: 'none'` beats the kit's global
+  `:focus-visible` ring; no style draws one for it. A keyboard user cannot see that the board has the keys. Fix shape:
+  drop the inline outline, or draw a ring for the region on `:focus-visible`.
+- **MO4-64 · The background's promise of crisp whole-pixel lines fails at a fractional device pixel ratio.** INFERRED
+  by reading (round 2, not checked). `background.js` rounds lines to whole CSS pixels and strokes at half a pixel, and
+  the canvas applies the device pixel ratio whole, so at 125% or 150% a line is 1.25 or 1.5 device pixels wide at a
+  fractional place, blurred unevenly, and dots are uneven; its comment says lines stay on whole pixels at every zoom.
+  The test checks CSS pixels only. Fix shape: round in device pixels (the ratio inside the rounding), or soften the
+  comment.
+- **MO4-65 · Walkthrough 97's 28 pictures are not in the repository.** MEASURED by `git ls-files` and `git log --all`
+  (round 2, checked: real, minor, breaks neither). The walkthrough says they are in the folder *97_moth_session_4
+  pictures* beside it, and PLAN_MOTH §6 cites them by number; the folder is only in her Desktop copy, never committed
+  (walkthroughs 93, 95 and 96 have theirs in the repository). Fix shape: copy the 28 pictures in under the names the
+  walkthrough lists, after checking that none shows a real name or email address.
+- **MO4-66 · A client may still send an event named AUDIENCE on a board's live channel.** INFERRED by reading (round 1's
+  checker of its AUDIENCE finding, the optional hardening it named; not built). Since the first round's fix the client
+  takes AUDIENCE only from the database's channel and ignores it on the people's channel, and since the second round
+  the fixtures do the same; but 0132's write policy on `moth:board-live:` still lets a reader send an event of that
+  name to every window there. Fix shape: a new migration narrowing `moth_board_live_write` so that no client may send
+  an event named AUDIENCE on the live channel, with a suite case.

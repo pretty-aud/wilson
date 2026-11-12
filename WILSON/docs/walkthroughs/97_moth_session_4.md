@@ -136,10 +136,12 @@ Two accounts, A and B, on the same board in two browsers. *No picture: the prete
 3. Move your pointer over the board: the other sees it, with your name, and it stops when you stop.
 4. A opens a sticky to write in it. When B tries the same sticky, B is told *A's name is writing on this sticky.* and
    cannot type in it; when A is done, B can.
-5. Turn B's network off for a few seconds: the board says *Not connected to the others on this board just now. WILSON
-   keeps trying.* Turn it back on: within about a second, B has everything A did meanwhile.
-6. As an admin, take B off the company while B has the board open: B's board closes at once with *You cannot see this
-   board any more, so it was closed.*
+5. Turn B's network off for half a minute or more: the board says *Not connected to the others on this board just
+   now. WILSON keeps trying.* A short break of a few seconds may show nothing, because the board only learns the
+   network has gone when its next check goes unanswered, and those checks come every 25 seconds. Turn it back on:
+   within a few seconds, B has everything A did meanwhile.
+6. As an admin, take B off the company while B has the board open: B's board closes at once, and M.O.T.H. says *This
+   board is not open to you any more. It may have gone to the trash or moved.*
 
 ### 7. Desktop-only board is solo, without channels/cursors.
 

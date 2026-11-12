@@ -5279,7 +5279,9 @@ there. Both are judged by `board_topic_readable`: the board's folder through Mot
 channels: `audience_gen` goes up when a board's folder goes to the trash, when its project goes to the trash, and for
 every board of a company when one of its members leaves, is removed or changes role; a privacy flip already moves the
 epoch. Each renaming sends AUDIENCE to the old names, and those who may still read ask `board_channels` and join the new.
-Nothing renames a board for a move to another project, because no such move is allowed (OUTSTANDING MO4-14).
+A demoted admin is the exception: the admin arm of the gate reads the role from the sign-in token, so on a private
+project they did not create they are let into the new names too, until the token refreshes (up to an hour, MO1-01;
+OUTSTANDING MO4-48). Nothing renames a board for a move to another project, because no such move is allowed (OUTSTANDING MO4-14).
 
 **A sticky's turn (MO4, 0133).** While someone types in a sticky it shows their name and a soft glow, and nobody else can
 write in it. `sticky_claim` gives the turn for 30 seconds by the database's clock, with a number from one sequence that is
@@ -5339,10 +5341,16 @@ frame land above its own things (OUTSTANDING MO4-21 to MO4-23 and MO4-25).
 network gone and back, the board and the turns are read again: a save made before the join, or while this window heard
 nothing, was never told to it. A channel that cannot join, or an AUDIENCE, has the names asked again (no more than once
 in 5 s while it keeps failing): a refusal then means this person may no longer read the board, and it closes with
-*You cannot see this board any more, so it was closed.* The database's channel gone for more than 4 s shows *Not
-connected to the others on this board just now. WILSON keeps trying.*, unsaid when it is back; a join that fails outright shows
+the refusal's words, for 42501 *This board is not open to you any more. It may have gone to the trash or moved.*
+(`LIVE_WORDS.gone`; the panel's *You cannot see this board any more, so it was closed.* shows only for a close with no
+words, which the live session never sends). The database's channel reported down for more than 4 s shows *Not
+connected to the others on this board just now. WILSON keeps trying.*, unsaid when it is back; a network gone with the
+socket still open is reported only at an unanswered heartbeat (Realtime's default, every 25 s), so a break of a few
+seconds may show nothing; a join that fails outright shows
 *Could not reach the others on this board just now. Your changes still save.*, and the canvas keeps the channel it is
-handed until then, one that sends and hears nothing. A save that could not reach the server is kept and tried again. Another person, another company or a
+handed until then, one that sends and hears nothing. A save that could not reach the server is kept and tried again
+while the board is open; after the board is closed, eight more tries (about 108 s), and then it is dropped with nothing
+said (MO4-52). Another person, another company or a
 sign-out leaves the channels, lets go of the store and the turns, and goes back to the map.
 
 **The end-to-end spec (MO4).** `tests/e2e/boards.spec.ts` runs the real page against wilson-dev's functions, storage and

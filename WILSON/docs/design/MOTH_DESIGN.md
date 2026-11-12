@@ -2283,7 +2283,9 @@ as one in §5.4 and hers to overturn.
   on it, so no save can be forged. `moth:board-live:…` carries a reader's broadcast and presence (pointers, drags, who
   is here). Both are open only to a reader of the board, named by the project's epoch and the board's `audience_gen`.
   When the audience narrows (the folder to the trash; a member leaving, removed or their role changed) the channels
-  are renamed and AUDIENCE is sent on the old names, so those who may still read join the new ones.
+  are renamed and AUDIENCE is sent on the old names, so those who may still read join the new ones. A demoted admin
+  joins them too on a private project they did not create, until their token refreshes: the gate's admin arm reads
+  the role from the token (MO1-01, MO4-48).
 - **`0133_sticky_locks`.** A sticky's soft lock, her ruling in brief §7.4. `sticky_claim` gives the turn if nobody
   holds a live one, or says who does, for the name and the glow. A turn lasts 30 seconds by the database's clock
   unless renewed, which the holder's window does about every ten while it types, so it lets go by itself when they
@@ -2412,12 +2414,14 @@ trashed folder from a client's UPDATE and DELETE too, since they see only what t
   lists folders and boards, with Bring back.
 - **Who is here.** The panel's head names the people on the board (presence: a name and a colour, never an email); a
   name learned after joining is passed on to the others. Another person, another company or signing out leaves the
-  channels and closes the board; someone who may no longer see it is told "You cannot see this board any more, so it
-  was closed."
+  channels and closes the board; someone who may no longer see it (taken off the company, the project made private
+  without them, the board in the trash) is told "This board is not open to you any more. It may have gone to the
+  trash or moved." (the refusal's own words; "You cannot see this board any more, so it was closed." only when a
+  close comes with no words, which the live session's close never does).
 - **A channel that drops.** Whenever the database's channel joins, the first time and after a network gone and back,
   the board and the turns are read again, so a save made before the join or meanwhile is not missed. A channel that
-  cannot join asks for the names again, and a refusal then closes the board with words. Down for four seconds, the
-  panel says "Not connected to the others on this board just now. WILSON keeps trying."; live channels that cannot
+  cannot join asks for the names again, and a refusal then closes the board with words. Reported down for four
+  seconds (the socket closing, or a heartbeat unanswered: they go every 25 s), the panel says "Not connected to the others on this board just now. WILSON keeps trying."; live channels that cannot
   join say "Could not reach the others on this board just now. Your changes still save."
 - **The fixtures** (dev builds only): boards in the fixtures' memory beside the rest, and `?as=` as another pretend
   person on the same board, the two hearing each other on the bus. The fixtures refuse a file's delete, so the
@@ -2574,7 +2578,19 @@ with the spend cap enabled, and one allowance covers the test copy, staging and 
 17 October to 17 November: 1,057 Realtime messages of 5,000,000 (4,998,943 left), a peak of 8 concurrent Realtime
 connections of 500, 23,484 Edge Function calls of 2,000,000. Against that allowance the plan's table reads: two
 people moving without pause on one board for an hour are 144,000 messages, about 2.9% of a month's allowance; five,
-900,000, 18%. The page counts a broadcast as the one sent and each receipt, as §5.3's measured runs do.
+900,000, 18%. The page counts a broadcast as the one sent and each receipt, as §5.3's measured runs do. A second
+reading at 08:27 UTC gave 1,703 messages, a rise of 646 over three CI runs of the end-to-end specs on the test copy
+(the page refreshes hourly, so the first and the last of the three may lie outside the two figures); one run of the
+board spec counted on the wire is 85 sends and 119 receipts, 204 as the page counts them, so three are 612, within 34
+of the page's own rise: the page and the wire agree for the spec (MO4-56 says what was not measured this way). In
+board-hours, the allowance left at that reading (5,000,000 - 1,057 = 4,998,943 for the month, shared by the
+organisation's three projects, CI's runs on the test copy included) holds 4,998,943 / 144,000 = about 34.7 board-hours
+of two people moving without pause, 4,998,943 / 225,000 = about 22.2 of five moving a quarter of the time, and
+4,998,943 / 900,000 = about 5.6 of five moving without pause, before any other use. The table counts pointer
+messages only. It leaves out drag messages (up to about 210 a second for one frame drag, MO4-40), the database
+channel's element, `board` and sticky messages (each one sent once and received by every window on the board), and
+presence, so a real month holds fewer board-hours than these. No before-and-after reading of the usage page was taken
+around a scenario run (MO4-56).
 
 **The first whole-session round** (a Workflow run on Opus 5.5 over the session at `aa89a238`, both additions in):
 27 agents, 12 reviewers by lens and 15 checkers, 3,594,153 tokens. The lenses: who may reach the database; who may
@@ -2611,8 +2627,55 @@ session took them on the points named, since each leaves a window showing what i
 nothing said, on a path her list walks. The documents' findings are answered in the documents: this section and
 §5.4, PLAN_MOTH §6's evidence, walkthrough 97, the handbook's count; the hand-off is rewritten at the session's end.
 The rest are open items MO4-29 to MO4-47, the most serious first (MO4-29: a new text's add and its words are two
-undo steps, so one undo leaves an empty text); MO4-30 is a sticky on a company's own s3 bucket (§5.4). The second
-whole-session round has not run.
+undo steps, so one undo leaves an empty text); MO4-30 is a sticky on a company's own s3 bucket (§5.4). CI on
+`1923b430` (the round's fixes and their documents): six of six checks green.
+
+**The second whole-session round** (a Workflow run on Opus 5.5 over the session at `1923b430`): 34 agents, 12
+reviewers by lens and 22 checkers, 4,309,957 tokens. Its lenses follow what a person does and what can go wrong, not
+the code's parts: two people at the same moment; a bad network (slow, lost, flapping, a tab asleep, a clock that
+jumps, lost answers); access that changes while a board is open; frames in depth; the background in depth; limits
+and hostile input; the words a person reads and the keys they press; the operator applying 0130 to 0136; the
+evidence in PLAN_MOTH §6; the open items; a first use, step by step through walkthrough 97; and one lens that checked
+the first round's seven fixes. 40 findings, no blocker. Each checker said whether its finding breaks security, a
+point of her acceptance list as written (PLAN_MOTH §5 Session 4, the eight points and her two additions), or
+neither. The seven taken into the code, in `316830f4` (vitest, the whole set with them: 508 of 509 files, 13,098
+passed, 9 skipped; the one red file a loopback connect that timed out under the run's own load, green alone, 66 of
+66; both browser scripts every step afterwards), are the ones the checkers called security or acceptance:
+
+- A second close of the same board, or Try again, forgot a close still trying, which then sent its saves under the
+  next account to sign in (security; three reviewers). Every close still trying is now held, several to a board.
+- A reader's forged drag was drawn in a writer's window, and the writer's own next action (a drag or a Delete of a
+  frame) started from it, so it was saved or deleted (security; worse than MO4-35 says). A person's own gestures now
+  start from the settled board, and live places out of range are dropped.
+- A close still trying could land after the board was opened again and edited, and overwrite the newer edit
+  (acceptance, point 6: disconnect recovery). A close's waiting changes are now fenced by version.
+- A sticky save that landed while its answer was lost was not taken, so the words box said it was not saved and every
+  later save said the sticky had moved (acceptance, point 6: disconnect recovery; three reviewers). The new key is
+  now taken and the save answered as saved.
+- A frame lying across its outer frame's edge stayed behind while its things moved with the outer frame (acceptance,
+  her addition 2: grab the group and move it). A frame is now held as a thing is, by its middle and not larger; of
+  two that would hold each other, only the lower holds the higher.
+- After any board button was pressed, the board's keys did nothing (acceptance, point 8: the full walkthrough, and
+  RELEASE_TESTING §W's Control+Z step; two reviewers). A button now keeps only Space and Enter, and the focus goes
+  back to the board.
+- In a maximised window an edge of the small frame could not be pulled the 160 px it takes to close (acceptance,
+  point 1 as walkthrough 97 step 1.6 walks it). The distance now fits the room the window leaves.
+
+With them, a smaller one: the development fixtures took an AUDIENCE from the people's channel, as the cloud no
+longer does; they now follow the adapter's rule. Two of the seven are faults in the first round's own fixes: the map
+of closes still trying held one entry a board, and a close's late save could overwrite a newer edit; a third
+finishes one, since the first round's sticky fix kept the new words but did not take the new key.
+
+One security finding was not taken. A demoted admin keeps a private project's board, hearing its saves, pointers and
+presence and able to send pointers, until their sign-in token refreshes (up to an hour, MO1-01): the gates read the
+role from the token, so the renamed channels are granted to them again. The checker called it minor, since
+`board_read` gives them the same board for the same hour, and the fix it named (a migration narrowing only the
+channels' check) would close the channels and not `board_read`. A whole fix reads the role from the table on every
+gate, platform-wide. It was not taken this session and is hers to decide (MO4-48). The rest are open items MO4-48 to
+MO4-66, the most serious first (MO4-49: undoing an earlier step overwrites another person's later change, silently).
+The documents' findings are answered in the documents: the cost paragraph above in board-hours, the runbook's rows
+0130, 0131 and 0136 and a paragraph on going back, §5.4's order of the client and 0136, three rows of PLAN_MOTH §6,
+and the words quoted in RELEASE_TESTING §W, the handbook and walkthrough 97.
 
 **Not measured:** a board's Local Server words in the desktop app (unit tests hold them); two real accounts on
 staging (hers, RELEASE_TESTING §W); a board on a company that keeps its files in its own s3 bucket or on an office
@@ -2647,13 +2710,16 @@ server: no such run was made this session.
   the top of the board; Ctrl or Cmd, Shift and a press on a frame keeps toggle-and-move. The board has no copy, no
   duplicate and no right-click menu yet, so frames add none. While a frame is dragged the others see it and up to
   nineteen of its things move live (twenty places a step in all); the rest arrive when it is let go.
-- **Owed by the two additions:** the first whole-session round (Opus 5.5) has run, both additions read with the rest
-  of the session (§5.3); the second has not. A board's background is in neither the record nor the takeout, as
-  boards are not (MO4-14).
+- **Owed by the two additions:** both whole-session rounds (Opus 5.5) have run, both additions read with the rest
+  of the session (§5.3). A board's background is in neither the record nor the takeout, as boards are not (MO4-14).
 - **From the first whole-session round**, open: MO4-29 to MO4-47 (§5.3 names the seven taken).
+- **From the second whole-session round**, open: MO4-48 to MO4-66 (§5.3 names the seven taken). MO4-48, a demoted
+  admin keeping a private project's board until their token refreshes, is a security finding left for her to decide.
 - **Before staging and production:** the runbook's 0130 to 0136 rows. Count the projects with no top folder on each
   first. Apply in numeric order. 0134 takes a brief ACCESS EXCLUSIVE lock on `boards` and `board_elements` while it
   restates their policies; 0135 takes no table lock; 0136 takes a moment's ACCESS EXCLUSIVE lock on `boards` (a
   constant default, no rewrite), with a lock timeout of five seconds. After any replay of 0130: 0134, then 0136. The
-  client that knows boards goes only after 0130 to 0135; the client that knows backgrounds also works against a
-  server without 0136 (the dotted grid, no choice offered).
+  client that knows boards goes only after 0130 to 0135. It also works against a server without 0136: before 0136,
+  `board_read` gives a board no `background` key, so the store's `canSetBackground` is false, the dotted grid is drawn
+  and no Background choice is offered. So 0136 may follow the build; the simplest order, and the runbook's, is all
+  seven files first, then the build.
