@@ -30,6 +30,9 @@ const SIZE_ICONS = { framed: Shrink, filled: Expand, maximised: Maximize2 }
 export const BACK_WORDS = 'Back to the map'
 export const GONE_WORDS = 'You cannot see this board any more, so it was closed.'
 export const LIVE_FAILED_WORDS = 'Could not reach the others on this board just now. Your changes still save.'
+// The channel that brings the others' changes dropped and has not come back for a moment (boardLive's `link`).
+export const LIVE_DOWN_WORDS = 'Not connected to the others on this board just now. WILSON keeps trying.'
+const LINK_GRACE_MS = 4000
 
 // Until the live channels are joined (or if they cannot be), the canvas is handed one that sends and hears nothing.
 const NO_LIVE = Object.freeze({
@@ -68,6 +71,32 @@ class CanvasBoundary extends Component {
     }
     return this.props.children
   }
+}
+
+// Who else has this board open (boardLive's presence, which was kept and never shown before the board was seen
+// running): a name each, beside its colour, never an email. Nobody else here: nothing is drawn.
+const PEOPLE_SHOWN = 4
+function PeopleHere({ live }) {
+  const [people, setPeople] = useState([])
+  useEffect(() => {
+    const read = () => setPeople(live?.people?.() ?? [])
+    read()
+    return live?.subscribe?.((evt) => { if (evt?.type === 'people') read() }) ?? undefined
+  }, [live])
+  if (!people.length) return null
+  const shown = people.slice(0, PEOPLE_SHOWN)
+  const more = people.slice(PEOPLE_SHOWN)
+  return (
+    <ul className="moth-board-people" aria-label="Also on this board" data-moth-board-people>
+      {shown.map((p) => (
+        <li key={p.id} title={p.label}>
+          <span className="moth-board-person-dot" style={{ backgroundColor: p.colour }} aria-hidden="true" />
+          <span className="moth-board-person-name">{p.label}</span>
+        </li>
+      ))}
+      {more.length > 0 && <li title={more.map((p) => p.label).join(', ')}>+{more.length}</li>}
+    </ul>
+  )
 }
 
 export function BoardPanel({
@@ -159,6 +188,8 @@ export function BoardPanel({
     let alive = true
     let joined = null
     let off = null
+    let offLink = null
+    let linkTimer = null
     const store = createBoardStore({ adapter, boardId: board.id })
     // The canvas hears the turns itself (turns.subscribe): nothing the panel draws changes with a glow.
     const turns = createStickyTurns({ adapter, boardId: board.id, sessionId: newSessionId() })
@@ -191,6 +222,14 @@ export function BoardPanel({
         })
         if (!alive) { session?.leave?.(); return }
         joined = session
+        // The others' changes stopped arriving (a network gone, a channel that will not join): said once it has
+        // lasted a moment, and unsaid when the channel is back. A blink while the channels are renamed says nothing.
+        offLink = session?.subscribe?.((evt) => {
+          if (!alive || evt?.type !== 'link') return
+          if (linkTimer) { clearTimeout(linkTimer); linkTimer = null }
+          if (evt.up) setLiveWords('')
+          else linkTimer = setTimeout(() => { linkTimer = null; if (alive) setLiveWords(LIVE_DOWN_WORDS) }, LINK_GRACE_MS)
+        }) ?? null
         setParts({ store, turns, live: session })
       } catch {
         if (alive) setLiveWords(LIVE_FAILED_WORDS)
@@ -198,7 +237,9 @@ export function BoardPanel({
     })()
     return () => {
       alive = false
+      if (linkTimer) clearTimeout(linkTimer)
       try { off?.() } catch { /* already gone */ }
+      try { offLink?.() } catch { /* already gone */ }
       try { joined?.leave?.() } catch { /* already gone */ }
       try { turns.dispose?.() } catch { /* already gone */ }
       if (whoRef.current !== who) {
@@ -373,6 +414,7 @@ export function BoardPanel({
       >
         <header className="moth-board-head">
           <span className="moth-board-title" title={title}>{title}</span>
+          <PeopleHere live={parts?.live ?? null} />
           {/* A board that may only be looked at is said by the canvas, which is told canWrite. */}
           <div className="moth-board-sizes" role="group" aria-label="Board size">
             {SIZES.map((s) => (

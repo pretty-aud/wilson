@@ -46,7 +46,7 @@ describe('boardLive: joining', () => {
     const { adapter, conn } = await joined()
     expect(adapter.boardChannels).toHaveBeenCalledWith(BOARD)
     expect(conn().topics).toEqual({ topic: adapter.names.topic, live_topic: adapter.names.live_topic })
-    expect(Object.keys(conn().handlers).sort()).toEqual(['onAudience', 'onElements', 'onLive', 'onPresence', 'onSticky'])
+    expect(Object.keys(conn().handlers).sort()).toEqual(['onAudience', 'onElements', 'onLive', 'onPresence', 'onStatus', 'onSticky'])
     expect(conn().track).toHaveBeenCalledWith({ user_id: 'u-mara', label: 'Mara Okonkwo', colour: personColour('u-mara') })
 
     const other = fakeAdapter()
@@ -260,6 +260,136 @@ describe('boardLive: renamed channels and leaving', () => {
     expect(adapter.openBoardChannels).toHaveBeenCalledTimes(2)
     live.sendPointer(5, 5)
     expect(conn().sendLive).toHaveBeenCalledTimes(1)
+  })
+})
+
+// The channels say when they join and when they fail. Nothing read these words before a board was seen running
+// against a real server: a save made before the join, or while the network was away, was never told to the window.
+describe('boardLive: the channels joining, dropping and joining again', () => {
+  const topic = (status) => ({ channel: 'topic', status })
+  const liveCh = (status) => ({ channel: 'live', status })
+
+  it('the database\'s channel joined: the board and the turns are read again, the first time and after a drop', async () => {
+    const { store, turns, conn } = await joined()
+    expect(store.load).not.toHaveBeenCalled()
+    conn().handlers.onStatus(topic('SUBSCRIBED'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.load).toHaveBeenCalledTimes(1)
+    expect(turns.refresh).toHaveBeenCalledTimes(1)
+    conn().handlers.onStatus(topic('CHANNEL_ERROR'))
+    conn().handlers.onStatus(topic('SUBSCRIBED'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.load).toHaveBeenCalledTimes(2)
+    expect(turns.refresh).toHaveBeenCalledTimes(2)
+  })
+
+  it('the people\'s channel joining reads nothing again', async () => {
+    const { store, conn } = await joined()
+    conn().handlers.onStatus(liveCh('SUBSCRIBED'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.load).not.toHaveBeenCalled()
+  })
+
+  it('asked again while a read is on its way, one more read follows it', async () => {
+    const { store, conn } = await joined()
+    let done
+    store.load.mockImplementationOnce(() => new Promise((r) => { done = r }))
+    conn().handlers.onStatus(topic('SUBSCRIBED'))
+    conn().handlers.onStatus(topic('SUBSCRIBED'))
+    conn().handlers.onStatus(topic('SUBSCRIBED'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.load).toHaveBeenCalledTimes(1)
+    done()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.load).toHaveBeenCalledTimes(2)
+  })
+
+  it('a channel that cannot join: the names are asked again, and new ones are joined', async () => {
+    const { adapter, conn } = await joined()
+    const first = conn()
+    adapter.names = { topic: `moth:board:${BOARD}:0.1`, live_topic: `moth:board-live:${BOARD}:0.1`, audience_gen: 1 }
+    first.handlers.onStatus(topic('CHANNEL_ERROR'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(adapter.boardChannels).toHaveBeenCalledTimes(2)
+    expect(first.leave).toHaveBeenCalled()
+    expect(conn().topics.topic).toMatch(/0\.1$/)
+  })
+
+  it('...and a board closed to this person meanwhile closes with words', async () => {
+    const { adapter, onClosed, conn } = await joined()
+    adapter.boardChannels.mockRejectedValueOnce(Object.assign(new Error('board not found'), { code: '42501' }))
+    conn().handlers.onStatus(liveCh('TIMED_OUT'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(onClosed).toHaveBeenCalledWith(LIVE_WORDS.gone)
+  })
+
+  it('under the same names it is left to join by itself, and the names are not asked on every failure', async () => {
+    const { adapter, conn } = await joined()
+    for (let i = 0; i < 4; i += 1) conn().handlers.onStatus(topic('CHANNEL_ERROR'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(adapter.boardChannels).toHaveBeenCalledTimes(2)
+    expect(adapter.openBoardChannels).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(5000)
+    conn().handlers.onStatus(topic('CHANNEL_ERROR'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(adapter.boardChannels).toHaveBeenCalledTimes(3)
+    expect(adapter.openBoardChannels).toHaveBeenCalledTimes(1)
+  })
+
+  it('a network gone and back: the names cannot be asked, it is tried again, and a channel back by itself is kept', async () => {
+    const { adapter, store, conn } = await joined()
+    const first = conn()
+    adapter.boardChannels.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    first.handlers.onStatus(topic('CHANNEL_ERROR'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(adapter.boardChannels).toHaveBeenCalledTimes(2)
+    // The channel joins again by itself before the next try: what it missed is read, and the try leaves it joined.
+    first.handlers.onStatus(topic('SUBSCRIBED'))
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(store.load).toHaveBeenCalledTimes(1)
+    expect(adapter.boardChannels).toHaveBeenCalledTimes(3)
+    expect(first.leave).not.toHaveBeenCalled()
+    expect(adapter.openBoardChannels).toHaveBeenCalledTimes(1)
+  })
+
+  it('...and one still down at the next try is opened again', async () => {
+    const { adapter, conn } = await joined()
+    const first = conn()
+    adapter.boardChannels.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    first.handlers.onStatus(topic('CHANNEL_ERROR'))
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(first.leave).toHaveBeenCalled()
+    expect(adapter.openBoardChannels).toHaveBeenCalledTimes(2)
+  })
+
+  it('closed by the server, a channel is opened again under the names of now', async () => {
+    const { adapter, conn } = await joined()
+    const first = conn()
+    first.handlers.onStatus(topic('CLOSED'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(first.leave).toHaveBeenCalled()
+    expect(adapter.openBoardChannels).toHaveBeenCalledTimes(2)
+  })
+
+  it('subscribers hear the link go and come, and a left connection\'s words are not heard', async () => {
+    const { adapter, store, live, conn } = await joined()
+    const heard = []
+    live.subscribe((e) => { if (e.type === 'link') heard.push(e.up) })
+    const first = conn()
+    first.handlers.onStatus(topic('CHANNEL_ERROR'))
+    first.handlers.onStatus(liveCh('CHANNEL_ERROR'))
+    first.handlers.onStatus(topic('SUBSCRIBED'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(heard).toEqual([false, true])
+    adapter.names = { topic: `moth:board:${BOARD}:0.2`, live_topic: `moth:board-live:${BOARD}:0.2`, audience_gen: 2 }
+    first.handlers.onAudience({ board: BOARD, op: 'audience' })
+    await vi.advanceTimersByTimeAsync(0)
+    const reads = store.load.mock.calls.length
+    first.handlers.onStatus(topic('SUBSCRIBED'))
+    first.handlers.onStatus(topic('CLOSED'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.load).toHaveBeenCalledTimes(reads)
+    expect(adapter.openBoardChannels).toHaveBeenCalledTimes(2)
   })
 })
 

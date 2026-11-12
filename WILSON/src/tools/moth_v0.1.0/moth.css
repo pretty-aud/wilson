@@ -302,6 +302,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Who else is on the board: a name beside its colour, cut short before it crowds the board's own name. */
+.moth-board-people { display: flex; flex: 0 1 auto; align-items: center; gap: 10px; min-width: 0; margin: 0; padding: 0; color: var(--color-ink-2); font-size: var(--text-dense); list-style: none; }
+.moth-board-people li { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.moth-board-person-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; }
+.moth-board-person-name { overflow: hidden; max-width: 14ch; text-overflow: ellipsis; white-space: nowrap; }
 .moth-board-sizes { display: flex; align-items: center; gap: 2px; }
 .moth-board-notes { display: flex; flex-direction: column; gap: 4px; padding: 4px 8px; border-bottom: 1px solid var(--color-rule); }
 .moth-board-body { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; }

@@ -21,7 +21,7 @@ vi.mock('./stickyTurn.js', () => ({
   },
 }))
 
-import { BoardPanel, BACK_WORDS, GONE_WORDS, LIVE_FAILED_WORDS } from './BoardPanel.jsx'
+import { BoardPanel, BACK_WORDS, GONE_WORDS, LIVE_FAILED_WORDS, LIVE_DOWN_WORDS } from './BoardPanel.jsx'
 import { defaultFrame, FALLBACK_BOUNDS, PULL_CLOSE_PX, MIN_FRAME, TRASH_WORDS } from './boardPanelState.js'
 
 function fakeStore({ fail = null, board = { id: 'b1', title: 'Plans', can_write: true } } = {}) {
@@ -40,6 +40,18 @@ function fakeStore({ fail = null, board = { id: 'b1', title: 'Plans', can_write:
 }
 function fakeLive() {
   return { leave: vi.fn(), sendPointer() {}, sendDrag() {}, cursors: () => new Map(), people: () => [], subscribe: () => () => {}, stats: () => ({ sent: 0, received: 0 }) }
+}
+
+// A live session whose listeners a test can speak to (the panel listens for the link, its people strip for who is here).
+function liveThatTells(extra = {}) {
+  const subs = new Set()
+  h.join = async (opts) => {
+    h.joins.push(opts)
+    const l = { ...fakeLive(), ...extra, subscribe: (fn) => { subs.add(fn); return () => subs.delete(fn) } }
+    h.lives.push(l)
+    return l
+  }
+  return { tell: (evt) => { for (const fn of [...subs]) fn(evt) }, heard: () => subs.size }
 }
 
 const BOARD = { id: 'b1', folder_id: 'f1', project_id: 'p1', title: 'Plans' }
@@ -119,6 +131,50 @@ describe('opening', () => {
     const live = lastCanvas().live
     expect(typeof live.sendPointer).toBe('function')
     expect(live.cursors().size).toBe(0)
+  })
+  it('who else is on the board is shown by name beside their colour; nobody else, nothing', async () => {
+    let here = []
+    const { tell, heard } = liveThatTells({ people: () => here })
+    render(<BoardPanel board={BOARD} adapter={adapter} me={ME} onClose={() => {}} />)
+    expect(await screen.findByText('the canvas')).toBeTruthy()
+    await waitFor(() => expect(heard()).toBe(2))
+    expect(document.querySelector('[data-moth-board-people]')).toBeNull()
+    here = [{ id: 'u2', label: 'Theo Lindqvist', colour: '#2f9e44' }, { id: 'u3', label: 'Someone', colour: '#1c7ed6' }]
+    act(() => { tell({ type: 'people' }) })
+    const list = screen.getByRole('list', { name: 'Also on this board' })
+    expect(list.textContent).toBe('Theo LindqvistSomeone')
+    expect(list.querySelector('.moth-board-person-dot').style.backgroundColor).toBe('rgb(47, 158, 68)')
+    // More than four: the rest are counted, and named on the count.
+    here = ['Ada', 'Ben', 'Cy', 'Dee', 'Eli', 'Fay'].map((n, i) => ({ id: `p${i}`, label: n, colour: '#1c7ed6' }))
+    act(() => { tell({ type: 'people' }) })
+    expect(screen.getByRole('list', { name: 'Also on this board' }).textContent).toBe('AdaBenCyDee+2')
+    expect(screen.getByText('+2').getAttribute('title')).toBe('Eli, Fay')
+    here = []
+    act(() => { tell({ type: 'people' }) })
+    expect(document.querySelector('[data-moth-board-people]')).toBeNull()
+  })
+  it('the others\' channel dropped: said once it has lasted a moment, unsaid when it is back, a blink says nothing', async () => {
+    const { tell, heard } = liveThatTells()
+    render(<BoardPanel board={BOARD} adapter={adapter} me={ME} onClose={() => {}} />)
+    expect(await screen.findByText('the canvas')).toBeTruthy()
+    await waitFor(() => expect(heard()).toBe(2))
+    vi.useFakeTimers()
+    try {
+      // A blink (the channels renamed and joined again) says nothing.
+      act(() => { tell({ type: 'link', up: false }) })
+      act(() => { vi.advanceTimersByTime(1000) })
+      act(() => { tell({ type: 'link', up: true }) })
+      act(() => { vi.advanceTimersByTime(10000) })
+      expect(screen.queryByText(LIVE_DOWN_WORDS)).toBeNull()
+      // Down for a while: said. Back: unsaid.
+      act(() => { tell({ type: 'link', up: false }) })
+      act(() => { vi.advanceTimersByTime(4000) })
+      expect(screen.getByText(LIVE_DOWN_WORDS)).toBeTruthy()
+      act(() => { tell({ type: 'link', up: true }) })
+      expect(screen.queryByText(LIVE_DOWN_WORDS)).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
   })
   it('🚨 access gone closes the board with words', async () => {
     const { onClose } = await open()

@@ -13,6 +13,13 @@
 // asked again and joined, and the store and the turns read again what the old names carried meanwhile. A refusal
 // then means this person may no longer read the board: it closes with words. A page hidden for good leaves; the
 // panel leaves on close, on sign-out and on a change of company (its `me` changes, and it calls leave()).
+//
+// The channels say when they join and when they fail (the adapter's onStatus). Whenever the database's channel has
+// joined, the first time and again after a network gone and back, the board and the turns are read again: a save
+// made before the join, or while this window heard nothing, was never told to it. A channel that cannot join has the
+// names asked again: they may have changed meanwhile (an AUDIENCE this window missed), or the board may be closed to
+// this person, which closes it with words. Subscribers hear { type: 'link', up } as the database's channel goes
+// and comes.
 import { isRefusal, wordsOf } from './boardStore.js'
 
 const SEND_EVERY_MS = 100
@@ -22,6 +29,8 @@ const DRAG_GONE_MS = 2000
 const DRAG_HUSH_MS = 600
 const SWEEP_MS = 1000
 const RETRY_MS = [2000, 5000, 10000, 30000]
+// A channel that keeps failing asks the names again no more often than this.
+const CHECK_EVERY_MS = 5000
 
 // Colours that read on a light board and are never the kit's orange, which is the selection's.
 const PALETTE = Object.freeze(['#1c7ed6', '#2f9e44', '#c2255c', '#7048e8', '#0c8599', '#5c940d', '#ae3ec9',
@@ -77,11 +86,18 @@ export async function joinBoard({ adapter, boardId, me, store, turns, onClosed =
   let retries = 0
   let framing = false
   let sweepTimer = null
+  let linked = false               // the database's channel is joined, as far as this window has been told
+  let lastCheck = -Infinity
 
   const emit = (event) => {
     for (const fn of [...listeners]) {
       try { fn(event) } catch { /* a listener's fault stays its own */ }
     }
+  }
+  const setLinked = (up) => {
+    if (linked === up) return
+    linked = up
+    emit({ type: 'link', up })
   }
   const tally = (way, event) => {
     counts[way] += 1
@@ -176,6 +192,21 @@ export async function joinBoard({ adapter, boardId, me, store, turns, onClosed =
   function handlersFor(g) {
     const current = () => g === gen && !closed && !suspended
     return {
+      onStatus(s) {
+        if (!current()) return
+        const database = s?.channel !== 'live'
+        const status = s?.status
+        if (status === 'SUBSCRIBED') {
+          if (!database) return
+          setLinked(true)
+          catchUp()
+          return
+        }
+        if (status !== 'CHANNEL_ERROR' && status !== 'TIMED_OUT' && status !== 'CLOSED') return
+        if (database) setLinked(false)
+        // Closed by the server, a channel does not join again by itself: it is opened again under the names of now.
+        checkNames(status === 'CLOSED')
+      },
       onElements(payload) {
         if (!current()) return
         tally('received', 'elements')
@@ -216,6 +247,7 @@ export async function joinBoard({ adapter, boardId, me, store, turns, onClosed =
     for (const lane of lanes.values()) if (lane.timer) clearTimeout(lane.timer)
     lanes.clear()
     if (c) { try { c.leave?.() } catch { /* already down */ } }
+    setLinked(false)
   }
   function clearTracks() {
     for (const id of [...dragTracks.keys()]) endDrag(id, false)
@@ -247,18 +279,44 @@ export async function joinBoard({ adapter, boardId, me, store, turns, onClosed =
     conn = c
     topics = next
     retries = 0
+    // Taken as joined until a channel says otherwise: an adapter with no word on its channels (the dev fixtures'
+    // in-page one) is joined as soon as it is opened.
+    setLinked(true)
     try { await conn?.track?.({ ...meta }) } catch { /* presence is a nicety; the channels still work */ }
     return true
   }
-  // What the old names carried while new ones were made, read again.
-  const catchUp = () => Promise.allSettled([quietly(() => store?.load?.()), quietly(() => turns?.refresh?.())])
+  // What was said while this window could not hear it (new names being made, a channel not yet joined, a network
+  // gone), read again. One read at a time; asked again while one is on its way, one more follows it, since the one
+  // on its way may have read before the channel that asked had joined.
+  let catching = null
+  let catchAgain = false
+  function catchUp() {
+    if (catching) { catchAgain = true; return catching }
+    catching = Promise.allSettled([quietly(() => store?.load?.()), quietly(() => turns?.refresh?.())]).then(() => {
+      catching = null
+      const again = catchAgain && !closed && !suspended
+      catchAgain = false
+      return again ? catchUp() : undefined
+    })
+    return catching
+  }
 
   function failedToJoin(err) {
     if (isRefusal(err)) { close(goneWords(err)); return }
     if (closed || suspended || retryTimer) return
     const wait = RETRY_MS[Math.min(retries, RETRY_MS.length - 1)]
     retries += 1
-    retryTimer = setTimeout(() => { retryTimer = null; rejoin(true) }, wait)
+    // Joined again by itself meanwhile (the network came back): the names are only compared, nothing is left.
+    retryTimer = setTimeout(() => { retryTimer = null; rejoin(!(conn && linked)) }, wait)
+  }
+
+  // A channel failed: the names are asked again, at most once in a while unless it was closed for good.
+  function checkNames(force = false) {
+    if (closed || suspended || rejoining || retryTimer) return
+    const t = now()
+    if (!force && t - lastCheck < CHECK_EVERY_MS) return
+    lastCheck = t
+    rejoin(force)
   }
 
   function rejoin(force = false) {
