@@ -661,3 +661,27 @@ with no admin rights. Do it on staging first.
 - [ ] `[Cloud]` Try to tag or link an invoice or a Legal file: none is offered, and none appears as a dot, a line or a link, for any role.
 - [ ] `[Cloud]` In M.O.T.H., notes and typed tags show as dots and saved links as lines; a note's dot opens it in the Dashboard. **Look back** before the record began for them: it says from when they are recorded.
 - [ ] `[Cloud]` In D.O.G., reference a note with links: the words come through as written, with no link codes.
+
+## §W. Boards and live editing (30 min · walkthrough 97) `[Cloud][Desktop]`
+
+Two accounts of one company, in two browsers (or a browser and a private window): **A**, an admin, and **B**, a member
+who can change the project. Use a project that has folders. Do it on staging first, with two real accounts, before
+boards reach anyone. Before you start and after you finish, write down from the Supabase usage page: the plan's name,
+the Realtime messages left this month, the peak connections, and that the spend cap is on.
+
+- [ ] `[Cloud]` As A, in M.O.T.H., open a project's **⋯** (*More for this project*): it offers **New board**. Make one: it opens in its small frame, and on the map it is a dot of its own colour.
+- [ ] `[Cloud]` The three size buttons, *Show in a frame*, *Fill the view* and *Maximise*, each change the panel. **Back to the map** closes it and the map is as it was. Open it again and press Escape: the same. With the shape list open, words being typed or something selected, Escape lets go of that first.
+- [ ] `[Cloud]` In the small frame, drag a corner: the frame resizes and stays open. Pull the right edge far out: it says *Let go to close*, and letting go closes it. Pulled a little, it stays. Filling the view or maximised, an edge does nothing.
+- [ ] `[Cloud]` Draw each of the nineteen shapes from *Choose a shape*; draw a straight, a curved and a square-turned connector between shapes, with dashes, a width, each end's head and words on a line. Drag a joined shape: its lines follow. Draw a frame, a pen line, text and a sticky with words. Reload: all of it is there.
+- [ ] `[Cloud]` Select a shape: the panel changes its fill, line, width, dashes, words and stacking. Undo and redo (and Control+Z) put things back.
+- [ ] `[Cloud]` Choose a picture with **Picture or file**, and drop a picture and a text file on the board (it says *Drop to add to the board*): each is a tile. Close the board: its folder in M.O.T.H. and in Files lists them and a file for the sticky.
+- [ ] `[Cloud]` **Embed a file** from another folder: it shows on the board, and the board's folder gains no copy of it.
+- [ ] `[Cloud]` Put that embedded file in the trash, then open the board: the tile is a stop sign with *This file is missing — it may have been moved or deleted*, and no file name. As B, with that file private to A, the tile is the same.
+- [ ] `[Cloud]` A and B on one board: each sees the other's name at the top. Each moves a different shape at the same time: both changes stay, on both screens. Each sees the other's pointer with their name; it stops when they stop.
+- [ ] `[Cloud]` A writes in a sticky; B tries the same sticky: B reads *A's name is writing on this sticky.* and cannot type. When A is done, B can.
+- [ ] `[Cloud]` Turn B's network off for ten seconds: B's board says *Not connected to the others on this board just now. WILSON keeps trying.* Meanwhile A changes something. Turn it on: within a few seconds B has A's change and the words go. If the board could not join at all it says *Could not reach the others on this board just now. Your changes still save.*
+- [ ] `[Cloud]` With B's board open, A takes B off the company (or makes the project private without B): B's board closes at once with *You cannot see this board any more, so it was closed.*
+- [ ] `[Cloud]` On the board, press **Put in the trash**: it asks *Put this board in the trash? Its notes and pictures go with it. You can bring it back from Moth's trash for 30 days.* **Keep it** changes nothing. **Put it in the trash**: the board closes and M.O.T.H. says *The board is in the trash. You can bring it back from Moth's trash for 30 days.* In M.O.T.H.'s **Trash** it is under *Folders and boards*; **Bring back** returns it with everything on it, and its files.
+- [ ] `[Desktop]` On a project kept only on this computer, its **⋯** menu offers no **New board** and says *A board needs this project in the cloud.*; M.O.T.H.'s settings say *Boards need the project in the cloud.* Nothing on the page tries to connect to others.
+- [ ] `[Cloud]` On a project with no folders, **New board** is refused with *You cannot make a board here. The folder may have moved, or you may not change it.* (known, OUTSTANDING MO4-17); count such projects before release.
+- [ ] `[Cloud]` Do the steps above on both approved projects (the debug sample and LEGEND ROAD), then read the usage page again: the messages used fit what is left, and the spend cap is still on. As a guide, a pointer sends at most ten times a second and nothing while still; two people moving without pause cost about 144,000 messages a board-hour, five about 900,000.

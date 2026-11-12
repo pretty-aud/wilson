@@ -4508,3 +4508,18 @@ fixed in `e3730b7c`.
   may have moved, or you may not change it."** MEASURED on wilson-dev: four of the probe workspace's six projects
   have no top folder (made before folders, or seeded). The words name the wrong reason. Fix shape: make the top folder
   when a board is asked for, or say the true reason. Count such projects on staging and production first.
+- **MO4-18 · A person's own sticky did not open for writing on a double press, once.** MEASURED once: the first try
+  of the board spec between two people on a throwaway stack (run 43157769791) waited 20 s for the words box after a
+  double press on a sticky that person had just written; the retry, the next run and every run on wilson-dev
+  passed. Not reproduced, not explained. Where to look: `beginEdit` returns without a word when the earlier words
+  box is still closing, and when the sticky has no file yet in the store.
+- **MO4-19 · The board spec can leave an empty board behind on wilson-dev.** MEASURED 2026-11-12: two CI runs
+  pushed two minutes apart ran the sign-in and board specs on wilson-dev at once; `board_create` answered so late
+  that the app's connection watchdog had cancelled the request, the spec read that as a refusal, and the board was
+  made after it had given up (one empty board, "e2e board 2026-11-12 05:13:13", is live in the probe workspace).
+  Fix shape: the spec puts any live "e2e board" of an earlier run in the trash as it starts; and pushes are not
+  made within a few minutes of each other.
+- **MO4-20 · 0132's header says a board message carries at most 50 elements; the function sends 25** (and 200
+  removed ids). MEASURED by reading `0132_board_channels.sql` (line 21 against the two chunk sizes). The code is the
+  smaller and safer of the two; the header is wrong. Fix shape: correct the comment in the next file that restates
+  the function (an applied migration is not edited).

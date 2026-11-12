@@ -1277,7 +1277,7 @@ arm, as they always could. `rabbit_thumbnails_delete_own` has no such clause:
 | `wilson-purge-file-moves` | 04:41 | `file_moves` (MO1, 0113) | 30 days |
 | `wilson-purge-edit-history` | 04:43 | `edit_history` | 90 days |
 | `wilson-purge-moth-history` | 04:45 | `moth_history` (MO1, 0119) | 90 days |
-| `wilson-purge-soft-deleted` | 04:47 | Soft-deleted rows across 7 tables, cascading each subtree. An office-server operation left past the retention is closed first, so it does not hold a row or a project for ever (0121) | 30 days |
+| `wilson-purge-soft-deleted` | 04:47 | Soft-deleted rows across 9 tables (projects, assets, tasks, phases, files, folders, comments, rate cards, milestones; folders since 0131), cascading each subtree. An office-server operation left past the retention is closed first, so it does not hold a row or a project for ever (0121) | 30 days |
 | `wilson-purge-network-share-ops` | 04:50 | Settled `network_share_ops` (MO1, 0117) | 90 days |
 | `wilson-purge-app-events` | 04:51 | `app_events` | 90 days |
 | `wilson-sweep-s3-looks` | 04:53 | Looks at a move's new copy in a company's own bucket never spent by a commit (MO1, 0120): the copy and its picture go to `storage_gc_queue` as `orphan-scan`, unless a row names the key or the bucket has been repointed since | 1 day |
@@ -1308,6 +1308,12 @@ only matter if someone **replays a migration by hand**:
 
 | If you re-run… | You must then re-run… | Because |
 |---|---|---|
+| `0130` | `0134` | **(MO4)** 0134 restates `boards_select` and `board_elements_select` from 0130's text with the projects hop (0107's rule, suite 110's S2). A replay of 0130 puts both back without it, and 0130's post-condition still passes (it counts two policies); suite 110 fails meanwhile. 0134's pre-flight accepts 0130's two policies or its own, by name and by their clauses. A replay of 0130 never takes 0132's sender away: it makes its do-nothing `board_announce` only where none is there. |
+| `0131` | `0135` | **(MO4)** 0135 restates `fn_files_folder_trash_guard` from 0131's body with one arm: a file whose batch's folder is deleted outright lets go of its batch. A replay of 0131 puts the guard back without it, and such a file is again listed nowhere and refused a restore until the purge takes it. 0135's pre-flight accepts 0131's md5 (`f9f87948091848ea6ea9c06f6d722b1a`) or its own (`82ff8938111483a85a9ef5c5dffb1370`). |
+| `0041` | `0107`, then `0131` | **(MO4)** 0131 restates `folders_select` from 0041's with a folder in the trash left out. A replay of 0041 puts back the read without it: every folder in the trash is read by clients again, and reached by their UPDATE and DELETE (0131's guards still refuse a client's write of the trash columns, and a delete with a batch below). 0107's row below stands for 0041's write policies. |
+| `0118` **or** `0121` | `0131`, where either could run | **(MO4)** 0131 restates `moth_trash_index` from 0118's body (a file that went with its folder is left out: the folder is the entry) and `purge_soft_deleted` from 0121's (a folder 30 days in the trash goes, after its files). Neither replay runs once 0131 is applied: each pre-flight pins `purge_soft_deleted` to a body older than 0131's. If either body is put back another way, re-run 0131, whose pre-flight accepts 0118's index (`5ed8abc3a87dc9ea4b5147efa71c619d`) and 0121's purge (`4f659fad4e1fd978f0cd220c6a628eb4`) or its own. Without it the trash lists each file of a batch on its own (and refuses its restore), and the purge never takes a folder. |
+| `0126` | `0131` | **(MO4)** 0131 restates `_moth_target_eligible` from 0126's body: a folder in the trash is no target unless a definer asks. 0126 refuses once 0131 is applied (its pre-flight accepts 0125's gate or its own, `d698cc503481bb497557ff247b3aab72`; 0131's is `dfa3baaaf60ae20901b49fa75a65fef8`). Where 0126's gate is put back by hand (MO2's row below, after a replay of 0111 or 0121), re-run 0131 next: its pre-flight accepts that md5 or its own. |
+| `0114` | `0115`, then `0133` | **(MO4)** 0133 restates `rekey_file_body` from 0114's body with a sticky on its board refused, so a sticky's words are saved only through `board_sticky_publish`, under its writer's turn. A replay of 0114 puts back the body without that arm (MO1's row below for 0115 stands). 0133's pre-flight accepts 0114's md5 (`96a2b17b088ab21e9158d930ecf2ac35`) or its own (`784be073aef07c326f7211efbb45de8a`). |
 | `0124`, `0125` **or** `0128` | (nothing: each refuses) | **(MO3)** Each refuses once a later file has moved on, so none can be replayed after it: 0124's pre-flight once 0125 or 0126 has restated the gate or 0129 the record's projector; 0125's once 0126 has restated the gate (in the words "0124 must be applied first", which then mean the gate is neither 0124's nor its own); 0128's once 0129 has validated its checks. Replay one only on a database where the later file has not run. 0126, 0127 and 0129 are re-runnable over themselves. |
 | `0017` | (nothing: 0125 refuses) | **(MO3)** 0125 restates 0017's note policies with the tiers and the trash and drops its `notes_delete` (a note goes to the trash; only the purge deletes). A replay of 0017 puts back the owner-only read and update with no trash filter, and `notes_delete`; 0125 then refuses (its pre-flight finds four policies where it left three, and the gate is no longer its own). Never replay 0017 once 0125 is applied; if it was, drop `notes_delete` and restate `notes_select`, `notes_insert` and `notes_update` from 0125 §3 by hand. |
 | `0122` **or** `0123` | (nothing: each refuses once 0124 is applied) | **(MO3)** 0124 restates `_moth_target_eligible` (a set-aside phase or task is no target), `fn_moth_views_pin`, `moth_put_positions`, `moth_history_project` and `moth_history_projection_ok`, and 0125 and 0126 restate the gate again. **Both refuse after 0124**: 0122's pre-flight finds `_moth_target_eligible` neither 0121's nor its own, 0123's finds the views' pin not its own. Replay either only on a database where 0124 has not run, where MO2's rows below hold. |
@@ -5237,6 +5243,88 @@ file or folder that locks blanks the record of those still naming it. A removal 
 gone thing last had (`_moth_history_end_last`); a gone thing is read by what its own record last said
 (`_moth_history_end_visible`). The window tells a restart only to those its row was for.
 
+**Boards (MO4, 0130, 0134).** A board is a folder: a custom folder of its own, whose stickies are markdown files in it
+and whose dropped pictures and videos are real files in it, so the board and the Files page always agree.
+`board_create` makes the folder and its board in one step, under the project's top folder or a folder the caller may
+change, never inside a scene's, shot's or asset's own folder. What a folder cannot hold is in two tables: `boards`, one
+row a board, keyed by its folder and always in its folder's project; and `board_elements`, one row a shape, connector,
+frame, pen stroke, text, sticky, picture or video, or embed, so two people moving two shapes never overwrite each other.
+A connector's ends are elements of its own board, by key; a placed file that goes leaves the stop-sign tile. Clients
+read both tables through one policy each (Moth's folder gate, the file's gate for an element holding a file, and since
+0134 the projects hop) and write neither: only `board_read` (paged), `board_read_elements`, `board_put_elements` (500 a
+call, the last writer wins each element, and an undo names the version it expects and is skipped, said, when someone
+changed it since) and `board_delete_elements`. At most 5,000 elements a board and 500 boards a project. A client's own
+statement never deletes or moves a folder holding a board (`fn_folders_board_guard`). A board is not yet in
+`moth_history`, `edit_history` or the takeout (OUTSTANDING MO4-14).
+
+**A folder's trash (MO4, 0131, 0135).** A folder goes to the trash with everything below it not already there, as one
+batch: one `trash_batch` on each folder and file it takes, so `moth_restore_folders` brings back that batch and nothing
+else, once the folder above it is live, and a file that went with its folder comes back only with it. A folder in the
+trash is out of every client read, and nothing is made, moved or uploaded into it. `moth_trash_folders` takes custom
+folders only (50 a call; 2,000 folders and 10,000 files below each), refused whole if one cannot go; `moth_trashed_folders`
+lists what the caller may bring back, a board marked; `moth_move_folders` moves within a project, under the company's
+folder lock. The trash index lists a batch by its folder, and the purge takes a folder 30 days in the trash once no file
+row is left below it, its board and elements with it. **0135:** a thing's own folder deleted by key (its scene, shot,
+asset, level or experience deleted) takes any custom folder in the trash inside it; each of that batch's files then
+lets go of its batch, and is an ordinary file in the trash, listed and brought back on its own to the project's top. A
+file stranded that way before 0135 is not repaired by it (the runbook's row).
+
+**A board's two channels (MO4, 0132).** So that what a client may say and what only the database says never share one:
+`moth:board:<board>:<epoch>.<gen>` is the database's own, where each statement that saves or removes elements sends one
+message (never a file's id; a pen's points past 4 KB left out, read through `board_read`) and the turns at the stickies
+are said; a reader listens and no policy lets a client send there. `moth:board-live:<board>:<epoch>.<gen>` carries
+cursors, a drag on its way and who is here (presence: a name and a colour, never an email); a reader listens and sends
+there. Both are judged by `board_topic_readable`: the board's folder through Moth's gate, named at the project's
+`topic_epoch` and the board's `audience_gen`. A join is judged when it is made (MO1-01), so a narrowing renames the
+channels: `audience_gen` goes up when a board's folder goes to the trash, when its project goes to the trash, and for
+every board of a company when one of its members leaves, is removed or changes role; a privacy flip already moves the
+epoch. Each renaming sends AUDIENCE to the old names, and those who may still read ask `board_channels` and join the new.
+Nothing renames a board for a move to another project, because no such move is allowed (OUTSTANDING MO4-14).
+
+**A sticky's turn (MO4, 0133).** While someone types in a sticky it shows their name and a soft glow, and nobody else can
+write in it. `sticky_claim` gives the turn for 30 seconds by the database's clock, with a number from one sequence that is
+never reused (the fence: a holder whose turn ended can never match a new one); the holder's window renews it about every
+ten seconds while it types (`sticky_renew`), and lets go on blur and on close (`sticky_release`); a turn that runs out,
+because the window slept or went, ends by itself and says nothing. `sticky_locks` has no policy and no client grant: the
+turn's functions are its only readers and writers. `board_sticky_publish` is the one path to a sticky's words: only the
+holder of the current turn's number, only over the key they read (else false, as `rekey_file_body`'s compare-and-set),
+to a fresh `.md` key the server admits for the file's own project, on Petal's storage or a Local Server (a company's own
+bucket answers `s3_sticky_off`); `rekey_file_body` refuses a sticky's file while it is on its board. Two paths still reach
+a sticky's object without the turn, as 0133's header records: a client's storage update of the object at its key, and a
+move between projects whose copy replaces the key.
+
+**The board client (MO4).** `src/tools/moth_v0.1.0/board/`: the adapters' board methods (the cloud's in
+`supabaseAdapter.js`, the dev fixtures' in `src/dev/fixtures/boardsFixtures.js`, and the Local Server's, which answers
+`boards_absent`, *Boards need this project in the cloud.*; a database without the functions answers *This company's
+database does not have boards yet.*); `boardStore.js`, the elements as this window draws them (its own changes saved 150 ms
+after the last and at most a second later, one save in flight, an element taken from a message only when its version is
+newer, undo and redo a step at a time); `boardLive.js`, its place on the two channels (a pointer or a drag sent at most
+ten times a second and only while it moves); `stickyTurn.js`, the turns; `BoardCanvas.jsx`, the board drawn with Konva,
+imperatively; and `BoardPanel.jsx`, the panel in three sizes over M.O.T.H. `MothPage.jsx` reaches the panel through
+`React.lazy`, and the panel reaches the canvas through another, so Konva is in its own chunk (`BoardCanvas-*.js`),
+loaded only when a board opens. A project kept only on one computer offers no board, and says *A board needs this project
+in the cloud.*
+
+**When a channel drops or cannot join.** Whenever the database's channel has joined, the first time and again after a
+network gone and back, the board and the turns are read again: a save made before the join, or while this window heard
+nothing, was never told to it. A channel that cannot join, or an AUDIENCE, has the names asked again (no more than once
+in 5 s while it keeps failing): a refusal then means this person may no longer read the board, and it closes with
+*You cannot see this board any more, so it was closed.* The database's channel gone for more than 4 s shows *Not
+connected to the others on this board just now. WILSON keeps trying.*, unsaid when it is back; a join that fails outright shows
+*Could not reach the others on this board just now. Your changes still save.*, and the canvas keeps the channel it is
+handed until then, one that sends and hears nothing. A save that could not reach the server is kept and tried again. Another person, another company or a
+sign-out leaves the channels, lets go of the store and the turns, and goes back to the map.
+
+**The end-to-end spec (MO4).** `tests/e2e/boards.spec.ts` runs the real page against wilson-dev's functions, storage and
+channels as the probe admin in two windows: a board made and opened twice, shapes both ways as the database's own
+messages, a save forged on the database's channel reaching nobody, a sticky's words across, the turn refused with the
+writer's name and then taken, the pointer's rate counted on the wire, a lost network caught up, a picture placed, and the
+trash closing both windows. Given a second seeded person it also asks that each window names the other and that a person
+taken off the company has the board closed. It is a Playwright project of its own (`chromium-boards`, after `chromium`
+and `chromium-web`), and runs only in CI (it signs in with a password this computer does not have), so
+`boardsE2ePins.test.js` pins the 30 things it presses or reads to the source lines that draw them, and
+`authSelectors.test.js` names it as pinned there.
+
 ## 14. Who talks to whom
 
 **M.O.T.H.'s arrows (MO1).** Personal spaces and private projects' content are off every workspace realtime topic. `moth_history` is
@@ -5350,7 +5438,7 @@ else.
 
 ## 15. Testing and verification
 
-**As of MO3 (2026-11-08):** 127 pgTAP suites, 6,950 checks with 0128 and 0129 (by count, after both whole-session review rounds; the whole set read on wilson-dev, rolled back, with the two prepended before they were applied and on the applied schema at the session's end: 6,948 passed, the rest suite 74's two checks on dev's own old sign-in rows, red before this session). **As of MO2 (2026-11-07):** 120 pgTAP suites, 6,511 checks with 0122 and 0123 (by count, after both review rounds) (the whole set read 6,493 on wilson-dev, rolled back, before the 15 probes the planted breakages asked for; the four suites they went into were read again). **As of MO1 (2026-11-07):** 117 pgTAP suites, 6,252 checks with 0120 and 0121, read by running them on wilson-dev, rolled back. The counts just below are dated history.
+**As of MO4 (2026-11-12):** 132 pgTAP suites, 7,219 checks with 0130 to 0135 (by count of the suites' plans; the whole set last read on wilson-dev on the applied schema after 0133, 7,205 of 7,209, before 0134 and suite 136's last ten probes; after 0134 and 0135 suites 110 and 134 to 138 read 325 of 325 there). **As of MO3 (2026-11-08):** 127 pgTAP suites, 6,950 checks with 0128 and 0129 (by count, after both whole-session review rounds; the whole set read on wilson-dev, rolled back, with the two prepended before they were applied and on the applied schema at the session's end: 6,948 passed, the rest suite 74's two checks on dev's own old sign-in rows, red before this session). **As of MO2 (2026-11-07):** 120 pgTAP suites, 6,511 checks with 0122 and 0123 (by count, after both review rounds) (the whole set read 6,493 on wilson-dev, rolled back, before the 15 probes the planted breakages asked for; the four suites they went into were read again). **As of MO1 (2026-11-07):** 117 pgTAP suites, 6,252 checks with 0120 and 0121, read by running them on wilson-dev, rolled back. The counts just below are dated history.
 
 **pgTAP** — 55 suites under `supabase/tests/rls/` (Session 20 added 39–42, one
 per model control-plane table; **Session 24 added 43–47, one per money table;

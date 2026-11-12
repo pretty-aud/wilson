@@ -88,6 +88,12 @@ This file starts at 1.0.0. Everything before it shipped as the 0.x single-user d
 - **Cloud project attachments**, listed, downloaded and read like local ones. (Track C C3, 0075 `2a4924f2`)
 - **Keyboard:** Enter makes a full deck only with words in the context box; the cards fold from the keyboard. (FX13 `6db22a9b`; FX14 `566c6a8a`; FX15 `687667a3`; DG3 `10426db8`)
 
+**M.O.T.H.**
+
+- **Boards**: a board is a folder you can step into, a dot of its own colour on M.O.T.H.'s map, made with New board from a project's or a folder's menu. Draw nineteen shapes, connectors that follow what they join, named frames, pen strokes and text. A sticky is a real note in the board's folder, and a picture or file dropped on the board is a real file there, so the board and the Files page always agree. An embed shows a file where it is, never a copy, and a stop sign when the file has been moved or deleted. A board opens in a frame over the map, fills the view or takes the whole tool; a button or Escape goes straight back, and pulling the frame's edge away closes it. (MO4, 0130)
+- **Boards are live with others**: you see each other's pointers, who is here, and each other's changes as they are saved. While someone writes on a sticky it shows their name and a soft glow, and nobody else can change it until they click away; the turn lets go by itself if they drop off. A pointer sends at most ten times a second, and nothing while it is still. (MO4, 0132 and 0133)
+- **A folder has a trash**: a folder or a board goes to the trash with everything in it for 30 days, and Bring back in M.O.T.H.'s trash returns it whole. (MO4, 0131 and 0135)
+
 **The pet** follows its owner between computers and reads O.T.T.E.R.'s lessons; a failed sync retries by itself. (0046 S31; `8894fd23`; 0068 A3; S2)
 
 **Look and feel:** the UI overhaul, with Geist and Geist Mono self-hosted, one type scale, a shared kit with one dialog, dark working pages and sentence case; each tool's Help and Settings at its strip's right end. (merged `60a8981e`, 2026-09-29; `docs/design/UI_OVERHAUL_PLAN.md`; S2a; S6a; walkthrough 47)
@@ -146,6 +152,7 @@ This file starts at 1.0.0. Everything before it shipped as the 0.x single-user d
 - **Typed tags, your own or the company's**: a tag has a type with its own shape and colour. The tags you make are yours alone, even from admins; put one forward and an admin approves or turns it down; admins rename, merge and retire the company's tags, and every use follows. Making a tag the company already has, M.O.T.H. offers the company's. (MO3, 0126)
 - **Links between things, made as you write**: `[[` in a note or in a task's, asset's, scene's or shot's words links a thing you can see, and `#` tags the thing. Each thing lists its links and where it is mentioned. Someone who cannot see where a link leads sees its words alone, with nothing to say a link was there; money and Legal files never take part. (MO3, 0127)
 - **The 90-day record covers notes, typed tags and links too**: never a note's words; a person's own tags and tagging stay theirs alone in it, and looking back shows them from the day their record began. (MO3, 0128 and 0129)
+- **A board's channels are open only to those who may see it**: when that changes (the board goes to the trash, or someone leaves the company or changes role) the channels move and the board closes for anyone who may no longer see it. Only the database announces a saved change, so a client cannot forge one. Money and Legal files cannot be placed on a board. (MO4, 0132 and 0134)
 - **Deleting a file in a project kept on this computer now keeps it for 30 days**, with Undo, and a file on the office server goes to that server's bin. The delete dialog says which.
 - **Earlier July work stands:** RLS as the boundary, privilege changes audited (WIL-4105/4106/4107), operator writes narrowed, MFA guards that fail closed, the Anthropic key never on a client, path containment on managed files, four append-only audit streams. (S15–S17; `TPN_AUDIT/FINDINGS.md`)
 
@@ -202,6 +209,7 @@ The tester's list is `docs/RELEASE_TESTING.md`, *Known not to work at v1.0.0*; f
 - **The pet does not sync live between machines** (1.1); an O.T.T.E.R. lesson imported in the cloud saves nothing. (`docs/sessions/PLAN_TO_1_0.md` §2; OUTSTANDING)
 - **The Summary's Budget tile is zero; the Agent skills checkboxes gate nothing; R.A.B.B.I.T.'s agent is unreachable; Google Drive is read-only.** (handbook §17)
 - **The workspace takeout holds 23 tables, and none of the scenes, shots, levels, experiences, key dates, budgets, expenses, folders, task templates, shot lists, edits or bins.** (OUTSTANDING R2-01)
+- **Boards:** a folder or a board cannot move to another project yet; a project kept only on one computer has no boards; a connector's bends cannot be changed by hand; a video on a board shows its first frame; a board is not yet in the 90-day record or the takeout; and a project with no top folder cannot have a board yet, with a message that gives the wrong reason. (OUTSTANDING MO4-14, MO4-17)
 - **About 160 accessibility and polish entries** wait for 1.1. (`docs/sessions/PLAN_TO_1_0.md` §2)
 
 ---

@@ -2236,3 +2236,195 @@ probes (a Legal file beside the money one; a fresh key that makes its link; a mi
   it (an older build's Delete is refused once DELETE is revoked, and it would list others' shared notes as its own).
   Time 0129's VALIDATE on the largest moth_history there (a scan; writes go on), and the history reader over a page
   of gone taggings and links, before the record's Session 3 kinds reach people.
+
+## 5. Session 4 (MO4), as built (2026-11-12)
+
+Boards and live editing, on `po/moth4-boards`. PLAN_MOTH §5 Session 4 is the scope; her rulings in
+MOTH_PLANNING_BRIEF §7, §8 and §12a are the shape. Six migrations in two rounds: 0130 to 0133 through a review round on
+Opus 5.5 and a second look, planted on a throwaway Actions stack, then applied by the house method; 0134 and 0135
+through a second round that also checked the first round's findings, a second look, a rehearsal on wilson-dev rolled
+back, plants on a throwaway stack, then applied the same way. Nothing is on staging or production.
+
+### 5.1 The database: 0130 to 0135
+
+- **`0130_boards`.** A board is a folder (brief §7.1): a sticky is a markdown file in it, a dropped picture or video a
+  real file in it, so the board and the Files page agree. What the folder cannot hold is the canvas: one row a board
+  (`boards`, keyed by its folder, always in its folder's project, a custom folder only) and one row an element
+  (`board_elements`: shape, connector, frame, pen, text, sticky, media or embed; its geometry, stacking order, style,
+  words and a pen's points), so two people moving two shapes never overwrite each other. A sticky, a medium or an
+  embed points at a files row; a gone file sets it null, which leaves the stop-sign tile. A connector's ends are
+  elements of the same board, so a line follows its shapes and never crosses boards. An element's kind and file never
+  change, and its file must be one its writer may read through Moth's gate (money, Legal, a private project not
+  theirs, another person's space: refused alike). Row security is SELECT only, through Moth's folder gate; every write
+  is a function's: `board_create` (a folder and its board in one step), `board_read` (an element whose file the reader
+  may not read comes back as a stop-sign tile, with no file id or name), `board_put_elements` and
+  `board_delete_elements` (up to 500 a call, the last writer wins each element, an undo naming the version it expects
+  and skipped, said, when someone changed it since). At most 5,000 elements a board and 500 boards a project. A client
+  never deletes a folder holding a board, and never moves one by hand.
+- **`0131_folder_trash_and_moves`.** A folder has a trash. It goes with everything below it that is not in the trash
+  already, as one batch, and a restore brings back that batch and nothing else; a file that went with its folder comes
+  back only with it. `moth_trash_folders` (custom folders only, at most 50 a call; refused whole if a money or Legal
+  file, an office-server file or a project folder is below), `moth_restore_folders`, `moth_trashed_folders` (a board
+  marked, nothing of another person's space) and `moth_move_folders` (within a project only; never into itself, the
+  trash or a money or Legal folder; a name made unique and every path below rewritten, under the company's folder
+  lock). A folder in the trash is out of its table's reads and no target of Moth's gate; the trash index lists the
+  folder, not its files; the purge takes a folder 30 days on, its board and elements with it.
+- **`0132_board_channels`.** Two channels a board, so that what a client may say and what only the database says
+  never share one. `moth:board:…` is the database's own: one message for each statement that saves or removes
+  elements, at most 50 elements a message, never a file's id or a pen's long points. A client reads it and never sends
+  on it, so no save can be forged. `moth:board-live:…` carries a reader's broadcast and presence (pointers, drags, who
+  is here). Both are open only to a reader of the board, named by the project's epoch and the board's `audience_gen`.
+  When the audience narrows (the folder to the trash; a member leaving, removed or their role changed) the channels
+  are renamed and AUDIENCE is sent on the old names, so those who may still read join the new ones.
+- **`0133_sticky_locks`.** A sticky's soft lock, her ruling in brief §7.4. `sticky_claim` gives the turn if nobody
+  holds a live one, or says who does, for the name and the glow. A turn lasts 30 seconds by the database's clock
+  unless renewed, which the holder's window does about every ten while it types, so it lets go by itself when they
+  disconnect. A fencing number from one sequence means a holder whose turn ended never matches a new one. The words
+  are saved only through `board_sticky_publish`, by the holder of the current turn, over the key it read, to a fresh
+  object; a company's own bucket waits. A claim, a renewal, a release and a save each say so on the board's channel.
+  `sticky_locks` has row security forced and no client grant.
+- **`0134_boards_project_hop`.** The two board tables' read policies restated from 0130 with the hop through projects
+  that 0107's rule asks of every project-scoped table (suite 110 found them without it on the applied schema). Nothing
+  else changes. Its pre-flight and post-condition ask for each policy's shape by name and text. Re-run after any
+  replay of 0130.
+- **`0135_trash_batch_orphans`.** Deleting a scene, shot, asset, level or experience deletes its own folder and every
+  folder in it, one in the trash included. A file that had gone to the trash with such a folder was left with its
+  batch and no folder: listed nowhere, and with no way back until the purge took it. The files' trash guard, restated
+  from 0131 with one arm, now lets such a file go of its batch: it is an ordinary file in the trash, listed and brought
+  back on its own, to the project's top. Re-run after any replay of 0131.
+
+**Seen while building:** SQL does not short-circuit a cast. A trigger's order is its name's. A column trigger fires on
+the UPDATE's own target list. A transition table's row is a record. One transaction's realtime messages share their
+moment. A row trigger that checks a parent during a batch UPDATE sees the batch half done. A project's maker is seated
+on it, and any active member reads a shared project's board. Restating `folders_select` to leave out the trash hides a
+trashed folder from a client's UPDATE and DELETE too, since they see only what they read.
+
+### 5.2 The client
+
+- **The adapters.** Every board method is in all three. The cloud's calls the functions above and joins the two
+  channels as private ones, with its own broadcasts not sent back to it. The fixtures' (dev builds only) keep boards,
+  elements, turns and stickies' words in memory, refuse what the database refuses in its words, and carry the channels
+  on an in-process bus. The Local Server's answers every board method with "Boards need this project in the cloud."
+  (`boards_absent`), and a folder's trash and moves with words of their own.
+- **The store, the live session and the stickies' turns** (`boardStore.js`, `boardLive.js`, `stickyTurn.js`; plain
+  JS). The drawing changes at once and the server hears it in batches: at most one save in flight, 150 ms after the
+  last change and a second at most, a drag saved once when it lets go. Others' saves are taken only when newer than the
+  version held, with this window's unsaved changes kept on top. Undo and redo go a step at a time, each naming the
+  version it expects; a step someone else has changed since is skipped and said. A pointer and a drag are each sent at
+  most ten times a second and only while they move; what arrives is smoothed over a tenth of a second. A sticky's
+  editor asks for the turn on focus, renews it every ten seconds, saves through its number and lets go on blur and on
+  close; a turn that ended keeps the words in the editor and says so.
+- **The canvas** (`BoardCanvas.jsx`: Konva, driven by hand, in its own lazy chunk). The nineteen shapes: rectangle,
+  rounded rectangle, circle, oval, triangle, diamond, star, hexagon, arrow, double arrow, speech bubble, and the
+  flowchart's process, decision, document, database, terminator, input and output, predefined process and connector
+  circle. Connectors straight, curved or elbowed; solid, dashed or dotted; a width, a head at each end and a label;
+  their ends follow their elements by id and anchor. Frames with names, which carry what is in them; pen strokes; text
+  boxes; stickies, their markdown shown as text and edited over the board, someone else's turn a soft glow and their
+  name; a picture from its file and a video's first frame; embeds, a reference to a file where it is, chosen from the
+  project's files (the board's own folder left out); and the stop-sign tile, "This file is missing — it may have been
+  moved or deleted", with no name. Select, shift-select and a marquee; move with snapping and guides to other
+  elements' edges and centres; resize and turn by the handles; stacking; the style panel, offering only what every
+  selected kind can carry; tool keys, arrows, Delete, undo and redo; pan and zoom by the wheel, Space, a middle button,
+  one finger and a pinch, with larger targets the moment a finger or pen touches. Files dropped on the board, or chosen
+  through "Picture or file", are uploaded into its folder and placed where they fell. A board one may only read offers
+  Select and Move around.
+- **The panel** (`BoardPanel.jsx`, `boardPanelState.js`). One panel inside Moth, in three sizes: in a frame over the
+  map, filling the map's view, maximised over the whole tool. "Back to the map" and Escape go straight back. Escape's
+  order: a kit layer on show outside the board first, then the topmost picker, editor, gesture, tool or selection on
+  the board, then the panel. On the framed size only, an edge pulled outward shrinks the frame, and let go past 160 px
+  it collapses into its dot; the corners resize it; the frame opens clear of WILSON's pet. Someone who may change the
+  board can put it in the trash from the panel, asked first there.
+- **Moth.** A board is a dot of its own colour, opened by a click. "New board" is in a project's or a folder's menu; a
+  project kept only on this computer offers none and says "A board needs this project in the cloud." Moth's trash
+  lists folders and boards, with Bring back.
+- **Who is here.** The panel's head names the people on the board (presence: a name and a colour, never an email); a
+  name learned after joining is passed on to the others. Another person, another company or signing out leaves the
+  channels and closes the board; someone who may no longer see it is told "You cannot see this board any more, so it
+  was closed."
+- **A channel that drops.** Whenever the database's channel joins, the first time and after a network gone and back,
+  the board and the turns are read again, so a save made before the join or meanwhile is not missed. A channel that
+  cannot join asks for the names again, and a refusal then closes the board with words. Down for four seconds, the
+  panel says "Not connected to the others on this board just now. WILSON keeps trying."; live channels that cannot
+  join say "Could not reach the others on this board just now. Your changes still save."
+- **The fixtures** (dev builds only): boards in the fixtures' memory beside the rest, and `?as=` as another pretend
+  person on the same board, the two hearing each other on the bus. The fixtures refuse a file's delete, so the
+  stop-sign tile cannot be made there.
+
+### 5.3 Checked
+
+| Change | Review round (Opus 5.5) | Second look | Plants | Applied on wilson-dev (UTC) | md5 read back |
+|---|---|---|---|---|---|
+| 0130 to 0133 | 12 agents, 2,756,775 tokens, 54 findings | 1 agent, 231,299 | 118: 108 caught, 10 green | 2026-11-11 15:31:58, 15:32:27, 15:32:56, 15:33:08 | `bab3ea89…`, `d71c5437…`, `a2ce894b…`, `a56e4359…` |
+| 0134, 0135 | 21 agents (3 reviewers, 18 checkers of round 1's findings), 2,515,105 tokens | 1 agent, 113,190 | 21: 16 caught, 5 green | 2026-11-12 05:05:39, 05:06:07 | `90dc4a07…`, `8a708f5a…` |
+
+Every green plant is held by a clause named in the plants' record (for 0134 and 0135: the hop and the folder gate;
+NOT EXISTS; a clause no probe can see; the suites delete only as a client; 0131's REVOKE). The second round read the
+first round's findings again: 12 fixed (both blockers), 2 open as recorded (MO4-02, MO4-03), 4 still real in part,
+one of them taken as 0135 and the others recorded (MO4-13, MO4-15, MO4-16). 0134 and 0135 were rehearsed on dev
+rolled back (0134 55 ms, 0135 33 ms; again 8 and 5). On the applied schema after 0133 the whole set passed 7,205 of
+7,209 (suite 74's two, on dev's own old sign-in rows; suite 110's two, which 0134 answers); after 0135, suites 110 and
+134 to 138 passed 325 of 325, with 19 connections, no lock waits and 196 MB; dev's head is 0135, 130 rows. Then the
+whole set ran once on the applied schema at 0135 (2026-11-12 05:21:39 to 05:26:34 UTC): 132 suites, 7,219 planned and
+collected, 7,217 passed; the two reds are suite 74's, on dev's own old sign-in rows, red before this session; 27
+connections before and after, no lock waits, nothing open past a minute. New suites: 134 to 138. Vitest, the whole set
+on four workers: 507 files, 12,958 passed, 9 skipped. CI: all six checks green on `2f58a3f3` (Playwright 14 passed, 2
+skipped).
+
+**Seen running** in headless Chromium on the dev fixtures: all nineteen shapes; the three connector paths with heads,
+dashes and a label; lines following a moved and a turned shape; the guides, resize and turn by the handles, a marquee,
+a frame carrying what is in it; the tool keys, arrows, Delete, undo and redo, the camera; the three sizes, the four
+corners, an edge pulled away, Escape's order; the trash and Bring back; a chosen picture, dropped files, an embed with
+no copy in the folder. It showed faults no unit test had. `c09e6627`: no words could be typed with a mouse (a press is
+a pointerdown and then a mousedown, and the mousedown took the focus from the words box the pointerdown had opened;
+the test DOM has no such doing); the framed board's bottom right corner lay under WILSON's pet; a board's stickies and
+dropped files did not show in its folder after it closed. `14ff31ff`: nothing read the channels' own state, so a save
+before the join or during a lost network was never read, and a channel that could not join stayed so in silence; and
+who is on a board was kept and drawn nowhere. Each was fixed with a test seen failing with the fix taken out. The
+sixth showed only between two people (`573dcdca`): each was "Someone" to the others, since the name comes from the
+company's people, which may load after the board is joined; fixed, its two tests each seen failing with the fix taken
+out, and the next run between people showed real names.
+
+**End to end on wilson-dev** (`tests/e2e/boards.spec.ts`, the probe admin in two windows, two runs): a board made and
+opened twice; shapes across both ways as the database's own messages (2 heard on each side, none sent by a window); a
+forged save dropped; a sticky's words across; the turn refused with the writer's name, then taken; the pointer 51
+sends in 5 s (10.1 a second), 51 received, none when still; a window caught up 391 ms and 1,009 ms after its lost
+socket came back; a picture drawn from its file; the trash closing both windows. One empty test board, made on the
+server after its client had given up, is left in the probe workspace.
+
+**Between two and five people** on a throwaway Actions stack, the same spec with seeded people: each window names the
+others; the turn refused with the writer's name; the forged save dropped; a person taken off the company while the
+board was open had it closed 49 ms later. With five, every pointer send reached exactly the four others: two moving
+for 10 s, 112 sends and 448 receipts; five moving, 280 and 1,120; five moving a quarter of the time for 33 s, 238 and
+952; 30 s with nobody moving, heartbeats only; one socket a window. Five windows on one runner held the pace to about
+5.5 sends a second each; the ceiling is the two-window run's 10.0 to 10.1. So a board's pointer messages are its sends
+times the people on it, at most ten sends a second a person while moving and none while still. That is the plan's
+table: 144,000 a board-hour for two moving without pause, 900,000 for five, 225,000 for five moving a quarter of the
+time. Seen once and not chased: a person's own sticky did not open for writing on a double press (the stack's first
+try; its retry and every run on wilson-dev passed).
+
+**The graph's frames** on the debug sample (Chrome headless, 1280 by 800, the dev build): by folders, 5 dots and 4
+lines, load 1.75 s, heap 113 MB, frames p95 17.1 ms, drawing p95 0.4 ms; with a board open in its frame, frames p95
+21.5 ms over 30 frames, drawing p95 0.6 ms, heap 126 MB; after it closed, frames p95 17.2 ms, drawing 0.5 ms. By tags,
+20 dots and 38 lines, load 2.03 s, heap 115 MB, frames p95 17.0 ms, drawing p95 0.6 ms; after a board, 17.2 and 0.5.
+**The bundle** (MO4's build): the main bundle 5,125,426 bytes (5,112,461 before), the Moth chunk 171,182 (155,415
+before), and the board's own chunk 292,162, new, loaded only when a board opens.
+
+**Not measured:** LEGEND ROAD on the desktop, and a board's desktop-only and Local Server states in the desktop app;
+the Realtime dashboard's own message deltas on wilson-dev; the test copy's Supabase plan, its remaining allowance and
+its spend cap, which the command line cannot read (to be asked of her); two real accounts on staging (hers,
+RELEASE_TESTING §W). The two whole-session rounds have not run.
+
+### 5.4 Not built, and owed
+
+- No folder or board moves between projects this session (MO4's decision, hers to overturn), so no file yet renames a
+  board's channels on such a move; a project kept only on one computer offers no board and says why. A connector's
+  bends are drawn but not edited; a video on a board shows its first frame. A board's existence is not in the record,
+  the edit history or the takeout, so looking back shows its folder as a plain folder (MO4-14). A project with no top
+  folder is refused a board, in words that name the wrong reason (MO4-17). From the rounds: a project writer can
+  overwrite a sticky's stored object past its turn (MO4-01); a move between projects can put back a sticky's older
+  words (MO4-02); a board's folder made a thing's own folder is deleted outright with that thing (MO4-13); a folder
+  moved with an office-server file in the trash below brings that file back to the old place (MO4-15).
+  OUTSTANDING holds each, MO4-01 to MO4-17.
+- **Before staging and production:** the runbook's 0130 to 0135 rows. Count the projects with no top folder on each
+  first. Apply in numeric order. 0134 takes a brief ACCESS EXCLUSIVE lock on `boards` and `board_elements` while it
+  restates their policies; 0135 takes no table lock. The client that knows boards goes only after 0130 to 0135.
