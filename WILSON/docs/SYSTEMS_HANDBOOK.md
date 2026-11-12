@@ -1308,7 +1308,7 @@ only matter if someone **replays a migration by hand**:
 
 | If you re-run… | You must then re-run… | Because |
 |---|---|---|
-| `0130` | `0134` | **(MO4)** 0134 restates `boards_select` and `board_elements_select` from 0130's text with the projects hop (0107's rule, suite 110's S2). A replay of 0130 puts both back without it, and 0130's post-condition still passes (it counts two policies); suite 110 fails meanwhile. 0134's pre-flight accepts 0130's two policies or its own, by name and by their clauses. A replay of 0130 never takes 0132's sender away: it makes its do-nothing `board_announce` only where none is there. |
+| `0130` | `0134` **first**, then `0136` | **(MO4)** 0134 restates `boards_select` and `board_elements_select` from 0130's text with the projects hop (0107's rule, suite 110's S2). A replay of 0130 puts both back without it, and 0130's post-condition still passes (it counts two policies); suite 110 fails meanwhile. 0134's pre-flight accepts 0130's two policies or its own, by name and by their clauses. A replay of 0130 never takes 0132's sender away: it makes its do-nothing `board_announce` only where none is there. 0136 restates `board_read` from 0130's text with the board's `background` and `background_version`, pinned by md5: its pre-flight accepts 0130's (`7135d1c611e54603a14bfcb590305e1a`) or its own (`3042ffac01c8f09ba7c03607d2e25fc0`). A replay of 0130 puts `board_read` back without the two keys, so every window draws the dotted grid and offers no choice until 0136 runs again. **The order is 0134, then 0136:** 0136's pre-flight also asks for 0134's two reads, which the replay took back, and refuses until 0134 has run. |
 | `0131` | `0135` | **(MO4)** 0135 restates `fn_files_folder_trash_guard` from 0131's body with one arm: a file whose batch's folder is deleted outright lets go of its batch. A replay of 0131 puts the guard back without it, and such a file is again listed nowhere and refused a restore until the purge takes it. 0135's pre-flight accepts 0131's md5 (`f9f87948091848ea6ea9c06f6d722b1a`) or its own (`82ff8938111483a85a9ef5c5dffb1370`). |
 | `0041` | `0107`, then `0131` | **(MO4)** 0131 restates `folders_select` from 0041's with a folder in the trash left out. A replay of 0041 puts back the read without it: every folder in the trash is read by clients again, and reached by their UPDATE and DELETE (0131's guards still refuse a client's write of the trash columns, and a delete with a batch below). 0107's row below stands for 0041's write policies. |
 | `0118` **or** `0121` | `0131`, where either could run | **(MO4)** 0131 restates `moth_trash_index` from 0118's body (a file that went with its folder is left out: the folder is the entry) and `purge_soft_deleted` from 0121's (a folder 30 days in the trash goes, after its files). Neither replay runs once 0131 is applied: each pre-flight pins `purge_soft_deleted` to a body older than 0131's. If either body is put back another way, re-run 0131, whose pre-flight accepts 0118's index (`5ed8abc3a87dc9ea4b5147efa71c619d`) and 0121's purge (`4f659fad4e1fd978f0cd220c6a628eb4`) or its own. Without it the trash lists each file of a batch on its own (and refuses its restore), and the purge never takes a folder. |
@@ -5305,6 +5305,36 @@ imperatively; and `BoardPanel.jsx`, the panel in three sizes over M.O.T.H. `Moth
 loaded only when a board opens. A project kept only on one computer offers no board, and says *A board needs this project
 in the cloud.*
 
+**A board's background (MO4, 0136).** A board is drawn on a dotted grid, on nothing, or on a grid of lines like graph
+paper, and the choice is the board's: everyone who opens it sees the same one, and whoever may change the board may
+change it. A new board starts on the dotted grid. `boards.background` holds it and `boards.background_version` counts
+its changes; only `board_set_background` writes them (a writer through Moth's gate; the same value again writes and
+sends nothing; a change sends one `board` message on the database's channel), and neither `revision` nor
+`audience_gen` moves. The answer, the message and `board_read` reach a window in no fixed order, each with the
+version, so `boardStore.js` takes a word only when its version is higher than the one it holds, and
+`trg_boards_background_version` keeps the version from going down. `background.js` paints it on a Konva layer of its
+own under the elements, again only when the camera, the view's size or the background changes; zoomed out the step
+doubles until the marks are at least 12 px apart, and one paint draws at most 512 lines a side or 20,000 dots. The choice is in
+the foot bar (*Background*). It is not an undo step, and not in the history or the takeout (OUTSTANDING MO4-14 and MO4-24 to MO4-28). A
+maintainer must not let a window take a word whose version is not higher than the one held, nor paint the background
+again on an element's change. A server without 0136 sends no `background` key: the board is drawn on dots and no
+choice is offered.
+
+**Frames that group (MO4).** Frames group as Figma's do, and what a frame holds is worked out from positions and stored
+nowhere (`frames.js`, pure): a frame holds a thing whose bounds' middle is inside it and which is no larger than it, a
+frame wholly inside it, and what those hold in turn; a free line is held like any thing, and a line tied at an end
+follows its ends and is never held. `BoardCanvas.jsx` acts on it. *Frame selection* (the style panel's Arrange row,
+Ctrl or Cmd + G, or Ctrl or Cmd + Alt + G) puts a frame named *Frame* 24 units round the selection, with what it holds
+and their lines stacked above it, in one undo step. A frame dragged or nudged carries what it holds; while a move is in
+hand what it moves is drawn on top, and the frame that would take it, by the thing's middle (`frameTaking`), is
+outlined; at the drop a thing that a frame now holds but lies under goes above it, with its lines. Stacking a frame
+takes its things along. Delete on a frame takes what it holds and the lines whose two ends both go, and says *The frame
+was removed with what it held. Undo brings it all back.*; a line with one end outside stays, loose at the other.
+*Remove the frame only* (Ctrl or Cmd + Shift + G) keeps them. Ctrl or Cmd + a drag from a frame draws a selection
+rectangle. A drag sends at most 20 positions a step (`MAX_DRAG_SENDS`), the frames first. A maintainer must not judge
+holding by the pointer rather than the thing's middle (what a drag outlines must be what the drop does), nor let a
+frame land above its own things (OUTSTANDING MO4-21 to MO4-23 and MO4-25).
+
 **When a channel drops or cannot join.** Whenever the database's channel has joined, the first time and again after a
 network gone and back, the board and the turns are read again: a save made before the join, or while this window heard
 nothing, was never told to it. A channel that cannot join, or an AUDIENCE, has the names asked again (no more than once
@@ -5438,7 +5468,7 @@ else.
 
 ## 15. Testing and verification
 
-**As of MO4 (2026-11-12):** 132 pgTAP suites, 7,219 checks with 0130 to 0135 (by count of the suites' plans; the whole set last read on wilson-dev on the applied schema after 0133, 7,205 of 7,209, before 0134 and suite 136's last ten probes; after 0134 and 0135 suites 110 and 134 to 138 read 325 of 325 there). **As of MO3 (2026-11-08):** 127 pgTAP suites, 6,950 checks with 0128 and 0129 (by count, after both whole-session review rounds; the whole set read on wilson-dev, rolled back, with the two prepended before they were applied and on the applied schema at the session's end: 6,948 passed, the rest suite 74's two checks on dev's own old sign-in rows, red before this session). **As of MO2 (2026-11-07):** 120 pgTAP suites, 6,511 checks with 0122 and 0123 (by count, after both review rounds) (the whole set read 6,493 on wilson-dev, rolled back, before the 15 probes the planted breakages asked for; the four suites they went into were read again). **As of MO1 (2026-11-07):** 117 pgTAP suites, 6,252 checks with 0120 and 0121, read by running them on wilson-dev, rolled back. The counts just below are dated history.
+**As of MO4 with 0136 (2026-11-12):** 132 pgTAP suites, 7,243 checks (suite 134's plan from 43 to 64, suite 137's from 42 to 45), the whole set read once on wilson-dev on the applied schema at 0136: 7,243 planned = collected, 7,241 passed, the two reds suite 74's #34 and #35 (dev's own old sign-in rows, red before this session). **As of MO4 (2026-11-12):** 132 pgTAP suites, 7,219 checks with 0130 to 0135 (by count of the suites' plans; the whole set last read on wilson-dev on the applied schema after 0133, 7,205 of 7,209, before 0134 and suite 136's last ten probes; after 0134 and 0135 suites 110 and 134 to 138 read 325 of 325 there). **As of MO3 (2026-11-08):** 127 pgTAP suites, 6,950 checks with 0128 and 0129 (by count, after both whole-session review rounds; the whole set read on wilson-dev, rolled back, with the two prepended before they were applied and on the applied schema at the session's end: 6,948 passed, the rest suite 74's two checks on dev's own old sign-in rows, red before this session). **As of MO2 (2026-11-07):** 120 pgTAP suites, 6,511 checks with 0122 and 0123 (by count, after both review rounds) (the whole set read 6,493 on wilson-dev, rolled back, before the 15 probes the planted breakages asked for; the four suites they went into were read again). **As of MO1 (2026-11-07):** 117 pgTAP suites, 6,252 checks with 0120 and 0121, read by running them on wilson-dev, rolled back. The counts just below are dated history.
 
 **pgTAP** — 55 suites under `supabase/tests/rls/` (Session 20 added 39–42, one
 per model control-plane table; **Session 24 added 43–47, one per money table;

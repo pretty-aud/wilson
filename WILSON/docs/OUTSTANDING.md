@@ -4523,3 +4523,57 @@ fixed in `e3730b7c`.
   removed ids). MEASURED by reading `0132_board_channels.sql` (line 21 against the two chunk sizes). The code is the
   smaller and safer of the two; the header is wrong. Fix shape: correct the comment in the next file that restates
   the function (an applied migration is not edited).
+- **MO4-21 · A board has no copy, no duplicate and no right-click menu, so a frame cannot be copied with what it
+  holds.** MEASURED by reading: `BoardCanvas.jsx` takes no copy, paste or duplicate key and draws no menu on a right
+  press, and the design note (s4b, the readings) leaves all three untouched. Her words asked for frames like Figma's,
+  and in Figma a frame copied or duplicated takes what it holds. Fix shape: when copy and duplicate come to boards, a
+  frame is copied with `heldBy` of it and the lines whose two ends are both among those, in one undo step, and the
+  right-click menu offers *Frame selection* and *Remove the frame only* beside them.
+- **MO4-22 · What a frame holds is worked out from positions and stored nowhere.** MEASURED by reading `frames.js`
+  (`frameHolds`, `heldBy`): a thing whose bounds' middle is inside a frame and which is no larger than it belongs to
+  it, so a thing that merely lies over a frame travels with it when it is dragged or nudged and goes with it on Delete,
+  and there is no way to keep a thing over a frame without it belonging. A curved or elbow free line is judged by its
+  stored box (its ends and bends, `connectorRecord`), not by the path drawn, so its middle can sit inside a frame the
+  line seems to leave. Positions were judged enough in the design note (section B): frames then need no database
+  change, and every window works out the same membership from the same positions. Storing membership would take a column on `board_elements`, a
+  guard against a frame held by itself through a loop and against a frame of another board, and a rule for a thing
+  that someone else drags out of a frame while this window is moving it. Fix shape: only if she asks for a thing to lie
+  over a frame without belonging; until then, positions stay the one rule, the same in every window.
+- **MO4-23 · While a frame is dragged, the others see only part of it move.** MEASURED by reading `BoardCanvas.jsx`:
+  a drag sends at most `MAX_DRAG_SENDS` (20) positions a step, the frames first, so the others see the frame and up to
+  19 of what it holds move live; the rest jump to their places when it is let go and the save arrives. Fix shape: one
+  message for a frame's move (its id and the offset, which each window applies to what it holds there), or a cap that
+  counts a frame's things as one.
+- **MO4-24 · A background change is not an undo step and is not in the history or the takeout.** MEASURED by reading
+  `boardStore.js` (its header: the background is the board's, not an element's, and not an undo step) and 0136's
+  header (history and the takeout are not in it, MO4-14): Ctrl+Z does not take a background back, and looking back
+  shows nothing of who changed it, though `updated_by` and `updated_at` are stamped on the board's row. Fix shape: with
+  MO4-14, the later file that records a board's making and its trash also records a background's change; an undo step
+  for it only if she asks.
+- **MO4-25 · Delete on a frame leaves a line from a held thing to something outside, loose at that end.** MEASURED by
+  reading `BoardCanvas.jsx` (`removeSelection`, `removeIds`), as built: the frame, what it holds and a line whose two
+  ends both go are removed, and a line with one end outside stays, its end at the removed thing freed where it was
+  drawn. The walkthrough's picture 27 shows it, and one undo brings it all back (picture 28). Fix shape: none needed if
+  she keeps it; else remove such a line with the frame too, in the same undo step.
+- **MO4-26 · Suite 134 has no check of the background version's own CHECK or its NOT NULL.** MEASURED by reading
+  suite 134's section F (lines 257 to 332) and the planted breakages' record (plants136/NOTES.md): only 0136's
+  post-conditions hold `boards_background_version_chk` and the column's NOT NULL, so plants 45 (the check dropped) and
+  46 (the NOT NULL dropped) are caught only with the post-conditions kept. A later file that restated the column would
+  have no suite to fail. Fix shape: two probes in section F: `UPDATE ... SET background_version = NULL` refused with
+  23502, and a board inserted as the owner with `background_version = -1` refused with 23514 (the guard fires only on
+  UPDATE).
+- **MO4-27 · Two different people changing a background at the same moment has not been run between real
+  accounts.** INFERRED by reading: the end-to-end spec's step 3c (`tests/e2e/boards.spec.ts`) runs between two windows
+  of one person on wilson-dev; the ordering by version has unit tests (`boardStore.test.js`, the dev fixtures' tests)
+  and suite 134's version checks, and no run between two accounts. The release test list's pair check (RELEASE_TESTING
+  §W: A and B choose at nearly the same moment and both screens end on the same background) is the manual one. Fix
+  shape: run §W's pair check on staging with two real accounts before boards reach people; and when the spec has a
+  second seeded person, a step where each changes the background at once.
+- **MO4-28 · The planted breakage 25 (0136's REVOKE narrowed to PUBLIC) stays green.** MEASURED on wilson-dev
+  2026-11-12 (`pg_default_acl` read there) and by the plants' run 43173011494: a function made by the role that runs migrations
+  grants anon nothing by default on this project (postgres's default privileges for functions in public name postgres,
+  authenticated and service_role), so suite 134's "anon may not" check cannot fail for that breakage, and the REVOKE's
+  `anon` is a second belt. On a database whose defaults differ, 0136's post-condition (anon may not execute
+  `board_set_background`) is what would refuse it. Fix shape: none for 0136; read the default privileges on staging and
+  production before the apply (`select defaclrole::regrole, defaclacl from pg_default_acl where defaclnamespace =
+  'public'::regnamespace and defaclobjtype = 'f'`), and keep each new function's REVOKE naming anon.

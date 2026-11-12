@@ -63,6 +63,46 @@ branch until it is merged into the integration branch.
    **Pen**, write with **Text** (key T), and put a **Sticky note** (key N) with words on it. *Picture 05.*
 6. Undo and redo are at the bottom left with the zoom, and Control+Z works too.
 
+### 3a. A board's background: dotted grid, blank or lined grid.
+
+1. A new board opens on a dotted grid: small grey dots, evenly spaced, behind everything you draw. *Picture 16.*
+2. At the bottom left, in the bar with undo and the zoom, press the last button (its tip says *Background*). A short
+   list opens: **Dotted grid**, **Blank** and **Lined grid**, with the one in use marked. *Picture 17.*
+3. Press **Lined grid**: the board turns to squared paper. *Picture 18.* Open the list again and press **Blank**: no
+   grid at all. *Picture 19.* The list closes when you choose, when you press Escape, or when you press anywhere else.
+4. Zoom in and out, and move around the board: the grid moves and grows with what you drew. Zoomed far out, it has
+   fewer dots or lines, so it stays light.
+5. The background belongs to the board, not to you. Anyone who opens the board sees the same one, and anyone who may
+   change the board may change it. Someone who may only look at the board has no **Background** button. *No picture
+   of a second person: the pretend company is one person in one window. That the change reaches the other person
+   without reloading is checked by the automated test that opens one board in two windows on the test copy.*
+
+### 3b. Frames that group things, as in Figma.
+
+1. The Frame tool (the # sign on the left, or the key F) still draws an empty frame: drag on the board. Its name,
+   *Frame*, sits above its top left corner. *Picture 20.*
+2. Select two or three things: drag a rectangle round them, starting on an empty part of the board. The panel on the
+   right has an *Arrange* row at the top. In it, the button with the # sign (its tip says *Frame selection (Ctrl+G)*)
+   puts a frame round them. *Picture 21.* Press it, or press Ctrl+G: a frame named *Frame* appears round them, a little
+   larger than they are, and it is selected. *Picture 22.*
+3. Drag the frame by its name, its edge or its white middle: everything it holds moves with it, and lines joined to
+   them follow. *Picture 23.* The arrow keys nudge it the same way.
+4. A frame holds a thing when the thing's middle is inside the frame and the thing is not bigger than the frame.
+5. Drag something over a frame: while you hold it, it stays in sight on top, and the frame is outlined in blue, to
+   show it would take it. *Picture 24.* Let go: it sits on top of the frame, and now moves with it. *Picture 25.*
+   A line drawn on its own, joined to nothing, belongs to a frame like anything else when it is inside it.
+6. Drag it out of the frame and let go: it no longer belongs to the frame. Move the frame, and it stays where you left
+   it. *Picture 26.*
+7. To pick things inside a frame without moving the frame, hold Ctrl and drag from inside the frame: it draws a
+   selection rectangle instead.
+8. Select a frame and press Delete: the frame goes with everything it holds, and the board says *The frame was removed
+   with what it held. Undo brings it all back.* A line between two things in the frame goes too. A line from a thing
+   in the frame to something outside it stays, loose at the end that lost its thing. *Picture 27.* One undo (Control+Z) brings it all back. *Picture 28.*
+9. To take away only the frame and keep what it held, select the frame and press the button beside the # sign (its tip
+   says *Remove the frame only (Ctrl+Shift+G)*), or press Ctrl+Shift+G.
+10. **Bring to front** on a frame brings what it holds forward with it, so a frame never covers its own things.
+11. Someone who may only look at the board sees no frame buttons, and cannot move or delete anything.
+
 ### 4. Dropped media appears in Files; reference embed adds no copy.
 
 1. Press **Picture or file** (key I) and choose a picture: it lands on the board as a tile. Drag pictures or files from
@@ -137,6 +177,10 @@ Two accounts, A and B, on the same board in two browsers. *No picture: the prete
   and two people about 144,000. A window that lost its connection caught up about a second after it came back. A person
   taken off the company while the board was open had it closed for them at once (in 49 thousandths of a second).
 - **The map** stays as quick with a board open as without one, on the debug sample.
+- **The background and frames**, in a real browser on the pretend company: the three backgrounds and their list, the
+  grid while zooming and moving, a frame put round a selection by its button and by Ctrl+G, a frame dragged and nudged
+  with what it holds, a sticky dragged in and out, Ctrl and a drag inside a frame, *Remove the frame only*, and Delete
+  with what it held followed by one undo.
 
 ## What is not there yet
 
@@ -147,6 +191,18 @@ Two accounts, A and B, on the same board in two browsers. *No picture: the prete
 - A board's place in the looking-back record: looking back shows its folder as a plain folder, and a board is not in
   the company's takeout yet.
 - A project with no folders cannot have a board yet (see *Before you start*).
+
+## How the background and frames work now
+
+These are choices made while building, not your words. Each is how it works now; tell me if you want it otherwise.
+
+- The background belongs to the board, not to each person: everyone on the board sees the same one.
+- A new board starts on the dotted grid.
+- *Lined grid* is squared paper: lines across and down, like graph paper.
+- A thing belongs to a frame by where its middle is: its middle inside the frame, and the thing no bigger than the
+  frame.
+- Delete on a frame takes what it holds too, as Figma does. *Remove the frame only* keeps them.
+- The board has no copy, no duplicate and no right-click menu yet, so frames have none of those either.
 
 ## Still to confirm with you
 
@@ -177,6 +233,25 @@ In the folder *97_moth_session_4 pictures* beside this file, all from the preten
 - **12 a corner pulled in, the frame smaller.jpg:** a corner resizing the frame.
 - **13 an edge pulled away, Let go to close.jpg:** the right edge pulled away.
 - **14 the trash question.jpg** and **15 Moth trash, with Bring back.jpg:** the trash.
+- **16 a board on the dotted grid.jpg:** the board *Harbour scenes*, maximised: a heading, two scenes, a question
+  joined by a line, and a sticky, on the dotted grid a new board starts with.
+- **17 the Background list, open.jpg:** the list at the bottom left, with *Dotted grid* marked.
+- **18 the same board on the lined grid.jpg** and **19 the same board, blank.jpg:** the other two backgrounds.
+- **20 an empty frame drawn with the Frame tool.jpg:** a frame drawn by hand, named *Frame*.
+- **21 two scenes selected, Frame selection in the panel.jpg:** the two scenes selected; the # button in the panel's
+  *Arrange* row is *Frame selection*.
+- **22 the frame made around them.jpg:** the new frame round them, selected.
+- **23 the frame dragged down, its scenes with it.jpg:** the frame moved down; the scenes came with it and the line
+  followed.
+- **24 a sticky dragged over the frame, the frame outlined.jpg:** the sticky held over the frame, in sight on top,
+  the frame outlined in blue.
+- **25 the sticky dropped in, moving with the frame.jpg:** the sticky let go between the scenes; the frame moved, and
+  the sticky with it.
+- **26 the sticky dragged out stays behind when the frame moves.jpg:** the sticky dragged out; the frame moved up
+  without it.
+- **27 Delete on the frame, and what the board says.jpg:** the frame and the two scenes gone; the line to
+  *Boat or road?*, which is outside the frame, stays with a loose end; the words at the bottom.
+- **28 one undo brings it all back.jpg:** after one undo.
 
 ## Questions
 

@@ -311,6 +311,13 @@ Exclude financial files/canonical locked-folder descendants, including Legal, fo
 **In scope:** brief 7–7.5, board parts 1–4/8–9, 12a.1/11; checklist 9–16; complete matrix verification.
 **Out of scope:** gateway previews, live long-note transport, NAS watcher, waves, people/unrelated remediation/settled design changes.
 
+**Added to Session 4 (2026-11-12), her words**, typed to the planner at 03:28:56 UTC and confirmed in Session 4's chat at 05:59 UTC ("Yes, build both now"), both before the whole-session rounds:
+
+1. Hers: "for board default background. lets do a dotted grid, blank, and lined grid as options the user can select for the default background of a board."
+2. Hers: "also make sure to include frames like figma does to group multiple elements together and making it easier for users to group and grab the group and move it around."
+
+**Readings, not her words, hers to overturn:** the background is the board's, held with it in the database (0136, house method on dev), the same for everyone who opens it and changed by whoever may change the board; a new board starts on the dotted grid; "lined grid" is a square grid like graph paper; changing it is not an undo step. Frames: what is built stays; frame the selection in one action, grab a frame by its name, edge or surface and move it with what it holds, drag a thing in or out; a frame holds a thing by its middle and not one larger than itself; Delete on a frame takes what it holds, "Remove the frame only" leaves it; resizing does not resize contents; what a frame holds comes from positions, nothing stored; no copy, duplicate or right-click menu on boards yet; others see a dragged frame and up to nineteen of its things move live (twenty places a step in all). Where her words leave a detail open, follow Figma. As built: MOTH_DESIGN §5.
+
 **Measure first:** all hand-offs/file identity/providers/constraints/publication paths/realtime policies/settings. Audrey says Claude knows plan type: locate known configured context, verify plan name/remaining usage/spend cap; do not ask her to identify it again. Benchmark graph/both projects before board deps. Stop/report contradictions.
 **Files — MEASURED:** E1–E4/E8/E11–E23/shared publication/previews/page-dialog tests. **Proposed:** board renderer/tools/frame/presence/cursors/sticky editor.
 

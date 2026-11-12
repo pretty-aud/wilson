@@ -2245,7 +2245,14 @@ Opus 5.5 and a second look, planted on a throwaway Actions stack, then applied b
 through a second round that also checked the first round's findings, a second look, a rehearsal on wilson-dev rolled
 back, plants on a throwaway stack, then applied the same way. Nothing is on staging or production.
 
-### 5.1 The database: 0130 to 0135
+Two additions joined the session on 2026-11-12, her words typed to the planner at 03:28:56 UTC and confirmed in this
+session's chat at 05:59 UTC ("Yes, build both now"): a board's background, and frames that group like Figma's
+(PLAN_MOTH §5 Session 4 quotes both). The background is a seventh migration, 0136, through its own review round on
+Opus 5.5, a second look, rehearsals on wilson-dev rolled back and plants on a throwaway stack, then applied by the
+house method. Frames change only the client. Where her words leave a detail open, the board takes a reading, said
+as one in §5.4 and hers to overturn.
+
+### 5.1 The database: 0130 to 0136
 
 - **`0130_boards`.** A board is a folder (brief §7.1): a sticky is a markdown file in it, a dropped picture or video a
   real file in it, so the board and the Files page agree. What the folder cannot hold is the canvas: one row a board
@@ -2292,6 +2299,29 @@ back, plants on a throwaway stack, then applied the same way. Nothing is on stag
   batch and no folder: listed nowhere, and with no way back until the purge took it. The files' trash guard, restated
   from 0131 with one arm, now lets such a file go of its batch: it is an ordinary file in the trash, listed and brought
   back on its own, to the project's top. Re-run after any replay of 0131.
+- **`0136_board_background`.** A board is drawn on one of three backgrounds, and the background is the board's, the
+  same for everyone who opens it. `boards.background` is 'dots', 'blank' or 'lines', 'dots' when not named, held to
+  the three by `boards_background_chk` (a constant default: no rewrite of the table, a moment's ACCESS EXCLUSIVE
+  lock). `boards.background_version` is 0 on a new board and one more with each change, kept at 0 or more by
+  `boards_background_version_chk`. A client still only reads a board row: neither column has a grant beyond 0130's
+  SELECT. `board_set_background(board, background)` is the one way to change it: Moth's write gate with 0130's one
+  refusal for a board not found or not writable (42501), and "A board's background is dotted, blank or lined."
+  (22023) for none or any other value. The board's row is locked FOR NO KEY UPDATE and the gate asked again, so a
+  trash, a move or a member's removal the change waited behind is counted. The same value again writes nothing,
+  sends nothing and answers the row's version with `changed` false. A change stamps `updated_at` and `updated_by`,
+  moves the version by one in the same UPDATE, leaves `revision` and `audience_gen` where they are (they count
+  element changes and audiences), sends one `board` message on the board's database channel where realtime is
+  present (`{ board, op: 'background', background, version }`), and answers `{ board_id, background, version,
+  changed: true }`. `board_read` is restated from 0130's text with one change: the board object gains `background`
+  and `background_version`. The pre-flight pins its stored text by md5 as 0130's (`7135d1c6…`) or this
+  file's own (`3042ffac…`); the post-condition asks for this file's. `trg_boards_background_version` (BEFORE UPDATE OF background_version, 0130's
+  guard's words, 42501) keeps the version from going down whoever writes the row. The post-conditions ask for each
+  column with its type, default and NOT NULL, each check by its exact printed definition, validated, on its one
+  column, the guard trigger as written and no client's to call, no privilege beyond SELECT on either board table
+  for authenticated, anon or PUBLIC (table and column), the two functions' grants, and 0134's two reads by name with
+  the hop through projects. After a replay of 0130, re-run 0134 first and then 0136: 0130's replay restates
+  `board_read` without the background and takes back 0134's reads, which this file's pre-flight asks for. Suites 134
+  (section F, plan 64) and 137 (plan 45).
 
 **Seen while building:** SQL does not short-circuit a cast. A trigger's order is its name's. A column trigger fires on
 the UPDATE's own target list. A transition table's row is a record. One transaction's realtime messages share their
@@ -2318,7 +2348,7 @@ trashed folder from a client's UPDATE and DELETE too, since they see only what t
   rounded rectangle, circle, oval, triangle, diamond, star, hexagon, arrow, double arrow, speech bubble, and the
   flowchart's process, decision, document, database, terminator, input and output, predefined process and connector
   circle. Connectors straight, curved or elbowed; solid, dashed or dotted; a width, a head at each end and a label;
-  their ends follow their elements by id and anchor. Frames with names, which carry what is in them; pen strokes; text
+  their ends follow their elements by id and anchor. Frames with names, which group what is in them (below); pen strokes; text
   boxes; stickies, their markdown shown as text and edited over the board, someone else's turn a soft glow and their
   name; a picture from its file and a video's first frame; embeds, a reference to a file where it is, chosen from the
   project's files (the board's own folder left out); and the stop-sign tile, "This file is missing — it may have been
@@ -2328,6 +2358,48 @@ trashed folder from a client's UPDATE and DELETE too, since they see only what t
   one finger and a pinch, with larger targets the moment a finger or pen touches. Files dropped on the board, or chosen
   through "Picture or file", are uploaded into its folder and placed where they fell. A board one may only read offers
   Select and Move around.
+- **The background** (`background.js`, 0136). The grid sits in the board's own coordinates, so it moves with the
+  camera as the elements do: a line, or a row of dots, passes through board x 0 and y 0, every 24 board units at 100
+  percent. Zoomed out, the step doubles until its marks are at least 12 px apart on screen, and doubles again while
+  one paint would draw more than 512 lines a side or 20,000 dots, so the count is bounded at any zoom and any window
+  size. Lines are 1 px on whole pixels; dots are small squares at the crossings, two px, three from 200 percent;
+  blank draws nothing. The canvas paints it on a third Konva layer under the elements that takes no presses, again
+  only when the camera, the size of the view or the background changes, never on an element's change; the board's
+  wrapper carries `data-background`. "Background" at the end of the foot bar opens a small list of the three,
+  "Dotted grid", "Blank" and "Lined grid", each drawn small, the current one pressed; it closes on a choice, on
+  Escape (first in the panel's Escape order while open) and on a press elsewhere, and is offered only to someone who
+  may change the board, where the server knows backgrounds. A server whose board has no `background` key draws the
+  dotted grid and offers no choice. The store (`boardStore.js`) draws a choice at once and saves it, one save at a
+  time, the latest choice sent next; refused, the server's own is drawn again and its words said. The save's answer,
+  the channel's `board` message and a read reach a window on different roads in no fixed order, so the store keeps
+  the pair (background, version) and takes a server's word only when its version is higher than the one held; a
+  choice on its way stays drawn until its answer or its refusal. `boardLive.js` hands the channel's `board` message
+  to the store; the cloud adapter calls `board_set_background` (`setBoardBackground`) and listens for the `board`
+  event. The fixtures (`boardsFixtures.js`) keep the same column, version, words, codes and message on their bus.
+- **Frames** (`frames.js`, no database change). What a frame holds is worked out from positions each time and never
+  stored: the positions are already saved and shared, so a stored list would only be a second copy to keep in step,
+  and could disagree with what the board shows. A frame holds a thing whose middle is inside it and which is no
+  larger than it, a free line (neither end tied) as any thing, and a frame wholly inside it, and what that frame
+  holds in turn; a line tied at an end is never held, it follows its ends. "Frame selection" puts a frame named
+  "Frame" round the selection, 24 units clear, with the selection, what its frames hold and anything else the new
+  frame now holds stacked above it, in one undo step, and selects it: the style panel's button, Ctrl or Cmd + G, and Ctrl or Cmd + Alt + G (Figma's). A frame
+  grabbed by its name, its edge or its surface, dragged or nudged with the arrow keys, carries what it holds, and
+  the lines tied to those follow. While things are dragged, what the drag moves is drawn on top, so no frame's fill
+  hides it, and the frame that would take a dragged thing is outlined, chosen by the thing's middle as holding is,
+  so the outline says what the drop will do; dropped there, a thing below that frame is raised above it, with what
+  it holds and the lines tied to them, in the same undo step as the move. Things raised above a frame always take
+  their tied lines along, so a frame's fill never covers the stretch of a line that leaves a thing inside it.
+  Stacking a frame takes what it holds and their lines along. Delete on a frame removes what it holds too, and a
+  line whose two ends both go, in one undo step, and says once "The frame was removed with what it held. Undo
+  brings it all back."; a line with one end outside keeps that end and is freed at the other. "Remove the frame
+  only" (the style panel when every selected thing is a frame, and Ctrl or Cmd + Shift + G) removes just the frames
+  and selects what they held. Ctrl or Cmd and a drag that begins on a frame draws a selection rectangle, so things
+  inside a frame can be picked; the same press without a move toggles the frame in the selection. A frame drawn by
+  hand goes to the bottom, unless it meets another frame, whose fill would hide it: then it goes on top, with what it
+  holds above it. While a frame is dragged, the others see twenty places a step at most, frames first (so a frame and
+  up to nineteen of its things move for them); the rest arrive when it is let go. Resizing a frame does not resize what it holds. The style panel's Arrange row (the order, Frame
+  selection, Remove the frame only, Delete) is first now: on a framed board the panel scrolls, and those were under
+  its fold.
 - **The panel** (`BoardPanel.jsx`, `boardPanelState.js`). One panel inside Moth, in three sizes: in a frame over the
   map, filling the map's view, maximised over the whole tool. "Back to the map" and Escape go straight back. Escape's
   order: a kit layer on show outside the board first, then the topmost picker, editor, gesture, tool or selection on
@@ -2356,6 +2428,7 @@ trashed folder from a client's UPDATE and DELETE too, since they see only what t
 |---|---|---|---|---|---|
 | 0130 to 0133 | 12 agents, 2,756,775 tokens, 54 findings | 1 agent, 231,299 | 118: 108 caught, 10 green | 2026-11-11 15:31:58, 15:32:27, 15:32:56, 15:33:08 | `bab3ea89…`, `d71c5437…`, `a2ce894b…`, `a56e4359…` |
 | 0134, 0135 | 21 agents (3 reviewers, 18 checkers of round 1's findings), 2,515,105 tokens | 1 agent, 113,190 | 21: 16 caught, 5 green | 2026-11-12 05:05:39, 05:06:07 | `90dc4a07…`, `8a708f5a…` |
+| 0136 | 9 agents (3 reviewers by lens, 6 checkers), 1,035,484 tokens, 6 findings, all minor | 1 agent, 177,318 | 58: 53 caught, 5 green | 2026-11-12 07:20:00 | `bc87d922…` |
 
 Every green plant is held by a clause named in the plants' record (for 0134 and 0135: the hop and the folder gate;
 NOT EXISTS; a clause no probe can see; the suites delete only as a client; 0131's REVOKE). The second round read the
@@ -2368,7 +2441,47 @@ whole set ran once on the applied schema at 0135 (2026-11-12 05:21:39 to 05:26:3
 collected, 7,217 passed; the two reds are suite 74's, on dev's own old sign-in rows, red before this session; 27
 connections before and after, no lock waits, nothing open past a minute. New suites: 134 to 138. Vitest, the whole set
 on four workers: 507 files, 12,958 passed, 9 skipped. CI: all six checks green on `2f58a3f3` (Playwright 14 passed, 2
-skipped).
+skipped), and again on the docs commit `90ed3a67`.
+
+**0136.** The review round (Opus 5.5) had three reviewers by lens (who may; hygiene and replay; the interplay with
+the client's contract) and a checker for each finding: six findings, all minor, five distinct, all taken. The one
+that changed the shape: a save's answer, the channel's message and a read reach a window in no fixed order, so a
+window could keep its own choice after another person's later one; the board gained `background_version`, carried
+by the answer, the message and `board_read`, and a window keeps the highest. Also taken: the check compared by its
+exact printed definition, not only by its name; the column-grant post-condition names PUBLIC and covers
+`board_elements` as well as `boards`; the header says the replay order (0130, then 0134, then 0136), as the
+handbook's and runbook's rows do; "the same value again changes nothing" is read by the row's ctid, not only the
+answer's flag. The plants' kit found two probes that could not fail, both taken: suite 134 now has the change made
+by a writer who is not the board's maker, so the stamp is seen, and suite 137 reads the message's payload, not only
+its event and op. The who-may reviewer walked every kind of caller and found no way in; a non-reader cannot tell a
+hidden board from a missing one. The second look saw no blocker and three minors, all taken: the version's check
+compared exactly too; nothing kept the version from going down, so section 4 adds the guard trigger, its
+post-condition and suite 134's check 64; and the adapter's comment on the answer's shape. Rehearsed on wilson-dev
+rolled back at each text: the first draft 270 ms alone, twice over in one transaction 35 and 18 ms; after the
+round's takes 337 ms, then 42 and 31, suites 110 and 134 to 138 with it prepended 348 of 348; the final text 187 ms,
+twice over 54 and 32 (42 and 28 after a line was wrapped), the six suites 349 of 349, with 12 connections, no lock
+waits and 198 MB. The 58 plants ran on a throwaway stack at 0135 (Actions run 43173011494): 53 caught, 5 green, each
+held by a named clause. Plants 2 and 4 (the second ask of the gate under the lock, and its refusal, turned off): the
+first ask and its refusal hold, and one session cannot stage the race. Plant 13 (NOT NULL dropped): no client writes
+the column and the function refuses NULL; with the post-conditions kept it is refused. Plant 31 (`search_path`
+dropped): every name in the body is schema-qualified. Plant 25 (the REVOKE narrowed to PUBLIC) was expected red and
+is green: a function made by the role that runs migrations grants anon nothing (on dev the default privileges for
+that role in `public` name only postgres, authenticated and service_role), so the REVOKE's "anon" is a second belt.
+Applied on wilson-dev by the house method from the blob at `a88ad656`: the statements at 07:20:00 UTC, md5 `bc87d922ba7afb46ec50b1c5adab5a16` read back equal to the blob, `board_read`'s md5
+`3042ffac01c8f09ba7c03607d2e25fc0`; dev's 8 boards all on 'dots'; head 0136, 131 rows; 12 connections before and 13
+after, no lock waits, 197 MB. On the applied schema, suites 110 and 134 to 138 passed 349 of 349. The whole set then
+ran once on the applied schema at 0136: 132 suites, 7,243 planned and collected, 7,241 passed; the two reds are
+suite 74's #34 and #35, on dev's own old sign-in rows, red before this session; 13 connections before and after, no
+lock waits, nothing open past a minute. Vitest, the whole set on four workers at `a88ad656`: 508 of 509 files and
+13,042 of 13,043 tests passed, 9 skipped; the one red is `fileMoves.test.js`, a loopback connect refused under the
+run's own load (EADDRINUSE), which passed alone three times running (36 of 36).
+
+**Who built the two additions** (every agent on Opus 5.5, to the session's design, read, run and corrected by the
+session): the database's drafter 206,191 tokens, and 244,154 when resumed for the round's takes; the background's
+client 293,821, and 318,435 when resumed for the version; the plants' kit 185,503, and 234,472 when resumed for the
+revised text; the frames 239,668, and 284,444 when resumed for the refinements below; the review round's 9 agents
+1,035,484; the second look 177,318; walkthrough 97's additions 194,288, and 221,700 when resumed to take its pictures
+again; this section's own additions 185,471; the runbook's, the handbook's and the open items' 224,342.
 
 **Seen running** in headless Chromium on the dev fixtures: all nineteen shapes; the three connector paths with heads,
 dashes and a label; lines following a moved and a turned shape; the guides, resize and turn by the handles, a marquee,
@@ -2384,12 +2497,38 @@ sixth showed only between two people (`573dcdca`): each was "Someone" to the oth
 company's people, which may load after the board is joined; fixed, its two tests each seen failing with the fix taken
 out, and the next run between people showed real names.
 
+**The two additions, seen running** in headless Chromium on the dev fixtures, every step, no page error. The
+background: a new board on the dotted grid, the list opened from the foot bar with its three choices, each drawn,
+the grid coarsening as the view zooms out, and the layers in order (the background, which takes no presses, then
+the elements, then the overlay). The fixtures' bus is in one page only, so two browser tabs there do not share a
+background; between windows it is step 3c below. Frames: a frame drawn, a selection framed, a frame moved with
+what it holds, one thing dragged in and one dragged out. Seeing it run moved two things: the outline during a drag
+followed the pointer while holding goes by a thing's middle, so a thing held by its corner could show the outline
+and not be taken; it now goes by the dragged thing's middle (`frameTaking`), and its test was seen failing with the
+rule taken out. And the style panel's Arrange row went to the top, since on a framed board the panel scrolls and
+the selection's order, its frame and Delete were under its fold. Walkthrough 97's pictures then showed three
+oddities: a thing dragged over a frame stacked above it hid under the frame's fill until it was dropped; Delete on
+a frame left a line with a loose end; and a new frame's fill covered the start of a line leaving a thing inside it.
+The working tree now answers each: what a drag moves is drawn on top while it is held; things raised above a frame
+take the lines tied to them along; and Delete on a frame takes a line whose two ends both go, while a line with one
+end outside keeps that end and is freed at the other, as before. A free line is held by a frame as any thing is.
+That is `fdbc3832`, each of the four with its test; vitest, the whole set on four workers, with it: 509 files, 13,050
+passed, 9 skipped. The frames were driven again in the browser afterwards (every step, no page error), and
+walkthrough 97's pictures 22 to 28 were taken again: the line's start is in sight in every frame picture, the dragged
+sticky stays on top while it is held, and the one loose line left after Delete on a frame is a line to something
+outside it, which is as built.
+
 **End to end on wilson-dev** (`tests/e2e/boards.spec.ts`, the probe admin in two windows, two runs): a board made and
 opened twice; shapes across both ways as the database's own messages (2 heard on each side, none sent by a window); a
 forged save dropped; a sticky's words across; the turn refused with the writer's name, then taken; the pointer 51
 sends in 5 s (10.1 a second), 51 received, none when still; a window caught up 391 ms and 1,009 ms after its lost
 socket came back; a picture drawn from its file; the trash closing both windows. One empty test board, made on the
-server after its client had given up, is left in the probe workspace.
+server after its client had given up, is left in the probe workspace. Step 3c, new with 0136: both windows open
+the board on the dotted grid; the first opens "Background" and chooses "Lined grid", and shows it at once; the
+second shows it within 20 seconds, having heard at least one `board` message on the database's channel while no
+window sent one; neither window's count of elements moves. The spec's pins test holds the step to the source.
+Step 3c runs on wilson-dev for the first time with the push that carries this text (0136 was applied there first, at
+07:20 UTC); its result is in the hand-off, `docs/sessions/handoffs/po-moth4-2026-11-08.md`.
 
 **Between two and five people** on a throwaway Actions stack, the same spec with seeded people: each window names the
 others; the turn refused with the writer's name; the forged save dropped; a person taken off the company while the
@@ -2406,13 +2545,33 @@ try; its retry and every run on wilson-dev passed).
 lines, load 1.75 s, heap 113 MB, frames p95 17.1 ms, drawing p95 0.4 ms; with a board open in its frame, frames p95
 21.5 ms over 30 frames, drawing p95 0.6 ms, heap 126 MB; after it closed, frames p95 17.2 ms, drawing 0.5 ms. By tags,
 20 dots and 38 lines, load 2.03 s, heap 115 MB, frames p95 17.0 ms, drawing p95 0.6 ms; after a board, 17.2 and 0.5.
-**The bundle** (MO4's build): the main bundle 5,125,426 bytes (5,112,461 before), the Moth chunk 171,182 (155,415
-before), and the board's own chunk 292,162, new, loaded only when a board opens.
+**The bundle**, an ordinary `npm run build` at `fdbc3832` (the two additions and the frames' refinements): the main
+bundle 5,125,695 bytes (MO4's build before the additions 5,125,426; before Session 4 5,112,461), the Moth chunk
+171,205 (171,182; 155,415), and the board's own chunk 301,698 (292,162 before the additions; new in Session 4),
+loaded only when a board opens; the board panel's chunk 45,021. So Session 4 adds 13,234 bytes to what every page
+loads and 15,790 to M.O.T.H.'s own chunk, both under the 20 KB the brief asks to be explained; the board itself
+arrives only when one is opened.
 
-**Not measured:** LEGEND ROAD on the desktop, and a board's desktop-only and Local Server states in the desktop app;
-the Realtime dashboard's own message deltas on wilson-dev; the test copy's Supabase plan, its remaining allowance and
-its spend cap, which the command line cannot read (to be asked of her); two real accounts on staging (hers,
-RELEASE_TESTING §W). The two whole-session rounds have not run.
+**On the desktop**, her saved test project (a scratch copy of it as the app's only data, never her own app data; a
+development build of `90ed3a67` with the tester bypass compiled in, signed out, 1440 by 900, the same computer as
+§3.3's): by folders, 7 dots and 5 lines, frames p95 16.8 ms, drawing p95 0.5 ms against the 20 ms target, heap 38 MB;
+every item kind with its "related to" lines, 30 dots and 46 lines, frames p95 16.8 ms, drawing p95 0.6 ms, heap 42 MB.
+The project's menu there offers no board and says "A board needs this project in the cloud."; the panel says history
+is not recorded for projects kept only on this computer. The first three tries failed and say why the recipe matters:
+`vite build --mode development` alone compiles the tester bypass and the frame counter out (both hang on
+`import.meta.env.DEV`); the build needs `NODE_ENV=development` and `VITE_DEV_AUTOLOGIN=tester` in its own
+environment, and M.O.T.H. is reached by its navigation entry, since the desktop has no page addresses.
+
+**The plan, the cap and the usage**, read on 2026-11-12 at 06:01 UTC from Supabase's own usage and billing pages (she
+signed in herself in the app's browser pane; nothing was pressed or changed): the organisation is on the Pro plan
+with the spend cap enabled, and one allowance covers the test copy, staging and production together. In the cycle of
+17 October to 17 November: 1,057 Realtime messages of 5,000,000 (4,998,943 left), a peak of 8 concurrent Realtime
+connections of 500, 23,484 Edge Function calls of 2,000,000. Against that allowance the plan's table reads: two
+people moving without pause on one board for an hour are 144,000 messages, about 2.9% of a month's allowance; five,
+900,000, 18%. The page counts a broadcast as the one sent and each receipt, as §5.3's measured runs do.
+
+**Not measured:** a board's Local Server words in the desktop app (unit tests hold them); two real accounts on
+staging (hers, RELEASE_TESTING §W).
 
 ### 5.4 Not built, and owed
 
@@ -2425,6 +2584,24 @@ RELEASE_TESTING §W). The two whole-session rounds have not run.
   words (MO4-02); a board's folder made a thing's own folder is deleted outright with that thing (MO4-13); a folder
   moved with an office-server file in the trash below brings that file back to the old place (MO4-15).
   OUTSTANDING holds each, MO4-01 to MO4-17.
-- **Before staging and production:** the runbook's 0130 to 0135 rows. Count the projects with no top folder on each
+- **The two additions' readings**, each a reading where her words leave the detail open, and each hers to
+  overturn. The background is the board's, not each person's: everyone who opens a board sees the same one, and
+  whoever may change the board may change it. A new board starts on the dotted grid. "Lined grid" is a square grid
+  drawn with lines, like graph paper. Changing it is not an undo step. Frames follow Figma: a frame's surface grabs
+  it, as its name and its edge do, and Ctrl or Cmd and a drag that begins on it selects by rectangle instead; a
+  frame holds a thing by its middle, and not one larger than itself, and a frame wholly inside it; Delete on a frame
+  takes what it holds, in one undo step, said once, and "Remove the frame only" (Figma's ungroup) leaves it;
+  resizing a frame does not resize what it holds; stacking a frame takes what it holds along; Frame selection also
+  takes in things that lie inside the new frame though not selected; a thing dropped into a frame below it goes to
+  the top of the board; Ctrl or Cmd, Shift and a press on a frame keeps toggle-and-move. The board has no copy, no
+  duplicate and no right-click menu yet, so frames add none. While a frame is dragged the others see it and up to
+  nineteen of its things move live (twenty places a step in all); the rest arrive when it is let go.
+- **Owed by the two additions:** the frames' refinements in the working tree are not yet committed; the two
+  whole-session rounds (Opus 5.5) have still not run, and they read both additions with the rest of the session. A
+  board's background is in neither the record nor the takeout, as boards are not (MO4-14).
+- **Before staging and production:** the runbook's 0130 to 0136 rows. Count the projects with no top folder on each
   first. Apply in numeric order. 0134 takes a brief ACCESS EXCLUSIVE lock on `boards` and `board_elements` while it
-  restates their policies; 0135 takes no table lock. The client that knows boards goes only after 0130 to 0135.
+  restates their policies; 0135 takes no table lock; 0136 takes a moment's ACCESS EXCLUSIVE lock on `boards` (a
+  constant default, no rewrite), with a lock timeout of five seconds. After any replay of 0130: 0134, then 0136. The
+  client that knows boards goes only after 0130 to 0135; the client that knows backgrounds also works against a
+  server without 0136 (the dotted grid, no choice offered).
