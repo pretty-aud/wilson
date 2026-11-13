@@ -64,9 +64,32 @@ export function useRabbitLive(name, ctx) {
   return live === ABSENT ? ctx?.[name] : live
 }
 
-/** The provider's children under the seven contexts. A function, not a component: it adds no render of its own. */
+// ── The adapter's `online`, alone ────────────────────────────────────────────
+// The adapter's status is an OBJECT ({ online, lastSyncAt, error }) that every
+// refresh of the projects list and every refreshed sign-in replaces, and seven
+// of its readers want one word of it: is the adapter online. The six data
+// hooks load again when that flips (the Budget's lines and rates, the
+// expenses, the rate card, the templates, the team), and the connection dot
+// asks again. Reading the object drew each of their hosts at every
+// replacement: measured in the running app with the Assets tab open, 1,644
+// components for a status that said the same thing (the shell and the tab are
+// hosts of the team hook). They read the word, which is a boolean and so the
+// same value until it flips.
+const OnlineContext = createContext(ABSENT)
+
+/**
+ * Whether the adapter is online; the component is drawn again when that flips, and not for a new status object that
+ * says the same.
+ * @param {object | null | undefined} ctx  what the caller's own useRabbit() returned (read only when no provider is above)
+ */
+export function useRabbitOnline(ctx) {
+  const online = useContext(OnlineContext)
+  return online === ABSENT ? ctx?.adapterStatus?.online : online
+}
+
+/** The provider's children under the seven contexts and the one word. A function, not a component: it adds no render of its own. */
 export function withRabbitLive(live, children) {
-  let tree = children
+  let tree = createElement(OnlineContext.Provider, { value: live.adapterStatus?.online }, children)
   for (const name of SHOWN_NAMES) tree = createElement(CONTEXTS[name].Provider, { value: live[name] }, tree)
   return tree
 }

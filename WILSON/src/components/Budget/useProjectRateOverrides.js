@@ -23,7 +23,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
-import { useRabbitLive } from '../../tools/rabbit_v0.1.0/state/rabbitLive'
+import { useRabbitOnline } from '../../tools/rabbit_v0.1.0/state/rabbitLive'
 import { buildProjectRatesMirror } from '../../tools/rabbit_v0.1.0/projectRates'
 
 export function useProjectRateOverrides() {
@@ -32,9 +32,11 @@ export function useProjectRateOverrides() {
   const project       = rabbit?.project
   const projectId     = rabbit?.project?.id
   const adapterMode   = rabbit?.adapterMode
-  // F4: from its own context, not off the value (rabbitLive.js). The load below
-  // runs again when `online` flips, as before.
-  const adapterStatus = useRabbitLive('adapterStatus', rabbit)
+  // F4: the adapter's `online`, one word from a context of its own, and not
+  // the status object off the value (rabbitLive.js). The load below runs
+  // again when it flips, as before; a new status that says the same thing
+  // does not draw this hook's host.
+  const adapterOnline = useRabbitOnline(rabbit)
 
   const [overrides, setOverrides] = useState([])
   const [loading, setLoading]     = useState(false)
@@ -191,7 +193,7 @@ export function useProjectRateOverrides() {
     clearTimeout(retryRef.current.timer)
     retryRef.current.tries = 0
     load()
-  }, [load, adapterMode, adapterStatus?.online, rateOverridesEpoch])
+  }, [load, adapterMode, adapterOnline, rateOverridesEpoch])
 
   // Set a project rate. Exactly one of roleSlug / memberId — the database
   // CHECK refuses both or neither, because a row keyed by both has no single

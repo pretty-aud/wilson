@@ -32,7 +32,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
-import { useRabbitLive } from '../../tools/rabbit_v0.1.0/state/rabbitLive'
+import { useRabbitOnline } from '../../tools/rabbit_v0.1.0/state/rabbitLive'
 import { usePermissions } from '../../permissions/usePermissions'
 import { adapterSupportsWrites } from '../../tools/rabbit_v0.1.0/adapters'
 
@@ -253,9 +253,11 @@ export function useRateCard() {
     ? (perms.workspaceId || rabbit?.DEFAULT_WORKSPACE_ID)
     : null
   const adapterMode = rabbit?.adapterMode
-  // F4: from its own context, not off the value (rabbitLive.js). The load below
-  // runs again when `online` flips, as before.
-  const adapterStatus = useRabbitLive('adapterStatus', rabbit)
+  // F4: the adapter's `online`, one word from a context of its own, and not
+  // the status object off the value (rabbitLive.js). The load below runs
+  // again when it flips, as before; a new status that says the same thing
+  // does not draw this hook's host.
+  const adapterOnline = useRabbitOnline(rabbit)
 
   const [rateCards, setRateCards] = useState([])
   const [activeRateCardId, setActiveRateCardId] = useState(null)
@@ -334,7 +336,7 @@ export function useRateCard() {
     clearTimeout(cardsRetryRef.current.timer)
     cardsRetryRef.current.tries = 0
     loadRateCards()
-  }, [loadRateCards, adapterMode, adapterStatus?.online])
+  }, [loadRateCards, adapterMode, adapterOnline])
 
   // ── Load entries + dept defaults whenever active card changes ──
   useEffect(() => {

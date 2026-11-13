@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
-import { useRabbitLive } from '../../tools/rabbit_v0.1.0/state/rabbitLive'
+import { useRabbitOnline } from '../../tools/rabbit_v0.1.0/state/rabbitLive'
 import { usePermissions } from '../../permissions/usePermissions'
 
 export function useTaskTemplates() {
@@ -32,9 +32,11 @@ export function useTaskTemplates() {
     ? (perms.workspaceId || rabbit?.DEFAULT_WORKSPACE_ID)
     : null
   const adapterMode = rabbit?.adapterMode
-  // F4: from its own context, not off the value (rabbitLive.js). The load below
-  // runs again when `online` flips, as before.
-  const adapterStatus = useRabbitLive('adapterStatus', rabbit)
+  // F4: the adapter's `online`, one word from a context of its own, and not
+  // the status object off the value (rabbitLive.js). The load below runs
+  // again when it flips, as before; a new status that says the same thing
+  // does not draw this hook's host.
+  const adapterOnline = useRabbitOnline(rabbit)
 
   const [templates, setTemplates] = useState([])
   const [loading, setLoading] = useState(false)
@@ -68,7 +70,7 @@ export function useTaskTemplates() {
 
   useEffect(() => {
     loadTemplates()
-  }, [loadTemplates, adapterMode, adapterStatus?.online])
+  }, [loadTemplates, adapterMode, adapterOnline])
 
   // ── Load templates available to a specific project (global + project-specific) ──
   const loadProjectTemplates = useCallback(async (projectId) => {

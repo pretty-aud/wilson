@@ -27,7 +27,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join, relative, sep } from 'node:path'
 import {
-  LIVE_NAMES, SHOWN_NAMES, useRabbitLive, withRabbitLive, liveGetters, useRabbitProjects, withRabbitProjects,
+  LIVE_NAMES, SHOWN_NAMES, useRabbitLive, useRabbitOnline, withRabbitLive, liveGetters, useRabbitProjects, withRabbitProjects,
 } from './rabbitLive'
 
 afterEach(cleanup)
@@ -95,22 +95,32 @@ describe('the source: nobody reads one of the eight off the value', () => {
     }
     expect(readers).toEqual({
       'components/AdminTerminal/DiagnosticsSection.jsx':  ['adapterStatus', 'workspaceRealtimeStatus'],
-      'components/Budget/useBudgetLines.js':              ['adapterStatus'],
-      'components/Budget/useProjectRateOverrides.js':     ['adapterStatus'],
       'components/Dashboard/DashboardPage.jsx':           ['workspacePresentUsers', 'workspaceRealtimeStatus'],
-      'components/Expenses/useExpenses.js':               ['adapterStatus'],
-      'components/RateCard/useRateCard.js':               ['adapterStatus'],
       'components/SettingsPage.jsx':                      ['adapterStatus'],
-      'components/TaskTemplates/useTaskTemplates.js':     ['adapterStatus'],
-      'components/TeamMembers/useTeamMembers.js':         ['adapterStatus'],
       'tools/rabbit_v0.1.0/Rabbit.jsx':                   ['presentUsers', 'realtimeStatus'],
-      'tools/rabbit_v0.1.0/components/ConnectionDot.jsx': ['adapterStatus', 'realtimeStatus'],
+      'tools/rabbit_v0.1.0/components/ConnectionDot.jsx': ['realtimeStatus'],
       'tools/rabbit_v0.1.0/components/IngestionToast.jsx': ['ingestionRun'],
       'tools/rabbit_v0.1.0/components/UndoToast.jsx':     ['undoToast'],
       'tools/rabbit_v0.1.0/views/intake/IntakeProgress.jsx': ['ingestionRun'],
     })
     // Every name asked for is one that has a context (a typo would throw at the first render, in the app).
     for (const names of Object.values(readers)) for (const name of names) expect(SHOWN_NAMES, name).toContain(name)
+  })
+
+  it('the adapter\'s status OBJECT is read by the two that print it; the seven that want one word of it read the word', () => {
+    // Settings and the Admin terminal print the status (online, and its error in words). Everyone else asks only
+    // "is it online", and reads useRabbitOnline: a new status object that says the same thing draws none of them.
+    const word = FILES.filter((f) => /useRabbitOnline\(/.test(f.code) && f.path !== 'tools/rabbit_v0.1.0/state/rabbitLive.js').map((f) => f.path).sort()
+    expect(word).toEqual([
+      'components/Budget/useBudgetLines.js',
+      'components/Budget/useProjectRateOverrides.js',
+      'components/Expenses/useExpenses.js',
+      'components/RateCard/useRateCard.js',
+      'components/TaskTemplates/useTaskTemplates.js',
+      'components/TeamMembers/useTeamMembers.js',
+      'tools/rabbit_v0.1.0/components/ConnectionDot.jsx',
+    ])
+    for (const path of word) expect(FILES.find((f) => f.path === path).code, path).not.toMatch(/useRabbitLive\(\s*'adapterStatus'/)
   })
 
   it('the provider: none of the eight is a dep of the value, and all of them are provided beside it', () => {
@@ -192,6 +202,31 @@ describe('useRabbitLive', () => {
       expect(() => render(<Reads name="presentUser" seen={{}} />)).toThrow(/presentUser is not one of/)
       expect(() => render(<Reads name="activeIngestion" seen={{}} />)).toThrow(/activeIngestion is not one of/)
     } finally { console.error = quiet }
+  })
+})
+
+describe('useRabbitOnline: the one word of the adapter\'s status', () => {
+  function Asks({ ctx, seen }) { seen.value = useRabbitOnline(ctx); seen.renders++; return null }
+
+  it('with no provider above, the word off the caller\'s own ctx: the expression each reader held before', () => {
+    expect(show((seen) => <Asks ctx={{ adapterStatus: { online: true } }} seen={seen} />).seen.value).toBe(true)
+    expect(show((seen) => <Asks ctx={{ adapterStatus: { online: false, error: 'x' } }} seen={seen} />).seen.value).toBe(false)
+    expect(show((seen) => <Asks ctx={{}} seen={seen} />).seen.value).toBeUndefined()
+    expect(show((seen) => <Asks ctx={null} seen={seen} />).seen.value).toBeUndefined()
+  })
+
+  it('with the provider above: not drawn for a new status that says the same thing, drawn when the word flips', () => {
+    const live = LIVE()
+    const { seen, view } = show((s) => withRabbitLive(live, <Asks ctx={{ adapterStatus: { online: false } }} seen={s} />))
+    expect(seen.value).toBe(true)                         // the provider's, whatever the ctx says
+    const child = <Asks seen={seen} />
+    view.rerender(withRabbitLive(live, child))
+    const settled = seen.renders
+    for (let i = 1; i <= 3; i++) view.rerender(withRabbitLive({ ...live, adapterStatus: { online: true, lastSyncAt: new Date(i), error: null } }, child))
+    expect(seen.renders).toBe(settled)
+    view.rerender(withRabbitLive({ ...live, adapterStatus: { online: false, lastSyncAt: null, error: 'offline' } }, child))
+    expect(seen.renders).toBe(settled + 1)
+    expect(seen.value).toBe(false)
   })
 })
 

@@ -263,6 +263,25 @@ describe('R.A.B.B.I.T.\'s own clocks, with nothing in the project changed', () =
     expect(ran.total).toBe(3)             // 539 before
     expect(ctx.adapterStatus).toEqual({ online: false, lastSyncAt: null, error: 'offline' })
   })
+
+  // The status is an object that is REPLACED far more often than it changes its
+  // mind: at every refreshed sign-in the adapter is asked and answers "online"
+  // again, with a new time. The dot and the six data hooks follow the one word
+  // (useRabbitOnline), so a status that says the same thing draws none of them.
+  // An auth event that asks the adapter and reads no list is the event alone.
+  it('a new status that says the same thing draws the provider and nothing else', async () => {
+    await mount()
+    holder.adapter.mode = 'supabase'      // the auth handler re-asks only a cloud adapter
+    const was = ctx.adapterStatus
+    const mark = renderSpy.mark()
+    await act(async () => { for (const cb of holder.auth) cb('USER_UPDATED', null); await new Promise((resolve) => setTimeout(resolve, 20)) })
+    const ran = ranSince(mark)
+    expect(ctx.adapterStatus).not.toBe(was)           // it WAS replaced
+    expect(ctx.adapterStatus.online).toBe(true)
+    expect(ctx.adapterStatus.lastSyncAt).not.toBe(was.lastSyncAt)
+    expect(ran.all).toEqual(['RabbitProvider'])
+    expect(ran.total).toBe(1)
+  })
 })
 
 // ── The same state, read both ways ───────────────────────────────────────────
@@ -416,6 +435,21 @@ describe('a data hook that loads again when the adapter comes back (useExpenses)
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)) })
     expect(ctx.adapterStatus.online).toBe(true)
     expect(listExpenses.mock.calls.length).toBe(loaded + 2)
+  })
+
+  it('a new status that says the same thing does not draw the hook\'s host, and asks for nothing', async () => {
+    let listExpenses = null
+    const { adapter } = await mountUnder(<ExpensesReads />, (made) => { listExpenses = vi.spyOn(made, 'listExpenses') })
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)) })
+    adapter.mode = 'supabase'             // the auth handler re-asks only a cloud adapter
+    const was = ctx.adapterStatus
+    const loaded = listExpenses.mock.calls.length
+    const mark = renderSpy.mark()
+    await act(async () => { for (const cb of holder.auth) cb('USER_UPDATED', null); await new Promise((resolve) => setTimeout(resolve, 20)) })
+    expect(ctx.adapterStatus).not.toBe(was)           // it WAS replaced
+    expect(renderSpy.renders('RabbitProvider', mark)).toBeGreaterThan(0)
+    expect(renderSpy.renders('ExpensesReads', mark)).toBe(0)
+    expect(listExpenses.mock.calls.length).toBe(loaded)
   })
 })
 

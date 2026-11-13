@@ -72,7 +72,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 import { useRabbit } from '../state/RabbitProvider'
-import { useRabbitLive } from '../state/rabbitLive'
+import { useRabbitLive, useRabbitOnline } from '../state/rabbitLive'
 import { StatusDot } from '../../../ui/StatusDot'
 import { supabase } from '../../../cloud/auth/supabaseClient'
 import { heldSession } from '../../../cloud/auth/heldSession'
@@ -110,8 +110,10 @@ const readWatchdog = () => connectionWatchdog.getSnapshot()
 function useConnection({ active = true } = {}) {
   const ctx = useRabbit()
   // F4 (2026-11-13): the two the dot follows that move on their own clock,
-  // each from a context of its own and not off the value (state/rabbitLive.js).
-  const adapterStatus = useRabbitLive('adapterStatus', ctx)
+  // each from a context of its own and not off the value (state/rabbitLive.js):
+  // the adapter's `online` (the one word; the status object is replaced by
+  // every projects refetch, R1-7) and the channel's status.
+  const adapterOnline = useRabbitOnline(ctx)
   const realtimeStatus = useRabbitLive('realtimeStatus', ctx)
   const adapter = ctx?.getAdapter?.() || null
   const kind = adapterKindOf(ctx?.adapterMode, adapter)
@@ -256,7 +258,7 @@ function useConnection({ active = true } = {}) {
   // refetch replaces (R1-7) — and only when it disagrees with what the dot
   // measured or is measuring: the provider's own boot status() flips
   // false → true just after the dot's first probe, and that is not news (R2-4).
-  const adapterOnline = adapterStatus?.online
+  // (`adapterOnline` is read at the top of this hook, F4.)
   const measured = result?.kind === kind ? result : null
   const measuredRef = useRef(null)
   measuredRef.current = measured
