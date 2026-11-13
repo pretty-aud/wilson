@@ -5476,7 +5476,17 @@ Settings. The text typed to the agent is `AgentProvider`'s own context
 > write and the read answers nothing. A launch whose stored session is one
 > person's while the permissions name another shows neither that person's
 > cached pet nor their cache key. `App.rerender.test.jsx`'s describe for a
-> change of person holds each path; `userState.test.js` each named call.
+> change of person holds each path; `userState.test.js` each named call. The
+> agent's conversation leaves the same way (F4-08, after the merge): App hands
+> `AgentProvider` the person (`person`, as the identity effect reads it), and
+> when it changes the messages, the typed text, an open diff, the bulk queue,
+> a proposal, the undo list and the toast go before the next frame, auto-
+> approve goes back to asking and the system prompt edited in Settings to the
+> default, and an answer, a context still being read or an edit mid-apply for
+> the leaving person is dropped where it lands. A moment of `undefined` (the
+> permissions not ready again while a held sign-in is confirmed) is no change
+> of person, as for App. `AgentProvider.rerender.test.jsx` pins each piece.
+> Its prompt overrides stay until Settings saves (OUTSTANDING F4-10).
 
 **The agent** is a chat companion that can propose and apply changes. Its
 system prompt is per-tool and user-overridable; the registry holds both tools'
@@ -7848,8 +7858,9 @@ Panel's handle)**
   `App.rerender.test.jsx`, `App.focus.test.jsx`,
   `state/volatileState.rerender.test.jsx`, `views/assetWarningRender.test.jsx`,
   `LayoutVisualizer.rerender.test.jsx`, `otterRerender.test.jsx`. The bundle
-  grew by 5,784 bytes with the review rounds' fixes (main chunk 5,125,939 →
-  5,131,723; gzip 1,502.49 → 1,504.53 kB); every other chunk is unchanged.
+  grew by 6,396 bytes with the review rounds' fixes and F4-08's (main chunk
+  5,125,939 → 5,132,335; gzip 1,502.49 → 1,504.76 kB); every other chunk is
+  the same size (those that name the main chunk's file differ in that name).
 - **A change to the open project is still a new value for every R.A.B.B.I.T.
   reader** (rabbit C1's other half, `docs/OUTSTANDING.md`). One task renamed
   on the Assets tab is one commit in which all seven readers there run, 574

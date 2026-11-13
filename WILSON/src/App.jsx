@@ -2235,8 +2235,12 @@ export default function App() {
     );
   };
 
+  // F4 (OUTSTANDING F4-08): the agent is told who is signed in as App draws
+  // (undefined until the permissions resolve, as the pet's identity effect
+  // reads them), so its conversation, and whatever of it is pending, leaves
+  // with the person (AgentProvider.jsx says what goes).
   return (
-    <AgentProvider>
+    <AgentProvider person={perms.ready ? (perms.userId || null) : undefined}>
     <RabbitProvider>
     {/* ONE toast stack for the whole app (plan §4: one anchor, one stack
         manager, replacing five systems in five screen positions). It lives

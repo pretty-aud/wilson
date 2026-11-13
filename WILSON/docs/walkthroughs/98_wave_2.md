@@ -74,11 +74,11 @@ session; none of it is fixed here):
   your settings finished loading, until D.O.G. draws again for another
   reason.
 - Found on the way: in the pet's agent mode the *Send* button sends nothing
-  (Enter does); the agent's own conversation is not cleared when the person
-  at the computer changes (read in the code, not yet tried); when a second
-  person signs in over the first without signing out, Settings' AI models
-  keep showing the first person's choices until *Refresh*; and two of the
-  pets' pictures make React complain in the console about repeated pieces.
+  (Enter does); when a second person signs in over the first without
+  signing out, Settings' AI models keep showing the first person's choices
+  until *Refresh*, and the agent keeps using the first person's custom
+  prompts; and two of the pets' pictures make React complain in the console
+  about repeated pieces.
 
 **What the review fixed.** The review read every change, and found two
 security problems on one rare path: a second person signing in over the
@@ -103,6 +103,12 @@ now also say whose they are, so the database itself refuses one sent under
 the wrong account. It also found two of the five fixes half done: Settings'
 Models tab could say "You have not overridden anything" when you had, and an
 open lesson was read again at every change of page. Both are finished.
+
+After the merge, at your word, the agent's own conversation too: when the
+person at the computer changes, the agent's messages, anything typed to it,
+and any change it was waiting for you to approve now leave with them, its
+instructions edited in Settings go back to the default, and an answer still
+on its way is dropped.
 
 No questions for you in this section.
 

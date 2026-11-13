@@ -1336,7 +1336,7 @@ Kept so the file's own history is visible without `git log`.
 | Session | Added | Removed |
 |---|---|---|
 | F8 (2026-11-13, wave 2 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f8-edge-shared-plumbing`) — the Edge Functions' shared plumbing: one envelope crypto, one bucket loader, the caller checks once, one raw-HTTP transport and host rule, every body read under a measured cap (413 past it), the master keys and the opened ticket key kept per isolate, one SigV4 key per batch; deployed to wilson-dev; two review rounds. | F8-01 to F8-19 (below, the F8 section). | F1-01's 28 known type errors to 1 (F1-01, lowered). F8-01 and F8-02, closed by F8 as the second merger (`8a0bdb4f`); F8-03 tried there and taken back (`6515a9d2`), open on purpose. |
-| Post-overhaul F4 (2026-11-13, wave 2; `po/f4-rerender-discipline` into `feat/post-overhaul-edit-versioning`) — re-render discipline, nothing new on the screen meant: the pet's state in `PetHost` under App, the agent's value memoized and its input apart, `React.memo` on the pages and the three tools' roots, R.A.B.B.I.T.'s state that moves on its own clock out of the provider's value (`state/rabbitLive.js`), the Assets tab's warnings from one index (rabbit C5), O.T.T.E.R.'s lesson body and reference views memoized, D.O.G.'s preview placeholders at module level and its parse kept; measured in the running app before and after (a minute of the pet 2,105.7 to 2,859.2 ms of drawing → 42.4 to 50.7 ms); the render spy `src/lib/renderSpy.js` and its pins; two review rounds on Opus 5.5, whose security defects (the pet's saves and chat reaching the next person's account or screen) and the five things F4 had made worse were fixed in the session; no migration, no SQL, no Edge Function | F4-01 to F4-03, F4-05 to F4-13 (F4-04, the pet's chat kept for the next person, was found and fixed in the session) | P1-16 (the preview's loop, `b151c20e`). Comment markers: 4 → 4. |
+| Post-overhaul F4 (2026-11-13, wave 2; `po/f4-rerender-discipline` into `feat/post-overhaul-edit-versioning`) — re-render discipline, nothing new on the screen meant: the pet's state in `PetHost` under App, the agent's value memoized and its input apart, `React.memo` on the pages and the three tools' roots, R.A.B.B.I.T.'s state that moves on its own clock out of the provider's value (`state/rabbitLive.js`), the Assets tab's warnings from one index (rabbit C5), O.T.T.E.R.'s lesson body and reference views memoized, D.O.G.'s preview placeholders at module level and its parse kept; measured in the running app before and after (a minute of the pet 2,105.7 to 2,859.2 ms of drawing → 42.4 to 50.7 ms); the render spy `src/lib/renderSpy.js` and its pins; two review rounds on Opus 5.5, whose security defects (the pet's saves and chat reaching the next person's account or screen) and the five things F4 had made worse were fixed in the session; no migration, no SQL, no Edge Function | F4-01 to F4-03, F4-05 to F4-07, F4-09 to F4-13 (F4-04, the pet's chat kept for the next person, was found and fixed in the session; F4-08, the agent's conversation kept for the next person, was found in the session and fixed after its merge) | P1-16 (the preview's loop, `b151c20e`). Comment markers: 4 → 4. |
 | MO3 (M.O.T.H. Session 3, 2026-11-08; `po/moth3-tags`) — typed tags, relationships and workspace notes: migrations 0124 to 0129 on wilson-dev, the notes' tiers and trash, the `[[` and `#` pickers in R.A.B.B.I.T., M.O.T.H.'s typed-tag drawer, notes, tags and links in the graph and its record; two whole-session review rounds. | MO3-01 to MO3-12 (above, after MO2's list). | MO2-03 (links are saved: 0127, and the page's link drop), MO2-09, MO2-10, MO2-11, MO2-12 and MO2-18 (0124). |
 | MO2 (M.O.T.H. Session 2, 2026-11-07; `po/moth2-graph`) — the graph engine merged with its callers, migrations 0122 and 0123 on wilson-dev, the graph, glow, HUD and navigation; two whole-session review rounds. | MO2-01 to MO2-23 (above, after MO2a's list). | MO2a's R1-17, R1-18, R1-4, 5, 22, 52, R1-11, 23, R1-8, 24, R1-25, R1-13, R1-6, R1-3, R1-7, R1-32, R1-33, R1-34. |
 | MO1 (M.O.T.H. Session 1, 2026-11-02 to 2026-11-07; `po/moth1-foundations-9l5hbg`) — migrations 0107 to 0119 and 0121, the Edge Functions, the desktop's trash, moves and office-server routes, and the lazy Moth page; two whole-session review rounds. | MO1-01 to MO1-15 (below, at the end of this file). | The workspace channel's private rows and the write hops on `tasks` and `assets` (A-R1-04, A-R2-03), `files_delete`'s hop (C-R2-01), S4d-01, S4d-02: 0107 to 0109. OSP-01, OSP-07, S4c-12 for claimed keys: 0114, 0115 and the Edge Functions. S4b-06's first half and the receipts' residual 1: 0121, 0115. |
@@ -5229,7 +5229,8 @@ were fixed in the session, the five by her answer *"Fix them now (Recommended)"*
 reached the next person's account, and the pet's chat reached them by three other paths) and two of the five
 half done (Settings' Models tab drew the loaded words over stale copies; the open lesson was parsed again at
 every change of page): those were fixed in the session too, the first as security, the two as the rest of her
-answer. What is below was left.
+answer. F4-08, the agent's own conversation kept for the next person, was fixed after the session's merge at her
+word *"Yes, fix it here"* (2026-11-13). What is below was left.
 
 - **F4-01 · Two pet pictures draw repeated React keys.** MEASURED in the running app (every pet render of an
   otter: *"Encountered two children with the same key"*, the key `o14_13`) and while reading the sprites: each
@@ -5270,13 +5271,6 @@ answer. What is below was left.
   a chat reply skips the "leave with an unsaved edit?" question; on O.T.T.E.R. a link to O.T.T.E.R. replays the
   2.2 s transition and, on the web, pushes a second history entry. The same before F4 (the handler was App's, with
   the same deps). Fix shape: read `navigateTo` through a ref.
-- **F4-08 · The agent's own conversation is not cleared when the person changes.** INFERRED by reading:
-  `AgentProvider`'s `agentMessages` (`src/agent/AgentProvider.jsx`) is cleared by nothing on a sign-out or when
-  another person signs in over the first, so the next person's pet in agent mode shows the last person's
-  conversation and sends it as history. The pet's own chat had the same defect (F4-04, found by review round 1 and
-  fixed in the session, `4917d5cb`); this is the agent's half, outside the pet. Before F4 too. Security-adjacent:
-  one person's words shown to, and sent as, another. Fix shape: the provider clears its messages (and its pending
-  diff and proposal) when the signed-in person changes.
 - **F4-09 · D.O.G.'s Prompts tab shows the models as they were when D.O.G. last drew.** INFERRED by reading
   (review round 2, B-3): `src/components/settings/ModelPicker.jsx:61` and `:65` read `modelFor()` and
   `defaultModelFor()` while drawing, and D.O.G. is under `React.memo` since F4 (`e3e5efb1`). A load of the tiers
@@ -5288,8 +5282,12 @@ answer. What is below was left.
   (review round 2, B-4): `src/App.jsx` loads the tiers in an effect on `[authed, perms.offline]` only, and neither
   changes when another person signs in with no sign-out between. The second person's Settings shows the first's own
   choices and the first's company's defaults, and `modelFor()` answers from them, until Refresh. Before F4 too.
+  The agent's prompt overrides are the same (by reading, while fixing F4-08): `src/agent/AgentProvider.jsx` reads
+  them (`loadAgentSkills`) at mount and when Settings saves, so after a change of person its requests carry the
+  first person's prompt overrides until then, though App has mirrored the second's settings into the cache.
   Security-adjacent: one person's settings shown to, and used for, another. Fix shape: key the load on the
-  signed-in person's id and empty the tiers (and the flag) when it changes.
+  signed-in person's id and empty the tiers (and the flag) when it changes; App tells the agent when the next
+  person's settings have reached the cache, and it reads its overrides again.
 - **F4-11 · The session's source guards and render pins have blind spots, and one rule calls correct code an
   error.** CONFIRMED by temporary tests, deleted (review round 2, C-2 to C-5), and by reading (E-3, E-4); caused
   by F4 (`ca2aa63f`, `f7b20e87`, `99d14da0`):
@@ -5334,3 +5332,12 @@ answer. What is below was left.
     pins exactly two `setPetNoticeSticky(null)` in `App.jsx` ("cleared on sign-out and on a later successful save,
     and nowhere else"), so a third clear changes that test too. Fix shape: the identity effect clears them where
     it blanks the pet.
+  - From the review of F4-08's fix (one reviewer, Opus 5.5; by reading): a subject or course the agent's proposal
+    set generating just before a change of person keeps running (`src/tools/otter_v0.3.1/Otter.jsx`'s
+    `agentGenerateSingleSubject` and `agentGenerateCourse`, which do not track the person) and posts its result under
+    the next person's session. And at a launch whose stored session is one person's while the permissions name
+    another (another tab's sign-in during the launch), what was typed or sent to the agent before the permissions
+    answered stays: the agent is told the person only once the permissions are ready, and App's comparison with the
+    stored session's person (`bootOwnerRef`) is not handed to it. Fix shape: the generation queue keeps the person
+    it started for and stops when they go; App hands the agent the stored session's person until the permissions
+    answer.
