@@ -224,7 +224,10 @@ describe('the wiring is real: the two functions that reach a bucket go through s
     expect(gc).toContain("detail: 'the bucket itself did not resolve (404)")
   })
   it('the helper is built from the reach check\'s pieces, not a second copy of them', () => {
-    expect(helper).toContain("import {\n  isPublicIp, vetResolved, denoReachDeps, LOCAL_NAME_SUFFIX, SUPABASE_HOST_SUFFIX, DNS_NAME_RE,\n  type ReachDeps, type Conn,\n} from './gatewayReach.ts'".replace(/\n/g, helper.includes('\r\n') ? '\r\n' : '\n'))
+    // F8 (d): the pin moved from the three patterns to the rule and the
+    // transport (DESIGN.md §11), and the title is now true of the transport too.
+    expect(helper).toContain("import {\n  checkPublicHost, vetResolved, denoReachDeps, withDeadline, connectLiteralTls, exchangeOnce, readBodyCapped,\n  type ReachDeps,\n} from './gatewayReach.ts'".replace(/\n/g, helper.includes('\r\n') ? '\r\n' : '\n'))
+    expect(helper).not.toMatch(/function withDeadline|function readUpTo|DNS_NAME_RE|LOCAL_NAME_SUFFIX/)
     expect(helper).not.toMatch(/function classifyV4|function classifyIp/)
     expect(helper).toContain("redirect: 'manual'")
   })
