@@ -188,11 +188,65 @@ export async function reachProof(reachKey: string, nonce: string): Promise<strin
 }
 
 /**
+ * How much of a body past its cap is read and DROPPED before the refusal is
+ * answered, in all (what was counted before the cap included); a stream that
+ * has not ended by then is cancelled.
+ *
+ * MEASURED on the hosted platform (wilson-dev, 2026-11-13): the relay
+ * delivers a function's answer only once it has received the request body.
+ * Refused unread (a declared length over the cap, or a stream cancelled past
+ * it), storage-presign (16 KiB cap) answered 413 in under 2 s for 20, 64 and
+ * 256 KiB bodies but gave NO answer within 90 s for 1 MiB and 8 MiB bodies;
+ * resolve-login (4 KiB) none within 90 s for 1 MiB; ai-proxy (33 MiB) a
+ * platform 502 HTML page after about 39 s for 34 and 40 MiB. Before F8 these
+ * functions read every body whole (`await req.json()`) and answered quickly.
+ *
+ * Why 64 MiB: the largest body measured to pass the platform, which the old
+ * ai-proxy read whole (in 8.3 s). It bounds the work a refused body can cost
+ * (reading, never holding: each chunk is dropped as it arrives); past it the
+ * stream is cancelled.
+ */
+export const DRAIN_MAX_BYTES = 64 * 1024 * 1024
+
+/**
+ * Past the cap: read the rest of the body and drop it, chunk by chunk (never
+ * kept, never decoded), until it ends or `alreadyRead` plus what is read here
+ * reaches DRAIN_MAX_BYTES; then, if it has not ended, cancel it. A read that
+ * fails ends the drain quietly: the answer is already decided (too large).
+ */
+async function drainBody(reader: ReadableStreamDefaultReader<Uint8Array>, alreadyRead: number): Promise<void> {
+  let total = alreadyRead
+  try {
+    while (total < DRAIN_MAX_BYTES) {
+      const { value, done } = await reader.read()
+      if (done) return
+      if (value) total += value.length
+    }
+  } catch {
+    return // the stream failed: nothing left to read or to cancel
+  }
+  try { await reader.cancel() } catch { /* already done */ }
+}
+
+/**
  * A request's JSON body, read under a byte limit (review round 1, note 6):
- * a declared length over the limit is refused before a byte is read, and the
- * body is read through its stream, stopping one chunk past the limit — never
+ * the body is read through its stream and decoded as it comes, never
  * buffered whole first. `{ value: undefined, length }` when there is nothing
  * or too much (the caller compares `length`), `null` when it is not JSON.
+ *
+ * F8, the drain (2026-11-13): PAST THE LIMIT the rest of the body is READ AND
+ * DROPPED before the answer is returned, because the hosted relay delivers no
+ * answer before it has the request body (DRAIN_MAX_BYTES has the
+ * measurement). A declared length over the limit, or a body counted past it,
+ * returns exactly what it always returned (`length` the declared length, or
+ * the running total at the moment it first went over, never the drained
+ * total); only now the rest is read first, up to DRAIN_MAX_BYTES in all, and
+ * then, if it has not ended, cancelled. A read that fails during the
+ * drain is swallowed (the answer is already too large). A declared length
+ * that is not a finite number is ignored, and the stream counted, as before.
+ * Memory is as it was: at most the limit plus one chunk is ever held; the
+ * text read so far is let go before the drain, and each drained chunk is
+ * dropped as it arrives.
  *
  * F8 (wave 2, 2026-11-13): it DECODES AS IT READS. It used to keep every
  * chunk, then join them into one buffer, then decode: for a moment the body
@@ -208,12 +262,21 @@ export async function reachProof(reachKey: string, nonce: string): Promise<strin
  *
  * The decoder is flushed exactly once on EVERY path (review round 1, R3): at
  * the end of the body, where its text is the body's last; and, its text
- * discarded, past the cap or when the stream fails mid-read, so it never
- * keeps the first bytes of a character after the reader has returned.
+ * discarded, past the cap (after the drain, which decodes nothing) or when
+ * the stream fails mid-read, so it never keeps the first bytes of a
+ * character after the reader has returned.
  */
 export async function readJsonLimited(req: Request, maxBytes: number): Promise<{ value: unknown; length: number } | null> {
   const declared = Number(req.headers.get('content-length') ?? '')
-  if (Number.isFinite(declared) && declared > maxBytes) return { value: undefined, length: declared }
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    const body = req.body
+    if (body) {
+      let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
+      try { reader = body.getReader() } catch { /* a body already taken: nothing to drain */ }
+      if (reader) await drainBody(reader, 0)
+    }
+    return { value: undefined, length: declared }
+  }
   if (!req.body) return { value: undefined, length: 0 }
   const reader = req.body.getReader()
   const decoder = new TextDecoder()
@@ -227,7 +290,8 @@ export async function readJsonLimited(req: Request, maxBytes: number): Promise<{
       if (!value) continue
       total += value.length
       if (total > maxBytes) {
-        try { await reader.cancel() } catch { /* already done */ }
+        text = '' // let it go: the answer is too large whatever follows
+        await drainBody(reader, total)
         return { value: undefined, length: total }
       }
       text += decoder.decode(value, { stream: true })
@@ -252,7 +316,7 @@ export type BodyRead =
   | { kind: 'json'; value: unknown }
   /** What made req.json() throw: an empty body, text that is not JSON, or a body that failed while it was read. */
   | { kind: 'not_json' }
-  /** Declared or read past the cap: refused, never read to its end. */
+  /** Declared or read past the cap: refused, the rest read and dropped (up to DRAIN_MAX_BYTES), never kept. */
   | { kind: 'too_large'; length: number }
 
 /**

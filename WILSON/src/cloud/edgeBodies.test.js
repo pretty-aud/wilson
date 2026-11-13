@@ -316,13 +316,15 @@ describe.each(FUNCTIONS)('$name: the body, as it is read today', (fn) => {
 // F8 (e): this block was "today: no cap (F8 changes this block)", which pinned
 // that any size was read whole and answered. F8 bounds every one of the
 // fourteen reads, so the block now pins the caps (DESIGN.md §7.4, §7.5): a
-// body AT the cap is read and answered as before; a declared length past it is
-// refused 413 before a byte is read; a body that never ends is refused 413,
-// cancelled, and not read on past one chunk beyond the cap; the 300,000-
-// character body is 413 in the thirteen small functions and still accepted by
-// ai-proxy; and the 413 is answered where the body was read (what ran before
-// it is what ran before a bad body). resolve-login's and issue-session's
-// order has its own block below.
+// body AT the cap is read and answered as before; a body past it, by its
+// declared length or counted, is refused 413 once the rest of it has been read
+// through and dropped, up to DRAIN_MAX_BYTES (64 MiB), and a body that never
+// ends is cancelled there (F8, the drain: measured on wilson-dev, 2026-11-13,
+// the hosted relay delivers no answer before it has the request body); the
+// 300,000-character body is 413 in the thirteen small functions and still
+// accepted by ai-proxy; and the 413 is answered where the body was read (what
+// ran before it is what ran before a bad body). resolve-login's and
+// issue-session's order has its own block below.
 const CAP = {
   'admin-create-user': 16384, 'admin-reset-password': 16384, 'admin-set-active': 16384,
   'admin-user-security': 16384, 'invite-member': 16384, 'operator-ai-keys': 16384,
@@ -344,6 +346,8 @@ function paddedTo(fn, bytes) {
   return text
 }
 const chunkOf = (fn) => (fn.name === 'ai-proxy' ? 1024 * 1024 : 1024)
+/** gatewayWire.DRAIN_MAX_BYTES: how much of an over-size body is read through and dropped before the 413. */
+const DRAIN = 64 * 1024 * 1024
 
 describe('F8: every read under its cap (this block was "today: no cap")', () => {
   it('the caps are the measured ones (gatewayWire.ts)', async () => {
@@ -352,6 +356,7 @@ describe('F8: every read under its cap (this block was "today: no cap")', () => 
     expect(wire.SIGN_IN_JSON_MAX_BYTES).toBe(4096)
     expect(wire.AI_PROXY_JSON_MAX_BYTES).toBe(34603008)
     expect(wire.TOO_LARGE).toEqual({ error: 'too_large', detail: 'the request is too large' })
+    expect(wire.DRAIN_MAX_BYTES).toBe(DRAIN)
   })
 
   it.each(FUNCTIONS)('i. $name: a body exactly AT the cap is read and answered as the minimal valid body', async (fn) => {
@@ -366,18 +371,21 @@ describe('F8: every read under its cap (this block was "today: no cap")', () => 
     expect(fetchCalls).toEqual([])
   }, 60_000)
 
-  it.each(FUNCTIONS)('i. $name: a declared length past the cap is refused 413 before a byte is read', async (fn) => {
+  it.each(FUNCTIONS)('i. $name: a declared length past the cap that never ends: 413, the body read through and dropped up to DRAIN_MAX_BYTES, then cancelled', async (fn) => {
     stubFetch('none')
     const { w, token, handler } = await setUp(fn)
-    const { stream, state } = endlessBody(chunkOf(fn))
+    const chunk = chunkOf(fn)
+    const { stream, state } = endlessBody(chunk)
     const res = await handler(post(undefined, { token, raw: stream, headers: { 'content-length': String(CAP[fn.name] + 1) } }))
     const a = await answerOf(res)
     expect({ status: a.status, json: a.json }).toEqual(tooLargeOf(fn))
-    expect(state.pulled).toBe(0)
+    expect(state.pulled).toBeGreaterThanOrEqual(DRAIN)
+    expect(state.pulled).toBeLessThan(DRAIN + chunk)
+    expect(state.cancelled).toBe(true)
     expect(callNames(w)).toEqual(beforeTooLarge(fn))
-  })
+  }, 60_000)
 
-  it.each(FUNCTIONS)('i. $name: a body with no declared length that never ends: 413, cancelled, not read on past one chunk beyond the cap', async (fn) => {
+  it.each(FUNCTIONS)('i. $name: a body with no declared length that never ends: 413, read through and dropped up to DRAIN_MAX_BYTES, then cancelled', async (fn) => {
     stubFetch('none')
     const { w, token, handler } = await setUp(fn)
     const chunk = chunkOf(fn)
@@ -386,8 +394,8 @@ describe('F8: every read under its cap (this block was "today: no cap")', () => 
     const a = await answerOf(res)
     expect({ status: a.status, json: a.json }).toEqual(tooLargeOf(fn))
     expect(state.cancelled).toBe(true)
-    expect(state.pulled).toBeGreaterThan(CAP[fn.name])
-    expect(state.pulled).toBeLessThanOrEqual(CAP[fn.name] + chunk)
+    expect(state.pulled).toBeGreaterThanOrEqual(DRAIN)
+    expect(state.pulled).toBeLessThan(DRAIN + chunk)
     expect(callNames(w)).toEqual(beforeTooLarge(fn))
   }, 60_000)
 

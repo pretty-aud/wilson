@@ -338,7 +338,7 @@ describe('readJsonLimited — a body read under its limit (round 1, note 6)', ()
     expect(await readJsonLimited(req(''), 64)).toEqual({ value: undefined, length: 0 })
     expect(await readJsonLimited(req('{nope'), 64)).toBeNull()
   })
-  it('a declared length over the limit is refused unread; a stream over it stops past the limit', async () => {
+  it('a declared length over the limit is refused; a stream over it is refused at the limit, the rest read through and dropped (F8, the drain)', async () => {
     let pulled = 0
     const stream = new ReadableStream({
       pull(c) { pulled += 1; if (pulled > 50) c.close(); else c.enqueue(new Uint8Array(1000)) },
@@ -346,7 +346,9 @@ describe('readJsonLimited — a body read under its limit (round 1, note 6)', ()
     const r = await readJsonLimited(new Request('https://x.test/f', { method: 'POST', body: stream, duplex: 'half' }), 4096)
     expect(r.value).toBeUndefined()
     expect(r.length).toBeGreaterThan(4096)
-    expect(pulled).toBeLessThan(10)
+    // F8, the drain: was "fewer than 10 pulls" (it stopped past the limit and
+    // cancelled); now all 50 chunks and the close are pulled, the answer the same.
+    expect(pulled).toBe(51)
     const declared = await readJsonLimited(req('{"a":1}', { 'content-length': '999999' }), 64)
     expect(declared).toEqual({ value: undefined, length: 999999 })
   })

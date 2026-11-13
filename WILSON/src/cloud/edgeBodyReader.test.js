@@ -15,10 +15,17 @@
 // Then readBodyJson's three answers, and aiFileStore.readSmallJson (now
 // readJsonLimited plus the object check) against a copy of ITS old self on
 // DESIGN.md §7.1's cases.
+//
+// F8, the drain (2026-11-13): past its cap a body is now READ THROUGH and
+// dropped (up to DRAIN_MAX_BYTES, then cancelled) before the answer, because
+// the hosted relay delivers no answer before it has the request body. Every
+// return value is still the old reader's; only how much of an over-cap body
+// is pulled, and whether it is cancelled, moved, on purpose, and is held in
+// the drain block at the end.
 // =============================================================================
 
-import { describe, it, expect } from 'vitest'
-import { readJsonLimited, readBodyJson } from '../../supabase/functions/_shared/gatewayWire.ts'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { readJsonLimited, readBodyJson, DRAIN_MAX_BYTES } from '../../supabase/functions/_shared/gatewayWire.ts'
 import { readSmallJson, SMALL_BODY_MAX } from '../../supabase/functions/_shared/aiFileStore.ts'
 
 // ── The oracles: the two readers exactly as they were at 9b0255c3 ────────────
@@ -85,14 +92,24 @@ const enc = (s) => new TextEncoder().encode(s)
 const cat = (...parts) => { const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0)); let i = 0; for (const p of parts) { out.set(p, i); i += p.length } return out }
 const BOM = new Uint8Array([0xef, 0xbb, 0xbf])
 
-/** A request-shaped object whose body delivers EXACTLY these chunks (a real Request may re-chunk). */
+/**
+ * A request-shaped object whose body delivers EXACTLY these chunks (a real
+ * Request may re-chunk), one a read, closed with the last, counting the bytes
+ * pulled. Cancelling it after its last chunk is no cancel (it has closed),
+ * as when the chunks were all queued at the start.
+ */
 function reqOf(chunks, headers = {}) {
   let cancelled = false
+  let pulled = 0
+  let i = 0
   const body = chunks === null ? null : new ReadableStream({
-    start(c) { for (const ch of chunks) c.enqueue(ch); c.close() },
+    pull(c) {
+      if (i < chunks.length) { pulled += chunks[i].length; c.enqueue(chunks[i++]) }
+      if (i >= chunks.length) c.close()
+    },
     cancel() { cancelled = true },
-  })
-  return { headers: new Headers(headers), body, wasCancelled: () => cancelled }
+  }, { highWaterMark: 0 })
+  return { headers: new Headers(headers), body, wasCancelled: () => cancelled, pulled: () => pulled }
 }
 
 function chunkings(bytes) {
@@ -142,12 +159,17 @@ describe('readJsonLimited decodes as it reads: the same answer as the old reader
           const got = await readJsonLimited(a, cap)
           const want = await oldReadJsonLimited(b, cap)
           expect(got, `${how}, cap ${cap}`).toEqual(want)
-          expect(a.wasCancelled(), `${how}, cap ${cap}: cancelled`).toBe(b.wasCancelled())
           const m = meaning(bytes, cap)
           if (m === 'over') {
             expect(got.value, `${how}, cap ${cap}`).toBeUndefined()
             expect(got.length).toBeGreaterThan(cap)
+            // F8, the drain (on purpose): the old reader stopped at the cap and
+            // cancelled the rest; the rest is now read through and dropped, to
+            // its end (these end long before DRAIN_MAX_BYTES), not cancelled.
+            expect(a.pulled(), `${how}, cap ${cap}: read through`).toBe(bytes.length)
+            expect(a.wasCancelled(), `${how}, cap ${cap}: not cancelled`).toBe(false)
           } else {
+            expect(a.wasCancelled(), `${how}, cap ${cap}: cancelled`).toBe(b.wasCancelled())
             expect(got, `${how}, cap ${cap}: what the bytes mean`).toEqual(m)
           }
         }
@@ -160,11 +182,17 @@ describe('readJsonLimited decodes as it reads: the same answer as the old reader
       expect(await readJsonLimited(reqOf(chunks), 64)).toEqual({ value: undefined, length: 0 })
     }
   })
-  it('the declared length: over the cap is refused before a byte is read; not a number, or negative, goes on', async () => {
-    let pulled = 0
-    const body = new ReadableStream({ pull(c) { pulled += 1; c.enqueue(enc('{}')) } }, { highWaterMark: 0 })
-    expect(await readJsonLimited({ headers: new Headers({ 'content-length': '65' }), body }, 64)).toEqual({ value: undefined, length: 65 })
-    expect(pulled).toBe(0)
+  it('the declared length: over the cap, the same answer, the body read through to its end and dropped (F8, the drain); not a number, or negative, goes on', async () => {
+    const chunks = [enc('{"p":"'), enc('x'.repeat(40)), enc('y'.repeat(22)), enc('"}')]
+    for (const declared of ['70', '100000']) {
+      const a = reqOf(chunks, { 'content-length': declared })
+      const b = reqOf(chunks, { 'content-length': declared })
+      const got = await readJsonLimited(a, 64)
+      expect(got, declared).toEqual({ value: undefined, length: Number(declared) })
+      expect(got, declared).toEqual(await oldReadJsonLimited(b, 64))
+      expect(a.pulled(), `${declared}: read through`).toBe(70)
+      expect(a.wasCancelled(), `${declared}: not cancelled`).toBe(false)
+    }
     for (const declared of ['abc', '-1', '']) {
       const a = reqOf([enc('{"a":1}')], { 'content-length': declared })
       const b = reqOf([enc('{"a":1}')], { 'content-length': declared })
@@ -174,14 +202,15 @@ describe('readJsonLimited decodes as it reads: the same answer as the old reader
   it('no body at all is { value: undefined, length: 0 }', async () => {
     expect(await readJsonLimited(reqOf(null), 64)).toEqual({ value: undefined, length: 0 })
   })
-  it('past the cap: cancelled, and the length is where it stopped (the same as the old reader)', async () => {
+  it('past the cap: the length is where it first went over (the same as the old reader), the rest read through and dropped, not cancelled (F8, the drain)', async () => {
     const chunks = [enc('{"a":"'), enc('x'.repeat(40)), enc('y'.repeat(40)), enc('"}')]
     const a = reqOf(chunks)
     const b = reqOf(chunks)
     const got = await readJsonLimited(a, 64)
     expect(got).toEqual({ value: undefined, length: 86 })
     expect(got).toEqual(await oldReadJsonLimited(b, 64))
-    expect(a.wasCancelled()).toBe(true)
+    expect(a.pulled()).toBe(88)
+    expect(a.wasCancelled()).toBe(false)
   })
   it('a stream that fails while read throws, as it did (readBodyJson reads that as not_json, as req.json() threw)', async () => {
     const failing = () => ({ headers: new Headers(), body: new ReadableStream({ pull(c) { c.error(new TypeError('the connection dropped')) } }) })
@@ -263,5 +292,105 @@ describe('readSmallJson is readJsonLimited plus the object check: DESIGN.md §7.
     expect(await readSmallJson(reqOf([cat(enc('{"a":"'), new Uint8Array([0xc3]), new Uint8Array([0xa9]), enc('"}'))]))).toEqual({ a: 'é' })
     for (const raw of ['null', '[]', '5', '""', '', '{nope']) expect(await readSmallJson(reqOf([enc(raw)])), raw).toBeNull()
     expect(await readSmallJson(reqOf([big(2049)]))).toBeNull()
+  })
+})
+
+// ── F8, the drain: past the cap, the rest is read through and dropped ────────
+//
+// Measured on the hosted platform (wilson-dev, 2026-11-13): a function that
+// answers before it has read the request body is often never heard (no answer
+// in 90 s for 1 and 8 MiB bodies to storage-presign; a 502 for 34 and 40 MiB
+// to ai-proxy). So past the cap readJsonLimited reads the rest and drops it,
+// up to DRAIN_MAX_BYTES in all, then cancels; its answer is the old one.
+describe('readJsonLimited past the cap reads the rest through, up to DRAIN_MAX_BYTES, then cancels (F8, the drain)', () => {
+  const MiB = 1024 * 1024
+  const DRAIN = 64 * MiB
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  /** A body that never ends, `chunkBytes` a read; read number `failAt` (1-based) fails instead. */
+  function endless(chunkBytes, { failAt = 0, headers = {} } = {}) {
+    const state = { pulled: 0, reads: 0, cancelled: false }
+    const chunk = new Uint8Array(chunkBytes).fill(0x20)
+    const body = new ReadableStream({
+      pull(c) {
+        state.reads += 1
+        if (state.reads === failAt) { c.error(new TypeError('the connection dropped')); return }
+        state.pulled += chunkBytes
+        c.enqueue(chunk)
+      },
+      cancel() { state.cancelled = true },
+    }, { highWaterMark: 0 })
+    return { req: { headers: new Headers(headers), body }, state }
+  }
+
+  it('DRAIN_MAX_BYTES is 64 MiB', () => {
+    expect(DRAIN_MAX_BYTES).toBe(DRAIN)
+  })
+
+  it.each([
+    ['1 MiB chunks, a cap of 3.5 MiB (first over at 4 MiB)', MiB, 3.5 * MiB, 4 * MiB],
+    ['256 KiB chunks, a cap of 64 bytes (first over at 256 KiB)', 256 * 1024, 64, 256 * 1024],
+  ])('an endless stream past the cap, %s: the old answer (the total where it first went over, not the drained total), read on to DRAIN_MAX_BYTES within one chunk, then cancelled', async (_, chunk, cap, firstOver) => {
+    const a = endless(chunk)
+    const b = endless(chunk)
+    const got = await readJsonLimited(a.req, cap)
+    expect(got).toEqual({ value: undefined, length: firstOver })
+    expect(got).toEqual(await oldReadJsonLimited(b.req, cap))
+    expect(a.state.pulled).toBeGreaterThanOrEqual(DRAIN)
+    expect(a.state.pulled).toBeLessThan(DRAIN + chunk)
+    expect(a.state.cancelled).toBe(true)
+  })
+
+  it('a declared length over the cap on an endless stream: { length: declared } as before, read on to DRAIN_MAX_BYTES within one chunk, then cancelled', async () => {
+    const chunk = MiB
+    const a = endless(chunk, { headers: { 'content-length': '65' } })
+    const b = endless(chunk, { headers: { 'content-length': '65' } })
+    const got = await readJsonLimited(a.req, 64)
+    expect(got).toEqual({ value: undefined, length: 65 })
+    expect(got).toEqual(await oldReadJsonLimited(b.req, 64))
+    expect(a.state.pulled).toBeGreaterThanOrEqual(DRAIN)
+    expect(a.state.pulled).toBeLessThan(DRAIN + chunk)
+    expect(a.state.cancelled).toBe(true)
+  })
+
+  it('a body that ends before DRAIN_MAX_BYTES is read to its end and not cancelled, declared or counted', async () => {
+    const chunks = Array.from({ length: 10 }, () => new Uint8Array(MiB).fill(0x20))
+    for (const headers of [{}, { 'content-length': String(10 * MiB) }]) {
+      const a = reqOf(chunks, headers)
+      const b = reqOf(chunks, headers)
+      const got = await readJsonLimited(a, 64)
+      expect(got).toEqual(await oldReadJsonLimited(b, 64))
+      expect(got).toEqual({ value: undefined, length: headers['content-length'] ? 10 * MiB : MiB })
+      expect(a.pulled()).toBe(10 * MiB)
+      expect(a.wasCancelled()).toBe(false)
+    }
+  })
+
+  it('a read that fails while the rest is drained: the same too-large answer, no throw; readBodyJson says too_large', async () => {
+    const counted = endless(MiB, { failAt: 5 })
+    expect(await readJsonLimited(counted.req, 64)).toEqual({ value: undefined, length: MiB })
+    expect(counted.state.reads).toBe(5) // drained on to the read that failed
+    const declared = endless(MiB, { failAt: 3, headers: { 'content-length': '65' } })
+    expect(await readJsonLimited(declared.req, 64)).toEqual({ value: undefined, length: 65 })
+    expect(declared.state.reads).toBe(3)
+    const viaBody = endless(MiB, { failAt: 2 })
+    expect(await readBodyJson(viaBody.req, 64)).toEqual({ kind: 'too_large', length: MiB })
+    expect(viaBody.state.reads).toBe(2)
+  })
+
+  it('the drained bytes are never decoded: the decoder sees only what came before the cap, then its one flush', async () => {
+    const asked = []
+    const Real = globalThis.TextDecoder
+    vi.stubGlobal('TextDecoder', class extends Real {
+      decode(input, options) {
+        asked.push(input === undefined ? 'flush' : `${options?.stream ? 'chunk' : 'whole'} ${input.length}`)
+        return super.decode(input, options)
+      }
+    })
+    const chunks = [enc('{"a":"'), new Uint8Array([0xe2, 0x82]), enc('x'.repeat(100)), enc('y'.repeat(100)), enc('"}')]
+    const a = reqOf(chunks)
+    expect(await readJsonLimited(a, 64)).toEqual({ value: undefined, length: 108 })
+    expect(a.pulled()).toBe(210)
+    expect(asked).toEqual(['chunk 6', 'chunk 2', 'flush'])
   })
 })

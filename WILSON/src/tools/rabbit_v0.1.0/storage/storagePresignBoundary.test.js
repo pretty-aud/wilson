@@ -681,15 +681,19 @@ describe('storage-read-urls — review round 1\'s corrections (P1)', () => {
     expect(READ_URLS_MAX_FOLDERS).toBe(10)
   })
 
-  it('the body is never read before the guard, the limiter and the length say yes', async () => {
+  it('the body is never read before the guard and the limiter say yes; past its declared length it is read through and dropped, then 413 (F8, the drain)', async () => {
     for (const [opts, want] of [[{ guard: 'inactive' }, undefined], [{ limited: true }, 429]]) {
       const { deps } = world(opts)
       const out = await handleReadUrls(reqOf({ keys: [bodyKey('a.png')] }), deps)
       if (want) expect(out.status).toBe(want)
     }
+    expect(bodyReads).toBe(0)
     const { deps } = world()
     expect((await handleReadUrls(reqOf({ keys: [bodyKey('a.png')] }, { length: String(READ_URLS_MAX_BODY_BYTES + 1) }), deps)).status).toBe(413)
-    expect(bodyReads).toBe(0)
+    // F8, the drain: was 0 (refused by its length unread); the hosted relay
+    // delivers no answer before it has the body, so it is read and dropped first.
+    expect(bodyReads).toBeGreaterThan(0)
+    bodyReads = 0
     await handleReadUrls(reqOf({ keys: [bodyKey('a.png')] }), deps)
     expect(bodyReads).toBeGreaterThan(0) // CONTROL: an admitted call reads it
   })

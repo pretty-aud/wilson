@@ -304,13 +304,15 @@ describe('gateway-ticket — the shape', () => {
     expect(pick(await call(undefined, { raw: over }))).toEqual(refused(400, 'bad_request', 'The request body is not a JSON object.'))
   })
 
-  it('a body that never ends is cut off just past 16 KB and cancelled: the same 400', async () => {
+  it('a body that never ends is read through and dropped up to 64 MiB (gatewayWire.DRAIN_MAX_BYTES), then cancelled: the same 400', async () => {
     const { call } = await scene()
     const { stream, state } = endlessBody(1024)
     expect(pick(await call(undefined, { raw: stream }))).toEqual(refused(400, 'bad_request', 'The request body is not a JSON object.'))
     expect(state.cancelled).toBe(true)
-    expect(state.pulled).toBeLessThanOrEqual(16 * 1024 + 2 * 1024)
-  })
+    // F8, the drain: was "at most 18 KiB pulled" (cut off just past 16 KB).
+    expect(state.pulled).toBeGreaterThanOrEqual(64 * 1024 * 1024)
+    expect(state.pulled).toBeLessThan(64 * 1024 * 1024 + 1024)
+  }, 60_000)
 
   it.each([
     ['an array', [1], 'bad_request', 'The request body is not a JSON object.'],

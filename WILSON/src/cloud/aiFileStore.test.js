@@ -339,22 +339,24 @@ describe('the store\'s pages', () => {
   })
 })
 
-describe('readSmallJson: the delete route never reads a large body', () => {
+describe('readSmallJson: the delete route never keeps a large body', () => {
   const req = (body, headers = {}) => new Request('https://x.test/', { method: 'DELETE', body, headers, duplex: 'half' })
   it('reads a small object', async () => {
     expect(await readSmallJson(req(JSON.stringify({ file_id: id(1) })))).toEqual({ file_id: id(1) })
   })
-  it('CONTROL: a declared length past the cap is refused unread', async () => {
+  it('CONTROL: a declared length past the cap is refused', async () => {
     expect(await readSmallJson(req('{}', { 'content-length': String(SMALL_BODY_MAX + 1) }))).toBe(null)
   })
-  it('CONTROL: a streamed body past the cap is abandoned', async () => {
+  it('CONTROL: a streamed body past the cap is refused, the rest read through and dropped (F8, the drain)', async () => {
     const big = JSON.stringify({ file_id: id(1), pad: 'x'.repeat(SMALL_BODY_MAX) })
     let pulled = 0
     const stream = new ReadableStream({
       pull(c) { pulled++; if (pulled > 200) { c.close(); return } c.enqueue(new TextEncoder().encode(big.slice((pulled - 1) * 64, pulled * 64))) },
     })
     expect(await readSmallJson(req(stream))).toBe(null)
-    expect(pulled).toBeLessThan(60)
+    // F8, the drain: was "fewer than 60 pulls" (abandoned at the cap); now all
+    // 200 chunks and the close are pulled, and the answer is the same null.
+    expect(pulled).toBe(201)
   })
   it('an array, a string or bad JSON is no object', async () => {
     expect(await readSmallJson(req('[1]'))).toBe(null)
