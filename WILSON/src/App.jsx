@@ -1227,7 +1227,7 @@ export default function App() {
       // B, no sign-out between) in the same commit as a decay tick that changes
       // something material, the save ran before the identity effect below had
       // cleared the routing: still addressed to A, it went out with B's session
-      // (saveCloudPet names no user), and A's pet overwrote B's row. Before F4
+      // (saveCloudPet named no user then), and A's pet overwrote B's row. Before F4
       // both effects were App's and the identity effect, declared first, ran
       // first. So a save is refused while the person App last drew signed in
       // is somebody else (A then nobody too: the old order wrote A's pet into
@@ -1254,7 +1254,9 @@ export default function App() {
       // S30 moved petSaving to a ref for exactly this reason.
       const owner = petUserIdRef.current;
       if (owner) {
-        await saveCloudPet(next);
+        // The row names its owner: should the client's session move to
+        // somebody else after the check above, the database refuses it.
+        await saveCloudPet(next, owner);
         // The cache is a mirror, never the authority. It must not be able to
         // report failure for a cloud write that succeeded. A3: it is written
         // under the OWNER's key, so the next person at this computer cannot be
@@ -1323,7 +1325,10 @@ export default function App() {
           message: 'Your pet changed on another device — refreshed.',
         });
         try {
-          const fresh = await fetchCloudPet();
+          // Named for the person this save was for (the routing named them
+          // as it went out): should the client's session have moved to
+          // somebody else since, the read answers null, not their pet.
+          const fresh = await fetchCloudPet(person);
           // 🚨 F4, review round 2 (A-R2-5): ONLY FOR THE PERSON IT WAS READ
           // FOR. A re-read landing after B's pet put A's pet on B's screen and,
           // the routing read after the await, in B's cache; B's next Feed then
@@ -1400,12 +1405,20 @@ export default function App() {
         // ⚠️ loadPet(userId) returns NULL rather than minting when this account
         // has never been cached here. A first sign-in on a new computer must
         // not flash a blank egg before the account's real pet arrives.
+        //
+        // 🚨 F4, review round 2: AND ONLY WHILE THIS IS STILL THAT PERSON'S
+        // LAUNCH. If the permissions have already named somebody else (another
+        // tab signed in while this one launched), the stored session's person
+        // is not here, so neither the cache key nor the cached pet is set for
+        // them: asked before the key is set, and again when the read lands.
+        const someoneElse = (person) => petPersonRef.current !== undefined && petPersonRef.current !== person;
         const owner = await storedSessionUserId();
+        if (someoneElse(owner)) return;
         // R2: the save path consults this during the window before permissions
         // resolve. See bootOwnerRef.
         bootOwnerRef.current = owner;
         const stored = await loadPet(owner);
-        if (!mounted || !stored) return;
+        if (!mounted || !stored || someoneElse(owner)) return;
         const fresh = applyOfflineDecay(stored);
         // Prime, do not save. An offline death computed here is idempotent —
         // the next load recomputes the same ghost from the same anchor — so
@@ -1444,7 +1457,12 @@ export default function App() {
     if (!perms.ready) return;
     const userId = perms.userId || null;
     // Review round 2: whose the pet on screen was until now (see petPersonRef).
-    const previousPerson = petPersonRef.current;
+    // On the first run, the stored session's person if the mount effect has
+    // named one: their cached pet stays when the permissions name them, and
+    // goes when they name somebody else (a launch race).
+    const previousPerson = petPersonRef.current !== undefined
+      ? petPersonRef.current
+      : (bootOwnerRef.current ?? undefined);
     petPersonRef.current = userId;
     // 🚨 A3: THE PET'S ROUTING IS NOT SET HERE ANY MORE — only CLEARED here.
     //
@@ -1485,8 +1503,10 @@ export default function App() {
         // NOT. The line above needs a routing, so when A's read had failed, or
         // B signed in before it landed, A's pet and chat stayed for B: B's first
         // message took A's conversation to the model, and a failed read of B's
-        // left A's pet, its feedback quoting A's chat, in B's system prompt. The
-        // sync toast's flag is kept: B's read landing takes down A's toast.
+        // left A's pet, its feedback quoting A's chat, in B's system prompt. So
+        // too at a launch whose stored session is A's while the permissions
+        // name B: A's cached pet goes. The sync toast's flag is kept: B's read
+        // landing takes down A's toast.
         setPetData(null); petSyncRetryRef.current.cancel();
       }
     }

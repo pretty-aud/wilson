@@ -47,9 +47,13 @@ import { render, cleanup, act, fireEvent, screen } from '@testing-library/react'
 // Review round 2: gate holds cloud writes in flight; local and mirrors are the device store and the cache, each with
 // the owner it was written under; failFor, the people whose account read fails; cacheOf, a person's pet cached on
 // this computer; refuse, 0068's refusal of the next cloud write; reread, what the stale-copy re-read returns.
+// session and sessionMovesTo: the client's session, when it is not App's person (see saveCloudPet below). stored:
+// the stored session, read at launch for the cache key; cacheGate holds that cached read; cleared, whose caches a
+// sign-out cleared.
 const world = vi.hoisted(() => ({
   pet: null, saves: [], ai: null, perms: null, permsListeners: new Set(), rows: [], petOf: {}, owner: undefined,
   gate: null, local: [], mirrors: [], failFor: new Set(), cacheOf: {}, refuse: null, reread: null,
+  session: undefined, sessionMovesTo: undefined, stored: null, cacheGate: null, cleared: [],
 }))
 
 // ── The thirteen pages: stand-ins of the same names, drawn by the app's own table ──
@@ -108,7 +112,7 @@ vi.mock('./cloud/auth/supabaseClient', () => ({
   endSessionLocally: () => false,
   onHeldSessionRefused: () => () => {},
 }))
-vi.mock('./cloud/auth/sessionStorage', async (importOriginal) => ({ ...(await importOriginal()), loadSession: async () => null, clearSession: async () => {} }))
+vi.mock('./cloud/auth/sessionStorage', async (importOriginal) => ({ ...(await importOriginal()), loadSession: async () => world.stored, clearSession: async () => {} }))
 const TIMEOUTS = { phase: null, deadline: null, stay: () => {} }
 vi.mock('./cloud/auth/sessionTimeouts', async (importOriginal) => ({ ...(await importOriginal()), useSessionTimeouts: () => TIMEOUTS }))
 vi.mock('./cloud/workspaceStorage', () => ({ fetchWorkspaceStorage: async () => null, clearWorkspaceStorageCache: () => {} }))
@@ -118,38 +122,58 @@ vi.mock('./lib/modelSources', () => ({ loadModelSources: async () => {}, migrate
 vi.mock('./lib/localData', () => ({
   hasLocalServer: () => false,
   loadPet: async (owner) => {
+    if (world.cacheGate) await world.cacheGate.promise
     const pet = owner && owner in world.cacheOf ? world.cacheOf[owner] : world.pet
     return pet ? { ...pet } : null
   },
   savePetData: async (pet, owner) => { world.saves.push(pet); world.local.push({ owner: owner ?? null, name: pet.name, hunger: pet.hunger }) },
-  clearPetCache: async () => {},
+  clearPetCache: async (owner) => { world.cleared.push(owner) },
   loadOtterSettings: async () => ({}),
   saveOtterSettings: async () => ({}),
   loadAgentSkills: async () => ({}),
 }))
-vi.mock('./lib/userState', () => ({
-  resolveUserPet: async (userId) => {
-    // A failed read fails after a round trip, as a network's does (an instant one outran the blank that precedes it).
-    if (world.failFor.has(userId)) { await new Promise((resolve) => setTimeout(resolve, 10)); throw new Error('The account read failed.') }
-    const pet = world.petOf[userId] || world.pet
-    return { pet: pet ? { ...pet } : null, adopted: false }
-  },
-  // The cloud writes the signed-in session's row (saveCloudPet names no user): the session is world.perms' person,
-  // read as the write goes out; with a gate, the round trip then waits on it.
-  saveCloudPet: async (pet) => {
-    if (world.refuse) { const refusal = world.refuse; world.refuse = null; throw refusal }
-    world.saves.push(pet)
-    world.rows.push({ session: world.perms?.userId ?? null, name: pet.name, sleepingSince: pet.sleepingSince ?? null })
-    if (world.gate) await world.gate.promise
-  },
-  mirrorPetToCache: async (pet, owner) => { world.mirrors.push({ owner, name: pet.name }) },
-  fetchCloudPet: async () => (world.reread ? world.reread() : null),
-  isStalePetWrite: (err) => err?.stale === true,
-  resolveUserSettings: async () => ({ settings: null }),
-  mirrorSettingsToCache: async () => {},
-  setUserStateOwner: (userId) => { world.owner = userId },
-  getUserStateOwner: () => (world.owner === undefined ? 'u-1' : world.owner),
-}))
+vi.mock('./lib/userState', () => {
+  // The session the client holds as a request goes out: world.perms' person, unless another tab's sign-in has moved
+  // it first (sessionMovesTo: the client hears of it before App draws it).
+  const sessionNow = () => {
+    if (world.sessionMovesTo !== undefined) { world.session = world.sessionMovesTo; world.sessionMovesTo = undefined }
+    return world.session !== undefined ? world.session : (world.perms?.userId ?? null)
+  }
+  return {
+    resolveUserPet: async (userId) => {
+      // A failed read fails after a round trip, as a network's does (an instant one outran the blank that precedes it).
+      if (world.failFor.has(userId)) { await new Promise((resolve) => setTimeout(resolve, 10)); throw new Error('The account read failed.') }
+      const pet = world.petOf[userId] || world.pet
+      return { pet: pet ? { ...pet } : null, adopted: false }
+    },
+    // A write goes to the session's row. One that names its owner is refused under anybody else's session, as 0046's
+    // policies refuse it (42501); one that names nobody takes the session's (the column default). With a gate, the
+    // round trip then waits on it.
+    saveCloudPet: async (pet, userId) => {
+      if (world.refuse) { const refusal = world.refuse; world.refuse = null; throw refusal }
+      const session = sessionNow()
+      if (userId && userId !== session) {
+        throw Object.assign(new Error('new row violates row-level security policy for table "user_pets"'), { code: '42501' })
+      }
+      world.saves.push(pet)
+      world.rows.push({ session, name: pet.name, sleepingSince: pet.sleepingSince ?? null })
+      if (world.gate) await world.gate.promise
+    },
+    mirrorPetToCache: async (pet, owner) => { world.mirrors.push({ owner, name: pet.name }) },
+    // A read answers for the session's own person, as RLS does: named for somebody else, nothing (their row is
+    // filtered out, the session's is not theirs); named for nobody, the session's row (reread, given the session).
+    fetchCloudPet: async (userId) => {
+      const session = sessionNow()
+      if (userId && userId !== session) return null
+      return world.reread ? world.reread(session) : null
+    },
+    isStalePetWrite: (err) => err?.stale === true,
+    resolveUserSettings: async () => ({ settings: null }),
+    mirrorSettingsToCache: async () => {},
+    setUserStateOwner: (userId) => { world.owner = userId },
+    getUserStateOwner: () => (world.owner === undefined ? 'u-1' : world.owner),
+  }
+})
 const PERMS = { ready: true, userId: 'u-1', role: 'member', workspaceId: 'w-1', isPlatformOperator: false, offline: false }
 vi.mock('./permissions', async () => {
   const { useSyncExternalStore } = await import('react')
@@ -161,6 +185,13 @@ const signInAs = (userId) => {
   world.perms = { ...world.perms, userId }
   for (const listener of world.permsListeners) listener()
 }
+/** The permissions resolve, as `userId`, at a launch drawn before they had (world.perms not ready). */
+const permissionsResolveAs = (userId) => {
+  world.perms = { ...PERMS, userId }
+  for (const listener of world.permsListeners) listener()
+}
+/** A stored session as the store holds it: an access token whose payload names its person (`sub`). */
+const storedSessionOf = (sub) => ({ access_token: ['e30', btoa(JSON.stringify({ sub })), 'signature'].join('.') })
 vi.mock('./tools/otter_v0.3.1/adapters', () => ({ otterFetch: async () => ({ ok: false, json: async () => ({}) }), subscribeOtterAdapterMode: () => () => {} }))
 vi.mock('./tools/otter_v0.3.1/petKnowledge', () => ({ retrieveOtterKnowledge: async () => ({ block: '' }), clearPetKnowledgeCache: () => {} }))
 vi.mock('./tools/rabbit_v0.1.0/storage/s3Provider', () => ({ clearS3ReadUrlCache: () => {} }))
@@ -248,6 +279,11 @@ beforeEach(() => {
   world.cacheOf = {}
   world.refuse = null
   world.reread = null
+  world.session = undefined
+  world.sessionMovesTo = undefined
+  world.stored = null
+  world.cacheGate = null
+  world.cleared.length = 0
 })
 afterEach(() => {
   cleanup(); _resetOverlaysForTests()
@@ -564,7 +600,7 @@ describe('a change of person: another signed in over this one, or this one signe
    * What PetHost held at each commit `run` drew, read off the committed tree as React hands it to the commit hook:
    * the person App handed it as signed in, and its pet (its first state). renderSpy says who drew; this, with what.
    */
-  function petHostAtEachCommit(run) {
+  async function petHostAtEachCommit(run) {
     const hook = globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__
     const record = hook.onCommitFiberRoot
     const seen = []
@@ -582,7 +618,7 @@ describe('a change of person: another signed in over this one, or this one signe
       const pet = host?.memoizedState?.memoizedState ?? null
       seen.push({ signedIn: host?.memoizedProps.perms?.userId ?? null, pet: pet && { name: pet.name, sleepingSince: pet.sleepingSince } })
     }
-    try { run() } finally { hook.onCommitFiberRoot = record }
+    try { await run() } finally { hook.onCommitFiberRoot = record }
     return seen
   }
 
@@ -600,7 +636,7 @@ describe('a change of person: another signed in over this one, or this one signe
     world.rows.length = 0
     // A synchronous act and timers: React draws the sign-in and the tick in ONE commit (an async act would draw the
     // sign-in first, in a commit of its own, and the identity effect would then run before the tick's save).
-    const commits = petHostAtEachCommit(() => act(() => { signInAs('u-B'); vi.advanceTimersByTime(30_000) }))
+    const commits = await petHostAtEachCommit(() => act(() => { signInAs('u-B'); vi.advanceTimersByTime(30_000) }))
     // A-R2-6: said of what the commit holds, not of who drew in it (PetHost draws in every commit of App's): the first
     // commit hands PetHost the next person AND holds the pet the tick woke. A sign-in drawn alone, which the old check
     // (App and PetHost among the first commit's names) passed, gives the same person with the pet still asleep.
@@ -691,6 +727,23 @@ describe('a change of person: another signed in over this one, or this one signe
     await tick(50)
     // Before: "Bramble isn't being saved. Your pet could not be reached in your account ... Reopen WILSON", about A's Feed.
     expect(view.container.textContent).not.toContain('could not be reached')
+  })
+
+  it('a write whose session moves to another person after the check is refused by the database, and the next person is told nothing of it', async () => {
+    world.petOf['u-B'] = adultPet({ name: 'Bramble' })
+    const view = await openApp({ pet: adultPet({ hunger: 50 }) })
+    await openChat(view)
+    world.rows.length = 0
+    // Another tab signs in as u-B: the client's session moves as the Feed's write goes out, before App has drawn it.
+    world.sessionMovesTo = 'u-B'
+    await act(async () => { fireEvent.click(feed(view)) })
+    await tick(10)
+    // Before: the row named no owner, so the column default filed the first person's pet in u-B's row.
+    expect(world.rows).toEqual([])
+    await act(async () => { signInAs('u-B') })                 // App hears of it
+    await tick(50)
+    await nextPersonsField(view)
+    expect(view.container.textContent).not.toContain('row-level security')
   })
 
   it('nor does a write of theirs that fails once they have gone', async () => {
@@ -862,5 +915,68 @@ describe('a change of person: another signed in over this one, or this one signe
     await act(async () => { fireEvent.click(feed(view)) })
     await tick(10)
     expect(world.rows).toEqual([{ session: 'u-B', name: 'Bramble', sleepingSince: null }])
+  })
+
+  it('the stale-copy re-read, gone out after the session moved to another person, brings nothing of theirs: not on screen, not in the cache', async () => {
+    world.petOf['u-B'] = adultPet({ name: 'Bramble' })
+    const view = await openApp({ pet: adultPet({ hunger: 50 }) })
+    await openChat(view)
+    world.mirrors.length = 0
+    world.refuse = Object.assign(new Error('pet_stale_write'), { stale: true })   // 0068 refuses the Feed,
+    world.reread = (session) => (world.petOf[session] ? { ...world.petOf[session] } : null)
+    world.sessionMovesTo = 'u-B'                                  // and the re-read goes out after another tab signed in as u-B
+    await act(async () => { fireEvent.click(feed(view)) })
+    await tick(10)
+    // Before: named for nobody, the re-read answered with u-B's Bramble as the first person's pet, put it on screen
+    // and mirrored it into u-1's cache.
+    expect(nextField()).toBeNull()
+    expect(chatInput()).not.toBeNull()
+    expect(world.mirrors).toEqual([])
+  })
+
+  // ── The launch race: the stored session is the first person's, and the permissions resolve as somebody else ──
+  // (another tab's sign-in while this one launched). The cold start's instant render is kept for the stored
+  // session's own person only.
+  it('the stored session\'s cached pet leaves when the permissions resolve as somebody else, and stays gone when their read fails', async () => {
+    world.stored = storedSessionOf('u-1')
+    world.perms = { ...PERMS, ready: false, userId: null }    // the permissions have not resolved
+    world.failFor.add('u-B')                                  // u-B's read fails,
+    world.cacheOf['u-B'] = null                               // and nothing of theirs is cached here
+    const view = await openApp()
+    expect(sprite(view)).not.toBeNull()                       // u-1's cached pet, at once
+    await act(async () => { permissionsResolveAs('u-B') })
+    // Before: the first identity a launch saw was never blanked for, so u-1's pet stayed for u-B, read or no read.
+    expect(sprite(view)).toBeNull()
+    await tick(50)
+    expect(sprite(view)).toBeNull()
+  })
+
+  it('when the permissions resolve as somebody else before the cached read lands, the stored session\'s pet is never shown', async () => {
+    world.stored = storedSessionOf('u-1')
+    world.perms = { ...PERMS, ready: false, userId: null }
+    world.petOf['u-B'] = adultPet({ name: 'Bramble' })
+    let releaseCache
+    world.cacheGate = { promise: new Promise((resolve) => { releaseCache = resolve }) }
+    let view
+    const drawn = await petHostAtEachCommit(async () => {
+      view = await openApp()                                  // u-1's cached read is out, and held
+      await act(async () => { permissionsResolveAs('u-B') })  // u-B's read lands: Bramble
+      await tick(50)
+      world.cacheGate = null
+      await act(async () => { releaseCache() })               // then u-1's cached read lands
+      await tick(50)
+    })
+    // Before: u-1's Biscuit replaced u-B's Bramble on screen, with u-B's routing installed.
+    expect(drawn.map((commit) => commit.pet?.name).filter(Boolean)).not.toContain('Biscuit')
+    await nextPersonsField(view)
+  })
+
+  it('and when they have named somebody else before the stored session is read, it does not take the cache key: a sign-out clears their cache', async () => {
+    world.stored = storedSessionOf('u-A')                     // another person's stored session; the permissions say u-1
+    world.failFor.add('u-1')                                  // and u-1's read fails, so no routing names them
+    await openApp()
+    await act(async () => { await window.wilsonSignOut({ event: null }) })
+    // Before: the cached read set the key to u-A over u-1's, and the sign-out cleared u-A's cache, leaving u-1's.
+    expect(world.cleared).toEqual(['u-1'])
   })
 })

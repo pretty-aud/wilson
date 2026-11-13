@@ -186,13 +186,27 @@ export function isRealPet(pet) {
       || (pet.totalThumbsDown || 0) > 0
 }
 
-/** Reads the signed-in user's pet. Returns null when they have no row yet. */
-export async function fetchCloudPet() {
+/**
+ * Reads the signed-in user's pet. Returns null when they have no row yet.
+ *
+ * 🚨 NAMED, when the caller knows whose pet it wants (F4, review round 2), for
+ * the reason saveCloudPet's row is: the client's session can move to another
+ * person (another tab's sign-in) before App has drawn them, and an unnamed read
+ * then answered with the next person's pet as this one's. Named, it answers
+ * null instead: the other person's row is filtered out, and this one's is
+ * hidden by user_pets_select. A null sends resolveUserPet down its "no row
+ * yet" path, which writes only by adopting a real cached pet, with a named
+ * save the policies refuse under that token; a minted or cached egg it
+ * returns is written nowhere, and a later save of it, named, is refused under
+ * that token too.
+ */
+export async function fetchCloudPet(userId = null) {
   // Dev fixtures (2026-09-11, dev builds only): the "cloud" copy is the in-memory dataset.
   const fx = import.meta.env.DEV ? devFixtures() : null
   if (fx?.userState) return fx.userState.getPet()
-  const { data, error } = await supabase
-    .from(PET_TABLE).select(PET_SELECT).maybeSingle()
+  let query = supabase.from(PET_TABLE).select(PET_SELECT)
+  if (userId) query = query.eq('user_id', userId)
+  const { data, error } = await query.maybeSingle()
   if (error) throw new Error(`[supabase] ${error.message}`)
   return fromPetRow(data)
 }
@@ -205,13 +219,22 @@ export async function fetchCloudPet() {
  * never landed — the exact shape that made the Validator's "Accept Fix" show a
  * green tick over a 404 for twenty sessions.
  *
- * user_id is OMITTED so the column DEFAULT auth.uid() stamps it; the client
- * cannot file a pet against somebody else even if it tried.
+ * 🚨 THE ROW NAMES ITS OWNER when the caller knows it (F4, review round 2).
+ * It used to omit user_id so the column DEFAULT auth.uid() stamped it, which
+ * files the pet under whatever session the client holds when the request goes
+ * out. That can change between App's check of whose pet this is and the
+ * request: another tab's sign-in reaches this client through shared storage
+ * before App has drawn the new person, and the last person's pet went into
+ * the next person's row. Named, the row is held to 0046's policies instead of
+ * filled by the default: under another person's token the INSERT fails
+ * user_pets_insert's WITH CHECK and the ON CONFLICT update fails
+ * user_pets_update's USING, so the database refuses it (SQLSTATE 42501, kept
+ * on the error below). Without `userId` the default stamps it, as before.
  */
-export async function saveCloudPet(pet) {
+export async function saveCloudPet(pet, userId = null) {
   const fx = import.meta.env.DEV ? devFixtures() : null
   if (fx?.userState) { fx.userState.setPet(pet); return }
-  const row = toPetRow(pet)
+  const row = userId ? { ...toPetRow(pet), user_id: userId } : toPetRow(pet)
   const { data, error } = await supabase
     .from(PET_TABLE)
     .upsert(row, { onConflict: 'user_id' })
@@ -233,11 +256,16 @@ export async function saveCloudPet(pet) {
   }
 }
 
-export async function fetchCloudSettings() {
+// The settings row is read and written NAMED too, when its person is known
+// (F4, review round 2): user_settings carries 0046's policies, so under
+// another person's token the named read answers null and the named write is
+// refused, where unnamed ones used that person's row.
+export async function fetchCloudSettings(userId = null) {
   const fx = import.meta.env.DEV ? devFixtures() : null
   if (fx?.userState) return fx.userState.getSettings()
-  const { data, error } = await supabase
-    .from(SETTINGS_TABLE).select('prompts,agent_prompt_overrides').maybeSingle()
+  let query = supabase.from(SETTINGS_TABLE).select('prompts,agent_prompt_overrides')
+  if (userId) query = query.eq('user_id', userId)
+  const { data, error } = await query.maybeSingle()
   if (error) throw new Error(`[supabase] ${error.message}`)
   if (!data) return null
   return {
@@ -248,11 +276,12 @@ export async function fetchCloudSettings() {
   }
 }
 
-async function saveCloudSettings({ prompts, agentPromptOverrides }) {
+async function saveCloudSettings({ prompts, agentPromptOverrides }, userId = null) {
   const row = {}
   if (prompts !== undefined) row.prompts = prompts ?? {}
   if (agentPromptOverrides !== undefined) row.agent_prompt_overrides = agentPromptOverrides ?? {}
   if (Object.keys(row).length === 0) return
+  if (userId) row.user_id = userId
   const fx = import.meta.env.DEV ? devFixtures() : null
   if (fx?.userState) { fx.userState.setSettings({ prompts, agentPromptOverrides }); return }
   const { data, error } = await supabase
@@ -288,7 +317,8 @@ async function saveCloudSettings({ prompts, agentPromptOverrides }) {
  * `lastUpdatedAt`, which historical launches have already overwritten.
  */
 export async function resolveUserPet(userId = null) {
-  const cloud = await fetchCloudPet()
+  // Named, both reads (fetchCloudPet says what a null then leads to).
+  const cloud = await fetchCloudPet(userId)
 
   // 🚨 THE ORDER HERE IS S31'S ORIGINAL AND MUST STAY THAT WAY — Phase 3 tried
   // twice to change it and was wrong both times. Recorded so nobody repeats it:
@@ -330,7 +360,8 @@ export async function resolveUserPet(userId = null) {
   // pre-accounts migration case (Audrey's Ollie, resident since 16 July).
   if (isRealPet(local)) {
     try {
-      await saveCloudPet(local)
+      // Named, so a session that has moved to somebody else is refused (saveCloudPet).
+      await saveCloudPet(local, userId)
     } catch (err) {
       // 🚨 0068 CAN REFUSE AN ADOPTION, AND THAT REFUSAL IS AN ANSWER.
       //
@@ -340,7 +371,7 @@ export async function resolveUserPet(userId = null) {
       // moved this pet on" into a sign-in error; the right reading is that the
       // account's copy wins, which is rule 1 arriving one step late.
       if (!isStalePetWrite(err)) throw err
-      const fresh = await fetchCloudPet()
+      const fresh = await fetchCloudPet(userId)
       return { pet: fresh ?? cloud, source: 'cloud', adopted: false }
     }
     return { pet: local, source: 'local', adopted: true }
@@ -387,7 +418,9 @@ export async function resolveUserPet(userId = null) {
  * (a duplicate of the pet's own name with zero readers).
  */
 export async function resolveUserSettings() {
-  const cloud = await fetchCloudSettings()
+  // Whose settings these are, taken as it starts (App's identity effect set it).
+  const owner = currentUserId
+  const cloud = await fetchCloudSettings(owner)
   const hasCloud = cloud
     && (Object.keys(cloud.prompts).length > 0
         || Object.keys(cloud.agentPromptOverrides).length > 0)
@@ -409,7 +442,7 @@ export async function resolveUserSettings() {
     return { settings: cloud ?? { prompts: {}, agentPromptOverrides: {} }, adopted: false }
   }
 
-  await saveCloudSettings({ prompts, agentPromptOverrides })
+  await saveCloudSettings({ prompts, agentPromptOverrides }, owner)
   return { settings: { prompts, agentPromptOverrides }, adopted: true }
 }
 
@@ -474,6 +507,8 @@ export async function mirrorSettingsToCache({ prompts, agentPromptOverrides }) {
  */
 export async function pushSettingsToCloud() {
   if (!currentUserId) return
+  // Whose settings these are, taken before the awaits below.
+  const owner = currentUserId
   let prompts = {}
   let agentPromptOverrides = {}
   try {
@@ -484,5 +519,5 @@ export async function pushSettingsToCloud() {
     const a = await loadAgentSkills()
     if (a && typeof a === 'object') agentPromptOverrides = a
   } catch { /* fall through */ }
-  await saveCloudSettings({ prompts, agentPromptOverrides })
+  await saveCloudSettings({ prompts, agentPromptOverrides }, owner)
 }
