@@ -215,7 +215,8 @@ SELECT is(
   (SELECT count(*)::int FROM pg_policies
     WHERE schemaname = 'public' AND tablename IN ('table_views', 'item_groupings')
       AND position('current_workspace_id()' IN COALESCE(qual, '') || COALESCE(with_check, '')) > 0
-      AND position('has_active_membership(workspace_id)' IN COALESCE(qual, '') || COALESCE(with_check, '')) > 0
+      -- F7 (0137): the membership check is asked once per statement, inside a sub-select.
+      AND position('( SELECT has_active_membership(current_workspace_id()) AS has_active_membership)' IN COALESCE(qual, '') || COALESCE(with_check, '')) > 0
       AND (COALESCE(qual, '') || COALESCE(with_check, '')) ~ ('FROM projects p\s+WHERE \(p\.id = ' || tablename || '\.project_id\)')
       AND (cmd = 'SELECT' OR position('can_write_project(project_id)' IN COALESCE(qual, '') || COALESCE(with_check, '')) > 0)),
   8,

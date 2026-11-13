@@ -488,7 +488,14 @@ async function sweep(admin: MemberCtxAdmin, workspaceId: string, callerId: strin
       else if (o === 'unreachable') counts.unreachable++
     }
     if (stop) counts.truncated = true
-    const after = await storedForWorkspace(admin, workspaceId, null)
+    // F7 (C4): ONE listing per sweep. What is left is the first listing less
+    // the files the store has just answered for: 'deleted' (2xx) and 'gone'
+    // (404) are no longer in it, exactly the two outcomes a delete
+    // certificate makes certifiedGoneIds skip. A 'failed', 'skipped' or
+    // 'unreachable' file is still there. A second listing asked the store and
+    // the rows again for the same answer.
+    const removed = new Set(plan.take.filter((_, i) => done[i] === 'deleted' || done[i] === 'gone').map(t => t.file.id))
+    const after = { files: stored.files.filter(f => !removed.has(f.file.id)) }
     const totals = totalsOf(after.files.map(f => f.file))
     await writeCertificate(admin, {
       workspaceId, actorUserId: callerId, ok: counts.failed === 0,

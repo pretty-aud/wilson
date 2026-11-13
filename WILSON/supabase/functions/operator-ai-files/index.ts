@@ -146,8 +146,12 @@ Deno.serve(async (req: Request) => {
     }
     if (stop) counts.truncated = true
     counts.workspaces = touched.size
-    const after = await read()
-    const afterCounts = operatorCounts(after.attributions, Date.now())
+    // F7 (C4): read() once per request. What is left is the first listing less
+    // the files the store has just answered for: 'deleted' (2xx) and 'gone'
+    // (404). The upload rows a second read() would have fetched are the same
+    // rows (a certificate carries a `stage`, so it is never an upload row).
+    const removed = new Set(plan.take.filter((_, i) => done[i] === 'deleted' || done[i] === 'gone').map(t => t.file.id))
+    const afterCounts = operatorCounts(attributions.filter(a => !removed.has(a.file.id)), Date.now())
     await logPlatformEvent(ctx, {
       // 'blob.purged' is the platform verb for stored objects deleted; the
       // CHECK on platform_audit.action is a closed set (0028 / 0031 / 0055 /

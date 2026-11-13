@@ -220,7 +220,8 @@ SELECT is(
 SELECT is(
   (SELECT count(*)::int FROM pg_policies WHERE schemaname = 'public' AND tablename = 'task_items'
       AND cmd IN ('INSERT', 'UPDATE', 'DELETE')
-      AND (COALESCE(qual, '') || ' ' || COALESCE(with_check, '')) LIKE '%has_active_membership(workspace_id)%'
+      -- F7 (0137): the membership check is asked once per statement, inside a sub-select.
+      AND (COALESCE(qual, '') || ' ' || COALESCE(with_check, '')) LIKE '%( SELECT has_active_membership(current_workspace_id()) AS has_active_membership)%'
       AND (COALESCE(qual, '') || ' ' || COALESCE(with_check, '')) LIKE '%can_write_project(project_id)%'),
   3,
   'every write policy carries has_active_membership and can_write_project (tasks'' gate, not the money gate)');

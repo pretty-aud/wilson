@@ -886,9 +886,6 @@ jobs:
             operator-workspaces/index.ts TS2339 1
             operator-workspaces/index.ts TS2488 1
             resolve-login/index.ts TS2345 1
-            storage-gc/index.ts TS2322 2
-            storage-gc/index.ts TS2345 2
-            storage-gc/index.ts TS2769 13
         run: |
           set -euo pipefail
           shopt -s nullglob

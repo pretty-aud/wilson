@@ -180,12 +180,12 @@ SELECT is(
   'files_select is 0038''s body with the money arm on both axes, and 0092''s Legal arm');               -- 5
 SELECT is(
   (SELECT with_check FROM pg_policies WHERE schemaname = 'public' AND tablename = 'files' AND policyname = 'files_insert'),
-  '((workspace_id = current_workspace_id()) AND has_active_membership(workspace_id) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id) OR (file_row_is_legal(is_financial, storage_path) AND can_access_project_legal(project_id))) AND (EXISTS ( SELECT 1' || chr(10)
+  '((workspace_id = current_workspace_id()) AND ( SELECT has_active_membership(current_workspace_id()) AS has_active_membership) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id) OR (file_row_is_legal(is_financial, storage_path) AND can_access_project_legal(project_id))) AND (EXISTS ( SELECT 1' || chr(10)
   || '   FROM projects p' || chr(10) || '  WHERE (p.id = files.project_id))))',
   'files_insert is 0083''s body with the money arm on both axes, and 0092''s Legal arm');               -- 6
 SELECT is(
   (SELECT qual FROM pg_policies WHERE schemaname = 'public' AND tablename = 'files' AND policyname = 'files_update'),
-  '((workspace_id = current_workspace_id()) AND has_active_membership(workspace_id) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id) OR (file_row_is_legal(is_financial, storage_path) AND can_access_project_legal(project_id))) AND (EXISTS ( SELECT 1' || chr(10)
+  '((workspace_id = current_workspace_id()) AND ( SELECT has_active_membership(current_workspace_id()) AS has_active_membership) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id) OR (file_row_is_legal(is_financial, storage_path) AND can_access_project_legal(project_id))) AND (EXISTS ( SELECT 1' || chr(10)
   || '   FROM projects p' || chr(10) || '  WHERE (p.id = files.project_id))))',
   'files_update USING is 0083''s with the money arm on both axes, and 0092''s Legal arm, and 0107''s project hop');             -- 7
 SELECT is(
@@ -195,7 +195,7 @@ SELECT is(
   'files_update WITH CHECK is 0083''s with the money arm on both axes, and 0092''s Legal arm');        -- 8
 SELECT is(
   (SELECT qual FROM pg_policies WHERE schemaname = 'public' AND tablename = 'files' AND policyname = 'files_delete'),
-  '((workspace_id = current_workspace_id()) AND has_active_membership(workspace_id) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id) OR (file_row_is_legal(is_financial, storage_path) AND can_access_project_legal(project_id))) AND (EXISTS ( SELECT 1' || chr(10)
+  '((workspace_id = current_workspace_id()) AND ( SELECT has_active_membership(current_workspace_id()) AS has_active_membership) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id) OR (file_row_is_legal(is_financial, storage_path) AND can_access_project_legal(project_id))) AND (EXISTS ( SELECT 1' || chr(10)
   || '   FROM projects p' || chr(10) || '  WHERE (p.id = files.project_id))))',
   'files_delete is 0038''s body with the money arm on both axes, and 0092''s Legal arm, and 0107''s project hop');               -- 9
 
