@@ -42,7 +42,9 @@ import { renderSpy } from './lib/renderSpy'
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { render, cleanup, act, fireEvent, screen } from '@testing-library/react'
 
-const world = vi.hoisted(() => ({ pet: null, saves: [], ai: null }))
+// perms: who is signed in, as a store the stand-in for usePermissions reads, so a test can sign another person in.
+// rows: each cloud save with the session it went out under. petOf: the account pet of a person other than the first.
+const world = vi.hoisted(() => ({ pet: null, saves: [], ai: null, perms: null, permsListeners: new Set(), rows: [], petOf: {}, owner: undefined }))
 
 // ── The thirteen pages: stand-ins of the same names, drawn by the app's own table ──
 vi.mock('./components/Home', () => ({ default: function Home() { return <p>home page</p> } }))
@@ -117,18 +119,31 @@ vi.mock('./lib/localData', () => ({
   loadAgentSkills: async () => ({}),
 }))
 vi.mock('./lib/userState', () => ({
-  resolveUserPet: async () => ({ pet: world.pet ? { ...world.pet } : null, adopted: false }),
-  saveCloudPet: async (pet) => { world.saves.push(pet) },
+  resolveUserPet: async (userId) => {
+    const pet = world.petOf[userId] || world.pet
+    return { pet: pet ? { ...pet } : null, adopted: false }
+  },
+  // The cloud writes the signed-in session's row (saveCloudPet names no user): the session is world.perms' person.
+  saveCloudPet: async (pet) => { world.saves.push(pet); world.rows.push({ session: world.perms?.userId ?? null, name: pet.name, sleepingSince: pet.sleepingSince ?? null }) },
   mirrorPetToCache: async () => {},
   fetchCloudPet: async () => null,
   isStalePetWrite: () => false,
   resolveUserSettings: async () => ({ settings: null }),
   mirrorSettingsToCache: async () => {},
-  setUserStateOwner: () => {},
-  getUserStateOwner: () => 'u-1',
+  setUserStateOwner: (userId) => { world.owner = userId },
+  getUserStateOwner: () => (world.owner === undefined ? 'u-1' : world.owner),
 }))
 const PERMS = { ready: true, userId: 'u-1', role: 'member', workspaceId: 'w-1', isPlatformOperator: false, offline: false }
-vi.mock('./permissions', () => ({ usePermissions: () => PERMS }))
+vi.mock('./permissions', async () => {
+  const { useSyncExternalStore } = await import('react')
+  const subscribe = (listener) => { world.permsListeners.add(listener); return () => world.permsListeners.delete(listener) }
+  return { usePermissions: () => useSyncExternalStore(subscribe, () => world.perms) }
+})
+/** Another person signed in over the one there, with no sign-out between (a second tab's sign-in reaches this one so). */
+const signInAs = (userId) => {
+  world.perms = { ...world.perms, userId }
+  for (const listener of world.permsListeners) listener()
+}
 vi.mock('./tools/otter_v0.3.1/adapters', () => ({ otterFetch: async () => ({ ok: false, json: async () => ({}) }), subscribeOtterAdapterMode: () => () => {} }))
 vi.mock('./tools/otter_v0.3.1/petKnowledge', () => ({ retrieveOtterKnowledge: async () => ({ block: '' }), clearPetKnowledgeCache: () => {} }))
 vi.mock('./tools/rabbit_v0.1.0/storage/s3Provider', () => ({ clearS3ReadUrlCache: () => {} }))
@@ -204,6 +219,10 @@ beforeEach(() => {
   window.history.replaceState(null, '', '/')
   Element.prototype.scrollIntoView = () => {}      // jsdom has none; the chat scrolls to its newest message
   world.saves.length = 0
+  world.rows.length = 0
+  world.petOf = {}
+  world.owner = undefined
+  world.perms = PERMS
   world.ai = vi.fn(() => new Promise(() => {}))
 })
 afterEach(() => {
@@ -436,6 +455,7 @@ describe('the pet itself (green before F4 and after)', () => {
     expect(settingsPet()).toBe('Biscuit content 75/100 mode on')
   })
 
+  // The one test under this heading that was red before F4 (every tick drew Settings): its first half is a pin.
   it('Settings off screen is handed no tick of the pet, and is handed the pet as it is when it comes back', async () => {
     await openApp({ pet: adultPet({ hunger: 79.6 }) })
     await goTo('settings')
@@ -458,5 +478,71 @@ describe('the pet itself (green before F4 and after)', () => {
     await tick(2200)
     expect(sprite(view).className).toContain('pet-slide-in')
     expect(chatInput()).toBeNull()
+  })
+})
+
+// ── Another person signed in over this one, with no sign-out between ────────
+// Review round 1 (A-1, A-3). Since F4 the pet's material-change save is a
+// PetHost effect, and a child's effects run before App's in a commit they
+// share: in the commit that signs B in over A, a decay tick's change of A's
+// pet was saved before App's identity effect cleared A's routing, and went out
+// with B's session (saveCloudPet names no user). And the chat was never
+// cleared: B was shown A's conversation, and it went to the model as B's.
+describe('another person signed in over this one, with no sign-out between (review round 1)', () => {
+  // Asleep 100 s of its 120 (medium): the decay tick at 30 s wakes it, a material change, saved at once.
+  const wakesAtTheTick = () => asleep({
+    sleepingSince: new Date(NOW.getTime() - 100_000).toISOString(),
+    lastSleptAt: new Date(NOW.getTime() - 100_000).toISOString(),
+  })
+  const nextField = () => document.querySelector('input[placeholder^="Ask Bramble"]')
+
+  it('CONTROL: with nobody else signing in, the tick wakes the pet and the waking is saved, to the person signed in', async () => {
+    await openApp({ pet: wakesAtTheTick() })
+    world.rows.length = 0
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000) })
+    await tick(50)
+    expect(world.rows).toEqual([{ session: 'u-1', name: 'Biscuit', sleepingSince: null }])
+  })
+
+  it('the tick\'s change of the leaving person\'s pet, in the same commit as the next person\'s sign-in, is written to no account', async () => {
+    world.petOf['u-B'] = adultPet({ name: 'Bramble' })
+    const view = await openApp({ pet: wakesAtTheTick() })
+    world.rows.length = 0
+    const mark = renderSpy.mark()
+    // A synchronous act and timers: React draws the sign-in and the tick in ONE commit (an async act would draw the
+    // sign-in first, in a commit of its own, and the identity effect would then run before the tick's save).
+    act(() => { signInAs('u-B'); vi.advanceTimersByTime(30_000) })
+    const first = renderSpy.since(mark)[0].map((entry) => entry.name)
+    expect(first).toEqual(expect.arrayContaining(['App', 'PetHost']))  // one commit: the sign-in and the tick together
+    await tick(50)
+    expect(world.rows.filter((row) => row.name === 'Biscuit')).toEqual([])
+    // And the next person's pet is the one there.
+    if (!nextField()) await act(async () => { fireEvent.click(sprite(view)) })
+    expect(nextField()).not.toBeNull()
+  })
+
+  it('the leaving person\'s chat, and what they were typing, leave with them: the next person is shown none and sends none', async () => {
+    world.petOf['u-B'] = adultPet({ name: 'Bramble' })
+    world.ai = vi.fn(async () => ({ content: [{ type: 'text', text: 'A reply for the first person.' }] }))
+    const view = await openApp()
+    const input = await openChat(view)
+    await act(async () => { fireEvent.change(input, { target: { value: 'my own question' } }) })
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
+    await tick(50)
+    expect(view.container.textContent).toContain('A reply for the first person.')
+    await act(async () => { fireEvent.change(chatInput(), { target: { value: 'half a tho' } }) })
+    await act(async () => { signInAs('u-B') })
+    await tick(50)
+    if (!nextField()) await act(async () => { fireEvent.click(sprite(view)) })
+    const field = nextField()
+    expect(field).not.toBeNull()
+    expect(view.container.textContent).not.toContain('my own question')
+    expect(view.container.textContent).not.toContain('A reply for the first person.')
+    expect(field.value).toBe('')
+    world.ai.mockClear()
+    await act(async () => { fireEvent.change(field, { target: { value: 'hello' } }) })
+    await act(async () => { fireEvent.keyDown(field, { key: 'Enter' }) })
+    await tick(50)
+    expect(world.ai.mock.calls[0][0].messages).toEqual([{ role: 'user', content: 'hello' }])
   })
 })

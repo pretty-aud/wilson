@@ -1054,6 +1054,12 @@ export default function App() {
   // S31: who the pet belongs to, in a ref so savePet's identity stays stable.
   // null when signed out, which is what routes a save to the per-device cache.
   const petUserIdRef = useRef(null);
+  // F4, review round 1 (A-1): who is signed in, as App last drew. Written while
+  // App draws, so in a commit it is current before any effect of that commit
+  // runs; performPetSave refuses a routing that names somebody else (its note
+  // says why). undefined until the permissions first resolve.
+  const signedInUserRef = useRef(undefined);
+  if (perms.ready) signedInUserRef.current = perms.userId || null;
   // 🚨 R2 OF A3: WHO THE STORED SESSION SAYS THIS IS, KNOWN BEFORE PERMISSIONS
   // RESOLVE.
   //
@@ -1189,6 +1195,23 @@ export default function App() {
       const next = data.lastUpdatedAt
         ? data
         : { ...data, lastUpdatedAt: new Date().toISOString() };
+      // 🚨 F4, review round 1 (A-1): A CHANGE THAT IS THE LEAVING PERSON'S IS
+      // WRITTEN NOWHERE. Since F4 the pet's material-change save runs in
+      // PetHost, a child of App, and a child's effects run BEFORE App's in a
+      // commit they share. When another account signs in over this one (A then
+      // B, no sign-out between) in the same commit as a decay tick that changes
+      // something material, the save ran before the identity effect below had
+      // cleared the routing: still addressed to A, it went out with B's session
+      // (saveCloudPet names no user), and A's pet overwrote B's row. Before F4
+      // both effects were App's and the identity effect, declared first, ran
+      // first. So a routing that names somebody other than the person signed in
+      // as App last drew is refused here; the identity effect clears it in the
+      // same commit. (A then nobody refuses too: the old order wrote A's pet
+      // into the unattributed device store.)
+      if (petUserIdRef.current && signedInUserRef.current !== undefined
+          && petUserIdRef.current !== signedInUserRef.current) {
+        return false;
+      }
       // 🚨 S31: the destination is "is there a signed-in user", NOT "is this
       // Electron". `hasLocalServer()` (window.electronAPI) is true for the
       // DESKTOP APP IN CLOUD MODE too, so branching on it would pin every
@@ -2716,8 +2739,7 @@ function PetHost({
   setNewPetStatus, setNewPetPending,
 }) {
   const [petData, setPetData] = useState(null);
-  // App's loads, its stale-copy refresh and its sign-out set the pet through this.
-  useImperativeHandle(ref, () => ({ setPetData }), []);
+  // (App's way in, `useImperativeHandle`, is below the chat's state: it clears it.)
   const petTimerRef = useRef(null);
   // (S31: petSaveTimerRef is gone with the 30-second auto-save it armed.)
   petDataRef.current = petData;
@@ -2730,6 +2752,23 @@ function PetHost({
     chatInputRef.current = val;
     setChatInput(val);
   }, []);
+  // App's loads, its stale-copy refresh and its sign-out set the pet through
+  // this. 🚨 F4, review round 1 (A-3; OUTSTANDING F4-04): WHEN APP BLANKS THE
+  // PET, THE PERSON IS LEAVING (a sign-out, or another account signed in over
+  // this one), AND THEIR CHAT LEAVES WITH THEM, with what they were typing.
+  // Only a new egg and Clear chat emptied it, so the next person at the
+  // computer was shown it, and sendChat sent it to the model as the history
+  // of the next person's session. So it was before F4 too.
+  useImperativeHandle(ref, () => ({
+    setPetData: (next) => {
+      if (next === null) {
+        chatInputRef.current = '';
+        setChatInput('');
+        setChatMessages([]);
+      }
+      setPetData(next);
+    },
+  }), []);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatThinking, setChatThinking] = useState(false);
   const [feedbackJustRated, setFeedbackJustRated] = useState(false);
