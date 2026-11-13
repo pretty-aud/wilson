@@ -4444,7 +4444,7 @@ Each stood against a checker told to refute it. R1 is round 1, R2 round 2 on the
   than cut the wrong words, and says nothing; the tag of a `#` pick is still put on. INFERRED (whole-session round 2);
   settle with two people in one shared note, one typing above the other's pick.
 
-## MO4 (2026-11-08, M.O.T.H. Session 4 on `po/moth4-boards`, in progress) — left open
+## MO4 (2026-11-08, M.O.T.H. Session 4 on `po/moth4-boards`, merged 2026-11-12) — left open
 
 From the review round of 0130 to 0133 (12 reviewers, Opus 5.5; each finding read against the code). The rest were
 fixed in `e3730b7c`.
@@ -4893,3 +4893,23 @@ alone, so it is INFERRED by reading.
   the fixtures do the same; but 0132's write policy on `moth:board-live:` still lets a reader send an event of that
   name to every window there. Fix shape: a new migration narrowing `moth_board_live_write` so that no client may send
   an event named AUDIENCE on the live channel, with a suite case.
+
+## The twenty-eighth beta merge (the controller, 2026-11-12) — recorded
+
+Read on the merge commit `cc976d53` and on staging while 0107 to 0136 went in. Neither is fixed; the second needs
+no fix in the product.
+
+- **B28-01 · The live-board browser test went red once when two CI runs used wilson-dev at the same time.** OBSERVED
+  once, not reproduced. The push and the pull request each started a `Playwright auth (wilson-dev)` run of the same
+  commit three seconds apart. One failed `tests/e2e/boards.spec.ts:177` (a board live between two windows): on the
+  first try at line 213 (the canvas not visible in 30 s; that board took 31.9 s to be made), on the retry at line 335
+  (the editor still open after 30 s). The other run passed, and so did the other fourteen checks. Read as timing
+  under double load on one database; nobody has shown that the product is at fault, or that it is not. Not re-run.
+  Fix shape: keep two runs off wilson-dev at once (a concurrency group on that job), or give this spec's waits more
+  room, then run it twice at once to prove the change.
+- **B28-02 · Suite 17's #18 fails on a database with real rows on any day when edit-history rows have passed the
+  90-day line since the nightly purge.** MEASURED on staging, 2026-11-13 00:31 UTC: the test backdates one row and
+  expects `purge_edit_history()` to remove 1; it removed 5, because five real rows of 2026-08-14 were already past
+  the line (the 04:43 UTC job had succeeded on each of the last four nights and takes them at its next run). The
+  purge is right and the test's count is not its own. `docs/PRODUCTION_RUNBOOK.md` now names it with suite 74's #34
+  and #35 and suite 25's #13 as a healthy red. Fix shape: have the test count only the row it backdated.

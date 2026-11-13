@@ -132,7 +132,9 @@ and no failure.
 
 **After the last file, the suites** (step 7): `node scripts/tap-all.mjs` from the release worktree → every suite `collected =
 planned`, no failure. On a production nobody has signed in to, suite 74 reads 35/35; on any database with real rows, suite 74's
-#34 and #35 and suite 25's #13 count every row and fail, which is the healthy reading ([OWED] §14; [B1] §2). **Why not one suite
+#34 and #35 and suite 25's #13 count every row and fail, which is the healthy reading ([OWED] §14; [B1] §2). Suite 17's #18
+fails the same healthy way on a day when real edit-history rows have passed the 90-day line since the 04:43 UTC
+purge (staging, 2026-11-13: have 5, want 1; five rows of 2026-08-14, due at that night's run). **Why not one suite
 per file, as on staging:** production catches up 33 files at once, and the suites at the release commit test the final schema.
 These were extended by a later file and fail if run before it: 01, 03, 04 and 45 (0084), 19 and 23 (0097), 57 (0098), 66 (0073),
 70 (0069), 72 (0091, 0096, 0098), 74 (0071), 77 (0078, 0088), 78 (0076, 0092), 83 (0088), 87 (0088), 90 (0092), 95 (0093), 99 (0097,
