@@ -28,8 +28,11 @@
 // reference views for their data and a card for its function): none of the
 // three parses or draws. The lesson's body, the views and the card each
 // follow what they read (the middle of this file), the lesson's links follow
-// the page's address (AnswerLink draws a link against it), and the source is
-// read to hold that the views' lists of what they read are complete (its end).
+// the page's address (AnswerLink draws a link against it) and the lesson is
+// parsed for nothing else of it (review round 2, B2: a change of page between
+// two other pages, a change of the fragment alone, a visit away and back), and
+// the source is read to hold that the views' lists of what they read are
+// complete (its end).
 // =============================================================================
 import { renderSpy } from '../../lib/renderSpy'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
@@ -302,6 +305,66 @@ describe('the lesson\'s links follow the page\'s address', () => {
       window.history.replaceState(null, '', was)
     }
   })
+
+  // Review round 2 (B-2): and by nothing else of the address. Kept for the whole
+  // address (round 1), the lesson was parsed again on the web at every change of
+  // page, hidden as it is on every page but O.T.T.E.R.'s, and at a change of the
+  // fragment alone, which linkKind never reads. Each change of page here is made
+  // as App makes one on the web: the address first, then the page handed down.
+  const props = { onNavigate: noop, onContextChange: noop }
+  const goTo = (view, page, address) => act(async () => {
+    if (address != null) window.history.pushState(null, '', address)
+    view.rerender(createElement(Otter, { ...props, currentPage: page }))
+  })
+  /** The lesson open on O.T.T.E.R. at `address`, then `run`; the address put back after. */
+  const openAt = async (address, run) => {
+    const was = window.location.href
+    window.history.replaceState(null, '', address)
+    try { await run(await openLesson()) } finally { window.history.replaceState(null, '', was) }
+  }
+
+  it('page changes between two pages that are not O.T.T.E.R.: the lesson, hidden, is not parsed again', () => openAt('/otter', async (view) => {
+    await goTo(view, 'rabbit', '/rabbit')
+    renderSpy.assertSeen('Markdown')                                    // it drew: a 0 below is a measurement
+    const mark = renderSpy.mark()
+    await goTo(view, 'dog', '/dog')
+    await goTo(view, 'settings', '/settings')
+    await goTo(view, 'home', '/')
+    expect(renderSpy.renders('Otter', mark)).toBe(3)                    // O.T.T.E.R. rendered at each
+    expect(renderSpy.renders('Markdown', mark)).toBe(0)
+  }))
+
+  it('a change of the fragment alone: the lesson is not parsed again and its in-page link is still an anchor; a change of the query is', () => {
+    world.firstLesson = 'Go [jump](/otter#loops) now.'
+    return openAt('/otter', async (view) => {
+      const link = () => view.container.querySelector('.lesson-content a')
+      expect(link()?.getAttribute('href')).toBe('/otter#loops')
+      renderSpy.assertSeen('Markdown')
+      const mark = renderSpy.mark()
+      await goTo(view, 'otter', '/otter#loops')                         // the link followed: the same page, another fragment
+      expect(renderSpy.renders('Otter', mark)).toBe(1)
+      expect(renderSpy.renders('Markdown', mark)).toBe(0)
+      expect(link()?.getAttribute('href')).toBe('/otter#loops')
+      // CONTROL: the query is read. At /otter?step=2, /otter#loops is another page of this origin: its text.
+      const query = renderSpy.mark()
+      await goTo(view, 'otter', '/otter?step=2')
+      expect(renderSpy.renders('Markdown', query)).toBe(1)
+      expect(link()).toBeNull()
+      expect(view.container.querySelector('.lesson-content').textContent).toBe('Go jump now.')
+    })
+  })
+
+  it('away from O.T.T.E.R. and back at the same address: not parsed again, on the web, and on the desktop, whose address never moves', () => openAt('/otter', async (view) => {
+    renderSpy.assertSeen('Markdown')
+    const mark = renderSpy.mark()
+    await goTo(view, 'rabbit', '/rabbit')
+    await goTo(view, 'dog', '/dog')
+    await goTo(view, 'otter', '/otter')
+    await goTo(view, 'rabbit')                                          // the desktop: the page changes, the address does not
+    await goTo(view, 'otter')
+    expect(renderSpy.renders('Otter', mark)).toBe(5)
+    expect(renderSpy.renders('Markdown', mark)).toBe(0)
+  }))
 })
 
 // ── Each list is what its function reads ─────────────────────────────────────

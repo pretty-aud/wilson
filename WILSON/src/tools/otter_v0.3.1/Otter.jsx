@@ -132,30 +132,53 @@ function NodeTypeBadge({ type }) {
 //
 //  This is the boundary: it draws what its child function returns for
 //  `content`, and React is told to draw it again only when `content` is
-//  another text or `address` another page address.
+//  another text, or when O.T.T.E.R. is shown with another `linkBase` than
+//  the body was drawn with.
 //
-//  `address` is the page's address, read in O.T.T.E.R.'s render. AnswerLink
-//  reads it while it draws (linkKind): a link to this very page's path with a
-//  fragment is an anchor, another path on this origin is its text, since a
-//  click would reload WILSON in place. A lesson first drawn while another
-//  page's address was current (a generation that finished while R.A.B.B.I.T.
-//  was on screen opens its subject's first lesson there) is drawn again when
-//  O.T.T.E.R. is shown: App hands it the page as `currentPage`, so it renders
-//  on a change of page and reads the new address (F4 review round 1, D1;
-//  otterRerender.test.jsx).
+//  `linkBase` is what a link's kind can change with (lessonLinkBase, below),
+//  read in O.T.T.E.R.'s render. AnswerLink decides a link's kind against the
+//  page's address while it draws (linkKind): a link to this very page's path
+//  with a fragment is an anchor, another path on this origin is its text,
+//  since a click would reload WILSON in place. linkKind reads the address's
+//  origin, path and query and never its fragment, so while O.T.T.E.R. is the
+//  page on screen the key is those three, and on every other page it is
+//  LESSON_OFF_SCREEN, one constant, and the body stays as it was drawn: it is
+//  hidden there, and none of its links can be followed. So a change of page
+//  between two other pages, a change of the fragment alone, and a visit away
+//  and back to the same address (every visit, on the desktop, whose address
+//  never moves) parse nothing (F4 review round 2, B2). A lesson first drawn
+//  while another page was on screen (a generation that finished while
+//  R.A.B.B.I.T. was there opens its subject's first lesson) was drawn with
+//  LESSON_OFF_SCREEN, so it is drawn again when O.T.T.E.R. is shown: App
+//  hands it the page as `currentPage`, so it renders on a change of page, and
+//  App has moved the address before it hands down the page (round 1, D1).
+//  `was` is the props the body was last DRAWN with: a memo with a compare of
+//  its own hands it its child's memoizedProps, which a skipped render leaves
+//  alone. otterRerender.test.jsx.
 //
 //  🚨 THE CHILD FUNCTION IS NOT COMPARED, ON PURPOSE. It is a new function at
 //  every render of O.T.T.E.R., so comparing it would draw every time. That is
 //  safe only while what it draws depends on nothing but the text it is handed
-//  and the page's address: it reads module-level names (the highlighter, its
-//  theme, AnswerLink), and AnswerLink reads the address, which is compared. A
-//  piece of state read inside it would show its value as of the last change of
-//  the text or the address, and nothing would say so.
+//  and what `linkBase` stands for: it reads module-level names (the
+//  highlighter, its theme, AnswerLink), and AnswerLink reads the address. A
+//  piece of state read inside it would show its value as of the last time the
+//  body was drawn, and nothing would say so.
 // ═══════════════════════════════════════════════════════════════════
 function LessonBody({ content, children }) {
   return children(content);
 }
-const LessonBodyOnce = memo(LessonBody, (was, now) => was.content === now.content && was.address === now.address);
+/** `linkBase` on every page but O.T.T.E.R.'s: the body is kept as it was drawn. */
+const LESSON_OFF_SCREEN = null;
+/** What a lesson link's kind can change with: while O.T.T.E.R. is the page on
+ *  screen, the origin, path and query of the address (linkKind reads nothing
+ *  else of it); LESSON_OFF_SCREEN on every other page. */
+function lessonLinkBase(shown) {
+  if (!shown) return LESSON_OFF_SCREEN;
+  const at = globalThis.location;
+  return at ? `${at.origin}${at.pathname}${at.search}` : '';
+}
+const LessonBodyOnce = memo(LessonBody, (was, now) => was.content === now.content
+  && (now.linkBase === LESSON_OFF_SCREEN || now.linkBase === was.linkBase));
 
 // ═══════════════════════════════════════════════════════════════════
 //  MAIN OTTER COMPONENT (tool inside WILSON)
@@ -5303,12 +5326,14 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
                 page starting over. */}
             <h2 className="otter-lesson-title">{selectedLesson.title}</h2>
             <div className="lesson-content">
-              {/* F4: parsed once for its text and the page's address
-                  (LessonBodyOnce, above the component: AnswerLink draws a link
-                  against the address). The function handed to it reads nothing
-                  of this component but `content`: keep it so, or what it reads
-                  will show as of the last change of the text or the address. */}
-              <LessonBodyOnce address={globalThis.location?.href} content={(() => {
+              {/* F4: parsed again only for another text, or when shown at
+                  another origin, path or query of the address than it was
+                  drawn at (LessonBodyOnce and lessonLinkBase, above the
+                  component: AnswerLink draws a link against the address).
+                  The function handed to it reads nothing of this component
+                  but `content`: keep it so, or what it reads will show as of
+                  the last time the body was drawn. */}
+              <LessonBodyOnce linkBase={lessonLinkBase(currentPage === 'otter')} content={(() => {
                   let content = selectedLesson.content || '';
                   const headingMatch = content.match(/^(#{1,3})\s+(.+?)(\n|$)/);
                   if (headingMatch) {
