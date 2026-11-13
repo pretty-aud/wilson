@@ -492,8 +492,11 @@ async function sweep(admin: MemberCtxAdmin, workspaceId: string, callerId: strin
     // the files the store has just answered for: 'deleted' (2xx) and 'gone'
     // (404) are no longer in it, exactly the two outcomes a delete
     // certificate makes certifiedGoneIds skip. A 'failed', 'skipped' or
-    // 'unreachable' file is still there. A second listing asked the store and
-    // the rows again for the same answer.
+    // 'unreachable' file is still there. It is the run's starting snapshot
+    // less what it removed: an upload made during the run is not in it, and a
+    // delete that timed out after the store acted still counts as remaining,
+    // so it can only over-count (round 2). A second listing asked the store
+    // and the rows again for that same answer.
     const removed = new Set(plan.take.filter((_, i) => done[i] === 'deleted' || done[i] === 'gone').map(t => t.file.id))
     const after = { files: stored.files.filter(f => !removed.has(f.file.id)) }
     const totals = totalsOf(after.files.map(f => f.file))

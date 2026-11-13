@@ -197,7 +197,8 @@ function makeDb() {
 // ── The AI provider's file store, as `fetch` ─────────────────────────────────
 function makeStore() {
   // goneOnDelete: the store lost the file between the list and the delete (it answers 404 and lists it no more).
-  const store = { files: new Map(), calls: [], failDelete: new Set(), goneOnDelete: new Set() }
+  // limited: every delete answers 429 (the store's rate limit), which ends a sweep's run.
+  const store = { files: new Map(), calls: [], failDelete: new Set(), goneOnDelete: new Set(), limited: false }
   store.fetch = async (input, init = {}) => {
     const url = new URL(typeof input === 'string' ? input : input.url)
     const method = (init.method ?? 'GET').toUpperCase()
@@ -207,6 +208,7 @@ function makeStore() {
     const m = url.pathname.match(/^\/v1\/files\/(.+)$/)
     if (method === 'DELETE' && m) {
       const id = decodeURIComponent(m[1])
+      if (store.limited) return json({ error: { type: 'rate_limit_error' } }, 429)
       if (store.failDelete.has(id)) return json({ error: { type: 'api_error' } }, 500)
       if (store.goneOnDelete.has(id)) store.files.delete(id)
       if (!store.files.has(id)) return json({ error: { type: 'not_found_error' } }, 404)
@@ -415,8 +417,14 @@ describe('storage-gc: the guard reads a page of the queue in chunks, and decides
     for (let i = 0; i < 120; i++) { object('rabbit-files', longKey(i)); queue({ object_path: longKey(i) }) }
     const { body } = await call('storage-gc')
     const reads = guardReads()
-    expect(reads.length).toBeGreaterThan(1) // more than one chunk: the chunking is exercised
+    // More reads than the three slices of 50: a slice is cut into chunks (round 2: `> 1` was met by the slices alone).
+    expect(reads.length).toBeGreaterThan(Math.ceil(120 / 50))
     expect(reads.length).toBeLessThan(10)
+    // Each list as the request carries it, form-encoded (a comma goes as %2C), keeps to the 6,000-character budget.
+    for (const r of reads) {
+      const list = r.filters.find((f) => f.k === 'in' && (f.c === 'storage_path' || f.c === 'thumbnail_url')).wire
+      expect(new URLSearchParams({ v: list }).toString().length - 2).toBeLessThanOrEqual(6000 + 6)
+    }
     expect(db.log.filter((q) => q.table === 'files' && q.filters.some((f) => f.k === 'eq' && f.c === 'storage_path')).length).toBe(0)
     expect(body.counts.queue_deleted).toBe(120)
   })
@@ -524,6 +532,114 @@ describe('storage-gc: the guard reads a page of the queue in chunks, and decides
     expect(queueRow(q).status).toBe('failed')
     expect(s3.deleted).toEqual([])
   })
+
+  // Round 2 (r2-gc): each of these turned red on a plant the cases above let pass.
+  it('a named key in the SECOND chunk of the first slice is kept', async () => {
+    for (let i = 0; i < 50; i++) { object('rabbit-files', longKey(i)); queue({ object_path: longKey(i) }) }
+    fileRow({ storage_provider: 'supabase', storage_path: longKey(45) })
+    await call('storage-gc')
+    expect(inBucket('rabbit-files', longKey(45))).toBe(true)
+    expect(inBucket('rabbit-files', longKey(0))).toBe(false)
+  })
+
+  it('with max_rows set to 3 and ids not in insertion order, every named key is still seen (the pages go by id)', async () => {
+    db.maxRows = { files: 3 }
+    const ids = ['f-9', 'f-1', 'f-5', 'f-3', 'f-7']
+    const keys = ids.map((id) => key(`order-${id}.pdf`))
+    keys.forEach((k, i) => {
+      object('rabbit-files', k)
+      queue({ object_path: k })
+      ;(db.tables.files ??= []).push({ id: ids[i], workspace_id: WS, project_id: PID, deleted_at: null, thumbnail_url: null, storage_provider: 'supabase', storage_path: k })
+    })
+    await call('storage-gc')
+    expect(keys.filter((k) => !inBucket('rabbit-files', k))).toEqual([])
+  })
+
+  it('a row that comes to name a key of a later slice while the first slice is acted on keeps it (a slice is read, then acted on)', async () => {
+    const keys = Array.from({ length: 60 }, (_, i) => key(`slice-${i}.pdf`))
+    for (const k of keys) { object('rabbit-files', k); queue({ object_path: k }) }
+    const late = keys[55]
+    const from = db.admin.storage.from
+    db.admin.storage.from = (b) => {
+      const s = from(b)
+      return { ...s, remove: async (paths) => { if (paths[0] === keys[0]) fileRow({ storage_provider: 'supabase', storage_path: late }); return s.remove(paths) } }
+    }
+    await call('storage-gc')
+    expect(inBucket('rabbit-files', late)).toBe(true)
+    expect(inBucket('rabbit-files', keys[0])).toBe(false)
+  })
+
+  it('an answer that is not a list (a 404 with an empty body: data null, error null) fails the row', async () => {
+    const k = key('nolist.pdf')
+    object('rabbit-files', k)
+    const q = queue({ object_path: k })
+    db.fail = (query) => (query.table === 'files' && query.op === 'select' ? { raw: null } : null)
+    await call('storage-gc')
+    expect(inBucket('rabbit-files', k)).toBe(true)
+    expect(queueRow(q).status).toBe('failed')
+  })
+
+  it("a key that is not plain, whose exact read fails, is failed, not deleted", async () => {
+    const k = key('Budget (final), v2.pdf')
+    object('rabbit-files', k)
+    const q = queue({ object_path: k })
+    db.fail = (query) => (query.table === 'files' && query.filters.some((f) => f.k === 'eq' && f.c === 'storage_path') ? 'timeout' : null)
+    await call('storage-gc')
+    expect(inBucket('rabbit-files', k)).toBe(true)
+    expect(queueRow(q).status).toBe('failed')
+  })
+
+  it('when only the confirming page fails, a key page one proved named is kept as named; the free key is failed', async () => {
+    const k = key('named.pdf'), free = key('free.pdf')
+    object('rabbit-files', k); object('rabbit-files', free)
+    const qk = queue({ object_path: k }), qf = queue({ object_path: free })
+    fileRow({ storage_provider: 'supabase', storage_path: k })
+    db.fail = (query) => (query.table === 'files' && query.filters.some((f) => f.k === 'gt') ? 'connection reset' : null)
+    const { body } = await call('storage-gc')
+    expect(queueRow(qk).status).toBe('skipped')
+    expect(queueRow(qf).status).toBe('failed')
+    expect(inBucket('rabbit-files', free)).toBe(true)
+    expect(body.counts.queue_failed).toBe(1)
+  })
+})
+
+// Round 2 (r2-gc, r2-tests): the orphan scan, driven: a projects row makes the folder this company's.
+describe('storage-gc: the orphan scan keeps every object a files row names', () => {
+  const ourProject = () => { (db.tables.projects ??= []).push({ id: PID, workspace_id: WS }) }
+  const longKey = (i) => key(`${'deep/'.repeat(12)}${String(i).padStart(4, '0')}-a-long-file-name-for-the-chunk.pdf`)
+
+  it('with max_rows set to 3, five referenced objects of one chunk are all kept (the read is paged by id)', async () => {
+    ourProject()
+    db.maxRows = { files: 3 }
+    const keys = [0, 1, 2, 3, 4].map((i) => key(`ref-${i}.pdf`))
+    for (const k of keys) { object('rabbit-files', k); fileRow({ storage_provider: 'supabase', storage_path: k }) }
+    await call('storage-gc')
+    expect(keys.filter((k) => !inBucket('rabbit-files', k))).toEqual([])
+  })
+
+  it('a referenced key holding `, ( )` and a space is kept (the exact read); CONTROL: the free one beside it goes', async () => {
+    ourProject()
+    const k = key('Budget (final), v2.pdf')
+    const hostile = key('q")z.pdf')
+    const free = key('free.pdf')
+    for (const p of [k, hostile, free]) object('rabbit-files', p)
+    fileRow({ storage_provider: 'supabase', storage_path: k })
+    fileRow({ storage_provider: 'supabase', storage_path: hostile })
+    const { body } = await call('storage-gc')
+    expect(inBucket('rabbit-files', k)).toBe(true)
+    expect(inBucket('rabbit-files', hostile)).toBe(true)
+    expect(inBucket('rabbit-files', free)).toBe(false)
+    expect(body.counts.orphans_deleted).toBe(1)
+  })
+
+  it('a referenced key in a later chunk is kept', async () => {
+    ourProject()
+    for (let i = 0; i < 70; i++) object('rabbit-files', longKey(i))
+    fileRow({ storage_provider: 'supabase', storage_path: longKey(65) })
+    await call('storage-gc')
+    expect(inBucket('rabbit-files', longKey(65))).toBe(true)
+    expect(inBucket('rabbit-files', longKey(0))).toBe(false)
+  })
 })
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -531,7 +647,7 @@ describe('storage-gc: the guard reads a page of the queue in chunks, and decides
 // ═════════════════════════════════════════════════════════════════════════════
 const HOUR = 60 * 60 * 1000
 let seq = 0
-function upload({ age, size = 1000 + seq, ws = WS, actor = ADMIN, rowFor = true } = {}) {
+function upload({ age, size = 1000 + seq, ws = WS, actor = ADMIN, rowFor = true, keySource = 'platform' } = {}) {
   const id = `file_test${String(++seq).padStart(8, '0')}`
   const at = new Date(Date.now() - age).toISOString()
   store.files.set(id, { id, type: 'file', filename: 'a client deck.pdf', created_at: at, size_bytes: size, mime_type: 'application/pdf', expires_at: null })
@@ -539,7 +655,7 @@ function upload({ age, size = 1000 + seq, ws = WS, actor = ADMIN, rowFor = true 
     ;(db.tables.app_events ??= []).push({
       id: db.nextId++, workspace_id: ws, actor_user_id: actor, created_at: new Date(Date.parse(at) + 300).toISOString(),
       code: 'WIL-6001', event_type: 'system', severity: 'info',
-      context: { tool: 'ai-files', file_id: id, size_bytes: size, mime_type: 'application/pdf', key_source: 'platform' },
+      context: { tool: 'ai-files', file_id: id, size_bytes: size, mime_type: 'application/pdf', key_source: keySource },
     })
   }
   return id
@@ -582,6 +698,37 @@ describe('ai-files: an admin sweep answers the totals a second listing would', (
     expect(storeListings()).toBe(1)
     // ...and reads this environment's rows once: the upload rows, the certificates, the notes, the rows naming the ids.
     expect(db.log.filter((q) => q.table === 'app_events' && q.op === 'select').length).toBe(4)
+  })
+
+  // Round 2 (r2-ai): the outcomes that leave a file in the store, each still counted as remaining.
+  it("a run the store's rate limit ends: the files it never asked about ('skipped') and the refused ones remain", async () => {
+    for (const age of [72, 60, 50, 40]) upload({ age: age * HOUR })
+    upload({ age: 1 * HOUR })
+    store.limited = true
+    const swept = await call('ai-files', 'DELETE', { sweep: true })
+    expect(swept.status).toBe(200)
+    expect(swept.body.counts).toMatchObject({ deleted: 0, gone: 0, failed: 2, truncated: true })
+    store.limited = false
+    const listed = await call('ai-files', 'GET')
+    const { count, total_bytes, oldest, sweepable } = listed.body
+    expect(swept.body.after).toEqual({ count, total_bytes, oldest, sweepable })
+    expect(count).toBe(5)
+  })
+
+  it("a file whose company key cannot be read at its delete ('unreachable') remains", async () => {
+    ;(db.tables.workspace_ai_keys ??= []).push({ workspace_id: WS, key_ciphertext: 'sealed', key_version: 1 })
+    upload({ age: 72 * HOUR }) // the platform's key: swept
+    upload({ age: 60 * HOUR, keySource: 'workspace' }) // the company's own key
+    let keyReads = 0
+    // The listing reads the key (1st), the sweep's delete reads it again (2nd: it fails), a later list reads it (3rd).
+    db.fail = (q) => (q.table === 'workspace_ai_keys' && ++keyReads === 2 ? 'connection reset' : null)
+    const swept = await call('ai-files', 'DELETE', { sweep: true })
+    expect(swept.status).toBe(200)
+    expect(swept.body.counts).toMatchObject({ deleted: 1, unreachable: 1 })
+    const listed = await call('ai-files', 'GET')
+    const { count, total_bytes, oldest, sweepable } = listed.body
+    expect(swept.body.after).toEqual({ count, total_bytes, oldest, sweepable })
+    expect(count).toBe(1)
   })
 })
 
@@ -630,5 +777,17 @@ describe("operator-ai-files: the operator's sweep answers the counts a summary w
     expect(storeListings()).toBe(1)
     const rowReads = db.log.filter((q) => q.table === 'app_events' && q.op === 'select')
     expect(rowReads.length).toBe(1)
+  })
+
+  it("a run the store's rate limit ends: the files it never asked about ('skipped') and the refused ones remain", async () => {
+    for (const age of [72, 60, 50, 40]) upload({ age: age * HOUR })
+    store.limited = true
+    const swept = await call('operator-ai-files', 'POST', { action: 'sweep' })
+    expect(swept.status).toBe(200)
+    expect(swept.body.counts).toMatchObject({ deleted: 0, gone: 0, failed: 2, truncated: true })
+    store.limited = false
+    const summary = await call('operator-ai-files', 'POST', { action: 'summary' })
+    expect(swept.body.after).toEqual(summary.body.counts)
+    expect(summary.body.counts.attributed.count).toBe(4)
   })
 })

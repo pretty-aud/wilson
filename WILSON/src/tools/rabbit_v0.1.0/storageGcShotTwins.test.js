@@ -135,9 +135,10 @@ describe('the orphan scan asks before it deletes', () => {
     // failed read answered as "no row" made a whole chunk deletable).
     // F7 round 1: the batched read sends its keys quoted and escaped (inList), a key that is not plain alone by
     // .eq(), and any failure, whatever its error's shape, throws (readFailure).
-    expect(GC).toMatch(/\.filter\('storage_path', 'in', inList\(chunk\)\)\s*const failure = readFailure\(error, data\)\s*if \(failure\) throw new Error/)
+    // F7 round 2: the batched read is paged by id to an empty page, as the drain's guard is.
+    expect(GC).toMatch(/\.filter\('storage_path', 'in', inList\(chunk\)\)\s*if \(after !== null\) q = q\.gt\('id', after\)\s*const \{ data, error \} = await q\.order\('id', \{ ascending: true \}\)\.limit\(GUARD_PAGE\)\s*const failure = readFailure\(error, data\)\s*if \(failure\) throw new Error\(`files read failed \(referenced paths\)/)
     expect(GC).toMatch(/\.eq\('storage_path', p\)\.limit\(1\)\s*const failure = readFailure\(error, data\)\s*if \(failure\) throw new Error/)
-    expect(GC).toMatch(/const \{ data, error \} = await ctx\.admin\.from\('files'\)\.select\('id'\)\.in\('storage_provider', \['supabase', 's3', 'local_server'\]\)\.like\('storage_path', pattern\)\.limit\(1\)\s*if \(error\) throw new Error/)
+    expect(GC).toMatch(/const \{ data, error \} = await ctx\.admin\.from\('files'\)\.select\('id'\)\.in\('storage_provider', \['supabase', 's3', 'local_server'\]\)\.like\('storage_path', pattern\)\.limit\(1\)\s*const failure = readFailure\(error, data\)\s*if \(failure\) throw new Error/)
     // The orphan loop catches each, counts it, and goes on to the next project.
     expect(GC).toMatch(/referenced = await referencedPaths\(ctx, objects\.map\(o => o\.path\)\)\s*\} catch \(err\) \{\s*counts\.scan_failed\+\+/)
     expect(GC).toMatch(/named = await rowNamesTwin\(ctx, twin\)\s*\} catch \(err\) \{\s*counts\.scan_failed\+\+/)

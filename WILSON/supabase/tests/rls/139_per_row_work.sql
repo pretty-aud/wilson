@@ -243,14 +243,20 @@ SELECT public.t139_as('cccccccc-cccc-cccc-cccc-cccccccccccc', '22222222-2222-222
 SELECT is((SELECT string_agg(id::text, ',') FROM public.projects WHERE id IN ('aaaa1111-0000-0000-0000-000000000001', 'bbbb2222-0000-0000-0000-000000000001')),
   'bbbb2222-0000-0000-0000-000000000001',
   'a person in two companies reads the one they are signed into, not the other');
+-- (signed in as an admin, so the role arm of rce_select passes and only its EXISTS, company and membership can refuse:
+-- round 2, a 'user' claim made these two counts 0 whatever the EXISTS said)
+SELECT public.t139_as('cccccccc-cccc-cccc-cccc-cccccccccccc', '22222222-2222-2222-2222-222222222222', 'admin');
 -- 23
-SELECT is((SELECT count(*)::int FROM public.rate_card_entries), 0,
-  'nor the other company''s rate card entries (the EXISTS shape)');
+SELECT is((SELECT count(*)::int FROM public.rate_card_entries WHERE rate_card_id = 'aaaa1392-0000-4000-8000-000000000001'), 0,
+  'nor the other company''s rate card entries (the EXISTS shape), even with an admin''s claim');
 SELECT public.t139_as('dddddddd-dddd-dddd-dddd-dddddddddddd', '11111111-1111-1111-1111-111111111111');
 -- 24
 SELECT is((SELECT count(*)::int FROM public.projects), 0, 'a membership taken away reads no project');
+SELECT public.t139_as('dddddddd-dddd-dddd-dddd-dddddddddddd', '11111111-1111-1111-1111-111111111111', 'admin');
 -- 25
-SELECT is((SELECT count(*)::int FROM public.rate_card_entries), 0, '...no rate card entry');
+SELECT is((SELECT count(*)::int FROM public.rate_card_entries WHERE rate_card_id = 'aaaa1392-0000-4000-8000-000000000001'), 0,
+  '...no rate card entry, even with an admin''s claim');
+SELECT public.t139_as('dddddddd-dddd-dddd-dddd-dddddddddddd', '11111111-1111-1111-1111-111111111111');
 -- 26
 SELECT is(public.t139_updated('aaaa1391-0000-4000-8000-000000000001'), 0, '...and changes no task');
 -- 27
@@ -302,9 +308,10 @@ RETURNS BIGINT LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS 
     ) c;
 $$;
 -- The LIVE body with one arm cut out, under another name: the controls.
+-- (the body read with any carriage return taken out, as #40 reads it: a body stored with CRLF still matches)
 CREATE FUNCTION public.t139_cut(p_name text, p_from text, p_to text) RETURNS void LANGUAGE plpgsql AS $f$
 DECLARE
-  s text := (SELECT prosrc FROM pg_proc WHERE oid = 'public.workspace_petal_committed_bytes(uuid)'::regprocedure);
+  s text := replace((SELECT prosrc FROM pg_proc WHERE oid = 'public.workspace_petal_committed_bytes(uuid)'::regprocedure), chr(13), '');
   i int := strpos(s, p_from);
   j int := strpos(s, p_to);
 BEGIN
@@ -320,7 +327,7 @@ SELECT public.t139_cut('t139_no_2', E'      UNION ALL\n      -- 2.', '    ) c;')
 -- The LIVE body with one piece of text swapped (the range's ends, 1b's buckets): more controls.
 CREATE FUNCTION public.t139_swap(p_name text, p_from text, p_to text) RETURNS void LANGUAGE plpgsql AS $f$
 DECLARE
-  s text := (SELECT prosrc FROM pg_proc WHERE oid = 'public.workspace_petal_committed_bytes(uuid)'::regprocedure);
+  s text := replace((SELECT prosrc FROM pg_proc WHERE oid = 'public.workspace_petal_committed_bytes(uuid)'::regprocedure), chr(13), '');
 BEGIN
   IF strpos(s, p_from) = 0 THEN
     RAISE EXCEPTION 't139_swap: % not found in the live body', p_from;
@@ -383,23 +390,22 @@ SELECT ok(public.workspace_petal_committed_bytes('33333333-3333-4333-8333-333333
           AND public.t139_old_meter('33333333-3333-4333-8333-333333333333') = 0
           AND public.workspace_petal_committed_bytes(NULL) = 0,
   'a company with nothing, and NULL: 0 by both');
+-- (round 2: each control's exact number, not only "different": 63615 less or plus what that cut changes)
 -- 35
-SELECT isnt(public.t139_no_1b('11111111-1111-1111-1111-111111111111'),
-            public.t139_old_meter('11111111-1111-1111-1111-111111111111'),
-  'CONTROL: without arm 1b the four other spellings of P1''s id are not counted, a quota bypass');
+SELECT is(public.t139_no_1b('11111111-1111-1111-1111-111111111111'), 30787::bigint,
+  'CONTROL: without arm 1b the other spellings of P1''s id (4 + 8 + 16 + 32 + 32768) are not counted, a quota bypass');
 -- 36
-SELECT isnt(public.t139_no_2('11111111-1111-1111-1111-111111111111'),
-            public.t139_old_meter('11111111-1111-1111-1111-111111111111'),
-  'CONTROL: without arm 2 the moved copy and its picture are not counted');
+SELECT is(public.t139_no_2('11111111-1111-1111-1111-111111111111'), 57471::bigint,
+  'CONTROL: without arm 2 the moved copy and its picture (2048 + 4096) are not counted');
 -- 37
-SELECT isnt(public.t139_le('11111111-1111-1111-1111-111111111111'), public.t139_old_meter('11111111-1111-1111-1111-111111111111'),
-  'CONTROL: with the upper bound closed (<=) the name equal to it is counted, which 0115 never counted');
+SELECT is(public.t139_le('11111111-1111-1111-1111-111111111111'), 129151::bigint,
+  'CONTROL: with the upper bound closed (<=) the name equal to it (65536) is counted, which 0115 never counted');
 -- 38
-SELECT isnt(public.t139_ff('11111111-1111-1111-1111-111111111111'), public.t139_old_meter('11111111-1111-1111-1111-111111111111'),
-  'CONTROL: with the upper bound written ''/'' || chr(255) a non-ASCII name under the prefix is not counted, a quota bypass');
+SELECT is(public.t139_ff('11111111-1111-1111-1111-111111111111'), 47231::bigint,
+  'CONTROL: with the upper bound written ''/'' || chr(255) a non-ASCII name under the prefix (16384) is not counted, a quota bypass');
 -- 39
-SELECT isnt(public.t139_1b_files('11111111-1111-1111-1111-111111111111'), public.t139_old_meter('11111111-1111-1111-1111-111111111111'),
-  'CONTROL: with arm 1b reading only rabbit-files, an upper-case picture is not counted');
+SELECT is(public.t139_1b_files('11111111-1111-1111-1111-111111111111'), 30847::bigint,
+  'CONTROL: with arm 1b reading only rabbit-files, an upper-case picture (32768) is not counted');
 -- 40
 SELECT is((SELECT md5(replace(prosrc, chr(13), '')) FROM pg_proc WHERE oid = 'public.workspace_petal_committed_bytes(uuid)'::regprocedure),
   '67bd041258c73fecae5b4031357e42d2', 'the meter is 0137''s body');
@@ -485,7 +491,7 @@ PREPARE t139_absent(uuid, text, text, text, text, text) AS
 -- 52
 SELECT ok(strpos(public.t139_plan($q$EXECUTE t139_absent('11111111-1111-1111-1111-111111111111', 'admin', 'tool', 'ai-files', 'stage', 'absent')$q$),
                  'app_events_file_id_idx') = 0,
-  'readAbsentNoted (no file id named) is not sent through the file-id index (round 1: a partial one was, 30 times slower)');
+  'readAbsentNoted (no file id named) is not sent through the file-id index: a record more than a guard, since a whole-table expression index is never a path for a read that names no file id (round 1''s slow plan came from a PARTIAL one; #46''s exact definition is what keeps it out)');
 SET LOCAL plan_cache_mode = force_generic_plan;
 -- 53
 SELECT ok(strpos(public.t139_plan($q$EXECUTE t139_rows('WIL-6001', 'tool', 'ai-files', '11111111-1111-1111-1111-111111111111')$q$),
@@ -494,7 +500,7 @@ SELECT ok(strpos(public.t139_plan($q$EXECUTE t139_rows('WIL-6001', 'tool', 'ai-f
 -- 54
 SELECT ok(strpos(public.t139_plan($q$EXECUTE t139_naming('WIL-6001', 'tool', 'ai-files', 'file_id', ARRAY['file_t13900000001'])$q$),
                  'app_events_file_id_idx') = 0,
-  'nor match the file-id expression (the JSON key itself is a parameter); the reads keep custom plans: PostgREST''s parameters at execution');
+  'nor match the file-id expression (the JSON key itself is a parameter); round 2 measured on dev: readUploadRows takes this generic plan from a connection''s sixth call (4 to 7 ms there), the other reads stay custom');
 SET LOCAL plan_cache_mode = auto;
 SET LOCAL enable_seqscan = on;
 -- 55

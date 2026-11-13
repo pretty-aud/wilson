@@ -192,7 +192,7 @@ function chunkByEncodedLength(paths: string[]): string[][] {
   let len = 0
   for (const p of paths) {
     // What the request really carries for this value: its quoted form, form-encoded, and a comma.
-    const n = new URLSearchParams({ v: listValue(p) }).toString().length - 2 + 1
+    const n = new URLSearchParams({ v: listValue(p) }).toString().length - 2 + 3 // the comma goes as %2C
     if (cur.length > 0 && len + n > IN_CHUNK_CHARS) { chunks.push(cur); cur = []; len = 0 }
     cur.push(p); len += n
   }
@@ -212,10 +212,19 @@ async function referencedPaths(ctx: AdminContext, paths: string[]): Promise<Set<
   const out = new Set<string>()
   const plain = paths.filter(p => PLAIN_KEY.test(p))
   for (const chunk of chunkByEncodedLength(plain)) {
-    const { data, error } = await ctx.admin.from('files').select('storage_path').in('storage_provider', ['supabase', 's3', 'local_server']).filter('storage_path', 'in', inList(chunk))
-    const failure = readFailure(error, data)
-    if (failure) throw new Error(`files read failed (referenced paths): ${failure}`)
-    for (const r of (data ?? []) as unknown as Array<Record<string, unknown>>) out.add(r.storage_path as string)
+    // Paged by id to an empty page, as the drain's guard is (round 2): max_rows is a setting.
+    let after: string | null = null
+    for (;;) {
+      let q = ctx.admin.from('files').select('id, storage_path').in('storage_provider', ['supabase', 's3', 'local_server']).filter('storage_path', 'in', inList(chunk))
+      if (after !== null) q = q.gt('id', after)
+      const { data, error } = await q.order('id', { ascending: true }).limit(GUARD_PAGE)
+      const failure = readFailure(error, data)
+      if (failure) throw new Error(`files read failed (referenced paths): ${failure}`)
+      const rows = (data ?? []) as unknown as Array<Record<string, unknown>>
+      if (rows.length === 0) break
+      for (const r of rows) out.add(r.storage_path as string)
+      after = String(rows[rows.length - 1].id)
+    }
   }
   for (const p of paths.filter(p => !PLAIN_KEY.test(p))) {
     const { data, error } = await ctx.admin.from('files').select('storage_path').in('storage_provider', ['supabase', 's3', 'local_server']).eq('storage_path', p).limit(1)
@@ -234,7 +243,8 @@ async function referencedPaths(ctx: AdminContext, paths: string[]): Promise<Set<
 // office server's locator names no object. A failed read throws: it is not "no twin".
 async function rowNamesTwin(ctx: AdminContext, pattern: string): Promise<boolean> {
   const { data, error } = await ctx.admin.from('files').select('id').in('storage_provider', ['supabase', 's3', 'local_server']).like('storage_path', pattern).limit(1)
-  if (error) throw new Error(`files read failed (twin key): ${error.message}`)
+  const failure = readFailure(error, data)
+  if (failure) throw new Error(`files read failed (twin key): ${failure}`)
   return (data ?? []).length > 0
 }
 
@@ -289,7 +299,8 @@ async function namedQueuePaths(
       const { data, error } = await q.order('id', { ascending: true }).limit(GUARD_PAGE)
       const failure = readFailure(error, data)
       if (failure) {
-        for (const p of chunk) failed.set(p, failure)
+        // A path an earlier page already found named stays named (it is kept either way); the rest failed.
+        for (const p of chunk) if (!named.has(p)) failed.set(p, failure)
         break
       }
       const rows = (data ?? []) as unknown as Array<Record<string, unknown>>

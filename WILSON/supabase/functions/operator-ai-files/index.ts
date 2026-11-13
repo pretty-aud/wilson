@@ -148,8 +148,11 @@ Deno.serve(async (req: Request) => {
     counts.workspaces = touched.size
     // F7 (C4): read() once per request. What is left is the first listing less
     // the files the store has just answered for: 'deleted' (2xx) and 'gone'
-    // (404). The upload rows a second read() would have fetched are the same
-    // rows (a certificate carries a `stage`, so it is never an upload row).
+    // (404). It is the run's starting snapshot less what it removed: an upload
+    // or another environment's traffic during the run is not in it, and a
+    // delete that timed out after the store acted still counts as remaining,
+    // so it can only over-count (round 2). The certificates this run writes
+    // carry a `stage`, so a second read() would not have counted them either.
     const removed = new Set(plan.take.filter((_, i) => done[i] === 'deleted' || done[i] === 'gone').map(t => t.file.id))
     const afterCounts = operatorCounts(attributions.filter(a => !removed.has(a.file.id)), Date.now())
     await logPlatformEvent(ctx, {

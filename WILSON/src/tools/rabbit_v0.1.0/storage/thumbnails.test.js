@@ -701,7 +701,8 @@ describe('review fixes', () => {
     // F7 (0137 wave): the read is batched per chunk (namedQueuePaths); a chunk's
     // failed read marks each of its paths failed, and the row's verdict reads it.
     // Round 1: any failure counts, whatever the error's shape (readFailure), and the row reads `failed.has` first.
-    expect(gc).toMatch(/for \(const p of chunk\) failed\.set\(p, failure\)/)
+    // Round 2: a path an earlier page already found named stays named; every other path of the chunk is failed.
+    expect(gc).toMatch(/for \(const p of chunk\) if \(!named\.has\(p\)\) failed\.set\(p, failure\)/)
     expect(gc).toMatch(/if \(asked\[column\]\.failed\.has\(row\.object_path\)\) \{ refErr = /)
     expect(gc).toMatch(/if \(refErr\) \{/)
     expect(gc).toMatch(/restorability check failed, nothing deleted/)
