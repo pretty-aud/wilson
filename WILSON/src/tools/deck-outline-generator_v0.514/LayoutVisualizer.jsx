@@ -1756,7 +1756,10 @@ const LayoutVisualizer = ({ content, compact = false, overrideColors = null, onR
 // change of any one of them, each letter typed in the deck context box among
 // them, ran this preview: the slide parsed, laid out and every frame built
 // again. It is drawn again now for a change of one of its own props. D.O.G.
-// hands it twelve, the same twelve across a render that changes none (the one
-// that was a new function each time, onContentChange, is a useCallback there
-// now).
+// hands it twelve, the same twelve across a render that changes none. Two of
+// them were not the same: onContentChange was written in the tag, a new
+// function each time, and onRefreshColors was a callback whose deps reach the
+// deck context box's text. Both are one function there now, and
+// App.focus.test.jsx types in that box with a slide in the preview to hold it:
+// a memo is worth what its props are.
 export default memo(LayoutVisualizer);

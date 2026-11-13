@@ -719,10 +719,20 @@ Generate 3 color themes for this deck.`;
   }, [allThemes, themeIndex]);
 
   // Refresh: always generate new AI themes (button always works regardless of checkbox)
+  //
+  // F4 (2026-11-13): ONE function for the life of the tool. generateAIThemes
+  // is a new function at every letter typed in the deck context box (the
+  // context is one of its deps), and this was a new function with it: a new
+  // prop, at every letter, for the slide preview, which is under React.memo
+  // (measured in the running app: ten letters ran the preview ten times, the
+  // memo notwithstanding). The click calls the generator as the last render
+  // made it, which is what the prop was.
+  const generateAIThemesRef = useRef(generateAIThemes);
+  generateAIThemesRef.current = generateAIThemes;
   const refreshDeckColors = useCallback(() => {
-    generateAIThemes();
-  }, [generateAIThemes]);
-  
+    generateAIThemesRef.current();
+  }, []);
+
   // Sort history by page number
   const sortedHistory = useMemo(() => {
     return [...history].sort((a, b) => {

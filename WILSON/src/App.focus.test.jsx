@@ -295,6 +295,55 @@ describe('the two tool roots are left alone', () => {
   })
 })
 
+// ── D.O.G.'s slide preview, in D.O.G. ────────────────────────────────────────
+// The preview is under React.memo (LayoutVisualizer.rerender.test.jsx holds it
+// alone). A memo is worth what its props are: D.O.G. hands the preview twelve,
+// and one that is new at every render is the memo undone. So the real D.O.G.
+// is given a deck (through its own History import, the way a person brings one
+// in), a slide is opened in the preview, and the deck context box beside it is
+// typed in: D.O.G. runs at each letter and the preview at none.
+const RULE = '═'.repeat(63)
+const slide = (n, layout, title) => `SLIDE #${n} — ${layout}\n${RULE}\n\n▸ TITLE:\n  ${title}\n▸ SUBTITLE: Five pages\n▸ LAYOUT STRUCTURE:\n  Text on the left, the image on the right\n▸ COPY/TEXT CONTENT:\n  • The first point\n  • The second point\n▸ REQUIRED ASSETS:\n  • [Image | 16:9] - Hero shot of the lamp room\n  • [Icon/Logo] - The keeper's mark\n\n${RULE}\n\n`
+const DECK = slide(1, 'Title and Body', 'The lighthouse at dusk') + slide(2, 'Title and Body', 'The keeper')
+
+/** A deck brought in through D.O.G.'s History, and its first slide opened: the preview is on screen. */
+async function openSlidePreview() {
+  const press = (el) => act(async () => { fireEvent.click(el) })
+  const dialog = () => [...document.querySelectorAll('[role="dialog"]')].at(-1)
+  const named = (words) => [...dialog().querySelectorAll('button, [role="tab"]')].find((b) => b.textContent.trim() === words)
+  await press(document.querySelector('button[title="Import/export history"], button[aria-label="Import/export history"]'))
+  await tick(100)
+  await press(named('Import'))
+  await tick(100)
+  await act(async () => { fireEvent.change(dialog().querySelector('textarea[aria-label="DECKOUTLINE content"]'), { target: { value: DECK } }) })
+  await press(named('Import to history'))
+  await tick(400)
+  await press(document.querySelector('.dog-history-row .dog-history-open'))
+  await tick(400)
+}
+
+describe('D.O.G.\'s slide preview, beside the deck context box', () => {
+  it('ten characters typed in the box run D.O.G. ten times and the preview not once; the box keeps its focus', async () => {
+    await openApp()
+    await goTo('dog')
+    await openSlidePreview()
+    expect(renderSpy.mounts('LayoutVisualizer')).toBeGreaterThan(0)          // the preview is on screen
+    expect(document.querySelector('#dog-output-panel').textContent).toContain('The lighthouse at dusk')
+    const box = dogField()
+    box.focus()
+    const mark = renderSpy.mark()
+    await type(box, 'lighthouse')
+    expect(renderSpy.renders('DeckOutlineGenerator', mark)).toBe(10)
+    expect({
+      previewRuns: renderSpy.renders('LayoutVisualizer', mark),
+      frames: renderSpy.mounts('ImagePlaceholder', mark) + renderSpy.mounts('IconLogoPlaceholder', mark),
+    }).toEqual({ previewRuns: 0, frames: 0 })
+    expect(dogField()).toBe(box)
+    expect(document.activeElement).toBe(box)
+    expect(box.value).toBe('lighthouse')
+  })
+})
+
 describe('a field being typed in keeps its focus and its words', () => {
   it('D.O.G.\'s deck context box: across the pet\'s ticks, the pet typed to, and a heartbeat', async () => {
     const view = await openApp()
