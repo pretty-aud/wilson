@@ -138,11 +138,16 @@ export function updateModelSource(tier, map) {
 
 let loaded = false
 // F4, review round 1 (B-1): who to tell when the flag moves. A surface that
-// draws from the flag reads it with useModelSourcesLoaded (below), and is drawn
-// again when a load anywhere (App's, the Admin terminal's, a choice in D.O.G.)
-// sets it. Read plainly while drawing, it was as fresh as the last render, and
-// Settings, under React.memo since F4, could say "Loading your settings…" for
-// good after a load elsewhere had landed.
+// draws from the flag subscribes with subscribeModelSourcesLoaded (below),
+// through React's useSyncExternalStore, with areModelSourcesLoaded as the
+// snapshot, and is drawn again when a load anywhere (App's, the Admin
+// terminal's, a choice in D.O.G.) sets it. Read plainly while drawing, it was
+// as fresh as the last render, and Settings, under React.memo since F4, could
+// say "Loading your settings…" for good after a load elsewhere had landed.
+// The listeners are told THAT the flag moved, not what the load brought: a
+// surface that keeps its own copies of the tiers or the efforts reads them
+// again when it moves (UserModelsSection, review round 2), which is in time,
+// since a load sets them before it sets the flag (loadModelSources).
 const loadedListeners = new Set()
 
 /** True once a real load has completed at least once this session. */

@@ -57,6 +57,21 @@ export default function UserModelsSection() {
   const [models, setModels] = useState(() => cachedApprovedModels())
   const [sources, setSources] = useState(() => getModelSources())
   const [efforts, setEfforts] = useState(() => getPlatformEffort())
+  // Review round 2 (B-1): the two copies above are as old as the mount or this
+  // section's own last load, and the flag says nothing of what a load brought.
+  // A load sets the tiers and the efforts before it sets the flag
+  // (loadModelSources), so when the flag moves both are read again, in this
+  // same render: the section never draws the loaded words over stale copies
+  // ("You have not overridden anything…" while the store holds the person's
+  // own choice). React's "adjusting state when a prop changes" pattern: the
+  // flag's last value seen is kept, and React draws again at once, before
+  // anything is shown. userModelsLoaded.test.jsx.
+  const [loadedSeen, setLoadedSeen] = useState(sourcesLoaded)
+  if (loadedSeen !== sourcesLoaded) {
+    setLoadedSeen(sourcesLoaded)
+    setSources(getModelSources())
+    setEfforts(getPlatformEffort())
+  }
   const [loading, setLoading] = useState(false)
   const [busyKey, setBusyKey] = useState(null)
   const [rowError, setRowError] = useState({})
