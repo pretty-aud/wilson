@@ -3991,6 +3991,28 @@ and a boundary rule requires every frame to satisfy
 > asset aspect ratios; it never reads the AI's x/y/width/height values. Do not
 > "fix" the visualiser to consume the JSON without knowing that.
 
+**The preview draws for its own props (F4, 2026-11-13).** `LayoutVisualizer`
+is exported under `React.memo`, and D.O.G. hands it twelve props that stay
+the same object across a render that changes none of them:
+`onContentChange` and `onRefreshColors` are callbacks D.O.G. keeps stable
+on purpose (the second through a ref, because `generateAIThemes` changes with
+every letter of the deck context). A new function written in the
+`<LayoutVisualizer` tag undoes the memo: `App.focus.test.jsx` types in the
+deck context box with a slide in the preview and holds the preview at no
+render. The two placeholders (`ImagePlaceholder`, `IconLogoPlaceholder`)
+stand at module level, so a frame is a component of one type for its life
+(declared inside the render they were two new types each time, and every
+frame was built again); they read the frame ink, the slide's ground and the
+pictures' measured shapes from the `PreviewPaint` context. A placed picture
+is drawn from ONE object URL per picture object, shared by every frame that
+shows it and revoked a turn after the last such frame goes (a dev build's
+double mount and a picture moving between frames keep it); where the page
+cannot make one, the frame takes the `data:` URL as before. `placementAssets`
+defaults to the module's frozen `NO_ASSETS`: a `[]` default was a new list at
+every render, the pictures-measuring effect depends on it and sets state,
+and the duplicate resolver, which passes none, looped ("Maximum update depth
+exceeded", OUTSTANDING's P1-16, closed by F4).
+
 **Attachments — today's behaviour, stated precisely because it is a known
 gap.** `projectFiles` skips any document or visual asset that lacks an inline
 `content` data URL, silently and with no error. In **local** mode every upload
@@ -4432,6 +4454,20 @@ than merely hidden, so that a queue fetch does not fire for every user at
 launch. Sidebar 1 collapses with `Ctrl/Cmd + \`, gated on
 `currentPage === 'otter'` (§13.4).
 
+**What is built at a render (F4, 2026-11-13).** The views stay mounted and
+hidden exactly as above; what changed is how much of them a render of the
+tool builds again. The open lesson's markdown is drawn through
+`LessonBodyOnce`, which React draws again only for another text (it was
+parsed, and its code coloured, at every render: a lesson marked complete, a
+letter in a search). The function it is handed reads nothing of the
+component but the text, and must not: it would show as of the last change
+of the text. The shortcuts-or-functions view and the nodes view are the
+elements `renderHotkeys()` and `renderNodes()` return, kept with `useMemo`
+over the state each reads (seven and five), and `FunctionCard` is under
+`React.memo`. **A piece of state read in either function goes in its list**,
+or the view shows it stale: `otterRerender.test.jsx` parses the source and
+fails when a read of the component's own state is missing from the list.
+
 **Sidebar 1 resizes by its edge (SB1, night 10, 2026-11-01).** The kit Panel's
 handle (§13.4): `resizable storageKey="otter.sidebar1.width" minWidth={180}
 maxWidth={480} minBeside={720}`, the width remembered beside
@@ -4658,6 +4694,28 @@ caches, the 404 and the reminder.
 
 `src/tools/rabbit_v0.1.0/`. Mounted once near the top of the app by
 `RabbitProvider` and kept alive across navigation.
+
+**The provider's one value, and what moves beside it (F4, 2026-11-13).**
+`useRabbit()` hands about seventy files ONE value, and a new value draws all
+of its readers. Eight pieces of state change on their own clock and are no
+longer fields or deps of that value: `adapterStatus`, `undoToast`,
+`activeIngestion`, `ingestionRun`, `realtimeStatus`, `presentUsers`,
+`workspaceRealtimeStatus`, `workspacePresentUsers`
+(`state/rabbitLive.js`). The seven that something shows each have a context,
+read with `useRabbitLive('<name>', ctx)`; the adapter's one word `online`
+has its own, read with `useRabbitOnline(ctx)` by the connection dot and the
+six data hooks that load again when it flips (the status object is replaced
+at every projects refresh, for a status that says the same). **The value
+still carries all eight, as getters over what the provider last rendered
+with: right in a handler, wrong while drawing** (a getter tells nobody, so a
+component reading one is never drawn again for it). `rabbitLive.test.jsx`
+reads every source file for a member read of one of the eight outside the
+provider and lists the readers. With no provider above (the tests that stand
+in for it), each hook answers from the `ctx` it is handed. D.O.G. reads six
+fields of the provider (the mode, the projects list and four functions) as
+one memoized object, `useRabbitProjects(useRabbit)`, which changes with the
+list, the mode and the open project's id. What remains: any change to the
+open project is still a new value for every reader (§17, *Re-rendering*).
 
 **Object model**: project → phase → asset → task (a task may hang off an asset
 *or* directly off a phase). Optional, project-toggleable modules add scenes →
@@ -4972,6 +5030,18 @@ five-phase ~2.1 s transition before flipping the visible page.
 >    *after* the role check — and inside that child, hand each section an
 >    `isActive` prop so its own fetch waits for first activation.
 
+**A render of App no longer renders every page (F4, 2026-11-13).** The pages
+(Home, Projects, Rate card, Team members, Dashboard, Help, Settings' bridge,
+M.O.T.H.'s surface) and the three tools' roots (each in its own `index.jsx`)
+are under `React.memo`: App hands each the same props across a render that
+changes none, and the page is not run. Left out, and named in `App.jsx`:
+`PageSurface` (its `children` is new at every render), the Files page
+(mounted only on screen) and the Admin terminal (it computes "5m ago" while
+it draws, and a change of page is what refreshes those words). **A page
+under the memo that reads the clock, a ref, storage or a module value while
+it draws shows it stale**: the re-renders that used to refresh it are gone.
+`App.rerender.test.jsx` holds the counts; the pet's own host is §13.5.
+
 **One main region per page (post-overhaul FX15).** `PageSurface`
 (`src/layout/PageSurface.jsx`, moved out of `App.jsx`; App renders it as
 before) is the page's `<main>`, except on a page whose tool draws its own (the
@@ -5273,6 +5343,47 @@ or an offline launch's confirmation (`petLifecycle.js`
 > account's, and that window says *Your pet changed on another device —
 > refreshed.* and reloads the account's copy. The pet does not sync live
 > between machines (1.1).
+
+**Where the pet lives in the tree (F4, 2026-11-13).** Its state, its four
+clocks (the 30 s decay, the sleep Z every 2 s, the dream cloud, the attention
+jump), its chat and its handlers are `PetHost`, a component of `App.jsx`
+that wraps the signed-in column, so a tick of the pet draws the pet and no
+page (it drew App and every page). The shell (`App`) keeps what outlives a
+pet: the save queue, the cached pet read at launch, whose pet it is, the sync
+retries and `signOutLocal`; it reaches the host's `setPetData` through a ref
+(`petHostRef`), and the host keeps the shell's `petDataRef` current. The
+companion is drawn where it always was, through `PetCompanionSlot`.
+Settings is handed the pet through `PetSettingsContext`, fed while Settings
+is the page on screen (or the pet is gone), so a tick off screen draws no
+Settings. The text typed to the agent is `AgentProvider`'s own context
+(`useAgentInput`), not a field of its memoized value.
+
+> 🚨 **A child's effects run before its parent's.** The host's material-change
+> save therefore runs before App's identity effect in a commit they share.
+> When another person signs in over the first (no sign-out between) in the
+> same commit as a decay tick's material change, the save once went out with
+> the new person's session, addressed to the old (review round 1). And a
+> check made when a write STARTS is still late: a save queued behind one in
+> flight starts when that one returns (review round 2). So a save carries the
+> person it was made for: `savePet` labels it with whose the pet on screen is
+> (`petPersonRef`, moved by the identity effect and the sign-out), and
+> `performPetSave` refuses it, without a word, once `isPetPerson` fails (the
+> pet, the routing and who App last drew signed in, `signedInUserRef`), at the
+> start and after each await; `savePet` reports a landing only while that
+> person is still there. The identity effect blanks the pet on any change of
+> person, routed or not. When App blanks it through the host's handle (a
+> sign-out, a switch) the chat, the field's words and the hatch dialog go with
+> it, and the host counts the blank (`personChangesRef`): an answer, or a
+> dialog, set going before the count moved is dropped. App sees a change of
+> person only when it draws, and another tab's sign-in reaches the client's
+> session through shared storage first, so the pet's and settings' rows name
+> their person (`saveCloudPet(pet, userId)`, `fetchCloudPet(userId)`, and the
+> settings' read and save with the person `setUserStateOwner` named as they
+> started): sent under another person's token, 0046's policies refuse the
+> write and the read answers nothing. A launch whose stored session is one
+> person's while the permissions name another shows neither that person's
+> cached pet nor their cache key. `App.rerender.test.jsx`'s describe for a
+> change of person holds each path; `userState.test.js` each named call.
 
 **The agent** is a chat companion that can propose and apply changes. Its
 system prompt is per-tool and user-overridable; the registry holds both tools'
@@ -7591,6 +7702,53 @@ Panel's handle)**
   a mouse (2.5.8; 24 for a finger), and the hairline's 1.48:1 at rest
   (1.4.11). And a wide courses column at 1280 puts the lesson's *Next* under
   the pet (SB1-04).
+
+**Re-rendering (F4, 2026-11-13; §13.1 to §13.5)**
+
+- **Measured, before and after**, in the running app (a development build,
+  so React's StrictMode draws twice; the fixtures; headless Chromium at
+  1440 × 900; every page entered; R.A.B.B.I.T. on the Assets tab, a slide in
+  D.O.G.'s preview, a lesson open), React's own render time and the number
+  of component renders:
+
+  | Event | Before (two runs) | After (two runs) |
+  |---|---|---|
+  | One minute of the pet idle | 11 to 15 commits, 2,105.7 to 2,859.2 ms, 32,145 to 43,747 renders | 12 to 13 commits, 42.4 to 50.7 ms, 88 to 96 renders |
+  | Ten characters typed to the pet | 680.2 to 892.4 ms, 29,320 to 32,188 | 46.5 to 56.7 ms, 170 to 188 |
+  | A presence heartbeat | 2,389 to 2,395 renders (19 readers of the value), 24.2 to 29.2 ms | 2 renders (no reader), 1.1 to 1.3 ms |
+  | The channel's status flipping | 2,389 to 2,395, 139.3 to 165.5 ms | 4, 1.1 ms (one run without a pet tick in it) |
+  | One step of an ingestion | 2,395 to 2,401, 144 to 153.4 ms | 8, 1.4 to 1.7 ms |
+  | A new adapter status saying the same | 2,389 to 2,395, 27.2 to 28.7 ms | 168 (the two pages that print it), 11.1 ms |
+  | `tasksAbout` calls in one render of the asset list | 30 (15 rows, drawn twice) | 0 |
+  | Ten keystrokes in D.O.G.'s deck context box | the preview ran 10 to 11 times and mounted each placeholder as often | the preview ran 0 times; D.O.G. itself 10 |
+  | The duplicate resolver's preview, 3 s of hover | 2,009 commits, 1,720.5 ms, 38 "Maximum update depth exceeded" | 2 commits, 4.5 to 5.5 ms, none |
+
+  The same five are pinned in vitest with `src/lib/renderSpy.js` (React's
+  DevTools commit hook; it must be imported before react-dom):
+  `App.rerender.test.jsx`, `App.focus.test.jsx`,
+  `state/volatileState.rerender.test.jsx`, `views/assetWarningRender.test.jsx`,
+  `LayoutVisualizer.rerender.test.jsx`, `otterRerender.test.jsx`. The bundle
+  grew by 5,784 bytes with the review rounds' fixes (main chunk 5,125,939 →
+  5,131,723; gzip 1,502.49 → 1,504.53 kB); every other chunk is unchanged.
+- **A change to the open project is still a new value for every R.A.B.B.I.T.
+  reader** (rabbit C1's other half, `docs/OUTSTANDING.md`). One task renamed
+  on the Assets tab is one commit in which all seven readers there run, 574
+  component renders (pinned in `volatileState.rerender.test.jsx`, so the
+  number moves with the code); in the running app a new value with nothing
+  on the tab changed drew 17 readers and 2,237 components in 119 to 123 ms.
+  A write is not the only cause: the Bins tab's 60 s gateway refresh sets
+  the bundle's `binFiles` and `binsInfo` whatever it found, a new value
+  with nothing written (F4-05).
+- **D.O.G. draws its whole component for each letter typed in its own
+  fields**: its 88 pieces of state live in one component, about 33 ms a
+  letter in a development build. Only its preview stopped joining in.
+- **What reads the clock, a ref, storage or a module value while it draws is
+  as fresh as its last render.** Before F4 a live pet's ticks drew every page
+  every few seconds and hid that. Words of minutes and hours read
+  `src/lib/minuteClock.js` (`useMinuteClock()`, one shared interval while
+  somebody reads it); a module flag a surface draws from is read with
+  `useSyncExternalStore` (the model tiers' loaded flag in Settings); the
+  day-scale words are not yet clocked (`docs/OUTSTANDING.md` F4-03).
 
 ## Appendix A — Glossary
 

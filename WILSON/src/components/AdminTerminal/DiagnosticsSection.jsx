@@ -16,6 +16,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Copy, Check, Activity, Send } from 'lucide-react'
 import { usePermissions } from '../../permissions'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
+import { useRabbitLive } from '../../tools/rabbit_v0.1.0/state/rabbitLive'
 import { ERROR_CODES, reportAppEvent } from '../../cloud/errorCodes'
 import { copyTextToClipboard } from './CredentialsPopup'
 import StorageCleanupCard from './StorageCleanupCard'
@@ -49,6 +50,10 @@ function supabaseHost() {
 export default function DiagnosticsSection() {
   const perms = usePermissions()
   const rabbit = useRabbit()
+  // F4: the two that move on their own clock, each from its own context and
+  // not off the value (rabbitLive.js): this card is drawn again when one does.
+  const adapterStatus = useRabbitLive('adapterStatus', rabbit)
+  const workspaceRealtimeStatus = useRabbitLive('workspaceRealtimeStatus', rabbit)
   const [copied, setCopied] = useState(false)
   const [testEventState, setTestEventState] = useState(null) // 'sent' | 'failed' | null
   const [sentryState, setSentryState] = useState(null)       // 'sent' | 'missing' | null
@@ -63,7 +68,7 @@ export default function DiagnosticsSection() {
   const version = typeof __WILSON_VERSION__ !== 'undefined' ? __WILSON_VERSION__ : 'v?'
   const sentryEnv = import.meta.env.VITE_SENTRY_ENVIRONMENT ?? 'development'
   const host = supabaseHost()
-  const realtimeStatus = rabbit?.workspaceRealtimeStatus || 'off'
+  const realtimeStatus = workspaceRealtimeStatus || 'off'
 
   const envRows = [
     ['WILSON version', version],
@@ -79,7 +84,7 @@ export default function DiagnosticsSection() {
       `WILSON diagnostics — ${new Date().toISOString()}`,
       ...envRows.map(([k, v]) => `${k}: ${v}`),
       `Adapter mode: ${rabbit?.adapterMode || '--'}`,
-      `Adapter online: ${rabbit?.adapterStatus?.online ? 'yes' : 'no'}`,
+      `Adapter online: ${adapterStatus?.online ? 'yes' : 'no'}`,
       `Workspace realtime: ${realtimeStatus}`,
     ]
     const ok = await copyTextToClipboard(lines.join('\n'))
@@ -153,8 +158,8 @@ export default function DiagnosticsSection() {
         </p>
         <div className="at-status-list">
           <StatusDot
-            tone={rabbit?.adapterStatus?.online ? 'success' : 'danger'}
-            label={`Adapter: ${rabbit?.adapterMode || '--'} — ${rabbit?.adapterStatus?.online ? 'connected' : 'offline'}${rabbit?.adapterStatus?.error ? ` (${rabbit.adapterStatus.error})` : ''}`}
+            tone={adapterStatus?.online ? 'success' : 'danger'}
+            label={`Adapter: ${rabbit?.adapterMode || '--'} — ${adapterStatus?.online ? 'connected' : 'offline'}${adapterStatus?.error ? ` (${adapterStatus.error})` : ''}`}
           />
           <StatusDot
             tone={REALTIME_TONE[realtimeStatus] || 'neutral'}

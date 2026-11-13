@@ -89,13 +89,9 @@ export const parseSlideContent = (content) => {
     result.componentGeometry = jsonBlock ? jsonBlock[1].trim() : geometryMatch[1].trim();
   }
 
-  console.log('parseSlideContent result:', {
-    layoutType: result.layoutType,
-    title: result.title,
-    subtitle: result.subtitle,
-    hasCopy: !!result.copyContent
-  });
-
+  // (F4, 2026-11-13: this function logged its result at every call, and the
+  // preview called it at every render: two lines in the console for each
+  // letter typed anywhere in D.O.G. The log is gone.)
   return result;
 };
 

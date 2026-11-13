@@ -15,6 +15,17 @@ export function useAgent() {
   return useContext(AgentContext)
 }
 
+// F4 (2026-11-13): the text being typed to the agent, in a context of its own.
+// It was a field of the one value, so each character was a new value for every
+// reader of it: O.T.T.E.R., R.A.B.B.I.T., Settings and the pet. Only the pet's
+// field shows the text (App.jsx's PetCompanionWithAgent), and only it reads
+// this. Sending still reads agentInputRef, as it always did.
+const AgentInputContext = createContext('')
+
+export function useAgentInput() {
+  return useContext(AgentInputContext)
+}
+
 // ── Toast notification component ──
 function AgentToast({ message, onDone }) {
   return (
@@ -539,12 +550,19 @@ export default function AgentProvider({ children }) {
     setAgentInput(val)
   }, [])
 
-  const value = {
+  // F4 (2026-11-13): ONE object for as long as none of its fields changes. It
+  // was built new on every render of this provider, so every reader ran on
+  // every render of it, and an effect keyed on the value ran every time:
+  // O.T.T.E.R. unregistered and registered its tool again on each character
+  // typed to the agent (AgentProvider.rerender.test.jsx holds the count). The
+  // text being typed is not a field any more (useAgentInput, above). The
+  // diff, the proposal and the toast never were, and are drawn below.
+  const value = useMemo(() => ({
     // State
     agentEnabled, setAgentEnabled,
     agentMode, setAgentMode,
     agentMessages, setAgentMessages,
-    agentInput, handleAgentInputChange,
+    handleAgentInputChange,
     agentLoading,
     autoApprove, setAutoApprove,
     lockedSubjects, setLockedSubjects,                  // Otter back-compat
@@ -563,11 +581,19 @@ export default function AgentProvider({ children }) {
     isEntityLocked,
     showToast,
     undoStack,
-  }
+  }), [
+    agentEnabled, agentMode, agentMessages, handleAgentInputChange, agentLoading, autoApprove,
+    lockedSubjects, setLockedSubjects, lockedEntities, setLockedEntitiesForTool,
+    agentSystemPrompt, promptOverrides, refreshPromptOverrides,
+    registerTool, unregisterTool, activeTool,
+    sendAgentMessage, undoLastEdit, isSubjectLocked, isEntityLocked, showToast, undoStack,
+  ])
 
   return (
     <AgentContext.Provider value={value}>
-      {children}
+      <AgentInputContext.Provider value={agentInput}>
+        {children}
+      </AgentInputContext.Provider>
 
       {/* Diff View Modal */}
       {diffData && (

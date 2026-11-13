@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { LESSON_CODE_THEME, WELL_CODE_TEXT } from './otterLanguage.js';
 
@@ -52,7 +53,7 @@ export function CodeWell({ code, language }) {
   );
 }
 
-export default function FunctionCard({ fn, language }) {
+function FunctionCard({ fn, language }) {
   // S2c (S2b-05): an entry that is not a function (null, a string, a number,
   // a list — an imported library can carry one) draws no card. Its hosts
   // pass only functions (functionEntries); this is the card's own floor.
@@ -68,3 +69,13 @@ export default function FunctionCard({ fn, language }) {
     </div>
   );
 }
+
+// F4 (2026-11-13; the review's dog-otter C2): a card colours two code wells
+// each time it is drawn, and it was drawn at every letter typed in the
+// functions search, whether or not the letter changed which cards are shown
+// (otterRerender.test.jsx: three letters that left the one result as it was
+// drew its card three times). Drawn again now only for another function or
+// another language. The search hands each card the stored entry itself
+// (`functions.filter(...)`), and a library is replaced whole when it changes,
+// never edited in place, so the same object is the same card.
+export default memo(FunctionCard);

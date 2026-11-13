@@ -20,6 +20,7 @@
 // =============================================================================
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useMinuteClock } from '../../lib/minuteClock'
 import { Trash2, Check, AlertTriangle, RefreshCw } from 'lucide-react'
 import { listAIFiles, sweepAIFiles } from '../../cloud/aiFiles'
 import { formatBytes } from '../../cloud/workspaceStorage'
@@ -53,6 +54,7 @@ export function ageOf(iso, nowMs = Date.now()) {
 }
 
 export default function AIFileStoreCard() {
+  useMinuteClock()   // "Oldest" moves while the card is open (lib/minuteClock.js says why)
   const [list, setList] = useState(null)       // the GET's answer
   const [loading, setLoading] = useState(true)
   const [stage, setStage] = useState('idle')   // idle | confirm | running | done
