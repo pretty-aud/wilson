@@ -137,6 +137,13 @@ export function updateModelSource(tier, map) {
 // tell "nothing is configured" from "nothing has loaded yet".
 
 let loaded = false
+// F4, review round 1 (B-1): who to tell when the flag moves. A surface that
+// draws from the flag reads it with useModelSourcesLoaded (below), and is drawn
+// again when a load anywhere (App's, the Admin terminal's, a choice in D.O.G.)
+// sets it. Read plainly while drawing, it was as fresh as the last render, and
+// Settings, under React.memo since F4, could say "Loading your settings…" for
+// good after a load elsewhere had landed.
+const loadedListeners = new Set()
 
 /** True once a real load has completed at least once this session. */
 export function areModelSourcesLoaded() {
@@ -145,7 +152,16 @@ export function areModelSourcesLoaded() {
 
 /** Called by the loader when the three tiers have been read from the database. */
 export function markModelSourcesLoaded(value = true) {
-  loaded = Boolean(value)
+  const next = Boolean(value)
+  if (next === loaded) return
+  loaded = next
+  for (const listener of loadedListeners) listener()
+}
+
+/** For useSyncExternalStore: called whenever the loaded flag changes. */
+export function subscribeModelSourcesLoaded(listener) {
+  loadedListeners.add(listener)
+  return () => loadedListeners.delete(listener)
 }
 
 // ── Warning store ────────────────────────────────────────────────────────────

@@ -30,10 +30,10 @@
 // when the answer is not yours to change.
 // =============================================================================
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { RefreshCw, RotateCcw } from 'lucide-react'
 import { registryByTool, BUILTIN, REGISTRY } from '../../lib/aiModels'
-import { getModelSources, getPlatformEffort, areModelSourcesLoaded } from '../../lib/activeModel'
+import { getModelSources, getPlatformEffort, areModelSourcesLoaded, subscribeModelSourcesLoaded } from '../../lib/activeModel'
 import {
   loadApprovedModels, cachedApprovedModels,
   setUserModelOverride, loadModelSources,
@@ -51,6 +51,9 @@ function provenance(key, tier, sources, builtin) {
 }
 
 export default function UserModelsSection() {
+  // F4, review round 1 (B-1): subscribed, not read plainly while drawing, so a
+  // load that lands elsewhere draws this section again (activeModel.js says why).
+  const sourcesLoaded = useSyncExternalStore(subscribeModelSourcesLoaded, areModelSourcesLoaded, areModelSourcesLoaded)
   const [models, setModels] = useState(() => cachedApprovedModels())
   const [sources, setSources] = useState(() => getModelSources())
   const [efforts, setEfforts] = useState(() => getPlatformEffort())
@@ -129,7 +132,7 @@ export default function UserModelsSection() {
       )}
 
       <p className="s-row-desc mb-4">
-        {!areModelSourcesLoaded()
+        {!sourcesLoaded
           // Distinguishing "nothing is set" from "nothing has loaded" matters:
           // both draw an identical screen, and only one of them is the truth.
           ? 'Loading your settings…'
