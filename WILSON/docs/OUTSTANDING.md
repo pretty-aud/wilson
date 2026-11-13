@@ -1332,7 +1332,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
-| F8 (2026-11-13, wave 2 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f8-edge-shared-plumbing`) — the Edge Functions' shared plumbing: one envelope crypto, one bucket loader, the caller checks once, one raw-HTTP transport and host rule, every body read under a measured cap (413 past it), the master keys and the opened ticket key kept per isolate, one SigV4 key per batch; deployed to wilson-dev; two review rounds. | F8-01 to F8-19 (below, the F8 section). | F1-01's 28 known type errors to 1 (F1-01, lowered). F8-01, F8-02 and F8-03, closed by F8 as the second merger (`8a0bdb4f`). |
+| F8 (2026-11-13, wave 2 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f8-edge-shared-plumbing`) — the Edge Functions' shared plumbing: one envelope crypto, one bucket loader, the caller checks once, one raw-HTTP transport and host rule, every body read under a measured cap (413 past it), the master keys and the opened ticket key kept per isolate, one SigV4 key per batch; deployed to wilson-dev; two review rounds. | F8-01 to F8-19 (below, the F8 section). | F1-01's 28 known type errors to 1 (F1-01, lowered). F8-01 and F8-02, closed by F8 as the second merger (`8a0bdb4f`); F8-03 tried there and taken back (`6515a9d2`), open on purpose. |
 | MO3 (M.O.T.H. Session 3, 2026-11-08; `po/moth3-tags`) — typed tags, relationships and workspace notes: migrations 0124 to 0129 on wilson-dev, the notes' tiers and trash, the `[[` and `#` pickers in R.A.B.B.I.T., M.O.T.H.'s typed-tag drawer, notes, tags and links in the graph and its record; two whole-session review rounds. | MO3-01 to MO3-12 (above, after MO2's list). | MO2-03 (links are saved: 0127, and the page's link drop), MO2-09, MO2-10, MO2-11, MO2-12 and MO2-18 (0124). |
 | MO2 (M.O.T.H. Session 2, 2026-11-07; `po/moth2-graph`) — the graph engine merged with its callers, migrations 0122 and 0123 on wilson-dev, the graph, glow, HUD and navigation; two whole-session review rounds. | MO2-01 to MO2-23 (above, after MO2a's list). | MO2a's R1-17, R1-18, R1-4, 5, 22, 52, R1-11, 23, R1-8, 24, R1-25, R1-13, R1-6, R1-3, R1-7, R1-32, R1-33, R1-34. |
 | MO1 (M.O.T.H. Session 1, 2026-11-02 to 2026-11-07; `po/moth1-foundations-9l5hbg`) — migrations 0107 to 0119 and 0121, the Edge Functions, the desktop's trash, moves and office-server routes, and the lazy Moth page; two whole-session review rounds. | MO1-01 to MO1-15 (below, at the end of this file). | The workspace channel's private rows and the write hops on `tasks` and `assets` (A-R1-04, A-R2-03), `files_delete`'s hop (C-R2-01), S4d-01, S4d-02: 0107 to 0109. OSP-01, OSP-07, S4c-12 for claimed keys: 0114, 0115 and the Edge Functions. S4b-06's first half and the receipts' residual 1: 0121, 0115. |
@@ -5112,17 +5112,21 @@ recorded out of scope:
   the fourth copy the review's A1 named; the brief leaves it to the second merger. Fix shape:
   `loadWorkspaceBucket(ctx.admin, ctx.workspaceId, { requireByos: false, preflightCrypto: false })` with its own
   `fail(…)` sentences, `supabaseHost()` for its `:288`, and `makeS3Presigner` for the drain (up to 500 rows a run).
-- ~~**F8-03 · ai-files authenticates twice for a sweep and re-reads the membership.**~~ **CLOSED by the second
-  merger (F8, 2026-11-13; `8a0bdb4f`):** `requireActiveMember(req, { withRole: true })` reads the row with its role,
-  decides as before and hands back what it learnt; `requireWorkspaceAdmin(req, authenticated)` takes it in place of a
-  second GoTrue call and read, every refusal its own and in its order; `isLiveAdmin` reads the same row. Through the
-  guards, not in ai-files: F7's `edgeSweeps.test.js` stands in for both guard modules by the guards' names, and the
-  admin's refusals stay written once. MEASURED through the real handler (`src/cloud/edgeAiFilesCaller.test.js`, 63
-  cases green on `a3d2370c` before, and after): every answer unchanged. Round trips before the route's own work: a sweep
-  6 → 4, a refused sweep 5 → 3, a list 5 → 4. The entry as it stood: `ai-files/index.ts:407` then
-  `:429` (two GoTrue calls, two membership reads), and `isLiveAdmin` (`:341-349`, called at `:532`) re-reads the row
-  the member guard just read (the review's B2). For the second merger: `authenticate`, `liveMembership` and
-  `hasVerifiedTotp` are in `_shared/adminGuard.ts` to compose.
+- **F8-03 · ai-files authenticates twice for a sweep and re-reads the membership.** `ai-files/index.ts:407` then
+  `:429` (two GoTrue calls, two membership reads), and `isLiveAdmin` (`:341-349`, called at `:542`) re-reads the row
+  the member guard just read (the review's B2). **Tried by the second merger and taken back (F8, 2026-11-13).**
+  `8a0bdb4f` had the member guard hand its GoTrue answer and its read of the row to the admin guard and to
+  `isLiveAdmin` (a sweep's round trips 6 → 4, a list's 5 → 4). Review round 3 found that this moved the admin check
+  before the body: the member guard runs before the body is read (`:418`), which the client sends as slowly as it
+  likes, and the admin guard ran after it. So an admin demoted, deactivated or signed out while the DELETE body was
+  still uploading got the sweep (200 with its certificates, where it was 403, 403 and 401), and the list's scope came
+  from the read made before its two limiters (a role change or a failed read in between answered `workspace`, a read
+  that throws 200, where it was `own`, `own` and 502 `list_failed`). `6515a9d2` took it back: `ai-files/index.ts` is
+  `a3d2370c`'s again and the guards `b38d4e75`'s (but for F8-01's type), the timing pinned in
+  `src/cloud/edgeAiFilesCaller.test.js` section F (red against `4ab4260c`, green after). **The second membership read
+  and the second GoTrue call are deliberate in time**: each is the check made after the work it guards. A safe saving
+  would re-read the row after the body and reuse only the GoTrue answer (one call fewer a sweep); that still lets a
+  sign-out mid-upload through, so it is left as it is.
 - **F8-04 · The host rule has two words for a host that is not a DNS name.** `checkPublicHost`
   (`_shared/gatewayReach.ts`) answers `not_a_name`; the reach check words it `malformed`, the S3 vet `local_name`, as
   each did before (`localhost` is one: the name pattern needs a dot). Each is read by its own page and tests, so both
@@ -5191,7 +5195,11 @@ recorded out of scope:
 - **F8-16 · The own-host check skips itself when `SUPABASE_URL` is malformed.** `supabaseHost()`
   (`_shared/gatewayReachRun.ts`), which storage-presign and storage-secret now use for the S3 vet, answers `undefined`
   for an empty or malformed `SUPABASE_URL`, where the old inline `new URL(…)` threw; the `*.supabase.(co|in|net|com)`
-  rule still applies. Unreachable: the guard's client needs the same URL first (review round 1, INFERRED).
+  rule still applies. Unreachable: the guard's client needs the same URL first (review round 1, INFERRED). The same
+  since the second merger for storage-gc (`8a0bdb4f`): its drain's `storage-gc/index.ts:403` hands the S3 vet
+  `supabaseHost()`, so an empty or malformed `SUPABASE_URL` skips the own-host check where the old inline
+  `new URL(…)` threw and the run answered 500 `gc_failed`. Unreachable there too: the guard's GoTrue call needs the
+  URL before the drain is reached (review round 3, INFERRED).
 - **F8-17 · The harness's membership fake accepts a read with no workspace filter.** `seatCaller`
   (`src/cloud/edgeHarness.js`) answers a `workspace_members` read that names the user but no workspace as a hit, so
   under it a membership read that lost its workspace filter still seats the caller: `edgeStorage.test.js`,

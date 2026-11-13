@@ -111,15 +111,18 @@ server, and fourteen places that read a request with no size limit.
   size-limited reading are now each written once and shared, and so are
   three of the four bucket copies and the "who is asking?" checks in the
   programs this session owns: a fix to one is a fix to all, and those copies
-  can no longer drift apart. The rest, the storage clean-up's own bucket
-  copy and the AI files program's second "who is asking?" check, sat in
-  programs another session was changing at the same time; both were moved
-  onto the shared copy at this merge, after the other session's work came
-  in. Every answer stayed the same, and each was checked first with tests
-  that run the real programs. The storage clean-up now signs its deletions
-  with less work (three files took 15 signing steps, now 7), and the AI
-  files program asks who you are once: a clean-up of the AI's files makes 4
-  calls before it starts where it made 6, and its list 4 where it made 5.
+  can no longer drift apart. The rest sat in programs another session was
+  changing at the same time. The storage clean-up's own bucket copy was
+  moved onto the shared copy at this merge, after the other session's work
+  came in: every answer stayed the same, checked first with tests that run
+  the real programs, and it now signs its deletions with less work (three
+  files took 15 signing steps, now 7). The AI files program's second "who is
+  asking?" check was left as it is, on purpose. Its two checks are timed
+  around the upload: it asks again once a clean-up's request has fully
+  arrived, and its list asks your role again just before it answers, so
+  someone whose access is taken away while their request is still on its
+  way is turned down. Asking only once was tried at this merge and taken
+  back for that reason.
 - The server does less work per request. It used to unlock a secret's master
   key from scratch every time: ten locks and ten unlocks now take one step
   where they took twenty. A panel of 100 file previews now takes 104
