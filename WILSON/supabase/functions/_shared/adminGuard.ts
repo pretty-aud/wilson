@@ -290,30 +290,10 @@ type GuardResult =
   | { ok: true; ctx: AdminContext }
   | { ok: false; res: Response }
 
-/**
- * What the member guard has already learnt of THIS request: the caller
- * (GoTrue asked once) and the live row as `liveMembership(…, { withRole: true })`
- * read it, for the token's workspace and user. requireActiveMember(req,
- * { withRole: true }) hands it back; requireWorkspaceAdmin(req, it) takes it in
- * place of a second authentication and a second read of the same row
- * (ai-files' sweep: OUTSTANDING F8-03, the second merger). Pass it only with
- * the request it came from.
- */
-export type Authenticated = {
-  caller: Caller
-  live: Awaited<ReturnType<typeof liveMembership>>
-}
-
-export async function requireWorkspaceAdmin(req: Request, already?: Authenticated): Promise<GuardResult> {
-  let caller: Caller
-  if (already) {
-    caller = already.caller
-  } else {
-    const who = await authenticate(req)
-    if (!who.ok) return { ok: false, res: reply({ error: 'unauthorized' }, 401) }
-    caller = who.caller
-  }
-  const { admin, user, claims } = caller
+export async function requireWorkspaceAdmin(req: Request): Promise<GuardResult> {
+  const who = await authenticate(req)
+  if (!who.ok) return { ok: false, res: reply({ error: 'unauthorized' }, 401) }
+  const { admin, user, claims } = who.caller
 
   // The role on the claim AND (below) on the live row.
   if (!claims.workspaceId || claims.appRole !== 'admin') {
@@ -322,11 +302,7 @@ export async function requireWorkspaceAdmin(req: Request, already?: Authenticate
 
   // Live-row check: claims can outlive a demotion/deactivation by the token
   // TTL; the membership row cannot. Its error is ignored: no row is a 403.
-  // The row the member guard read for this request, when it is handed over
-  // (the same table, workspace, user and columns): never read twice.
-  const { row: liveRow } = already
-    ? already.live
-    : await liveMembership(admin, claims.workspaceId, user.id, { withRole: true })
+  const { row: liveRow } = await liveMembership(admin, claims.workspaceId, user.id, { withRole: true })
   if (!liveRow || !liveRow.is_active || liveRow.app_role !== 'admin') {
     return { ok: false, res: reply({ error: 'forbidden' }, 403) }
   }

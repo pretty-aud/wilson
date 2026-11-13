@@ -1,12 +1,18 @@
 // =============================================================================
 // edgeAiFilesCaller.test.js — F8, the second merger (wave 2, 2026-11-13): who
 // ai-files lets in, pinned as the merged code (F7's ai-files at 14bca27e)
-// answered BEFORE its caller checks were done once (OUTSTANDING F8-03).
+// answers. OUTSTANDING F8-03 stays open: doing its caller checks once was
+// tried (8a0bdb4f) and taken back after review.
 //
-// Until the move, a sweep (DELETE { sweep: true }) passed the member guard and
-// then the whole admin guard on the same request: two GoTrue calls, two reads
-// of the caller's workspace_members row. The list (GET) passed the member
-// guard and then read that row again for the caller's role (isLiveAdmin).
+// A sweep (DELETE { sweep: true }) passes the member guard and then the whole
+// admin guard on the same request: two GoTrue calls, two reads of the
+// caller's workspace_members row. The list (GET) passes the member guard and
+// then reads that row again for the caller's role (isLiveAdmin). The second
+// of each is load-bearing IN TIME: the admin guard is asked after the body is
+// read (the client sends it as slowly as it likes), and the list's role after
+// the two limiters, so a demotion, a deactivation or a sign-out in between is
+// met. Reusing the first answers let a sweep through for an admin demoted
+// while the body was still arriving (section F).
 //
 // ai-files RUNS here: src/cloud/edgeHarness.js stands in for Deno, GoTrue and
 // the database, and both guards are the real ones. The caller's row answers
@@ -14,9 +20,10 @@
 // store and no world here reaches it (any call fails the test).
 //
 // Pinned: the status and body of every answer, refusal by refusal and in the
-// order they are met. The last block is the move's own measurement (the round
-// trips): it was run red against the code before the move, with the numbers
-// its comments give.
+// order they are met; the round trips as they are (E: 8a0bdb4f's reuse cut
+// them, and they are back); and the timing (F: a change to the caller made
+// while the request runs is answered as of after it). F was run red against
+// the reuse (4ab4260c) and is green on the code as it is.
 // =============================================================================
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
@@ -286,13 +293,14 @@ describe('ai-files POST: the upload\'s caller check', () => {
 })
 
 // =============================================================================
-// E. The move's own measurement (OUTSTANDING F8-03). Run red against the code
-// before the move: a sweep was getUser, members, limiter, getUser, members,
-// listFactors; a refused sweep getUser, members, limiter, getUser, members; a
-// list getUser, members, limiter, limiter, members.
+// E. The round trips, as they are (OUTSTANDING F8-03, open). 8a0bdb4f's reuse
+// cut a sweep to 4 (getUser, members, limiter, listFactors), a refused sweep
+// to 3 and a list to 4; it was taken back (section F says why), and these are
+// the counts again: the second GoTrue call and the second read are the checks
+// made after the body and after the limiters.
 // =============================================================================
 
-describe('F8-03: one authentication and one read of the row, a request', () => {
+describe('F8-03 (open): a sweep authenticates twice and reads the row twice; a list reads it twice', () => {
   /** The round trips before the route's own work (its first app_events read). */
   const head = (w) => {
     const t = trips(w)
@@ -300,27 +308,134 @@ describe('F8-03: one authentication and one read of the row, a request', () => {
     return at < 0 ? t : t.slice(0, at)
   }
 
-  it('a sweep: GoTrue once, the row once (with its role), then the limiter and the factors', async () => {
+  it('a sweep: the member guard (GoTrue, the row), the limiter, then the whole admin guard (GoTrue, the row with its role, the factors)', async () => {
     const { call, w } = await aiWorld({ caller: ADMIN_AAL2 })
     expect(await call('DELETE', SWEEP)).toEqual(R.swept)
-    expect(head(w)).toEqual(['auth:getUser', 'table:workspace_members', 'rpc:fn_rate_limit_hit', 'auth:listFactors'])
-    expect(w.calls.filter((c) => c.name === 'workspace_members').map((c) => c.columns)).toEqual(['app_role, is_active'])
-    expect(w.clients.filter((c) => c.by === 'service').length).toBe(1)
+    expect(head(w)).toEqual(['auth:getUser', 'table:workspace_members', 'rpc:fn_rate_limit_hit', 'auth:getUser', 'table:workspace_members', 'auth:listFactors'])
+    expect(w.calls.filter((c) => c.name === 'workspace_members').map((c) => c.columns)).toEqual(['is_active', 'app_role, is_active'])
+    expect(w.clients.filter((c) => c.by === 'service').length).toBe(2)
   })
-  it('a refused sweep stops where it always did, on the one read', async () => {
+  it('a refused sweep stops on the admin guard\'s own read of the row', async () => {
     const { call, w } = await aiWorld({ caller: { tokenRole: 'admin', rowRole: 'member' } })
     expect(await call('DELETE', SWEEP)).toEqual(R.forbidden)
-    expect(head(w)).toEqual(['auth:getUser', 'table:workspace_members', 'rpc:fn_rate_limit_hit'])
+    expect(head(w)).toEqual(['auth:getUser', 'table:workspace_members', 'rpc:fn_rate_limit_hit', 'auth:getUser', 'table:workspace_members'])
   })
-  it('a list: GoTrue once, the row once (with its role), then the two limiters', async () => {
+  it('a list: the member guard (GoTrue, the row), the two limiters, then the row again with its role', async () => {
     const { call, w } = await aiWorld({ caller: { tokenRole: 'admin' } })
     expect(await call('GET')).toEqual({ status: 200, json: listedEmpty('workspace') })
-    expect(head(w)).toEqual(['auth:getUser', 'table:workspace_members', 'rpc:fn_rate_limit_hit', 'rpc:fn_rate_limit_hit'])
-    expect(w.calls.filter((c) => c.name === 'workspace_members').map((c) => c.columns)).toEqual(['app_role, is_active'])
+    expect(head(w)).toEqual(['auth:getUser', 'table:workspace_members', 'rpc:fn_rate_limit_hit', 'rpc:fn_rate_limit_hit', 'table:workspace_members'])
+    expect(w.calls.filter((c) => c.name === 'workspace_members').map((c) => c.columns)).toEqual(['is_active', 'app_role, is_active'])
   })
   it('a member\'s own delete: GoTrue once, the row once', async () => {
     const { call, w } = await aiWorld({ caller: { tokenRole: 'member' } })
     expect((await call('DELETE', { file_id: FILE })).status).toBe(200)
     expect(head(w)).toEqual(['auth:getUser', 'table:workspace_members', 'rpc:fn_rate_limit_hit'])
+  })
+})
+
+// =============================================================================
+// F. The second checks are timed around the work they guard (why F8-03 stays
+// open). A DELETE's body is the client's to send, as slowly as it likes; the
+// admin guard is asked AFTER it has arrived, so an admin demoted, deactivated
+// or signed out while it was still arriving is refused. The list's scope is
+// read AFTER the two limiters, from the row as it is then. Run red against
+// 8a0bdb4f's reuse (4ab4260c), which answered all three sweeps 200 with the
+// sweep's counts and all three lists 200 'workspace'.
+// =============================================================================
+
+describe('ai-files: a change to the caller mid-request is met by the check after it', () => {
+  /**
+   * An enrolled admin at aal2 whose LIVE row is `row`, which a test changes
+   * while the request runs. `readAt(n, q)` may answer the n-th read of the row
+   * itself (a failure, or a throw).
+   */
+  async function liveWorld({ readAt = () => null } = {}) {
+    const { handler } = await loadFunction(vi, 'ai-files', ENV)
+    const w = newWorld()
+    const token = seat(w, ADMIN_AAL2)
+    const row = { app_role: 'admin', is_active: true }
+    let reads = 0
+    w.table('workspace_members', async (q) => {
+      reads++
+      const forced = await readAt(reads, q)
+      if (forced) return forced
+      const ws = q.filters.find((f) => f.column === 'workspace_id')?.value
+      const uid = q.filters.find((f) => f.column === 'user_id')?.value
+      const r = uid === USER && ws === WS ? project(row, q.columns) : null
+      return { data: q.terminal ? r : (r ? [r] : []), error: null }
+    })
+    w.rpc('fn_rate_limit_hit', () => ({ data: false }))
+    return { handler, w, token, row }
+  }
+
+  /** A JSON body that arrives only once `during()` has run: the client still sending it. */
+  function slowBody(json, during) {
+    const bytes = new TextEncoder().encode(JSON.stringify(json))
+    let sent = false
+    return new ReadableStream({
+      async pull(c) {
+        if (sent) { c.close(); return }
+        await during()
+        sent = true
+        c.enqueue(bytes)
+      },
+    }, { highWaterMark: 0 })
+  }
+
+  async function slowSweep(world, change) {
+    let before = null
+    const raw = slowBody(SWEEP, async () => { before = trips(world.w); change(world) })
+    const a = await answerOf(await world.handler(post(undefined, { token: world.token, method: 'DELETE', raw })))
+    return { answer: { status: a.status, json: a.json }, before }
+  }
+
+  const PASSED = ['auth:getUser', 'table:workspace_members', 'rpc:fn_rate_limit_hit']
+
+  for (const [name, change, answer] of [
+    ['(T1) the row\'s role becomes member → 403 forbidden', ({ row }) => { row.app_role = 'member' }, R.forbidden],
+    ['(T2) the row becomes inactive → 403 forbidden', ({ row }) => { row.is_active = false }, R.forbidden],
+    ['(T3) GoTrue stops knowing the token (signed out) → 401', ({ w, token }) => { w.auth.users.delete(token) }, R.unauthorized],
+  ]) {
+    it(`sweep, while its body is still arriving: ${name}`, async () => {
+      const world = await liveWorld()
+      const { answer: got, before } = await slowSweep(world, change)
+      // The member guard and the limiter had passed when the caller changed…
+      expect(before).toEqual(PASSED)
+      // …and the answer is the admin guard's, asked after: nothing swept.
+      expect(got).toEqual(answer)
+      expect(world.w.count((c) => c.name === 'listFactors')).toBe(0)
+      expect(world.w.count((c) => c.name === 'app_events')).toBe(0)
+    })
+  }
+  it('sweep, the same slow body and no change → 200, the sweep runs (the control)', async () => {
+    const world = await liveWorld()
+    const { answer: got, before } = await slowSweep(world, () => {})
+    expect(before).toEqual(PASSED)
+    expect(got).toEqual(R.swept)
+  })
+
+  const list = async (world) => {
+    const a = await answerOf(await world.handler(post(undefined, { token: world.token, method: 'GET' })))
+    return { status: a.status, json: a.json }
+  }
+  it('list (T5): the row\'s role becomes member during the limiters → own (the scope is read after them)', async () => {
+    const world = await liveWorld()
+    world.w.rpc('fn_rate_limit_hit', () => { world.row.app_role = 'member'; return { data: false } })
+    expect(await list(world)).toEqual({ status: 200, json: listedEmpty('own') })
+  })
+  it('list (T6): the second read of the row fails → own (a failed read is not an admin)', async () => {
+    const world = await liveWorld({ readAt: (n) => (n === 2 ? { data: null, error: { message: 'statement timeout' } } : null) })
+    expect(await list(world)).toEqual({ status: 200, json: listedEmpty('own') })
+    expect(world.w.calls.filter((c) => c.name === 'workspace_members').map((c) => c.columns)).toEqual(['is_active', 'app_role, is_active'])
+  })
+  it('list (T7): the second read of the row throws → 502 list_failed', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const world = await liveWorld({ readAt: (n) => { if (n === 2) throw new Error('socket closed'); return null } })
+    expect(await list(world)).toEqual({ status: 502, json: { error: 'list_failed' } })
+    expect(errors).toHaveBeenCalledWith('[ai-files] list failed: socket closed')
+  })
+  it('list, no change → workspace (the control)', async () => {
+    const world = await liveWorld()
+    expect(await list(world)).toEqual({ status: 200, json: listedEmpty('workspace') })
   })
 })

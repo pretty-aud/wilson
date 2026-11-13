@@ -654,12 +654,20 @@ describe('ai-files: the upload branch is byte-identical, and nothing materialise
   })
   it('the sweep takes the admin guard; the member\'s delete only its own ids', () => {
     const code = stripTs(fnSrc)
-    const sweepAt = code.indexOf('if (body.sweep === true)')
-    // F8-03 (the second merger): the admin guard on THIS request, handed what
-    // the member guard learnt of it (src/cloud/edgeAiFilesCaller.test.js runs
-    // every refusal through the real guards).
-    expect(code.indexOf('requireWorkspaceAdmin(req, guard.authenticated)', sweepAt)).toBeGreaterThan(sweepAt)
-    expect(code.slice(0, code.indexOf('if (body.sweep === true)'))).toContain('const guard = await requireActiveMember(req, { withRole: true })')
+    const del = code.indexOf('async function handleDelete(')
+    const bodyAt = code.indexOf('const body = await readSmallJson(req)', del)
+    const sweepAt = code.indexOf('if (body.sweep === true)', del)
+    // OUTSTANDING F8-03 (open on purpose): the member guard first, then the
+    // body, then the WHOLE admin guard on this request, asked afresh AFTER the
+    // body is read, so a demotion, a deactivation or a sign-out while the body
+    // is still arriving is met (src/cloud/edgeAiFilesCaller.test.js, section F,
+    // runs each through the real guards).
+    expect(del).toBeGreaterThan(-1)
+    expect(bodyAt).toBeGreaterThan(del)
+    expect(sweepAt).toBeGreaterThan(bodyAt)
+    expect(code.slice(del, bodyAt)).toContain('const guard = await requireActiveMember(req)\n')
+    expect(code.indexOf('requireWorkspaceAdmin(req)', sweepAt)).toBeGreaterThan(sweepAt)
+    expect(code.slice(0, sweepAt)).not.toContain('requireWorkspaceAdmin(')
     expect(code).toMatch(/r\.fileId === id && r\.workspaceId === workspaceId && r\.actorUserId === callerId/)
   })
 })
