@@ -167,24 +167,70 @@ async function collectObjects(
 // key (S4c) is one UUID longer, and a hundred of them in one `.in()` is a
 // query string a gateway may refuse whole.
 const IN_CHUNK_CHARS = 6000
+
+// 🚨 F7 round 1 (SECURITY): A LIST OF KEYS IS SENT QUOTED AND ESCAPED, AND A
+// KEY THAT IS NOT PLAIN IS NOT SENT IN A LIST AT ALL. postgrest-js's `.in()`
+// quotes a value holding `,()` but escapes neither `"` nor `\`, and PostgREST
+// reads the list only up to its first closing `)`, ignoring what follows. So
+// one key holding `")` (a bin poster's path may) ended the list early and every
+// key after it in the chunk was never asked: each read "nothing names this",
+// and was deleted. Each value now goes as `"…"` with `\` and `"` escaped
+// (PostgREST's quoted value reads `\x` as x), counted by the same encoding the
+// request uses; and only a PLAIN key (letters, digits, `.`, `_`, `/`, `-`) is
+// listed at all: any other goes alone through `.eq()`, which PostgREST reads to
+// the end of the value, exact for every string.
+const PLAIN_KEY = /^[A-Za-z0-9._/-]+$/
+function listValue(p: string): string {
+  return `"${p.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+}
+function inList(paths: string[]): string {
+  return `(${paths.map(listValue).join(',')})`
+}
 function chunkByEncodedLength(paths: string[]): string[][] {
   const chunks: string[][] = []
   let cur: string[] = []
   let len = 0
   for (const p of paths) {
-    const n = encodeURIComponent(p).length + 3
+    // What the request really carries for this value: its quoted form, form-encoded, and a comma.
+    const n = new URLSearchParams({ v: listValue(p) }).toString().length - 2 + 3 // the comma goes as %2C
     if (cur.length > 0 && len + n > IN_CHUNK_CHARS) { chunks.push(cur); cur = []; len = 0 }
     cur.push(p); len += n
   }
   if (cur.length > 0) chunks.push(cur)
   return chunks
 }
+/** The words of a failed read, whatever shape its error came in (postgrest-js parses any JSON body into it). */
+function readFailure(error: unknown, data: unknown): string | null {
+  if (error) {
+    const m = (error as { message?: unknown }).message
+    if (typeof m === 'string' && m) return m
+    try { return JSON.stringify(error) || 'unknown error' } catch { return 'unknown error' }
+  }
+  return Array.isArray(data) ? null : 'the answer was not a list'
+}
 async function referencedPaths(ctx: AdminContext, paths: string[]): Promise<Set<string>> {
   const out = new Set<string>()
-  for (const chunk of chunkByEncodedLength(paths)) {
-    const { data, error } = await ctx.admin.from('files').select('storage_path').in('storage_provider', ['supabase', 's3', 'local_server']).in('storage_path', chunk)
-    if (error) throw new Error(`files read failed (referenced paths): ${error.message}`)
-    for (const r of data ?? []) out.add(r.storage_path as string)
+  const plain = paths.filter(p => PLAIN_KEY.test(p))
+  for (const chunk of chunkByEncodedLength(plain)) {
+    // Paged by id to an empty page, as the drain's guard is (round 2): max_rows is a setting.
+    let after: string | null = null
+    for (;;) {
+      let q = ctx.admin.from('files').select('id, storage_path').in('storage_provider', ['supabase', 's3', 'local_server']).filter('storage_path', 'in', inList(chunk))
+      if (after !== null) q = q.gt('id', after)
+      const { data, error } = await q.order('id', { ascending: true }).limit(GUARD_PAGE)
+      const failure = readFailure(error, data)
+      if (failure) throw new Error(`files read failed (referenced paths): ${failure}`)
+      const rows = (data ?? []) as unknown as Array<Record<string, unknown>>
+      if (rows.length === 0) break
+      for (const r of rows) out.add(r.storage_path as string)
+      after = String(rows[rows.length - 1].id)
+    }
+  }
+  for (const p of paths.filter(p => !PLAIN_KEY.test(p))) {
+    const { data, error } = await ctx.admin.from('files').select('storage_path').in('storage_provider', ['supabase', 's3', 'local_server']).eq('storage_path', p).limit(1)
+    const failure = readFailure(error, data)
+    if (failure) throw new Error(`files read failed (referenced paths): ${failure}`)
+    if ((data ?? []).length > 0) out.add(p)
   }
   return out
 }
@@ -197,8 +243,82 @@ async function referencedPaths(ctx: AdminContext, paths: string[]): Promise<Set<
 // office server's locator names no object. A failed read throws: it is not "no twin".
 async function rowNamesTwin(ctx: AdminContext, pattern: string): Promise<boolean> {
   const { data, error } = await ctx.admin.from('files').select('id').in('storage_provider', ['supabase', 's3', 'local_server']).like('storage_path', pattern).limit(1)
-  if (error) throw new Error(`files read failed (twin key): ${error.message}`)
+  const failure = readFailure(error, data)
+  if (failure) throw new Error(`files read failed (twin key): ${failure}`)
   return (data ?? []).length > 0
+}
+
+// The queue's row as the drain reads it. This project ships no generated
+// Database types, so the inferred row is `unknown` field by field (the
+// TS2345, TS2322 and TS2769 OUTSTANDING F1-01 counted here): one cast, read
+// once. provider and kind are NOT NULL columns (0051, 0054).
+type QueueRow = { id: number; bucket_id: string; object_path: string; provider: string; kind: string }
+
+// F7 (C3): the restorability guard of the queue drain, asked ONCE PER CHUNK
+// of paths instead of once per row (500 rows were 500 reads, each a scan of
+// `files`: no index can serve it, see below).
+//
+// 🚨 NO PROVIDER FILTER, ON PURPOSE. Both indexes on these columns are
+// partial on the provider (0114, 0115), and a filter that let the planner use
+// them would also leave out every row of the providers outside it. A
+// network_share row can never name a bucket key (0117's CHECKs), but nothing
+// in the schema stops a google_drive row from naming one, so a filter is not
+// proved for every provider. The read is the drain's guard against deleting a
+// file someone can still restore: it reads every row, every provider, every
+// workspace, trashed or not, exactly as the per-row read did.
+//
+// 🚨 PAGED TO THE END. PostgREST answers at most max_rows per read even for
+// service_role, and max_rows is a setting (1000 in config.toml, the dashboard's
+// own on a hosted project); a chunk whose rows passed it would leave paths
+// unseen, and an unseen path reads as "nothing names this": a licence to
+// delete. So the pages go by id, each after the last id seen, until one comes
+// back EMPTY, whatever the cap is.
+//
+// 🚨 A FAILED READ NAMES NOTHING AS FREE. A read that errors, whatever its
+// error's shape, or answers anything but a list, marks each of its paths failed
+// for that column, and the row is stamped `failed`, with today's words, exactly
+// as its own failed read stamped it.
+//
+// 🚨 ITS ANSWER IS USED AT ONCE. The drain reads a slice of the queue's page and
+// acts on that slice before reading the next, so "nothing names this" is at
+// most one slice old when the object is removed. 0115's claim holds a queued
+// key against a new row meanwhile (file_key_admissible, step 5).
+const GUARD_PAGE = 1000
+const GUARD_SLICE = 50
+async function namedQueuePaths(
+  ctx: AdminContext, column: 'storage_path' | 'thumbnail_url', paths: string[],
+): Promise<{ named: Set<string>; failed: Map<string, string> }> {
+  const named = new Set<string>()
+  const failed = new Map<string, string>()
+  const unique = [...new Set(paths)]
+  for (const chunk of chunkByEncodedLength(unique.filter(p => PLAIN_KEY.test(p)))) {
+    let after: string | null = null
+    for (;;) {
+      let q = ctx.admin.from('files').select(`id, ${column}`).filter(column, 'in', inList(chunk))
+      if (after !== null) q = q.gt('id', after)
+      const { data, error } = await q.order('id', { ascending: true }).limit(GUARD_PAGE)
+      const failure = readFailure(error, data)
+      if (failure) {
+        // A path an earlier page already found named stays named (it is kept either way); the rest failed.
+        for (const p of chunk) if (!named.has(p)) failed.set(p, failure)
+        break
+      }
+      const rows = (data ?? []) as unknown as Array<Record<string, unknown>>
+      if (rows.length === 0) break
+      for (const r of rows) {
+        if (typeof r[column] === 'string') named.add(r[column] as string)
+      }
+      after = String(rows[rows.length - 1].id)
+    }
+  }
+  // A key that is not plain is asked alone, exactly, as the per-row read asked it.
+  for (const p of unique.filter(p => !PLAIN_KEY.test(p))) {
+    const { data, error } = await ctx.admin.from('files').select('id').eq(column, p).limit(1)
+    const failure = readFailure(error, data)
+    if (failure) failed.set(p, failure)
+    else if ((data ?? []).length > 0) named.add(p)
+  }
+  return { named, failed }
 }
 
 async function certify(
@@ -315,8 +435,23 @@ Deno.serve(async (req) => {
       .order('id', { ascending: true })
       .limit(500)
     if (qErr) throw new Error(`queue read: ${qErr.message}`)
+    const rows = (pending ?? []) as unknown as QueueRow[]
 
-    for (const row of pending ?? []) {
+    for (let s = 0; s < rows.length; s += GUARD_SLICE) {
+    const slice = rows.slice(s, s + GUARD_SLICE)
+    // The restorability guard's reads, for a slice of the page at once (F7, C3;
+    // see namedQueuePaths), acted on before the next slice is read. A body row
+    // asks storage_path, a thumbnail row thumbnail_url, and an s3 row both
+    // (MO1, below); each row's decision further down is the one its own read
+    // gave.
+    const unreserved = slice.filter(r => !isReservedProjectObject(r.object_path))
+    const bodyAsk = await namedQueuePaths(ctx, 'storage_path',
+      unreserved.filter(r => r.provider === 's3' || r.kind !== 'thumbnail').map(r => r.object_path))
+    const thumbAsk = await namedQueuePaths(ctx, 'thumbnail_url',
+      unreserved.filter(r => r.provider === 's3' || r.kind === 'thumbnail').map(r => r.object_path))
+    const asked = { storage_path: bodyAsk, thumbnail_url: thumbAsk }
+
+    for (const row of slice) {
       // Reserved guard, FIRST — refuse in depth rather than trusting the
       // orphan scan to be the only way here.
       //
@@ -363,26 +498,22 @@ Deno.serve(async (req) => {
       //
       // Rows written before 0054 default to 'body', and 0054 backfills the
       // rabbit-thumbnails ones — so this is behaviour-identical on old rows.
-      // Cast for the same reason the `provider` read below carries one: this
-      // project ships no generated Database types, so a column added by a
-      // later migration is not on the inferred row shape.
-      const refColumn = (row as { kind?: string }).kind === 'thumbnail'
+      const refColumn = row.kind === 'thumbnail'
         ? 'thumbnail_url'
         : 'storage_path'
       // MO1 (0120): in a company's own bucket a body and a picture share one namespace, and thumbnail_url
       // was client-writable once. So a legacy picture naming another file's body must not delete that
       // body: for s3 both columns answer. Petal's two buckets cannot hold each other's keys.
-      const refColumns: string[] = (row as { provider?: string }).provider === 's3'
+      const refColumns: Array<'storage_path' | 'thumbnail_url'> = row.provider === 's3'
         ? ['storage_path', 'thumbnail_url']
         : [refColumn]
-      let stillRef: unknown[] | null = null
+      // Each column in turn, as the per-row reads asked them: a failed read
+      // answers first, then a row that names it.
+      let stillRef = false
       let refErr: { message: string } | null = null
       for (const column of refColumns) {
-        const answer = await ctx.admin
-          .from('files').select('id').eq(column, row.object_path).limit(1)
-        stillRef = answer.data
-        refErr = answer.error
-        if (refErr || stillRef?.length) break
+        if (asked[column].failed.has(row.object_path)) { refErr = { message: asked[column].failed.get(row.object_path) as string }; break }
+        if (asked[column].named.has(row.object_path)) { stillRef = true; break }
       }
       // 🚨 A FAILED READ PUSHES NOTHING (S37's rule). supabase-js RESOLVES on
       // error with data:null, so an unchecked destructure turns a statement
@@ -400,7 +531,7 @@ Deno.serve(async (req) => {
           .eq('id', row.id)
         continue
       }
-      if (stillRef && stillRef.length > 0) {
+      if (stillRef) {
         await ctx.admin.from('storage_gc_queue')
           .update({ status: 'skipped', processed_at: new Date().toISOString(), detail: 'a files row still references this path' })
           .eq('id', row.id)
@@ -411,7 +542,7 @@ Deno.serve(async (req) => {
       // 'byo-s3' names no Supabase bucket on purpose). The prefix is applied
       // here, from config, exactly as storage-presign applies it: queue rows
       // carry the row-shaped path.
-      if ((row as { provider?: string }).provider === 's3') {
+      if (row.provider === 's3') {
         const s3 = await s3Drain()
         if (!s3.ok) {
           counts.queue_failed++
@@ -494,6 +625,7 @@ Deno.serve(async (req) => {
           .eq('id', row.id)
       }
     }
+    } // the slice
 
     // ── 2. Orphan scan: rabbit-files (this workspace's projects only) ──────
     const scanBudget = { left: MAX_OBJECTS } // RUN-wide, not per-project
