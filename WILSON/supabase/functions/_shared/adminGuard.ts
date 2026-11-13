@@ -240,20 +240,44 @@ export async function liveMembership(
  * a71cd144 it counts the verified TOTP factors in `data` WHATEVER the error
  * channel says, and is 0 only when the read throws (or `data` cannot be
  * counted). The guards never read `count` when `ok` is false.
+ *
+ * `verified` and `count` are decided APART (review round 2): at a71cd144 both
+ * guards decided "verified" with `.some(...)`, which stops at the first
+ * verified TOTP factor, and admin-user-security counted with `.filter(...)`,
+ * which visits every entry. So a list like `[verified totp, null]` was
+ * verified for the guards (`.some` never reached the null) and 0 for
+ * admin-user-security (`.filter` threw on it); `[null, verified totp]` threw
+ * in both (the guards' 503). Each is kept: `count` from `.filter` in its own
+ * try (a bad entry makes it 0, never touches `verified`), `verified` from
+ * `.some` (a throw there is `ok: false`, the guards' 503). Do not derive one
+ * from the other.
  */
 export async function hasVerifiedTotp(
   admin: ServiceClient, userId: string,
 ): Promise<{ ok: true; verified: boolean; count: number } | { ok: false; count: number }> {
+  let data: { factors?: unknown } | null | undefined = undefined
+  let error: unknown = null
   try {
-    const { data, error } = await admin.auth.admin.mfa.listFactors({ userId })
-    const count = (data?.factors ?? []).filter(
-      (f: { factor_type?: string; status?: string }) =>
-        f.factor_type === 'totp' && f.status === 'verified',
-    ).length
-    if (error) return { ok: false, count }
-    return { ok: true, verified: count > 0, count }
+    ({ data, error } = await admin.auth.admin.mfa.listFactors({ userId }))
   } catch {
     return { ok: false, count: 0 }
+  }
+  const isVerifiedTotp = (f: { factor_type?: string; status?: string }) =>
+    f.factor_type === 'totp' && f.status === 'verified'
+  // admin-user-security's count, as it counted: .filter over every entry.
+  let count = 0
+  try {
+    count = ((data?.factors ?? []) as Array<{ factor_type?: string; status?: string }>).filter(isVerifiedTotp).length
+  } catch {
+    count = 0
+  }
+  if (error) return { ok: false, count }
+  // The guards' answer, as they decided it: .some, stopping at the first.
+  try {
+    const verified = ((data?.factors ?? []) as Array<{ factor_type?: string; status?: string }>).some(isVerifiedTotp)
+    return { ok: true, verified, count }
+  } catch {
+    return { ok: false, count }
   }
 }
 

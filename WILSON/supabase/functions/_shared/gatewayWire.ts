@@ -209,15 +209,29 @@ export async function reachProof(reachKey: string, nonce: string): Promise<strin
 export const DRAIN_MAX_BYTES = 64 * 1024 * 1024
 
 /**
+ * The drain's bound for the one reader that runs BEFORE every check and
+ * limiter, before anyone is authenticated: gateway-enrol's (review round 2,
+ * D1). Before F8 it stopped at its 64 KiB cap; at the 64 MiB default any
+ * address could make it read 64 MiB before a thing was checked. No gateway
+ * sends more than about 20 KiB (its PEM at most 16 KiB, isSingleCertificatePem
+ * in gatewayShapes.ts), so 2 MiB is read through and dropped; a body past
+ * 2 MiB is cut there and the platform answers for the function, as F8-08
+ * measured for 70 MiB (cut at 64 MiB). The other gateway functions keep the
+ * default.
+ */
+export const PRE_AUTH_DRAIN_MAX_BYTES = 2 * 1024 * 1024
+
+/**
  * Past the cap: read the rest of the body and drop it, chunk by chunk (never
  * kept, never decoded), until it ends or `alreadyRead` plus what is read here
- * reaches DRAIN_MAX_BYTES; then, if it has not ended, cancel it. A read that
- * fails ends the drain quietly: the answer is already decided (too large).
+ * reaches `drainMax` (DRAIN_MAX_BYTES unless the caller passed another);
+ * then, if it has not ended, cancel it. A read that fails ends the drain
+ * quietly: the answer is already decided (too large).
  */
-async function drainBody(reader: ReadableStreamDefaultReader<Uint8Array>, alreadyRead: number): Promise<void> {
+async function drainBody(reader: ReadableStreamDefaultReader<Uint8Array>, alreadyRead: number, drainMax: number): Promise<void> {
   let total = alreadyRead
   try {
-    while (total < DRAIN_MAX_BYTES) {
+    while (total < drainMax) {
       const { value, done } = await reader.read()
       if (done) return
       if (value) total += value.length
@@ -265,15 +279,22 @@ async function drainBody(reader: ReadableStreamDefaultReader<Uint8Array>, alread
  * discarded, past the cap (after the drain, which decodes nothing) or when
  * the stream fails mid-read, so it never keeps the first bytes of a
  * character after the reader has returned.
+ *
+ * `drainMax` (review round 2, D1), optional: how far the drain reads, in all,
+ * DRAIN_MAX_BYTES when left out (every call but one). gateway-enrol, the one
+ * reader ahead of every check, passes PRE_AUTH_DRAIN_MAX_BYTES. It moves only
+ * how much of an over-size body is pulled before the cancel, never an answer.
  */
-export async function readJsonLimited(req: Request, maxBytes: number): Promise<{ value: unknown; length: number } | null> {
+export async function readJsonLimited(
+  req: Request, maxBytes: number, drainMax: number = DRAIN_MAX_BYTES,
+): Promise<{ value: unknown; length: number } | null> {
   const declared = Number(req.headers.get('content-length') ?? '')
   if (Number.isFinite(declared) && declared > maxBytes) {
     const body = req.body
     if (body) {
       let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
       try { reader = body.getReader() } catch { /* a body already taken: nothing to drain */ }
-      if (reader) await drainBody(reader, 0)
+      if (reader) await drainBody(reader, 0, drainMax)
     }
     return { value: undefined, length: declared }
   }
@@ -291,7 +312,7 @@ export async function readJsonLimited(req: Request, maxBytes: number): Promise<{
       total += value.length
       if (total > maxBytes) {
         text = '' // let it go: the answer is too large whatever follows
-        await drainBody(reader, total)
+        await drainBody(reader, total, drainMax)
         return { value: undefined, length: total }
       }
       text += decoder.decode(value, { stream: true })

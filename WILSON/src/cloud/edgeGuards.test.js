@@ -754,6 +754,97 @@ describe('admin-user-security', () => {
   })
 })
 
+// ── A factor list with a bad entry (review round 2) ─────────────────────────
+//
+// At a71cd144 both guards decided "verified" with `.some(...)`, which stops at
+// the first verified TOTP factor and never reaches what follows it, and
+// admin-user-security counted with `.filter(...)`, which visits every entry. So
+// `[verified totp, null]` was verified for the guards and 0 for
+// admin-user-security (its filter threw on the null, caught: unenrolled), and
+// `[null, verified totp]` threw in all three (the guards' 503, the count's 0).
+// The shared hasVerifiedTotp first used `.filter` for both and made the guards
+// 503 on the first list; it now decides each as it was decided.
+
+describe('a factor list with a null entry: each caller answers as at a71cd144 (review round 2)', () => {
+  // seatCaller / seatOperator put the list in the world; the harness's GoTrue
+  // answers it as { data: { factors: <the list> }, error: null }.
+  const VT = VERIFIED_TOTP[0]
+  const VT_THEN_NULL = [VT, null]
+  const NULL_THEN_VT = [null, VT]
+
+  it('the admin guard: [verified, null] with aal2 passes; with aal1 it is 403 mfa_required', async () => {
+    const pass = newWorld()
+    const t2 = seatCaller(pass, { factors: VT_THEN_NULL, aal: 'aal2' }).token
+    denoEnv()
+    const g = await requireWorkspaceAdmin(signed(`Bearer ${t2}`))
+    expect(g.ok).toBe(true)
+    expect(g.ctx).toMatchObject({ callerId: 'user-1', workspaceId: 'ws-1' })
+    expect(trips(pass)).toEqual([GET_USER, MEMBERS, FACTORS])
+
+    const step = newWorld()
+    const t1 = seatCaller(step, { factors: VT_THEN_NULL, aal: 'aal1' }).token
+    denoEnv()
+    const r = await requireWorkspaceAdmin(signed(`Bearer ${t1}`))
+    expect(r.ok).toBe(false)
+    expect(await shown(r.res)).toEqual({ status: 403, json: { error: 'mfa_required' }, headers: JSON_H })
+    expect(trips(step)).toEqual([GET_USER, MEMBERS, FACTORS])
+  })
+
+  it('the operator guard: [verified, null] with aal2 passes; with aal1 it is 403 mfa_required', async () => {
+    const pass = newWorld()
+    const t2 = seatOperator(pass, { factors: VT_THEN_NULL, aal: 'aal2' })
+    denoEnv()
+    const g = await requirePlatformOperator(signed(`Bearer ${t2}`))
+    expect(g.ok).toBe(true)
+    expect(g.ctx).toMatchObject({ callerId: 'op-1', callerLabel: 'op@example.test' })
+
+    const step = newWorld()
+    const t1 = seatOperator(step, { factors: VT_THEN_NULL, aal: 'aal1' })
+    denoEnv()
+    const r = await requirePlatformOperator(signed(`Bearer ${t1}`))
+    expect(await shown(r.res)).toEqual({ status: 403, json: { error: 'mfa_required' }, headers: JSON_H })
+    expect(trips(step)).toEqual([GET_USER, OPERATORS, FACTORS])
+  })
+
+  it('[null, verified]: `.some` meets the null first and throws, so both guards answer 503 mfa_check_failed, as before', async () => {
+    for (const aal of ['aal1', 'aal2']) {
+      const a = newWorld()
+      const ta = seatCaller(a, { factors: NULL_THEN_VT, aal }).token
+      denoEnv()
+      const ga = await requireWorkspaceAdmin(signed(`Bearer ${ta}`))
+      expect(await shown(ga.res), aal).toEqual({ status: 503, json: { error: 'mfa_check_failed' }, headers: JSON_H })
+      expect(trips(a)).toEqual([GET_USER, MEMBERS, FACTORS])
+
+      const o = newWorld()
+      const to = seatOperator(o, { factors: NULL_THEN_VT, aal })
+      denoEnv()
+      const go = await requirePlatformOperator(signed(`Bearer ${to}`))
+      expect(await shown(go.res), aal).toEqual({ status: 503, json: { error: 'mfa_check_failed' }, headers: JSON_H })
+      expect(trips(o)).toEqual([GET_USER, OPERATORS, FACTORS])
+    }
+  })
+
+  it.each([
+    ['[verified, null]', VT_THEN_NULL],
+    ['[null, verified]', NULL_THEN_VT],
+  ])("admin-user-security: the TARGET's %s counts 0 (its .filter threw on the null), unenrolled, 200", async (_name, factors) => {
+    const w = newWorld()
+    const { token } = seatCaller(w)
+    w.table('workspace_members', (q) => {
+      const uid = q.filters.find((f) => f.column === 'user_id')?.value
+      if (uid === 'user-1') return { data: { app_role: 'admin', is_active: true }, error: null }
+      return { data: uid === 'user-2' ? { username: 'tgt', is_active: true } : null, error: null }
+    })
+    w.auth.byId.set('user-2', { id: 'user-2', email: 't@example.test' })
+    w.auth.factors.set('user-2', factors)
+    const { handler } = await loadFunction(vi, 'admin-user-security')
+    const a = await shown(await handler(post({ user_id: 'user-2' }, { token })))
+    expect(a.status).toBe(200)
+    expect(a.json).toMatchObject({ mfa_enrolled: false, factor_count: 0 })
+    expect(trips(w)).toEqual([GET_USER, MEMBERS, FACTORS, MEMBERS, 'auth:getUserById', FACTORS])
+  })
+})
+
 describe("gateway-reach rewords the admin guard's refusals", () => {
   const CASES = [
     ['no token', () => null, {}, 401, 'unauthorized', 'Sign in again: WILSON could not confirm who is asking for this.'],

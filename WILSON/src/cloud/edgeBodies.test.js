@@ -481,6 +481,93 @@ describe('F8: resolve-login and issue-session past the cap, in order', () => {
   })
 })
 
+// ── gateway-enrol: the drain bounded before authentication (review round 2, D1) ──
+//
+// gateway-enrol reads its body FIRST, ahead of the token, the limiter and every
+// check (its cap 64 KiB; before F8 it stopped there). With the 64 MiB drain any
+// address could make it read 64 MiB before anything was checked, so it passes
+// gatewayWire.PRE_AUTH_DRAIN_MAX_BYTES (2 MiB). Its answers are the ones it
+// always gave an over-size body (the body read as nothing, F8-09): only how much
+// is pulled before the cancel moved. Not one of the fourteen above.
+describe('gateway-enrol: an over-size body is drained up to 2 MiB, not 64 MiB, then cut; the answer unchanged (review round 2, D1)', () => {
+  const MiB = 1024 * 1024
+  const ENROL_CAP = 64 * 1024
+  const PRE_AUTH = 2 * MiB
+  const CHUNK = 1024
+  const TOKEN = `wgt_${'A'.repeat(32)}`
+  const GW_HEADERS = {
+    'access-control-allow-origin': '*', 'access-control-allow-methods': 'POST, OPTIONS',
+    'access-control-allow-headers': 'content-type, authorization, apikey',
+    'content-type': 'application/json', 'cache-control': 'no-store',
+  }
+  const MALFORMED = {
+    status: 401, headers: GW_HEADERS,
+    json: { error: 'token_malformed', detail: 'The enrolment token is wgt_ followed by 32 letters and digits; copy it again from Settings, Storage, File gateway.' },
+  }
+  const NOT_AN_OBJECT = { status: 400, headers: GW_HEADERS, json: { error: 'bad_request', detail: 'The request body is not a JSON object.' } }
+
+  async function enrol(raw, { token = null, headers = {} } = {}) {
+    const w = newWorld()
+    vi.stubGlobal('fetch', async () => { throw new Error('edgeBodies: no network in this file') })
+    const { handler } = await loadFunction(vi, 'gateway-enrol')
+    const h = token ? { authorization: `Bearer ${token}`, ...headers } : headers
+    const a = await answerOf(await handler(post(undefined, { raw, headers: h })))
+    return { w, out: { status: a.status, json: a.json, headers: a.headers } }
+  }
+
+  it('the bound is 2 MiB (gatewayWire.ts), under the 64 MiB default', async () => {
+    const wire = await import('../../supabase/functions/_shared/gatewayWire.ts')
+    expect(wire.PRE_AUTH_DRAIN_MAX_BYTES).toBe(PRE_AUTH)
+    expect(wire.DRAIN_MAX_BYTES).toBe(DRAIN)
+  })
+
+  it.each([
+    ['no token: 401 token_malformed, nothing asked', null, MALFORMED, []],
+    ['a well-formed token: the limiter counts it, then 400 "not a JSON object"', TOKEN, NOT_AN_OBJECT, [LIMITER]],
+  ])('an endless body, %s; pulled to 2 MiB within one chunk, then cancelled', async (_name, token, want, calls) => {
+    const { stream, state } = endlessBody(CHUNK)
+    const { out, w } = await enrol(stream, { token })
+    expect(out).toEqual(want)
+    expect(state.pulled).toBeGreaterThanOrEqual(PRE_AUTH)
+    expect(state.pulled).toBeLessThan(PRE_AUTH + CHUNK)
+    expect(state.cancelled).toBe(true)
+    expect(callNames(w)).toEqual(calls)
+    // The same answer as a body one byte past the cap that ends (the old path).
+    expect((await enrol('x'.repeat(ENROL_CAP + 1), { token })).out).toEqual(want)
+  }, 60_000)
+
+  it('a declared length over 64 KiB on an endless body: the same answers, pulled to 2 MiB within one chunk, then cancelled', async () => {
+    for (const [token, want] of [[null, MALFORMED], [TOKEN, NOT_AN_OBJECT]]) {
+      const { stream, state } = endlessBody(CHUNK)
+      const { out } = await enrol(stream, { token, headers: { 'content-length': String(ENROL_CAP + 1) } })
+      expect(out).toEqual(want)
+      expect(state.pulled).toBeGreaterThanOrEqual(PRE_AUTH)
+      expect(state.pulled).toBeLessThan(PRE_AUTH + CHUNK)
+      expect(state.cancelled).toBe(true)
+    }
+  }, 60_000)
+
+  it('a body that ends under 2 MiB (1 MiB) is read to its end and not cancelled: the same answer', async () => {
+    let pulled = 0
+    let cancelled = false
+    let left = MiB
+    const stream = new ReadableStream({
+      pull(c) {
+        if (left === 0) { c.close(); return }
+        const n = Math.min(64 * 1024, left)
+        left -= n
+        pulled += n
+        c.enqueue(new Uint8Array(n).fill(0x20))
+      },
+      cancel() { cancelled = true },
+    }, { highWaterMark: 0 })
+    const { out } = await enrol(stream, { token: TOKEN })
+    expect(out).toEqual(NOT_AN_OBJECT)
+    expect(pulled).toBe(MiB)
+    expect(cancelled).toBe(false)
+  }, 60_000)
+})
+
 describe('the fields of the body are used (g, looked at closer)', () => {
   const get = (name) => FUNCTIONS.find((f) => f.name === name)
   it('admin-reset-password looks the member up by the user_id it was sent', async () => {

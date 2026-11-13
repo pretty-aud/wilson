@@ -25,7 +25,9 @@
 // =============================================================================
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { readJsonLimited, readBodyJson, DRAIN_MAX_BYTES } from '../../supabase/functions/_shared/gatewayWire.ts'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { readJsonLimited, readBodyJson, DRAIN_MAX_BYTES, PRE_AUTH_DRAIN_MAX_BYTES } from '../../supabase/functions/_shared/gatewayWire.ts'
 import { readSmallJson, SMALL_BODY_MAX } from '../../supabase/functions/_shared/aiFileStore.ts'
 
 // ── The oracles: the two readers exactly as they were at 9b0255c3 ────────────
@@ -392,5 +394,92 @@ describe('readJsonLimited past the cap reads the rest through, up to DRAIN_MAX_B
     expect(await readJsonLimited(a, 64)).toEqual({ value: undefined, length: 108 })
     expect(a.pulled()).toBe(210)
     expect(asked).toEqual(['chunk 6', 'chunk 2', 'flush'])
+  })
+
+  // Review round 2, D1: an optional third argument bounds the drain instead of
+  // DRAIN_MAX_BYTES (gateway-enrol, the one reader ahead of every check, passes
+  // PRE_AUTH_DRAIN_MAX_BYTES). It moves how much is pulled, never the answer.
+  it('PRE_AUTH_DRAIN_MAX_BYTES is 2 MiB', () => {
+    expect(PRE_AUTH_DRAIN_MAX_BYTES).toBe(2 * MiB)
+  })
+
+  it.each([
+    ['counted past the cap', {}, 256 * 1024],
+    ['a declared length over the cap', { 'content-length': '65' }, 65],
+  ])('a drain bound passed as the third argument, %s: the same answer, read on to that bound within one chunk, then cancelled', async (_, headers, length) => {
+    const chunk = 256 * 1024
+    const a = endless(chunk, { headers })
+    const b = endless(chunk, { headers })
+    const got = await readJsonLimited(a.req, 64, PRE_AUTH_DRAIN_MAX_BYTES)
+    expect(got).toEqual({ value: undefined, length })
+    expect(got).toEqual(await oldReadJsonLimited(b.req, 64))
+    expect(a.state.pulled).toBeGreaterThanOrEqual(PRE_AUTH_DRAIN_MAX_BYTES)
+    expect(a.state.pulled).toBeLessThan(PRE_AUTH_DRAIN_MAX_BYTES + chunk)
+    expect(a.state.cancelled).toBe(true)
+  })
+
+  it('left out, the bound is DRAIN_MAX_BYTES; under the cap the third argument changes nothing', async () => {
+    const a = endless(MiB)
+    await readJsonLimited(a.req, 64)
+    expect(a.state.pulled).toBeGreaterThanOrEqual(DRAIN)
+    expect(a.state.pulled).toBeLessThan(DRAIN + MiB)
+    for (const raw of ['{"a":1}', '', '{nope', 'null']) {
+      expect(await readJsonLimited(reqOf([enc(raw)]), 64, PRE_AUTH_DRAIN_MAX_BYTES), raw).toEqual(await readJsonLimited(reqOf([enc(raw)]), 64))
+    }
+  })
+})
+
+// ── Review round 2, D2: the drained bytes are never KEPT (a source pin) ──────
+//
+// The tests above count what is pulled and what is decoded; none would see a
+// drain that kept what it read (an array of chunks, a string grown chunk by
+// chunk) and then let it go. That would hold up to DRAIN_MAX_BYTES (64 MiB) of
+// a body the function has already refused, where the reader's promise is the
+// limit plus one chunk. So the drain's own text is pinned: inside drainBody,
+// nothing is pushed, nothing decoded, and the one `+=` adds a length to a
+// number; readJsonLimited lets its decoded text go BEFORE it drains, and the
+// drain hands nothing back.
+describe('the drain keeps nothing it reads (review round 2, D2: a source pin)', () => {
+  const src = readFileSync(join(__dirname, '..', '..', 'supabase', 'functions', '_shared', 'gatewayWire.ts'), 'utf8').replace(/\r\n/g, '\n')
+  const stripTs = (s) => s.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '')
+  const code = stripTs(src)
+  const fnOf = (open) => {
+    const i = code.indexOf(open)
+    expect(i, open).toBeGreaterThan(-1)
+    return code.slice(i, code.indexOf('\n}\n', i) + 3)
+  }
+
+  it('drainBody: its loop reads, adds the length to a number, and drops the chunk; nothing is pushed, decoded, joined or copied', () => {
+    const drain = fnOf('async function drainBody(')
+    const loop = drain.slice(drain.indexOf('while (total < drainMax) {'), drain.indexOf('} catch {'))
+    expect(loop).toContain('const { value, done } = await reader.read()')
+    for (const banned of ['.push(', 'decode(', 'concat(', '.set(', 'new Uint8Array', 'new TextDecoder', 'text', 'parts', 'chunks']) {
+      expect([banned, drain.includes(banned)]).toEqual([banned, false])
+    }
+    // The only `+=` anywhere in it: the running total, a number, by the chunk's length.
+    expect(drain.match(/\+=/g)).toEqual(['+='])
+    expect(loop).toContain('if (value) total += value.length')
+    expect(drain).toMatch(/^async function drainBody\([^)]*\): Promise<void> \{\n  let total = alreadyRead\n/)
+    // Nothing escapes it: no return value, nothing assigned outside the loop's own names.
+    expect(drain).not.toMatch(/return [^\n;]/)
+  })
+
+  it('readJsonLimited: the decoded text is let go before the drain, and the drain hands nothing back', () => {
+    const read = fnOf('export async function readJsonLimited(')
+    const over = read.indexOf('if (total > maxBytes) {')
+    const dropped = read.indexOf("text = ''", over)
+    const drained = read.indexOf('await drainBody(reader, total, drainMax)', over)
+    expect(over).toBeGreaterThan(-1)
+    expect(dropped).toBeGreaterThan(over)
+    expect(drained).toBeGreaterThan(dropped)
+    // Between the cap and the return, the text is never added to.
+    const branch = read.slice(over, read.indexOf('return { value: undefined, length: total }', over))
+    expect(branch).not.toMatch(/text \+=/)
+    expect(branch).not.toContain('decode(')
+    // Both drains are bare statements: their (void) result is kept nowhere.
+    expect(read.match(/await drainBody\(/g)).toHaveLength(2)
+    expect(read).not.toMatch(/=\s*await drainBody\(/)
+    // The declared-length drain runs before any decoder or text exists.
+    expect(read.indexOf('await drainBody(reader, 0, drainMax)')).toBeLessThan(read.indexOf('new TextDecoder()'))
   })
 })
