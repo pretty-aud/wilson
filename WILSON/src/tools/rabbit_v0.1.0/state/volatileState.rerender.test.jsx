@@ -34,7 +34,19 @@
 //   a status flip             4: the provider, the faces, the dot and its mark
 //   an ingestion tick         8: the provider, the toast and its five icons
 //   the undo toast taken down 2: the provider and the toast
-//   the adapter going offline 3: the provider, the dot and its mark
+//   the adapter going offline 3: the provider, the dot and its mark, WITH THE
+//                             ROSTER AND TEAM HOOKS STOOD IN FOR, as this
+//                             whole file does (below). In the app the shell
+//                             and the Assets tab host the team hook (through
+//                             the roster hook), which reads the adapter's
+//                             online word and must load again when it flips,
+//                             so they are drawn too, with what they draw.
+//                             Measured 2026-11-13 with the two hooks real,
+//                             the same mount and event: 1,714 component
+//                             renders in 3 commits, five readers (the shell,
+//                             the Assets tab, the project bar, the ingestion
+//                             toast, the dot). The pin is of the stand-in
+//                             mount.
 //
 // WHAT REMAINS, measured in the last describe below and recorded in
 // docs/OUTSTANDING.md: the value is still one object, so a WRITE to the open
@@ -102,6 +114,12 @@ const { default: DashboardPage } = await import('../../../components/Dashboard/D
 const { default: UndoToast } = await import('../components/UndoToast')
 const { ToastProvider } = await import('../../../ui')
 const { _resetOverlaysForTests } = await import('../../../ui/overlay')
+// The auth callbacks the modules above subscribed when they were imported
+// (the avatars' cache, which follows who is signed in): they live as long as
+// the app. Each test starts from these, so an auth event reaches the provider
+// that test mounted and not the unmounted ones of the tests before it (the
+// stand-in's unsubscribe does nothing).
+const AUTH_AT_IMPORT = [...(holder.auth || [])]
 
 let ctx = null
 // A reader of the one value that shows none of the volatile state: every page's consumer, in small.
@@ -173,7 +191,7 @@ function ranSince(mark) {
   }
 }
 
-beforeEach(() => { localStorage.clear(); live.project = null; live.workspace = null; holder.progress = null })
+beforeEach(() => { localStorage.clear(); live.project = null; live.workspace = null; holder.progress = null; holder.auth = [...AUTH_AT_IMPORT] })
 afterEach(() => { cleanup(); _resetOverlaysForTests(); ctx = null; renderSpy.reset() })
 
 describe('R.A.B.B.I.T.\'s own clocks, with nothing in the project changed', () => {
@@ -251,7 +269,7 @@ describe('R.A.B.B.I.T.\'s own clocks, with nothing in the project changed', () =
     expect(view.baseElement.textContent).not.toContain('Deleted asset "Shooting Script v4"')
   })
 
-  it('the adapter going offline draws the connection dot and no other reader', async () => {
+  it('the adapter going offline draws the connection dot and no other reader, with the roster and team hooks stood in for (in the app they load again, and the shell and the Assets tab that host them are drawn too)', async () => {
     await mount()
     holder.adapter.status = async () => { throw new Error('offline') }
     holder.adapter.mode = 'supabase'      // the auth handler re-asks only a cloud adapter

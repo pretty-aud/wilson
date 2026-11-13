@@ -8,18 +8,23 @@
 // render of the tab caused from above it with nothing in the project changed.
 // Counted: the calls of `tasksAbout` (state/taskItemsModel.js) made during
 // that one render, and the render's time as React's own <Profiler> reports it.
+// The calls are pinned. The time is not: the test holds only that the
+// Profiler reported the render, with a time above zero, and the times quoted
+// below are this test's readings, reported and not pinned (they depend on the
+// machine).
 //
 // MEASURED BEFORE F4's change (2026-11-13, at the brief's tip a71cd144; the
 // pin below red): the fixture project holds 15 assets, 42 tasks and 54 task
 // items, and ONE render of the tab called `tasksAbout` 15 times, once for each
 // row's warning: each call walks all 54 items and filters all 42 tasks, so
 // 1,440 row visits for a render in which nothing changed. The same rows' task
-// counts come from one indexed pass (taskCountsByEntity). The render itself
-// (React's Profiler, jsdom, fifteen renders, three runs): 4.5 to 5.6 ms at
-// best, 5.4 to 11.7 ms at the median; the scans are a small part of it at
-// this size, and grow with assets times tasks (state/assetWarnings.test.js
-// times the scan alone on a generated project: 400 assets, 2,000 tasks and
-// 2,600 items, 18.2 to 18.5 ms for one render's warnings).
+// counts come from one indexed pass (taskCountsByEntity). The render itself,
+// as this test's Profiler read it (jsdom, fifteen renders, three runs, on the
+// machine of that day): 4.5 to 5.6 ms at best, 5.4 to 11.7 ms at the median;
+// the scans are a small part of it at this size, and grow with assets times
+// tasks (state/assetWarnings.test.js times the scan alone on a generated
+// project: 400 assets, 2,000 tasks and 2,600 items, 18.2 to 18.5 ms for one
+// render's warnings).
 //
 // AFTER (the commit that indexes every asset's tasks in one pass): the same
 // render calls `tasksAbout` 0 times; the same generated project's warnings
@@ -107,7 +112,7 @@ async function oneRender() {
   timings.length = 0
   const mark = renderSpy.mark()
   await act(async () => { bump() })
-  return { mark, calls: holder.tasksAboutCalls, ms: timings.reduce((sum, t) => sum + t.actualDuration, 0) }
+  return { mark, calls: holder.tasksAboutCalls, phases: timings.map((t) => t.phase), ms: timings.reduce((sum, t) => sum + t.actualDuration, 0) }
 }
 
 beforeEach(() => { localStorage.clear() })
@@ -131,6 +136,9 @@ describe('one render of the asset list, nothing in the project changed', () => {
     const first = await oneRender()
     expect(renderSpy.renders('ProjectAssetsView', first.mark)).toBe(1)   // it did render
     expect(first.calls).toBe(0)
+    // The Profiler reported that render, with a time: read, never pinned (it is the machine's).
+    expect(first.phases).toContain('update')
+    expect(first.ms).toBeGreaterThan(0)
   })
 
   it('the warning each row is given is the one the old scan gave, for every asset of the fixture', async () => {

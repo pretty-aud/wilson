@@ -8,11 +8,25 @@
 // 1. THE SOURCE. The value still carries the eight, as getters, and a getter
 //    tells nobody: a component that reads `ctx.presentUsers` while it draws
 //    compiles, looks right on the first render, and is never drawn again for
-//    it. Nothing at run time catches that, so this file reads every source
-//    file under src and holds two things: nobody reads one of the eight off an
-//    object (`x.undoToast`, `x?.undoToast`) or takes one out of the provider's
-//    value by destructuring, outside the provider and rabbitLive.js; and the
-//    readers through useRabbitLive are exactly the ones listed here.
+//    it. Nothing at run time catches that, so this file PARSES every source
+//    file under src (@babel/parser, as the source guards of O.T.T.E.R. and
+//    the answers' links do) and holds, outside the provider and rabbitLive.js:
+//    no member read of one of the eight (`x.undoToast`, `x?.undoToast`,
+//    `x?.['undoToast']`), whatever the object and wherever it came from
+//    (useRabbit(), the context's own hook, useContext), and no destructuring
+//    that names one, anywhere, a function's parameter included (the value
+//    spread into a component lands there). A use of one of the names that is
+//    not the provider's value is on an allow-list below, with its reason, and
+//    an entry no longer in the source fails. The readers through
+//    useRabbitLive are exactly the ones listed here.
+//
+//    The scan read the text until the F4 review (round 1, C1): a regex took
+//    the comments out, and a `/*` inside a `//` comment or a string
+//    ('image/*') opened a block that ran to the next `*/`. Measured
+//    2026-11-13: 2,111 lines of code in 5 files were never scanned, 1,892 of
+//    them in supabaseAdapter.js. A bracket read, a destructuring ended with
+//    `;`, and other sources were not seen either. The controls below plant
+//    each of those in a copy of a real file.
 //
 // 2. THE MODULE. What each hook answers with a provider above and without one
 //    (the 54 test files that stand in for the provider have none above), and
@@ -23,6 +37,7 @@
 // =============================================================================
 import { describe, it, expect, afterEach } from 'vitest'
 import { render, cleanup } from '@testing-library/react'
+import { parse } from '@babel/parser'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join, relative, sep } from 'node:path'
@@ -47,11 +62,80 @@ function sourceFiles(dir, out = []) {
   return out
 }
 const slashed = (full) => relative(SRC, full).split(sep).join('/')
-/** The code without its comments. (A `//` inside a string goes too: more is taken out than need be, never less.) */
-const code = (text) => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
 
-const FILES = sourceFiles(SRC).map((full) => ({ path: slashed(full), code: code(readFileSync(full, 'utf8')) }))
+const FUNCTIONS = new Set(['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression', 'ObjectMethod', 'ClassMethod', 'ClassPrivateMethod'])
+const stringOf = (n) => (n?.type === 'StringLiteral' ? n.value : n?.type === 'TemplateLiteral' && n.expressions.length === 0 ? n.quasis[0].value.cooked : null)
+/** The name a function is known by: its own, or the variable, property or method it is written to. */
+function functionName(n, parent) {
+  if (n.id?.name) return n.id.name
+  if (n.type !== 'FunctionDeclaration' && n.type !== 'FunctionExpression' && n.type !== 'ArrowFunctionExpression' && !n.computed) return n.key.name ?? n.key.id?.name ?? stringOf(n.key) ?? '(anonymous)'
+  if (parent?.type === 'VariableDeclarator' && parent.id.type === 'Identifier') return parent.id.name
+  if ((parent?.type === 'ObjectProperty' || parent?.type === 'ClassProperty') && !parent.computed) return parent.key.name ?? stringOf(parent.key)
+  if (parent?.type === 'AssignmentExpression' && parent.left.type === 'Identifier') return parent.left.name
+  return '(anonymous)'
+}
+/**
+ * Every place a parsed file names one of the eight off an object (a member
+ * read: `.name`, `?.name`, `['name']`) or in a destructuring (an object
+ * pattern's key, a function's parameter included), as
+ * `{ path, line, what, where }`: `where` is the function it sits in.
+ */
+function eightIn(path, ast) {
+  const found = []
+  const visit = (n, parent, where) => {
+    if (!n || typeof n.type !== 'string') return
+    if (FUNCTIONS.has(n.type)) where = functionName(n, parent)
+    if (n.type === 'MemberExpression' || n.type === 'OptionalMemberExpression') {
+      const name = n.computed ? stringOf(n.property) : n.property.name
+      const dot = n.optional ? '?.' : n.computed ? '' : '.'
+      if (EIGHT.includes(name)) found.push({ path, line: n.loc.start.line, what: n.computed ? `${dot}['${name}']` : `${dot}${name}`, where })
+    }
+    if (n.type === 'ObjectPattern') {
+      for (const p of n.properties) {
+        const name = p.type !== 'ObjectProperty' ? null : p.computed ? stringOf(p.key) : (p.key.name ?? stringOf(p.key))
+        if (EIGHT.includes(name)) found.push({ path, line: p.loc.start.line, what: `{ ${name} }`, where })
+      }
+    }
+    for (const k of Object.keys(n)) {
+      if (k === 'loc' || k === 'start' || k === 'end' || k === 'extra' || k.endsWith('Comments')) continue
+      const v = n[k]
+      if (Array.isArray(v)) v.forEach((c) => visit(c, n, where))
+      else if (v && typeof v.type === 'string') visit(v, n, where)
+    }
+  }
+  visit(ast.program, null, '(module)')
+  return found
+}
+/**
+ * A source file through the parser: `code`, its text with each comment
+ * blanked (every character but a line break made a space, so what is left is
+ * where it was), for the text checks below; and `eight`, every place it names
+ * one of the eight. The tree is dropped once read: the tests need only these.
+ */
+function readSource(path, text) {
+  const ast = parse(text, { sourceType: 'module', plugins: ['jsx'] })
+  let code = ''
+  let at = 0
+  for (const c of ast.comments) { code += text.slice(at, c.start) + text.slice(c.start, c.end).replace(/[^\n]/g, ' '); at = c.end }
+  return { path, code: code + text.slice(at), eight: eightIn(path, ast) }
+}
+const where = (f) => `${f.path}:${f.line}  ${f.what}  in ${f.where}`
+
+const FILES = sourceFiles(SRC).map((full) => readSource(slashed(full), readFileSync(full, 'utf8')))
 const THE_TWO = new Set(['tools/rabbit_v0.1.0/state/RabbitProvider.jsx', 'tools/rabbit_v0.1.0/state/rabbitLive.js'])
+
+// The uses of one of the eight names that are not the provider's value, each
+// with its reason, read and checked (F4 review round 1). Matched by file, by
+// what is named and by the function it sits in, so another use in the same
+// file is not let through with it.
+const ALLOWED = [
+  {
+    path: 'tools/rabbit_v0.1.0/state/connectionStatus.js', what: '{ realtimeStatus }', where: 'connectionView',
+    reason: 'a pure function\'s own parameter: the dot\'s view of a status it is handed. Its one caller, ConnectionDot, '
+      + 'hands it the word it reads with useRabbitLive(\'realtimeStatus\', ctx).',
+  },
+]
+const allows = (entry, f) => entry.path === f.path && entry.what === f.what && entry.where === f.where
 
 describe('the source: nobody reads one of the eight off the value', () => {
   it('the eight are the module\'s eight, and seven of them have a context (activeIngestion is shown by nothing)', () => {
@@ -59,30 +143,57 @@ describe('the source: nobody reads one of the eight off the value', () => {
     expect([...SHOWN_NAMES]).toEqual(EIGHT.filter((name) => name !== 'activeIngestion'))
   })
 
-  it('reads the tree it means to: several hundred source files, the provider among them', () => {
+  it('reads the tree it means to: several hundred source files, the provider among them, each parsed', () => {
     expect(FILES.length).toBeGreaterThan(300)
     for (const path of THE_TWO) expect(FILES.some((f) => f.path === path), path).toBe(true)
+    // The walk sees a read where there is one: rabbitLive.js reads the status's word off the caller's own ctx
+    // (no provider above) and off the eight it is handed.
+    expect(FILES.find((f) => f.path === 'tools/rabbit_v0.1.0/state/rabbitLive.js').eight.map((f) => f.what)).toEqual(['?.adapterStatus', '.adapterStatus'])
   })
 
-  it('no member read of one of the eight (x.name, x?.name) in any source file but the provider and rabbitLive.js', () => {
-    const member = new RegExp(`\\??\\.\\s*(${EIGHT.join('|')})\\b`, 'g')
-    const found = []
-    for (const file of FILES) {
-      if (THE_TWO.has(file.path)) continue
-      for (const m of file.code.matchAll(member)) found.push(`${file.path}: ${m[0]}`)
-    }
+  it('no member read of one of the eight (x.name, x?.name, x[\'name\']) in any source file but the provider and rabbitLive.js', () => {
+    const found = FILES.filter((f) => !THE_TWO.has(f.path)).flatMap((f) => f.eight).filter((f) => !f.what.startsWith('{'))
     // Each one would be a read that is never drawn again: read it with useRabbitLive('<name>', ctx) (state/rabbitLive.js).
-    expect(found).toEqual([])
+    expect(found.filter((f) => !ALLOWED.some((entry) => allows(entry, f))).map(where)).toEqual([])
   })
 
-  it('no one of the eight is taken out of the value by destructuring', () => {
-    const taken = new RegExp(`\\{[^{}]*\\b(${EIGHT.join('|')})\\b[^{}]*\\}\\s*=\\s*(useRabbit\\(\\)|ctx|rabbit|rabbitCtx)\\b`, 'g')
-    const found = []
-    for (const file of FILES) {
-      if (THE_TWO.has(file.path)) continue
-      for (const m of file.code.matchAll(taken)) found.push(`${file.path}: ${m[0].replace(/\s+/g, ' ')}`)
+  it('no one of the eight is named in a destructuring anywhere, a function\'s parameter included, but in the allowed uses', () => {
+    const found = FILES.filter((f) => !THE_TWO.has(f.path)).flatMap((f) => f.eight).filter((f) => f.what.startsWith('{'))
+    expect(found.filter((f) => !ALLOWED.some((entry) => allows(entry, f))).map(where)).toEqual([])
+    // Each allowed use is still in the source: an entry that names nothing is taken out.
+    for (const entry of ALLOWED) expect(found.some((f) => allows(entry, f)), `${entry.path} ${entry.what} in ${entry.where}`).toBe(true)
+  })
+
+  describe('CONTROL: each way a read hid from a scan of the text, planted in a copy of a real file, is found', () => {
+    /** What the scan finds in a real file's source, changed by `edit`. */
+    const planted = (path, edit) => {
+      const text = readFileSync(join(SRC, path), 'utf8')
+      const changed = edit(text)
+      expect(changed, `${path}: the place to plant was found`).not.toBe(text)
+      expect(FILES.find((f) => f.path === path).eight, `${path} names none of the eight as it is`).toEqual([])
+      return readSource(path, changed).eight.map((f) => `${f.what} in ${f.where}`)
     }
-    expect(found).toEqual([])
+    const BAR = 'tools/rabbit_v0.1.0/components/ProjectContextBar.jsx'
+    const afterCtx = (code) => (text) => text.replace('  const ctx = useRabbit()\n', `  const ctx = useRabbit()\n${code}\n`)
+
+    it('the hook\'s answer destructured, the statement ended with a semicolon', () => {
+      expect(planted(BAR, afterCtx('  const { presentUsers } = useRabbit();'))).toEqual(['{ presentUsers } in ProjectContextBar'])
+    })
+    it('a bracket read, optional', () => {
+      expect(planted(BAR, afterCtx("  const toast = ctx?.['undoToast']"))).toEqual(["?.['undoToast'] in ProjectContextBar"])
+    })
+    it('another source: the context\'s own hook', () => {
+      expect(planted(BAR, afterCtx('  const { undoToast } = useRabbitContext()'))).toEqual(['{ undoToast } in ProjectContextBar'])
+    })
+    it('a read after a string holding "image/*", which a scan of the text took for a comment\'s start', () => {
+      const CARD = 'tools/deck-outline-generator_v0.514/references/ReferencesCard.jsx'
+      const at = "image/*,video/*';"
+      expect(planted(CARD, (text) => text.replace(at, `${at} export const peopleOf = (ctx) => ctx.presentUsers;`))).toEqual(['.presentUsers in peopleOf'])
+    })
+    it('the value spread into a component whose parameter names one', () => {
+      const code = '\nconst Faces = ({ presentUsers }) => <i>{presentUsers.length}</i>\nexport function Spread() { const rabbit = useRabbit(); return <Faces {...rabbit} /> }\n'
+      expect(planted(BAR, (text) => `${text}${code}`)).toEqual(['{ presentUsers } in Faces'])
+    })
   })
 
   it('the readers through useRabbitLive are these, each with the names it shows', () => {

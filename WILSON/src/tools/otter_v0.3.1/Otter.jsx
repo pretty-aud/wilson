@@ -132,19 +132,30 @@ function NodeTypeBadge({ type }) {
 //
 //  This is the boundary: it draws what its child function returns for
 //  `content`, and React is told to draw it again only when `content` is
-//  another text.
+//  another text or `address` another page address.
+//
+//  `address` is the page's address, read in O.T.T.E.R.'s render. AnswerLink
+//  reads it while it draws (linkKind): a link to this very page's path with a
+//  fragment is an anchor, another path on this origin is its text, since a
+//  click would reload WILSON in place. A lesson first drawn while another
+//  page's address was current (a generation that finished while R.A.B.B.I.T.
+//  was on screen opens its subject's first lesson there) is drawn again when
+//  O.T.T.E.R. is shown: App hands it the page as `currentPage`, so it renders
+//  on a change of page and reads the new address (F4 review round 1, D1;
+//  otterRerender.test.jsx).
 //
 //  🚨 THE CHILD FUNCTION IS NOT COMPARED, ON PURPOSE. It is a new function at
 //  every render of O.T.T.E.R., so comparing it would draw every time. That is
-//  safe only while that function reads NOTHING of the component but the text
-//  it is handed: today it reads module-level names (the highlighter, its
-//  theme, AnswerLink). A piece of state read inside it would show its value
-//  as of the last change of the lesson's text, and nothing would say so.
+//  safe only while what it draws depends on nothing but the text it is handed
+//  and the page's address: it reads module-level names (the highlighter, its
+//  theme, AnswerLink), and AnswerLink reads the address, which is compared. A
+//  piece of state read inside it would show its value as of the last change of
+//  the text or the address, and nothing would say so.
 // ═══════════════════════════════════════════════════════════════════
 function LessonBody({ content, children }) {
   return children(content);
 }
-const LessonBodyOnce = memo(LessonBody, (was, now) => was.content === now.content);
+const LessonBodyOnce = memo(LessonBody, (was, now) => was.content === now.content && was.address === now.address);
 
 // ═══════════════════════════════════════════════════════════════════
 //  MAIN OTTER COMPONENT (tool inside WILSON)
@@ -5292,11 +5303,12 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
                 page starting over. */}
             <h2 className="otter-lesson-title">{selectedLesson.title}</h2>
             <div className="lesson-content">
-              {/* F4: parsed once for its text (LessonBodyOnce, above the
-                  component). The function handed to it reads nothing of this
-                  component but `content`: keep it so, or what it reads will
-                  show as of the last change of the lesson's text. */}
-              <LessonBodyOnce content={(() => {
+              {/* F4: parsed once for its text and the page's address
+                  (LessonBodyOnce, above the component: AnswerLink draws a link
+                  against the address). The function handed to it reads nothing
+                  of this component but `content`: keep it so, or what it reads
+                  will show as of the last change of the text or the address. */}
+              <LessonBodyOnce address={globalThis.location?.href} content={(() => {
                   let content = selectedLesson.content || '';
                   const headingMatch = content.match(/^(#{1,3})\s+(.+?)(\n|$)/);
                   if (headingMatch) {
