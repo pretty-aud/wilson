@@ -439,36 +439,115 @@ describe('storage-presign: who read what', () => {
   })
 })
 
-describe('today: the two reads one after the other (F8 may read them together)', () => {
-  const cases = [
-    ['storage read fails', { wsError: { message: 'x' } }, 'get', ['workspace_storage']],
-    ['not s3', { ws: null }, 'get', ['workspace_storage']],
-    ['inactive put', { ws: s3row(CFG, 'cloud') }, 'put', ['workspace_storage']],
-    ['no master secret', { env: {} }, 'get', ['workspace_storage']],
-    ['secret read fails', { secError: { message: 'x' } }, 'get', ['workspace_storage', 'workspace_storage_secrets']],
-    ['no secret row', { sec: null }, 'get', ['workspace_storage', 'workspace_storage_secrets']],
-    ['unusable secret', { sec: { secret_ciphertext: 'not base64!' } }, 'get', ['workspace_storage', 'workspace_storage_secrets']],
-    ['success', {}, 'get', ['workspace_storage', 'workspace_storage_secrets']],
+// F8 (b) rewrote this block, as its old title said it might ("today: the two
+// reads one after the other (F8 may read them together)"). Before F8 a refusal
+// of the configuration ended the load with ONE round trip. Since F8 the loader
+// (_shared/workspaceBucket.ts) starts BOTH reads at once, by the service
+// client, filtered on the guard's workspace id, and judges them in the old
+// order: so every refusal below answers the status and the sentence it always
+// did, and only the statements differ (two, where there was one).
+describe('F8: the two reads at once, by the service client, judged in the old order', () => {
+  /** Make the configuration's answer wait, and note whether the secret's read was already asked by then. */
+  const holdTheConfiguration = (w, answer) => {
+    const seen = { secretAskedFirst: null }
+    w.table('workspace_storage', async () => {
+      await new Promise((r) => setTimeout(r, 5))
+      seen.secretAskedFirst = w.calls.some((c) => c.name === 'workspace_storage_secrets')
+      return answer
+    })
+    return seen
+  }
+  const both = (columns) => [wsRead(columns), secRead]
+
+  const presign = [
+    ['storage read fails', { wsError: { message: 'x' } }, 'get', 500, { error: 'storage_read_failed', detail: 'x' }],
+    ['not s3', { ws: null }, 'get', 409, { error: 'refused', detail: S.noS3 }],
+    ['inactive put', { ws: s3row(CFG, 'cloud') }, 'put', 409, { error: 'refused', detail: S.inactive }],
+    ['inactive look', { ws: s3row(CFG, 'cloud') }, 'look', 409, { error: 'refused', detail: S.inactive }],
+    ['no master secret', { env: {} }, 'get', 503, { error: 'crypto_unavailable', detail: S.noCrypto }],
+    ['secret read fails', { secError: { message: 'x' } }, 'get', 500, { error: 'secret_read_failed', detail: 'x' }],
+    ['no secret row', { sec: null }, 'get', 409, { error: 'refused', detail: S.noSecret }],
+    ['unusable secret', { sec: { secret_ciphertext: 'not base64!' } }, 'get', 500, { error: 'secret_unusable', detail: S.unusable('Invalid character') }],
+    ['success', {}, 'get', 200, null],
   ]
-  for (const [name, opts, op, trips] of cases) {
-    it(`storage-presign, ${name}: ${trips.length} round trip(s)`, async () => {
+  for (const [name, opts, op, status, json] of presign) {
+    it(`storage-presign, ${name}: ${status}, both tables read by the service client on the guard's workspace`, async () => {
       const { call, w } = await presignWorld(opts)
-      await call({ op, path: PATH })
-      expect(roundTrips(w)).toEqual(trips)
+      // A body naming another workspace changes no filter.
+      const out = await call({ op, path: PATH, workspace_id: 'someone-else' })
+      expect(out.status).toBe(status)
+      if (json) expect(out.json).toEqual(json)
+      expect(reads(w)).toEqual(both('mode, provider, provider_config'))
     })
   }
-  for (const [name, opts, trips] of [
-    ['not s3', { ws: null }, ['workspace_storage']],
-    ['no master secret', { env: {} }, ['workspace_storage']],
-    ['success', {}, ['workspace_storage', 'workspace_storage_secrets']],
-  ]) {
-    it(`storage-read-urls, ${name}: ${trips.length} round trip(s)`, async () => {
+  it('storage-presign: the secret is asked for before the configuration has answered (at once, not one after the other)', async () => {
+    const { call, w } = await presignWorld()
+    const seen = holdTheConfiguration(w, { data: s3row(), error: null })
+    expect((await call({ op: 'get', path: PATH })).status).toBe(200)
+    expect(seen.secretAskedFirst).toBe(true)
+  })
+
+  const readUrls = [
+    ['not s3', { ws: null }, 409, { error: 'refused', detail: S.noS3 }],
+    ['no master secret', { env: {} }, 503, { error: 'crypto_unavailable', detail: S.noCrypto }],
+    ['success', {}, 200, null],
+  ]
+  for (const [name, opts, status, json] of readUrls) {
+    it(`storage-read-urls, ${name}: ${status}, both tables read by the service client on the guard's workspace`, async () => {
       const K = `projects/${PID}/shots/shot-1/1700000000-a.exr`
       const { call, w } = await readWorld({ ...opts, rows: [{ id: 'r1', project_id: PID, storage_path: K, thumbnail_url: null }] })
-      await call({ keys: [K] })
-      expect(roundTrips(w)).toEqual(trips)
+      const out = await call({ keys: [K], workspace_id: 'someone-else' })
+      expect(out.status).toBe(status)
+      if (json) expect(out.json).toEqual(json)
+      expect(roundTrips(w)).toEqual(['workspace_storage', 'workspace_storage_secrets'])
+      expect(reads(w).filter((r) => r.name !== 'files')).toEqual(both('provider, provider_config'))
     })
   }
+
+  const probe = [
+    ['storage read fails', { wsError: { message: 'gone' } }, 500, { error: 'storage_read_failed', detail: 'gone' }],
+    ['not s3', { ws: null }, 409, { error: 'refused', detail: 'save the bucket configuration first — there is nothing to probe yet' }],
+    ['no secret row', { sec: null }, 409, { error: 'refused', detail: 'no bucket secret is stored — save the secret, then probe' }],
+  ]
+  for (const [name, opts, status, json] of probe) {
+    it(`storage-secret probe, ${name}: ${status}, both tables read by the service client`, async () => {
+      net()
+      const { call, w } = await secretWorld(opts)
+      expect(await call({ action: 'probe' })).toEqual({ status, json })
+      expect(reads(w)).toEqual(both('provider, provider_config'))
+    })
+  }
+
+  it('a secret read that THROWS beside a company with no S3 configuration: still the 409, and no unhandled rejection', async () => {
+    const unhandled = []
+    const onUnhandled = (e) => unhandled.push(e)
+    process.on('unhandledRejection', onUnhandled)
+    try {
+      for (const [load, ask] of [[presignWorld, { op: 'put', path: PATH }], [readWorld, null]]) {
+        const K = `projects/${PID}/shots/shot-1/1700000000-a.exr`
+        const { call, w } = await load({ ws: null, rows: [{ id: 'r1', project_id: PID, storage_path: K, thumbnail_url: null }] })
+        w.table('workspace_storage_secrets', () => { throw new Error('the socket closed') })
+        await expect(call(ask ?? { keys: [K] })).resolves.toEqual({ status: 409, json: { error: 'refused', detail: S.noS3 } })
+      }
+      net()
+      const s = await secretWorld({ ws: null })
+      s.w.table('workspace_storage_secrets', () => { throw new Error('the socket closed') })
+      await expect(s.call({ action: 'probe' })).resolves.toEqual({ status: 409, json: { error: 'refused', detail: 'save the bucket configuration first — there is nothing to probe yet' } })
+      await new Promise((r) => setTimeout(r, 10))
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
+    }
+    expect(unhandled).toEqual([])
+  })
+
+  it('a secret read that throws once the configuration has passed is thrown, as it was (the handler rejects)', async () => {
+    const { w, handler } = await loaded('storage-presign', { [ST]: KEY })
+    const caller = seatCaller(w, { role: 'member' })
+    w.rpc('can_presign_object', () => ({ data: true }))
+    w.table('workspace_storage', () => ({ data: s3row(), error: null }))
+    w.table('workspace_storage_secrets', () => { throw new Error('the socket closed') })
+    await expect(handler(post({ op: 'get', path: PATH }, { token: caller.token }))).rejects.toThrow('the socket closed')
+  })
 })
 
 // =============================================================================

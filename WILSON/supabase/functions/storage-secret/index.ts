@@ -30,27 +30,28 @@
 // The probe object lives under `.wilson-probe/…` inside the workspace's
 // prefix — deliberately OUTSIDE projects/, so it can never collide with a
 // row-shaped key and never trips the money or reserved rules.
+//
+// F8 (wave 2, 2026-11-13): the probe's two reads are
+// _shared/workspaceBucket.ts's loadWorkspaceBucket (with NO master-key
+// preflight: the probe never asked it, so an unset master key surfaces from
+// the decrypt as before), and `set` reads the configuration half alone
+// (readWorkspaceBucketConfig: a company with no S3 configuration is not
+// refused, the secret is saved). Every sentence is still this file's own.
+// The project's own host for both vets is gatewayReachRun.supabaseHost().
 // =============================================================================
 
 import { corsHeaders, reply, requireWorkspaceAdmin, logAdminEvent } from '../_shared/adminGuard.ts'
 import { isRateLimited, envInt } from '../_shared/rateLimit.ts'
 import {
-  encryptStorageSecret, decryptStorageSecret, storageKeyHint,
+  encryptStorageSecret, storageKeyHint,
   storageSecretCryptoConfigured, storageSecretCurrentVersion,
 } from '../_shared/storageSecretCrypto.ts'
-import { presignS3Request, s3HostAndPath, type S3Target } from '../_shared/s3Presign.ts'
+import { presignS3Request, s3HostAndPath } from '../_shared/s3Presign.ts'
 // P8 (TPN-NET-016): every request to the bucket goes to a VETTED public
 // address, over one TLS connection to that literal, no redirect followed.
 import { vetS3Host, s3Request, s3ReachDeps } from '../_shared/s3Reach.ts'
-
-type S3Config = {
-  endpoint?: string
-  region: string
-  bucket: string
-  prefix?: string
-  accessKeyId: string
-  forcePathStyle?: boolean
-}
+import { loadWorkspaceBucket, readWorkspaceBucketConfig } from '../_shared/workspaceBucket.ts'
+import { supabaseHost } from '../_shared/gatewayReachRun.ts'
 
 function probeKey(prefix: string | undefined, label: string): string {
   const rand = Array.from(crypto.getRandomValues(new Uint8Array(8)))
@@ -102,21 +103,17 @@ Deno.serve(async (req: Request) => {
     // refused if any answer is inside a private network — a name the CHECK
     // cannot resolve is caught at this save and at every use.
     {
-      const { data: wsRow, error: wsRowErr } = await ctx.admin
-        .from('workspace_storage')
-        .select('provider, provider_config')
-        .eq('workspace_id', ctx.workspaceId)
-        .maybeSingle()
-      if (wsRowErr) return reply({ error: 'storage_read_failed', detail: wsRowErr.message }, 500)
-      if (wsRow?.provider === 's3' && wsRow.provider_config) {
-        const c = wsRow.provider_config as S3Config
+      const wsRow = await readWorkspaceBucketConfig(ctx.admin, ctx.workspaceId)
+      if (!wsRow.ok) return reply({ error: 'storage_read_failed', detail: wsRow.message }, 500)
+      // Not S3 is not a refusal here: there is no endpoint to vet, and the secret is saved.
+      if (wsRow.s3) {
         let host: string
         try {
-          host = s3HostAndPath({ endpoint: c.endpoint, region: c.region, bucket: c.bucket, forcePathStyle: c.forcePathStyle }, 'probe').host
+          host = s3HostAndPath(wsRow.target, 'probe').host
         } catch (err) {
           return reply({ error: 'refused', detail: err instanceof Error ? err.message : String(err) }, 409)
         }
-        const vet = await vetS3Host(host, s3ReachDeps(), { supabaseHost: new URL(Deno.env.get('SUPABASE_URL') ?? 'https://invalid').hostname })
+        const vet = await vetS3Host(host, s3ReachDeps(), { supabaseHost: supabaseHost() })
         if (!vet.ok) {
           await logAdminEvent(ctx, { code: 'WIL-3007', message: 'Bucket secret refused', context: { stage: 'endpoint', reason: vet.reason } })
           return reply({ error: 'refused', detail: `${vet.detail} — the secret was not saved` }, 409)
@@ -167,37 +164,31 @@ Deno.serve(async (req: Request) => {
 
   // ── probe ──────────────────────────────────────────────────────────────────
   if (body.action === 'probe') {
-    const { data: ws, error: wsErr } = await ctx.admin
-      .from('workspace_storage')
-      .select('provider, provider_config')
-      .eq('workspace_id', ctx.workspaceId)
-      .maybeSingle()
-    if (wsErr) return reply({ error: 'storage_read_failed', detail: wsErr.message }, 500)
-    if (ws?.provider !== 's3' || !ws.provider_config) {
-      return reply({ error: 'refused', detail: 'save the bucket configuration first — there is nothing to probe yet' }, 409)
-    }
-    const { data: sec, error: secErr } = await ctx.admin
-      .from('workspace_storage_secrets')
-      .select('secret_ciphertext')
-      .eq('workspace_id', ctx.workspaceId)
-      .maybeSingle()
-    if (secErr) return reply({ error: 'secret_read_failed', detail: secErr.message }, 500)
-    if (!sec?.secret_ciphertext) {
-      return reply({ error: 'refused', detail: 'no bucket secret is stored — save the secret, then probe' }, 409)
-    }
-    let secret: string
-    try {
-      secret = await decryptStorageSecret(sec.secret_ciphertext as string)
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      return reply({ error: 'secret_unusable', detail: `the stored secret cannot be decrypted (${message}) — re-enter it` }, 500)
+    // An admin tests a bucket being configured: no active choice is asked, and
+    // NO master-key preflight (the probe never asked it; with no master key a
+    // stored secret is 500 secret_unusable naming it, and no secret is 409).
+    const cfg = await loadWorkspaceBucket(ctx.admin, ctx.workspaceId, { requireByos: false, preflightCrypto: false })
+    if (!cfg.ok) {
+      switch (cfg.code) {
+        case 'storage_read_failed':
+          return reply({ error: 'storage_read_failed', detail: cfg.message }, 500)
+        case 'not_s3':
+          return reply({ error: 'refused', detail: 'save the bucket configuration first — there is nothing to probe yet' }, 409)
+        case 'secret_read_failed':
+          return reply({ error: 'secret_read_failed', detail: cfg.message }, 500)
+        case 'no_secret':
+          return reply({ error: 'refused', detail: 'no bucket secret is stored — save the secret, then probe' }, 409)
+        case 'secret_unusable':
+          return reply({ error: 'secret_unusable', detail: `the stored secret cannot be decrypted (${cfg.message}) — re-enter it` }, 500)
+        // Not asked for by this caller (requireByos false, preflightCrypto
+        // false), so never answered; worded as "nothing to probe yet".
+        case 'not_active':
+        case 'crypto_unavailable':
+          return reply({ error: 'refused', detail: 'save the bucket configuration first — there is nothing to probe yet' }, 409)
+      }
     }
 
-    const cfg = ws.provider_config as S3Config
-    const target: S3Target = {
-      endpoint: cfg.endpoint, region: cfg.region, bucket: cfg.bucket,
-      forcePathStyle: cfg.forcePathStyle,
-    }
+    const { target, secret } = cfg
     const sign = (method: 'PUT' | 'GET' | 'DELETE', key: string) =>
       presignS3Request({
         target, accessKeyId: cfg.accessKeyId, secretAccessKey: secret,
@@ -217,7 +208,7 @@ Deno.serve(async (req: Request) => {
       return reply({ error: 'refused', detail: err instanceof Error ? err.message : String(err) }, 409)
     }
     const deps = s3ReachDeps()
-    const vetted = await vetS3Host(endpointHost, deps, { supabaseHost: new URL(Deno.env.get('SUPABASE_URL') ?? 'https://invalid').hostname })
+    const vetted = await vetS3Host(endpointHost, deps, { supabaseHost: supabaseHost() })
     if (!vetted.ok) {
       await logAdminEvent(ctx, { code: 'WIL-3007', message: 'Bucket probe failed', context: { stage: 'endpoint', reason: vetted.reason } })
       return reply({ error: 'refused', stage: 'endpoint', detail: vetted.detail }, 409)

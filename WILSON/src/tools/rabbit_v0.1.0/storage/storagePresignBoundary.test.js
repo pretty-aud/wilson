@@ -186,7 +186,15 @@ describe('the wiring is real — every link in the presign chain has a caller', 
     expect(fn).toContain("cfg.prefix ? `${cfg.prefix}/${body.path}`")
     // A PUT needs the ACTIVE choice; reads deliberately drop the mode check
     // (resolve-from-the-row — a switched workspace must not orphan bodies).
-    expect(fn).toContain("(op === 'put' || op === 'look') && ws.mode !== 'byos'")
+    // F8 (b): the check itself moved into the shared bucket loader; the
+    // function says which ops ask it, and the loader asks it of the mode it
+    // read. The handler test (src/cloud/edgeStorage.test.js, "3. put and look
+    // on a workspace not in byos") holds the answers: put and look on a
+    // retained configuration refused with the Petal-cloud sentence, get, head
+    // and del signed.
+    expect(fn).toContain("requireByos: op === 'put' || op === 'look'")
+    const loader = read('supabase', 'functions', '_shared', 'workspaceBucket.ts')
+    expect(loader).toContain("if (opts.requireByos && cfg.mode !== 'byos')")
     // 🚨 The op allowlist must be an ARRAY, never `op in METHOD`: `in` walks
     // the prototype chain, so 'constructor' and '__proto__' satisfied a
     // four-value allowlist, ran the whole authorisation path, decrypted the
