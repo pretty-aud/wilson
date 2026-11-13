@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import AnswerLink from '../../components/AnswerLink';
@@ -116,6 +116,35 @@ function NodeTypeBadge({ type }) {
     </Badge>
   );
 }
+
+// ═══════════════════════════════════════════════════════════════════
+//  THE LESSON'S BODY, DRAWN ONCE FOR ITS TEXT (F4, 2026-11-13; the
+//  review's dog-otter C2)
+//
+//  O.T.T.E.R. keeps its seven views mounted and builds each of them at every
+//  render (handbook §13.2), and react-markdown parses its text every time it
+//  is handed to React, whatever its props. So the open lesson was parsed
+//  again, and its code fences coloured again, at every render of the tool.
+//  Measured (otterRerender.test.jsx): marking the lesson complete parsed it
+//  again, and four letters typed in the functions search parsed the lesson,
+//  which is off screen then, four times. (By the same rule, not measured:
+//  each second of a generation's clock, which sets state.)
+//
+//  This is the boundary: it draws what its child function returns for
+//  `content`, and React is told to draw it again only when `content` is
+//  another text.
+//
+//  🚨 THE CHILD FUNCTION IS NOT COMPARED, ON PURPOSE. It is a new function at
+//  every render of O.T.T.E.R., so comparing it would draw every time. That is
+//  safe only while that function reads NOTHING of the component but the text
+//  it is handed: today it reads module-level names (the highlighter, its
+//  theme, AnswerLink). A piece of state read inside it would show its value
+//  as of the last change of the lesson's text, and nothing would say so.
+// ═══════════════════════════════════════════════════════════════════
+function LessonBody({ content, children }) {
+  return children(content);
+}
+const LessonBodyOnce = memo(LessonBody, (was, now) => was.content === now.content);
 
 // ═══════════════════════════════════════════════════════════════════
 //  MAIN OTTER COMPONENT (tool inside WILSON)
@@ -3365,6 +3394,39 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
   }
 
   // ═══════════════════════════════════════════════════════════════
+  //  THE TWO REFERENCE VIEWS, BUILT WHEN THEIR DATA CHANGES (F4,
+  //  2026-11-13; the review's dog-otter C2)
+  //
+  //  The shortcuts-or-functions view and the nodes view are built by
+  //  renderHotkeys() and renderNodes(), below, and were built at every render
+  //  of the tool: every category, every card, for a lesson marked complete or
+  //  a second of a generation's clock, on screen or hidden. They are kept
+  //  here, as the elements those two functions return, and built again only
+  //  when something they READ changes. React is handed the same element and
+  //  skips it. Both views stay mounted and hidden as before (§13.2).
+  //
+  //  🚨 EACH LIST BELOW IS EVERYTHING ITS FUNCTION READS OF THE COMPONENT
+  //  that can change: state, and nothing else. What is not in a list and is
+  //  read all the same: the three scroll refs (one object for the life of the
+  //  tool), the state setters, and selectSoftware (a useCallback over nothing).
+  //  READ A NEW PIECE OF STATE IN ONE OF THE TWO FUNCTIONS AND IT GOES IN ITS
+  //  LIST, or the view will show it as of the last change of the others, and
+  //  nothing will say so. otterRerender.test.jsx holds what each list is for
+  //  (a search still finds, a course still switches); it cannot see a read
+  //  that is added later.
+  // ═══════════════════════════════════════════════════════════════
+  const hotkeysView = useMemo(
+    () => renderHotkeys(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeSoftware, softwareList, activeSoftwareSlug, softwareFunctions, functionSearch, softwareHotkeys, hotkeySearch],
+  );
+  const nodesView = useMemo(
+    () => renderNodes(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [softwareList, activeSoftwareSlug, softwareNodes, activeNodeSystem, nodeSearch],
+  );
+
+  // ═══════════════════════════════════════════════════════════════
   //  RENDER — MAIN LAYOUT
   // ═══════════════════════════════════════════════════════════════
   return (
@@ -3493,8 +3555,8 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
           <div className={currentView === 'prompt' ? 'h-full' : 'hidden'}>{renderPromptInput()}</div>
           <div className={currentView === 'study' ? 'h-full' : 'hidden'}>{renderStudyView()}</div>
           <div className={currentView === 'quiz' ? 'h-full' : 'hidden'}>{renderQuizCenter()}</div>
-          <div className={currentView === 'hotkeys' ? 'h-full' : 'hidden'}>{renderHotkeys()}</div>
-          <div className={currentView === 'nodes' ? 'h-full' : 'hidden'}>{renderNodes()}</div>
+          <div className={currentView === 'hotkeys' ? 'h-full' : 'hidden'}>{hotkeysView}</div>
+          <div className={currentView === 'nodes' ? 'h-full' : 'hidden'}>{nodesView}</div>
           <div className={currentView === 'sources' ? 'h-full' : 'hidden'}>{renderSourcesView()}</div>
           {/* Conditionally MOUNTED, not hidden: the queue should be fresh on
               every visit, and mounting it always would fire cr.list for every
@@ -5230,6 +5292,20 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
                 page starting over. */}
             <h2 className="otter-lesson-title">{selectedLesson.title}</h2>
             <div className="lesson-content">
+              {/* F4: parsed once for its text (LessonBodyOnce, above the
+                  component). The function handed to it reads nothing of this
+                  component but `content`: keep it so, or what it reads will
+                  show as of the last change of the lesson's text. */}
+              <LessonBodyOnce content={(() => {
+                  let content = selectedLesson.content || '';
+                  const headingMatch = content.match(/^(#{1,3})\s+(.+?)(\n|$)/);
+                  if (headingMatch) {
+                    const headingText = headingMatch[2].trim().replace(/\*\*/g, '');
+                    const titleNorm = selectedLesson.title.trim().replace(/\*\*/g, '');
+                    if (headingText.toLowerCase() === titleNorm.toLowerCase()) content = content.slice(headingMatch[0].length).trimStart();
+                  }
+                  return content;
+                })()}>{(content) => (
               <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
                 code({ node, inline, className, children, ...props }) {
                   const match = /language-(\w+)/.exec(className || '');
@@ -5260,17 +5336,9 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
                 // decides there, unchanged).
                 a: AnswerLink,
               }}>
-                {(() => {
-                  let content = selectedLesson.content || '';
-                  const headingMatch = content.match(/^(#{1,3})\s+(.+?)(\n|$)/);
-                  if (headingMatch) {
-                    const headingText = headingMatch[2].trim().replace(/\*\*/g, '');
-                    const titleNorm = selectedLesson.title.trim().replace(/\*\*/g, '');
-                    if (headingText.toLowerCase() === titleNorm.toLowerCase()) content = content.slice(headingMatch[0].length).trimStart();
-                  }
-                  return content;
-                })()}
+                {content}
               </ReactMarkdown>
+              )}</LessonBodyOnce>
             </div>
             {/* Key takeaways and the practice exercise are siblings of the
                 prose, so they were the one thing still running the pane's
