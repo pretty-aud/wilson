@@ -448,14 +448,16 @@ SELECT ok((SELECT pg_get_statisticsobjdef(s.oid) FROM pg_statistic_ext s WHERE s
 
 -- The reads exactly as PostgREST sends them: every value and the JSON key bound as parameters. Enough AI file rows
 -- that a look-up of two ids by the file-id index is plainly cheaper than walking the workspace's rows (on CI's empty
--- database, at 40 rows the planner took the other partial index: 11256e74's run).
+-- database, at 40 rows the planner took the other partial index: 11256e74's run), and enough other rows that walking
+-- the primary key in id order is plainly dearer than the workspace's AI rows by their index (with 200, the two cost
+-- the same on CI and it took the primary key: 8a09480b's run).
 INSERT INTO public.app_events (workspace_id, actor_user_id, event_type, code, message, context)
 SELECT '11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'system', 'WIL-6001', 'AI file upload completed',
        jsonb_build_object('tool', 'ai-files', 'file_id', 'file_t139' || lpad(g::text, 8, '0'), 'size_bytes', g, 'mime_type', 'application/pdf')
   FROM generate_series(1, 3000) g;
 INSERT INTO public.app_events (workspace_id, event_type, code, message, context)
 SELECT '11111111-1111-1111-1111-111111111111', 'system', 'WIL-6001', 'A generation', jsonb_build_object('tool', 'ai-proxy', 'n', g)
-  FROM generate_series(1, 200) g;
+  FROM generate_series(1, 20000) g;
 ANALYZE public.app_events;
 PREPARE t139_rows(text, text, text, uuid) AS
   SELECT "public"."app_events"."workspace_id", "public"."app_events"."context" FROM "public"."app_events"
