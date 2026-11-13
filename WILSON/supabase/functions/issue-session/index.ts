@@ -14,19 +14,21 @@
 // The custom_access_token_hook itself is the load-bearing piece — this
 // function is the trigger. Never trust client-supplied workspace_id without
 // verifying membership.
+//
+// F8 (wave 2, 2026-11-13): the token check (the bearer, sliced and never
+// trimmed, then GoTrue) is adminGuard.authenticate, and the answers are
+// adminGuard's corsHeaders and reply: the same four headers, byte for byte,
+// that this file used to build by hand. Everything after the token is its own.
+//
+// F8 (e): the body is read under a cap (gatewayWire.SIGN_IN_JSON_MAX_BYTES,
+// 4 KiB; the real body is 55 bytes). Past it, 413 too_large, after the token
+// is checked and BEFORE the memberships are read or anything is updated.
+// Nothing sent, or text that is not JSON, is still read as {} (the oldest
+// membership), and a JSON null is still handed on as it is.
 // =============================================================================
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
-
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
-const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!
-
-const corsHeaders = {
-  'access-control-allow-origin': '*',
-  'access-control-allow-methods': 'POST, OPTIONS',
-  'access-control-allow-headers': 'content-type, authorization, apikey',
-}
+import { authenticate, corsHeaders, reply } from '../_shared/adminGuard.ts'
+import { readBodyJson, SIGN_IN_JSON_MAX_BYTES, TOO_LARGE } from '../_shared/gatewayWire.ts'
 
 type Body = { workspace_id?: string }
 
@@ -35,61 +37,38 @@ Deno.serve(async (req: Request) => {
     return new Response(null, { status: 204, headers: corsHeaders })
   }
   if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'method_not_allowed' }), {
-      status: 405,
-      headers: { ...corsHeaders, 'content-type': 'application/json' },
-    })
+    return reply({ error: 'method_not_allowed' }, 405)
   }
 
   // The Edge gateway's built-in verify_jwt is disabled for this function in
   // config.toml — it only supports HS256 and this project's JWTs are ES256,
   // which the gateway rejects with UNAUTHORIZED_UNSUPPORTED_TOKEN_ALGORITHM
   // before our code runs. We validate the token ourselves via
-  // admin.auth.getUser(token), which routes through GoTrue and handles ES256.
-  const authHeader = req.headers.get('authorization') ?? ''
-  const token = authHeader.toLowerCase().startsWith('bearer ')
-    ? authHeader.slice(7)
-    : ''
-  if (!token) {
-    return new Response(JSON.stringify({ error: 'unauthorized' }), {
-      status: 401,
-      headers: { ...corsHeaders, 'content-type': 'application/json' },
-    })
+  // admin.auth.getUser(token), which routes through GoTrue and handles ES256:
+  // the service-role client, made only once a token is found, with the token
+  // passed as an explicit argument.
+  const who = await authenticate(req)
+  if (!who.ok) {
+    return reply({ error: 'unauthorized' }, 401)
   }
-
-  const admin = createClient(SUPABASE_URL, SERVICE_ROLE)
-
-  // Resolve (and verify) the user via the service-role admin client with the
-  // token passed as an explicit argument. This hits GoTrue's user-by-JWT
-  // endpoint, which correctly validates ES256 JWTs in the Edge runtime.
-  const { data: me, error: meErr } = await admin.auth.getUser(token)
-  if (meErr || !me.user) {
-    return new Response(JSON.stringify({ error: 'unauthorized' }), {
-      status: 401,
-      headers: { ...corsHeaders, 'content-type': 'application/json' },
-    })
-  }
+  const { admin, user } = who.caller
 
   let body: Body
-  try {
-    body = await req.json()
-  } catch {
-    body = {}
-  }
+  const sent = await readBodyJson(req, SIGN_IN_JSON_MAX_BYTES)
+  if (sent.kind === 'too_large') return reply({ ...TOO_LARGE }, 413)
+  // not_json is what the old `catch` read as {}; a parsed value goes on untouched.
+  body = (sent.kind === 'json' ? sent.value : {}) as Body
 
   // Collect the user's memberships.
   const { data: memberships, error: memErr } = await admin
     .from('workspace_members')
     .select('workspace_id')
-    .eq('user_id', me.user.id)
+    .eq('user_id', user.id)
     .eq('is_active', true)
     .order('created_at', { ascending: true })
 
   if (memErr || !memberships || memberships.length === 0) {
-    return new Response(JSON.stringify({ error: 'no_workspaces' }), {
-      status: 403,
-      headers: { ...corsHeaders, 'content-type': 'application/json' },
-    })
+    return reply({ error: 'no_workspaces' }, 403)
   }
 
   const ids = memberships.map((m) => m.workspace_id as string)
@@ -103,24 +82,18 @@ Deno.serve(async (req: Request) => {
   // Persist to app_metadata so the custom_access_token_hook picks it up on the
   // next token issuance. Supabase merges what we send; we set the full shape
   // for safety.
-  const { error: updateErr } = await admin.auth.admin.updateUserById(me.user.id, {
+  const { error: updateErr } = await admin.auth.admin.updateUserById(user.id, {
     app_metadata: {
-      ...me.user.app_metadata,
+      ...user.app_metadata,
       workspace_id: active,
     },
   })
   if (updateErr) {
-    return new Response(JSON.stringify({ error: 'update_failed' }), {
-      status: 500,
-      headers: { ...corsHeaders, 'content-type': 'application/json' },
-    })
+    return reply({ error: 'update_failed' }, 500)
   }
 
   // Client is responsible for calling supabase.auth.refreshSession() after
   // a 200 response; that refresh re-runs the hook and the new token carries
   // the correct workspace_id.
-  return new Response(
-    JSON.stringify({ workspace_id: active, workspace_ids: ids }),
-    { status: 200, headers: { ...corsHeaders, 'content-type': 'application/json' } }
-  )
+  return reply({ workspace_id: active, workspace_ids: ids }, 200)
 })

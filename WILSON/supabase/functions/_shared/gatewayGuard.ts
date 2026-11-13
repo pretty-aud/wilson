@@ -11,15 +11,22 @@
 // secret row, is the authority (the row goes a minute later, with the
 // sweep). Every refusal is 401 with a code and a sentence; the gateway's
 // own answer to a 401 is to close both doors (GW2).
+//
+// F8 (wave 2, 2026-11-13): `answer` is built on adminGuard.jsonResponse (the
+// same headers in the same order, plus cache-control: no-store, which is why
+// it is NOT adminGuard's `reply`: a gateway answer must never lose no-store,
+// and an admin or storage answer must never gain it), and serviceClient() is
+// adminGuard.serviceClient({ quiet: true }), the options it always passed.
+// The gateway's own bearer reader (gatewayWire.bearerOf, which trims) stays
+// the gateways'; the user guards slice and never trim.
 // =============================================================================
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
-import { corsHeaders } from './adminGuard.ts'
+import { corsHeaders, jsonResponse, serviceClient as houseServiceClient, type ServiceClient } from './adminGuard.ts'
 import { sha256Hex } from './gatewayWire.ts'
 import { credentialOf } from './gatewayShapes.ts'
 
 export type GatewayContext = {
-  admin: ReturnType<typeof createClient>
+  admin: ServiceClient
   gatewayId: string
   workspaceId: string
   gateway: Record<string, unknown>
@@ -27,10 +34,7 @@ export type GatewayContext = {
 
 /** A JSON answer with the house CORS headers and no caching. */
 export function answer(body: Record<string, unknown>, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, 'content-type': 'application/json', 'cache-control': 'no-store' },
-  })
+  return jsonResponse(body, status, { 'cache-control': 'no-store' })
 }
 
 /** The CORS preflight: no body (a 204 may not carry one). */
@@ -57,10 +61,9 @@ export function withMemberSentence(res: Response): Response {
   return res
 }
 
-export function serviceClient(): ReturnType<typeof createClient> {
-  return createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  })
+/** The service-role client, quiet: no session kept, no refresh timer (as it always was). */
+export function serviceClient(): ServiceClient {
+  return houseServiceClient({ quiet: true })
 }
 
 type Guard = { ok: true; ctx: GatewayContext } | { ok: false; res: Response }

@@ -36,12 +36,23 @@
 // The network is injected (ReachDeps, gatewayReach.ts), so the whole
 // decision is unit-tested in Node (src/cloud/s3Reach.test.js) with a fake
 // resolver and a fake TLS connect that records what it was asked to reach.
+//
+// F8 (wave 2, 2026-11-13): "built from its pieces" is now true of the
+// transport too. The deadline, the byte reader, the literal-address TLS
+// connect, the one write-read-close exchange and the capped fetch body are
+// gatewayReach.ts's, and the host rule is its checkPublicHost. What stays
+// here, on purpose: how the host is READ (through a URL: lower-cased,
+// brackets wanted, `010.0.0.1` read as 8.0.0.1, as the signer's URL reads
+// it, so vet and use agree), this file's words for each refusal (a host that
+// is not a DNS name is `local_name` here, `malformed` at the reach check),
+// the timeout's sentence (a person reads it: S3_TIMED_OUT), parseHttpAnswer,
+// the fetch call with its `redirect: 'manual'`, and that a failed write
+// THROWS out of s3Request (the reach probe swallows the same failure).
 // =============================================================================
 
-import { parseIpv4, parseIpv6 } from './gatewayShapes.ts'
 import {
-  isPublicIp, vetResolved, denoReachDeps, LOCAL_NAME_SUFFIX, SUPABASE_HOST_SUFFIX, DNS_NAME_RE,
-  type ReachDeps, type Conn,
+  checkPublicHost, vetResolved, denoReachDeps, withDeadline, connectLiteralTls, exchangeOnce, readBodyCapped,
+  type ReachDeps,
 } from './gatewayReach.ts'
 
 export const S3_REQUEST_TIMEOUT_MS = 10_000
@@ -77,21 +88,24 @@ export async function vetS3Host(hostPort: string, deps: ReachDeps, opts: { supab
   if (!Number.isInteger(port) || port < 1 || port > 65535 || hostname.length < 1 || hostname.length > 253) {
     return { ok: false, reason: 'malformed', detail: 'the S3 endpoint is not a host WILSON can read' }
   }
-  if (parseIpv4(hostname) || parseIpv6(hostname)) {
-    if (!isPublicIp(hostname)) {
+  // The one host rule (gatewayReach.checkPublicHost), in this caller's own words.
+  const rule = checkPublicHost(hostname, opts.supabaseHost)
+  if (!rule.ok) {
+    if (rule.reason === 'not_public') {
       return { ok: false, reason: 'not_public', address: hostname, detail: `the S3 endpoint is an address inside a private network (${hostname}); WILSON sends bucket requests to public endpoints only` }
     }
-    return { ok: true, hostname, port, address: hostname, literal: true }
-  }
-  if (hostname === 'localhost' || !DNS_NAME_RE.test(hostname) || LOCAL_NAME_SUFFIX.test(hostname)) {
+    if (rule.reason === 'supabase_host') {
+      return { ok: false, reason: 'supabase_host', detail: 'the S3 endpoint cannot be a WILSON host' }
+    }
+    // not_a_name and local_name are ONE answer here, as they always were
+    // (`localhost` and a bare label included); the reach check says
+    // `malformed` for the first. Each side's word is its own: keep both.
     return { ok: false, reason: 'local_name', detail: `the S3 endpoint names a host inside a private network (${hostname}); WILSON sends bucket requests to public endpoints only` }
   }
-  if (SUPABASE_HOST_SUFFIX.test(hostname) || (opts.supabaseHost && hostname === opts.supabaseHost.toLowerCase())) {
-    return { ok: false, reason: 'supabase_host', detail: 'the S3 endpoint cannot be a WILSON host' }
-  }
+  if (rule.literal) return { ok: true, hostname, port, address: hostname, literal: true }
   let resolved: string[] = []
   try {
-    resolved = await withDeadline(deps.resolve(hostname), opts.timeoutMs ?? S3_REQUEST_TIMEOUT_MS)
+    resolved = await withDeadline(deps.resolve(hostname), opts.timeoutMs ?? S3_REQUEST_TIMEOUT_MS, undefined, S3_TIMED_OUT)
   } catch {
     resolved = []
   }
@@ -116,43 +130,12 @@ export type S3Answer = {
   address: string | null
 }
 
-async function withDeadline<T>(p: Promise<T>, ms: number, onLate?: (v: T) => void): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  let done = false
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      if (!done) reject(Object.assign(new Error('the S3 endpoint did not answer within the time allowed'), { name: 'TimedOut' }))
-    }, Math.max(1, ms))
-  })
-  try {
-    return await Promise.race([p, timeout])
-  } catch (e) {
-    p.then((v) => { if (onLate) onLate(v) }, () => {})
-    throw e
-  } finally {
-    done = true
-    if (timer) clearTimeout(timer)
-  }
-}
-
-/** Reads until the peer closes, the cap or the deadline, whichever first. */
-async function readUpTo(conn: Conn, max: number, deadline: number, now: () => number): Promise<Uint8Array> {
-  const buf = new Uint8Array(max)
-  let n = 0
-  while (n < max) {
-    const left = deadline - now()
-    if (left <= 0) break
-    let got: number | null
-    try {
-      got = await withDeadline(conn.read(buf.subarray(n)), left)
-    } catch {
-      break
-    }
-    if (got === null) break
-    n += got
-  }
-  return buf.subarray(0, n)
-}
+/**
+ * What this caller's deadline says. A person reads it: storage-secret's
+ * "could not reach the bucket endpoint (…)" and the look's "the bucket could
+ * not be reached (…)". Not the reach check's two words.
+ */
+export const S3_TIMED_OUT = 'the S3 endpoint did not answer within the time allowed'
 
 /** An HTTP/1.x answer's status, headers and body (Content-Length or chunked), from raw bytes. */
 export function parseHttpAnswer(raw: Uint8Array, maxBody: number): { status: number; headers: Record<string, string>; body: Uint8Array } | null {
@@ -238,14 +221,9 @@ export async function s3Request(
     const request = new Uint8Array(head.length + payload.length)
     request.set(new TextEncoder().encode(head), 0)
     request.set(payload, head.length)
-    const conn = await withDeadline(deps.connectTls(vetted.address, vetted.port, vetted.hostname, timeoutMs), timeoutMs, (late) => late.close())
-    let raw: Uint8Array
-    try {
-      await withDeadline(conn.write(request), Math.max(1, deadline - deps.now()))
-      raw = await readUpTo(conn, maxBodyBytes + 16 * 1024, deadline, deps.now)
-    } finally {
-      try { conn.close() } catch { /* closed */ }
-    }
+    const conn = await connectLiteralTls(deps, vetted.address, vetted.port, vetted.hostname, timeoutMs, S3_TIMED_OUT)
+    // A failed or late write throws out of here (the probe's "connect" stage), as it always did.
+    const raw = await exchangeOnce(conn, request, maxBodyBytes + 16 * 1024, deadline, deps.now, S3_TIMED_OUT)
     const answer = parseHttpAnswer(raw, maxBodyBytes)
     if (!answer) throw new Error('the S3 endpoint answered something that is not HTTP')
     return {
@@ -267,27 +245,7 @@ export async function s3Request(
   })
   const redirect = res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400)
   let text = ''
-  if (!redirect && res.body) {
-    const reader = res.body.getReader()
-    const parts: Uint8Array[] = []
-    let total = 0
-    while (total < maxBodyBytes) {
-      const { value, done } = await reader.read()
-      if (done || !value) break
-      parts.push(value)
-      total += value.length
-    }
-    try { await reader.cancel() } catch { /* done */ }
-    const all = new Uint8Array(Math.min(total, maxBodyBytes))
-    let off = 0
-    for (const p of parts) {
-      const take = Math.min(p.length, all.length - off)
-      all.set(p.subarray(0, take), off)
-      off += take
-      if (off >= all.length) break
-    }
-    text = new TextDecoder().decode(all)
-  }
+  if (!redirect && res.body) text = new TextDecoder().decode(await readBodyCapped(res.body, maxBodyBytes))
   return { status: res.status, text, redirect, method: 'pinned_fetch', address: null }
 }
 

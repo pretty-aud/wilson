@@ -70,6 +70,7 @@ import {
 } from '../_shared/operatorGuard.ts'
 import { isRateLimited, envInt } from '../_shared/rateLimit.ts'
 import { generatePassword } from '../_shared/adminGuard.ts'
+import { readBodyJson, SMALL_JSON_MAX_BYTES, TOO_LARGE } from '../_shared/gatewayWire.ts'
 import {
   BUCKET, THUMBNAIL_BUCKET, AVATAR_BUCKET, PAGE,
   collectAvatarPaths, collectBlobPaths,
@@ -199,8 +200,13 @@ Deno.serve(async (req: Request) => {
   if (!guard.ok) return guard.res
   const ctx = guard.ctx
 
+  // F8: read under a cap (largest real body 929 bytes). Past it: 413, before
+  // the limiter, as bad_json is. The value is handed on untouched (F8-05).
   let body: Record<string, unknown>
-  try { body = await req.json() } catch { return reply({ error: 'bad_json' }, 400) }
+  const sent = await readBodyJson(req, SMALL_JSON_MAX_BYTES)
+  if (sent.kind === 'too_large') return reply({ ...TOO_LARGE }, 413)
+  if (sent.kind === 'not_json') return reply({ error: 'bad_json' }, 400)
+  body = sent.value as Record<string, unknown>
 
   const action = typeof body.action === 'string' ? body.action : ''
   if (!ACTIONS.has(action)) {

@@ -35,10 +35,13 @@
 // method, proof_checked }, inside_answered, inside_other, checked_at }.
 // Settings words each detail
 // (§4's seven sentences and the few this file adds).
+//
+// F8 (wave 2, 2026-11-13): the caller's own client is adminGuard's
+// callerClient(req, { quiet: true }): the same anon key, the same untrimmed
+// bearer, and the same no-session options this file always passed.
 // =============================================================================
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
-import { requireWorkspaceAdmin } from '../_shared/adminGuard.ts'
+import { callerClient, requireWorkspaceAdmin } from '../_shared/adminGuard.ts'
 import { isRateLimited, envInt } from '../_shared/rateLimit.ts'
 import { answer, preflight, readJson, refusal } from '../_shared/gatewayGuard.ts'
 import { parseReachRequest } from '../_shared/gatewayShapes.ts'
@@ -91,11 +94,7 @@ Deno.serve(async (req: Request) => {
   if (!parsed.ok) return refusal(parsed.status, parsed.code, parsed.detail)
 
   // 4. The predicate as the caller, then one check begun.
-  const token = (req.headers.get('authorization') ?? '').slice(7)
-  const asCaller = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, {
-    global: { headers: { Authorization: `Bearer ${token}` } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  })
+  const asCaller = callerClient(req, { quiet: true })
   const { data: visible, error: visErr } = await asCaller
     .from('gateways')
     .select('id')

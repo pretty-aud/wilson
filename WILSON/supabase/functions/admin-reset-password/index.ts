@@ -13,6 +13,7 @@ import {
   generatePassword,
   logAdminEvent,
 } from '../_shared/adminGuard.ts'
+import { readBodyJson, SMALL_JSON_MAX_BYTES, TOO_LARGE } from '../_shared/gatewayWire.ts'
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
@@ -24,8 +25,13 @@ Deno.serve(async (req: Request) => {
   if (!guard.ok) return guard.res
   const { admin, workspaceId } = guard.ctx
 
+  // F8: read under a cap (largest real body 50 bytes). Past it: 413. Not
+  // JSON: the old bad_json. The value is handed on untouched (JSON null still throws below, F8-05).
   let body: { user_id?: string }
-  try { body = await req.json() } catch { return reply({ error: 'bad_json' }, 400) }
+  const sent = await readBodyJson(req, SMALL_JSON_MAX_BYTES)
+  if (sent.kind === 'too_large') return reply({ ...TOO_LARGE }, 413)
+  if (sent.kind === 'not_json') return reply({ error: 'bad_json' }, 400)
+  body = sent.value as { user_id?: string }
   const userId = typeof body.user_id === 'string' ? body.user_id : ''
   if (!userId) return reply({ error: 'validation_failed', errors: [{ field: 'user_id', error: 'required' }] }, 400)
 

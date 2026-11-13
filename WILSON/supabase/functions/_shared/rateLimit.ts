@@ -29,11 +29,15 @@
 // company-existence oracle, and a limiter that cannot count there would turn
 // a database error into unlimited enumeration. Those callers refuse instead.
 // The default stays open so the eight authenticated callers are unchanged.
+//
+// F8 (wave 2, 2026-11-13): the client is typed adminGuard.ServiceClient, the
+// type createClient(url, key) really returns, which also accepts the guards'
+// client and resolve-login's own. A type only: nothing here runs differently.
 // =============================================================================
 
-import type { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
+import type { ServiceClient } from './adminGuard.ts'
 
-type Client = ReturnType<typeof createClient>
+type Client = ServiceClient
 
 /** Read a positive integer env var, falling back when absent or malformed. */
 export function envInt(name: string, fallback: number): number {

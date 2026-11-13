@@ -188,34 +188,141 @@ export async function reachProof(reachKey: string, nonce: string): Promise<strin
 }
 
 /**
+ * How much of a body past its cap is read and DROPPED before the refusal is
+ * answered, in all (what was counted before the cap included); a stream that
+ * has not ended by then is cancelled.
+ *
+ * MEASURED on the hosted platform (wilson-dev, 2026-11-13): the relay
+ * delivers a function's answer only once it has received the request body.
+ * Refused unread (a declared length over the cap, or a stream cancelled past
+ * it), storage-presign (16 KiB cap) answered 413 in under 2 s for 20, 64 and
+ * 256 KiB bodies but gave NO answer within 90 s for 1 MiB and 8 MiB bodies;
+ * resolve-login (4 KiB) none within 90 s for 1 MiB; ai-proxy (33 MiB) a
+ * platform 502 HTML page after about 39 s for 34 and 40 MiB. Before F8 these
+ * functions read every body whole (`await req.json()`) and answered quickly.
+ *
+ * Why 64 MiB: the largest body measured to pass the platform, which the old
+ * ai-proxy read whole (in 8.3 s). It bounds the work a refused body can cost
+ * (reading, never holding: each chunk is dropped as it arrives); past it the
+ * stream is cancelled.
+ */
+export const DRAIN_MAX_BYTES = 64 * 1024 * 1024
+
+/**
+ * The drain's bound for the one reader that runs BEFORE every check and
+ * limiter, before anyone is authenticated: gateway-enrol's (review round 2,
+ * D1). Before F8 it stopped at its 64 KiB cap; at the 64 MiB default any
+ * address could make it read 64 MiB before a thing was checked. No gateway
+ * sends more than about 20 KiB (its PEM at most 16 KiB, isSingleCertificatePem
+ * in gatewayShapes.ts), so 2 MiB is read through and dropped; a body past
+ * 2 MiB is cut there and the platform answers for the function, as F8-08
+ * measured for 70 MiB (cut at 64 MiB). The other gateway functions keep the
+ * default.
+ */
+export const PRE_AUTH_DRAIN_MAX_BYTES = 2 * 1024 * 1024
+
+/**
+ * Past the cap: read the rest of the body and drop it, chunk by chunk (never
+ * kept, never decoded), until it ends or `alreadyRead` plus what is read here
+ * reaches `drainMax` (DRAIN_MAX_BYTES unless the caller passed another);
+ * then, if it has not ended, cancel it. A read that fails ends the drain
+ * quietly: the answer is already decided (too large).
+ */
+async function drainBody(reader: ReadableStreamDefaultReader<Uint8Array>, alreadyRead: number, drainMax: number): Promise<void> {
+  let total = alreadyRead
+  try {
+    while (total < drainMax) {
+      const { value, done } = await reader.read()
+      if (done) return
+      if (value) total += value.length
+    }
+  } catch {
+    return // the stream failed: nothing left to read or to cancel
+  }
+  try { await reader.cancel() } catch { /* already done */ }
+}
+
+/**
  * A request's JSON body, read under a byte limit (review round 1, note 6):
- * a declared length over the limit is refused before a byte is read, and the
- * body is read through its stream, stopping one chunk past the limit — never
+ * the body is read through its stream and decoded as it comes, never
  * buffered whole first. `{ value: undefined, length }` when there is nothing
  * or too much (the caller compares `length`), `null` when it is not JSON.
+ *
+ * F8, the drain (2026-11-13): PAST THE LIMIT the rest of the body is READ AND
+ * DROPPED before the answer is returned, because the hosted relay delivers no
+ * answer before it has the request body (DRAIN_MAX_BYTES has the
+ * measurement). A declared length over the limit, or a body counted past it,
+ * returns exactly what it always returned (`length` the declared length, or
+ * the running total at the moment it first went over, never the drained
+ * total); only now the rest is read first, up to DRAIN_MAX_BYTES in all, and
+ * then, if it has not ended, cancelled. A read that fails during the
+ * drain is swallowed (the answer is already too large). A declared length
+ * that is not a finite number is ignored, and the stream counted, as before.
+ * Memory is as it was: at most the limit plus one chunk is ever held; the
+ * text read so far is let go before the drain, and each drained chunk is
+ * dropped as it arrives.
+ *
+ * F8 (wave 2, 2026-11-13): it DECODES AS IT READS. It used to keep every
+ * chunk, then join them into one buffer, then decode: for a moment the body
+ * twice over, one copy more than the runtime's own `req.json()`, which for
+ * ai-proxy's large bodies could kill the worker at a smaller body than before.
+ * Now each chunk goes through one streaming TextDecoder into the text and is
+ * let go. A streaming decoder gives exactly the text decoding the whole would
+ * (the Encoding Standard's rule): a character split across two chunks, a
+ * byte-order mark split or alone (stripped, so a lone one is "nothing sent"),
+ * bytes that are not UTF-8 (U+FFFD), all the same; edgeBodyReader.test.js
+ * holds that against the old reader, chunking by chunking. Every return value
+ * is the old one.
+ *
+ * The decoder is flushed exactly once on EVERY path (review round 1, R3): at
+ * the end of the body, where its text is the body's last; and, its text
+ * discarded, past the cap (after the drain, which decodes nothing) or when
+ * the stream fails mid-read, so it never keeps the first bytes of a
+ * character after the reader has returned.
+ *
+ * `drainMax` (review round 2, D1), optional: how far the drain reads, in all,
+ * DRAIN_MAX_BYTES when left out (every call but one). gateway-enrol, the one
+ * reader ahead of every check, passes PRE_AUTH_DRAIN_MAX_BYTES. It moves only
+ * how much of an over-size body is pulled before the cancel, never an answer.
  */
-export async function readJsonLimited(req: Request, maxBytes: number): Promise<{ value: unknown; length: number } | null> {
+export async function readJsonLimited(
+  req: Request, maxBytes: number, drainMax: number = DRAIN_MAX_BYTES,
+): Promise<{ value: unknown; length: number } | null> {
   const declared = Number(req.headers.get('content-length') ?? '')
-  if (Number.isFinite(declared) && declared > maxBytes) return { value: undefined, length: declared }
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    const body = req.body
+    if (body) {
+      let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
+      try { reader = body.getReader() } catch { /* a body already taken: nothing to drain */ }
+      if (reader) await drainBody(reader, 0, drainMax)
+    }
+    return { value: undefined, length: declared }
+  }
   if (!req.body) return { value: undefined, length: 0 }
   const reader = req.body.getReader()
-  const parts: Uint8Array[] = []
+  const decoder = new TextDecoder()
+  let text = ''
   let total = 0
-  for (;;) {
-    const { value, done } = await reader.read()
-    if (done) break
-    if (!value) continue
-    total += value.length
-    if (total > maxBytes) {
-      try { await reader.cancel() } catch { /* already done */ }
-      return { value: undefined, length: total }
+  let flushed = false
+  try {
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) break
+      if (!value) continue
+      total += value.length
+      if (total > maxBytes) {
+        text = '' // let it go: the answer is too large whatever follows
+        await drainBody(reader, total, drainMax)
+        return { value: undefined, length: total }
+      }
+      text += decoder.decode(value, { stream: true })
     }
-    parts.push(value)
+    text += decoder.decode()
+    flushed = true
+  } finally {
+    // Past the cap, or a read that threw: flushed too, and what it gives is not kept.
+    if (!flushed) decoder.decode()
   }
-  const bytes = new Uint8Array(total)
-  let off = 0
-  for (const p of parts) { bytes.set(p, off); off += p.length }
-  const text = new TextDecoder().decode(bytes)
   if (!text) return { value: undefined, length: 0 }
   try {
     return { value: JSON.parse(text), length: total }
@@ -223,6 +330,75 @@ export async function readJsonLimited(req: Request, maxBytes: number): Promise<{
     return null
   }
 }
+
+/** What `await req.json()` gave a function, read under a byte cap (F8). */
+export type BodyRead =
+  /** Parsed: ANY JSON value, `null`, a number or an array included, exactly as req.json() handed it over. */
+  | { kind: 'json'; value: unknown }
+  /** What made req.json() throw: an empty body, text that is not JSON, or a body that failed while it was read. */
+  | { kind: 'not_json' }
+  /** Declared or read past the cap: refused, the rest read and dropped (up to DRAIN_MAX_BYTES), never kept. */
+  | { kind: 'too_large'; length: number }
+
+/**
+ * F8 (wave 2, 2026-11-13): the bounded stand-in for `await req.json()`. Each
+ * of the fourteen functions that read their body with an unbounded
+ * `req.json()` reads it here and keeps its own answers by `kind`: `not_json`
+ * is what its `catch` answered, `json` hands the value on UNTOUCHED (a JSON
+ * `null` included: thirteen of them still throw on it, as before, F8-05; do
+ * not make that kinder here), and `too_large` is the one new answer, 413.
+ */
+export async function readBodyJson(req: Request, maxBytes: number): Promise<BodyRead> {
+  let read: { value: unknown; length: number } | null
+  try {
+    read = await readJsonLimited(req, maxBytes)
+  } catch {
+    return { kind: 'not_json' } // the stream failed: req.json() threw there too
+  }
+  if (read === null) return { kind: 'not_json' }
+  if (read.length > maxBytes) return { kind: 'too_large', length: read.length }
+  if (read.value === undefined) return { kind: 'not_json' } // nothing was sent: req.json() threw on ''
+  return { kind: 'json', value: read.value }
+}
+
+/** The house answer for a body past its cap (gateway-sync, gatewayShapes, readUrls): the words beside the code. */
+export const TOO_LARGE = { error: 'too_large', detail: 'the request is too large' } as const
+
+// ── The caps (F8, DESIGN.md §7.4) ───────────────────────────────────────────
+// Each number is MEASURED from the largest body a real caller builds that the
+// function's own validators accept, in UTF-8 bytes (a field outside ASCII at
+// three bytes a character). No caller is in electron/.
+
+/**
+ * The eleven admin, operator and storage actions. Largest real bodies:
+ * admin-create-user 649, admin-reset-password 50, admin-set-active 65,
+ * admin-user-security 50, invite-member 591, operator-ai-keys 583 (a
+ * 500-character key), operator-models 942, operator-storage-plans 1,610 (a
+ * 500-character note: the largest), operator-workspaces 929, storage-presign
+ * 1,047 (a 1,024-character path), storage-secret 1,564 (a 512-character
+ * secret). 16 KiB is ten times the largest, and gateway-ticket's own cap.
+ */
+export const SMALL_JSON_MAX_BYTES = 16 * 1024
+
+/**
+ * resolve-login (largest real body 254 bytes: `{ company }` of 80 three-byte
+ * characters, LoginScreen.jsx) and issue-session (55 bytes, `{ workspace_id }`,
+ * LoginScreen.jsx and WorkspaceSwitcher.jsx). 4 KiB is sixteen times the
+ * larger, and gateway-reach's own cap.
+ */
+export const SIGN_IN_JSON_MAX_BYTES = 4 * 1024
+
+/**
+ * ai-proxy: the provider's 32 MiB request ceiling (as the client itself
+ * records it, referenceModel.js) plus 1 MiB for the fields WILSON adds and
+ * strips (`tool`, `betas`, `stream`). No client-side bound on inline text
+ * exists (the D.O.G. picker alone admits 20 × 262,144 characters, before
+ * project files and notes), and no caller sends an inline picture or PDF any
+ * more (they go as file ids), so nothing tighter can be read from the code:
+ * any lower number could refuse a request that works today. It bounds an
+ * unbounded read; it does not say the relay survives 33 MiB (F8-08).
+ */
+export const AI_PROXY_JSON_MAX_BYTES = 33 * 1024 * 1024
 
 /** The bearer value of an Authorization header, or '' (case-insensitive scheme). */
 export function bearerOf(header: string | null | undefined): string {

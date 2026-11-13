@@ -186,7 +186,15 @@ describe('the wiring is real — every link in the presign chain has a caller', 
     expect(fn).toContain("cfg.prefix ? `${cfg.prefix}/${body.path}`")
     // A PUT needs the ACTIVE choice; reads deliberately drop the mode check
     // (resolve-from-the-row — a switched workspace must not orphan bodies).
-    expect(fn).toContain("(op === 'put' || op === 'look') && ws.mode !== 'byos'")
+    // F8 (b): the check itself moved into the shared bucket loader; the
+    // function says which ops ask it, and the loader asks it of the mode it
+    // read. The handler test (src/cloud/edgeStorage.test.js, "3. put and look
+    // on a workspace not in byos") holds the answers: put and look on a
+    // retained configuration refused with the Petal-cloud sentence, get, head
+    // and del signed.
+    expect(fn).toContain("requireByos: op === 'put' || op === 'look'")
+    const loader = read('supabase', 'functions', '_shared', 'workspaceBucket.ts')
+    expect(loader).toContain("if (opts.requireByos && cfg.mode !== 'byos')")
     // 🚨 The op allowlist must be an ARRAY, never `op in METHOD`: `in` walks
     // the prototype chain, so 'constructor' and '__proto__' satisfied a
     // four-value allowlist, ran the whole authorisation path, decrypted the
@@ -233,7 +241,12 @@ describe('the wiring is real — every link in the presign chain has a caller', 
   it('storage-gc drains s3 queue rows by signed DELETE, config resolved at drain time', () => {
     const fn = read('supabase', 'functions', 'storage-gc', 'index.ts')
     expect(fn).toContain(".provider === 's3'")
-    expect(fn).toContain('presignS3Request')
+    // F8-02 (the second merger): no longer presignS3Request by name, which a
+    // comment there still says: the run's one presigner, made from the loaded
+    // bucket, signs every DELETE (src/cloud/edgeGcBucket.test.js compares the
+    // URLs with presignS3Request's, byte for byte).
+    expect(fn).toContain('presigner: makeS3Presigner({ target: bucket.target, accessKeyId: bucket.accessKeyId, secretAccessKey: bucket.secret })')
+    expect(fn).toContain("const url = await s3.presigner.presign({ method: 'DELETE', key, expiresSeconds: 60, now: new Date() })")
     expect(fn).toContain('queue_s3_drained')
     // The queue read must actually SELECT the columns the branches read.
     // S44 added `kind`: it picks the restorability column, and omitted it every
@@ -678,15 +691,19 @@ describe('storage-read-urls — review round 1\'s corrections (P1)', () => {
     expect(READ_URLS_MAX_FOLDERS).toBe(10)
   })
 
-  it('the body is never read before the guard, the limiter and the length say yes', async () => {
+  it('the body is never read before the guard and the limiter say yes; past its declared length it is read through and dropped, then 413 (F8, the drain)', async () => {
     for (const [opts, want] of [[{ guard: 'inactive' }, undefined], [{ limited: true }, 429]]) {
       const { deps } = world(opts)
       const out = await handleReadUrls(reqOf({ keys: [bodyKey('a.png')] }), deps)
       if (want) expect(out.status).toBe(want)
     }
+    expect(bodyReads).toBe(0)
     const { deps } = world()
     expect((await handleReadUrls(reqOf({ keys: [bodyKey('a.png')] }, { length: String(READ_URLS_MAX_BODY_BYTES + 1) }), deps)).status).toBe(413)
-    expect(bodyReads).toBe(0)
+    // F8, the drain: was 0 (refused by its length unread); the hosted relay
+    // delivers no answer before it has the body, so it is read and dropped first.
+    expect(bodyReads).toBeGreaterThan(0)
+    bodyReads = 0
     await handleReadUrls(reqOf({ keys: [bodyKey('a.png')] }), deps)
     expect(bodyReads).toBeGreaterThan(0) // CONTROL: an admitted call reads it
   })
