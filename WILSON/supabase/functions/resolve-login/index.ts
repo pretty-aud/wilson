@@ -29,13 +29,28 @@
 //    so the client can say "wait a minute" instead of "wrong password". The
 //    status depends only on the caller's own request count in the window,
 //    never on whether a username or a company exists.
+//
+// F8 (wave 2, 2026-11-13): the CORS headers, the JSON answer (inside this
+// file's own TIMED reply, so the floor still applies to every answer) and the
+// service-role client (no options, as before) are adminGuard.ts's. The floor,
+// the IP, both limiter buckets closed on failure, the audit row, the uniform
+// miss and the contract version stay this file's own.
+//
+// F8 (e): the body is read under a cap (gatewayWire.SIGN_IN_JSON_MAX_BYTES,
+// 4 KiB; the largest real body is 254 bytes). A body past it is read as {}
+// (so it is counted against the credentials bucket like any malformed one),
+// the limiter is asked FIRST (a limited caller still hears 429), and then it
+// is answered 413, timed, with an audit row `error`, before any lookup. The
+// 413's body is the uniform miss `{ exists: false, email: null }`, with no
+// `error` key: this function has ONE body shape for every outcome, and its
+// status depends only on the caller's own request (as 405 and 429 already
+// do). Do not give it the house's too_large body, and do not move it above
+// the limiter: an over-size body would then be a free, uncounted probe.
 // =============================================================================
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
+import { corsHeaders, reply as jsonReply, serviceClient } from '../_shared/adminGuard.ts'
+import { readBodyJson, SIGN_IN_JSON_MAX_BYTES } from '../_shared/gatewayWire.ts'
 import { envInt, isRateLimited } from '../_shared/rateLimit.ts'
-
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
-const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
 // Response-time floor. Sized in S1 for one lookup; below the round trip since
 // B1 (see the header). Raising it above ~400 ms would make it real again at
@@ -140,12 +155,6 @@ function escapeLike(s: string): string {
   return s.replace(/[\\%_]/g, (c) => `\\${c}`).replace(/\*/g, '_')
 }
 
-const corsHeaders = {
-  'access-control-allow-origin': '*',
-  'access-control-allow-methods': 'POST, OPTIONS',
-  'access-control-allow-headers': 'content-type, authorization, apikey',
-}
-
 type AttemptRow = {
   workspace_id?: string | null
   username_tried?: string | null
@@ -165,17 +174,14 @@ Deno.serve(async (req: Request) => {
   // Uniform response shape for every outcome.
   const reply = async (body: Record<string, unknown>, status = 200) => {
     await sleepUntil(deadline)
-    return new Response(JSON.stringify(body), {
-      status,
-      headers: { ...corsHeaders, 'content-type': 'application/json' },
-    })
+    return jsonReply(body, status)
   }
 
   if (req.method !== 'POST') {
     return reply({ exists: false, email: null }, 405)
   }
 
-  const admin = createClient(SUPABASE_URL, SERVICE_ROLE)
+  const admin = serviceClient()
 
   // Fire-and-forget audit row; never on the response path.
   const log = (row: AttemptRow) => {
@@ -191,12 +197,11 @@ Deno.serve(async (req: Request) => {
 
   // A malformed body is not a free probe: it is parsed as empty, counted
   // against the credentials bucket, and refused as a miss below.
-  let body: Body = {}
-  try {
-    body = await req.json()
-  } catch {
-    body = {}
-  }
+  // F8: past the cap, the body is read as empty too, and remembered as too
+  // large: counted below, then answered 413 with the miss (see the header).
+  const sent = await readBodyJson(req, SIGN_IN_JSON_MAX_BYTES)
+  const tooLarge = sent.kind === 'too_large'
+  let body: Body = (sent.kind === 'json' ? sent.value : {}) as Body
   if (body === null || typeof body !== 'object') body = {}
 
   const companyMode = typeof body.company === 'string' && body.username === undefined
@@ -216,6 +221,12 @@ Deno.serve(async (req: Request) => {
   if (limited) {
     log({ outcome: 'rate_limited' })
     return reply(miss, 429)
+  }
+  // F8: after the limiter has counted it, before any lookup; the miss body,
+  // timed. The audit row is the one a malformed body writes (no username).
+  if (tooLarge) {
+    log({ username_tried: null, outcome: 'error' })
+    return reply(miss, 413)
   }
 
   // ── Company verification (Session 43) ──────────────────────────────────

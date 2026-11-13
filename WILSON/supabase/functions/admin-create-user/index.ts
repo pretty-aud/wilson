@@ -23,6 +23,7 @@ import {
   generatePassword,
   logAdminEvent,
 } from '../_shared/adminGuard.ts'
+import { readBodyJson, SMALL_JSON_MAX_BYTES, TOO_LARGE } from '../_shared/gatewayWire.ts'
 
 const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{1,31}$/
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
@@ -47,8 +48,13 @@ Deno.serve(async (req: Request) => {
   if (!guard.ok) return guard.res
   const { admin, workspaceId } = guard.ctx
 
+  // F8: read under a cap (largest real body 649 bytes). Past it: 413. Not
+  // JSON: the old bad_json. The value is handed on untouched (JSON null still throws below, F8-05).
   let body: Body
-  try { body = await req.json() } catch { return reply({ error: 'bad_json' }, 400) }
+  const sent = await readBodyJson(req, SMALL_JSON_MAX_BYTES)
+  if (sent.kind === 'too_large') return reply({ ...TOO_LARGE }, 413)
+  if (sent.kind === 'not_json') return reply({ error: 'bad_json' }, 400)
+  body = sent.value as Body
 
   const username = typeof body.username === 'string' ? body.username.trim().toLowerCase() : ''
   const displayName = typeof body.display_name === 'string' ? body.display_name.trim() : ''

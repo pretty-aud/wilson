@@ -34,9 +34,14 @@
 // refused: [{ id, reason }], expires_at }. `refused` names a clip the caller
 // may read but that cannot travel as a ticket (its path would make the
 // ticket longer than the gateway reads, 4096 characters).
+//
+// F8 (wave 2, 2026-11-13): the caller's own client is adminGuard's
+// callerClient(req, { quiet: true }): the same anon key, the same untrimmed
+// bearer, and the same no-session options this file always passed. The
+// predicates still run on it, as the caller, never on the service role.
 // =============================================================================
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
+import { callerClient } from '../_shared/adminGuard.ts'
 import { requireActiveMember } from '../_shared/memberGuard.ts'
 import { isRateLimited, envInt } from '../_shared/rateLimit.ts'
 import { answer, preflight, readJson, refusal, withMemberSentence, versionFloors } from '../_shared/gatewayGuard.ts'
@@ -79,11 +84,7 @@ Deno.serve(async (req: Request) => {
   if (!parsed.ok) return refusal(parsed.status, parsed.code, parsed.detail)
 
   // 4. The predicates, as the caller (the S33 rule).
-  const token = (req.headers.get('authorization') ?? '').slice(7)
-  const asCaller = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, {
-    global: { headers: { Authorization: `Bearer ${token}` } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  })
+  const asCaller = callerClient(req, { quiet: true })
   const { data: gateway, error: gwErr } = await asCaller
     .from('gateways_visible')
     .select('id, workspace_id, version')

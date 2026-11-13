@@ -1335,6 +1335,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| F8 (2026-11-13, wave 2 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f8-edge-shared-plumbing`) — the Edge Functions' shared plumbing: one envelope crypto, one bucket loader, the caller checks once, one raw-HTTP transport and host rule, every body read under a measured cap (413 past it), the master keys and the opened ticket key kept per isolate, one SigV4 key per batch; deployed to wilson-dev; two review rounds. | F8-01 to F8-19 (below, the F8 section). | F1-01's 28 known type errors to 1 (F1-01, lowered). F8-01 and F8-02, closed by F8 as the second merger (`8a0bdb4f`); F8-03 tried there and taken back (`6515a9d2`), open on purpose. |
 | Post-overhaul F4 (2026-11-13, wave 2; `po/f4-rerender-discipline` into `feat/post-overhaul-edit-versioning`) — re-render discipline, nothing new on the screen meant: the pet's state in `PetHost` under App, the agent's value memoized and its input apart, `React.memo` on the pages and the three tools' roots, R.A.B.B.I.T.'s state that moves on its own clock out of the provider's value (`state/rabbitLive.js`), the Assets tab's warnings from one index (rabbit C5), O.T.T.E.R.'s lesson body and reference views memoized, D.O.G.'s preview placeholders at module level and its parse kept; measured in the running app before and after (a minute of the pet 2,105.7 to 2,859.2 ms of drawing → 42.4 to 50.7 ms); the render spy `src/lib/renderSpy.js` and its pins; two review rounds on Opus 5.5, whose security defects (the pet's saves and chat reaching the next person's account or screen) and the five things F4 had made worse were fixed in the session; no migration, no SQL, no Edge Function | F4-01 to F4-03, F4-05 to F4-07, F4-09 to F4-13 (F4-04, the pet's chat kept for the next person, was found and fixed in the session; F4-08, the agent's conversation kept for the next person, was found in the session and fixed after its merge) | P1-16 (the preview's loop, `b151c20e`). Comment markers: 4 → 4. |
 | MO3 (M.O.T.H. Session 3, 2026-11-08; `po/moth3-tags`) — typed tags, relationships and workspace notes: migrations 0124 to 0129 on wilson-dev, the notes' tiers and trash, the `[[` and `#` pickers in R.A.B.B.I.T., M.O.T.H.'s typed-tag drawer, notes, tags and links in the graph and its record; two whole-session review rounds. | MO3-01 to MO3-12 (above, after MO2's list). | MO2-03 (links are saved: 0127, and the page's link drop), MO2-09, MO2-10, MO2-11, MO2-12 and MO2-18 (0124). |
 | MO2 (M.O.T.H. Session 2, 2026-11-07; `po/moth2-graph`) — the graph engine merged with its callers, migrations 0122 and 0123 on wilson-dev, the graph, glow, HUD and navigation; two whole-session review rounds. | MO2-01 to MO2-23 (above, after MO2a's list). | MO2a's R1-17, R1-18, R1-4, 5, 22, 52, R1-11, 23, R1-8, 24, R1-25, R1-13, R1-6, R1-3, R1-7, R1-32, R1-33, R1-34. |
@@ -3074,6 +3075,16 @@ not fix:
   reads), in one wave. At their merge neither branch's numbers need be
   right (F8's type can clear what F7 edits): `KNOWN` is what the merge
   commit's own run reads. Owner: for the controller to place.
+  **Lowered by F8 (2026-11-13, `9b0255c3`): 14 lines and 28 errors to ONE,
+  `ai-files/index.ts TS2739 1` (F7's file).** MEASURED on GitHub's runner
+  (run of `18d73eea`, check-run 131699657639: "1 known errors in 1 groups …
+  deno counted 1"). Of the 27 cleared, the shared client type (the guards'
+  client typed as `SupabaseClient & ReturnType<typeof createClient>`, F8-01)
+  cleared 25: the three guards' 3, `resolve-login`'s 1 and `storage-gc`'s 17
+  (3 + 1 + 17 = 21), and `admin-set-active`'s TS2769, `operator-ai-keys`'
+  TS2769 and `operator-workspaces`' two (4). Two one-line casts cleared the
+  other two, `admin-user-security`'s and `operator-ai-keys`' TS2352. The one
+  left is F7's to clear.
 
 ## F2 (2026-10-31, wave 1 of `docs/sessions/PLAN_WEEK_2026-11-04.md`)
 
@@ -5073,6 +5084,140 @@ editing it; none needed one.
   `bcc8b131`'s file: the comparison is unchanged since, by diff, but the exception plant was proven against the one-row
   check `6bdd30f2` replaced, and no plant restates `ws_members_select` or `ws_members_admin_write` as text. The
   hand-off says which file each plant ran against.
+
+## F8 (2026-11-13, wave 2 of `docs/sessions/PLAN_WEEK_2026-11-04.md`) — left open
+
+The Edge Functions' shared plumbing (the session log's F8 row; `docs/sessions/handoffs/po-f8-2026-11-13.md`). What
+the second merger owes by the brief's line with F7, what F8 met outside its list, and what its review rounds
+recorded out of scope:
+
+- ~~**F8-01 · The guards type their client as an intersection only because one of F7's files names the old alias.**~~
+  **CLOSED by the second merger (F8, 2026-11-13; `8a0bdb4f`):** `_shared/aiFilesUpstream.ts` names `ServiceClient` (a
+  type-only import from `adminGuard.ts`), so `GuardClient = ServiceClient` and `serviceClient()` has no cast. MEASURED
+  with the local stand-in on the merged tree before and after: one group, `ai-files/index.ts TS2739 1` (beside the
+  stand-in's own `ai-proxy` line), no group rising; TS2739 did not clear, so `KNOWN` keeps that one line. CI's deno
+  check on the pushed branch is the measurement. The entry as it stood:
+  MEASURED (the local stand-in, then CI's deno check). `_shared/adminGuard.ts` types the guards' `admin` as
+  `GuardClient = SupabaseClient & ReturnType<typeof createClient>`, the true client first, because
+  `_shared/aiFilesUpstream.ts:25` (F7's) still names `ReturnType<typeof createClient>`; the plain true type in the
+  guards adds 11 errors to `ai-files` and 2 to `operator-ai-files` (the design round's measurement). Fix shape, the
+  second merger's: that one line to `ServiceClient`, then `GuardClient = ServiceClient` and the cast in
+  `serviceClient()` dropped; `KNOWN` read from CI on the merged tree.
+- ~~**F8-02 · storage-gc still loads a company's bucket its own way.**~~ **CLOSED by the second merger (F8,
+  2026-11-13; `8a0bdb4f`):** the drain's `s3Drain()` loads through `loadWorkspaceBucket(ctx.admin, ctx.workspaceId,
+  { requireByos: false, preflightCrypto: false })`, each refusal in storage-gc's own `fail(…)` sentence, the memo kept;
+  `supabaseHost()` for its own-host check; one `makeS3Presigner` a run, made inside the memo. MEASURED through the real
+  handler (`src/cloud/edgeGcBucket.test.js`, 34 cases green on the merge `a3d2370c` before a line moved, and after):
+  every refusal's words on every row, the bucket's answers, the order of two faults, reads that throw (500
+  `gc_failed`, WIL-3004), the counts and WIL-3003, the URLs byte for byte `presignS3Request`'s. Three rows take 7 HMACs
+  where they took 15. One difference, in statements only: a refused configuration now also reads the secret row (never
+  opened). The entry as it stood: `storage-gc/index.ts:238-298` (F7's file) is
+  the fourth copy the review's A1 named; the brief leaves it to the second merger. Fix shape:
+  `loadWorkspaceBucket(ctx.admin, ctx.workspaceId, { requireByos: false, preflightCrypto: false })` with its own
+  `fail(…)` sentences, `supabaseHost()` for its `:288`, and `makeS3Presigner` for the drain (up to 500 rows a run).
+- **F8-03 · ai-files authenticates twice for a sweep and re-reads the membership.** `ai-files/index.ts:407` then
+  `:429` (two GoTrue calls, two membership reads), and `isLiveAdmin` (`:341-349`, called at `:542`) re-reads the row
+  the member guard just read (the review's B2). **Tried by the second merger and taken back (F8, 2026-11-13).**
+  `8a0bdb4f` had the member guard hand its GoTrue answer and its read of the row to the admin guard and to
+  `isLiveAdmin` (a sweep's round trips 6 → 4, a list's 5 → 4). Review round 3 found that this moved the admin check
+  before the body: the member guard runs before the body is read (`:418`), which the client sends as slowly as it
+  likes, and the admin guard ran after it. So an admin demoted, deactivated or signed out while the DELETE body was
+  still uploading got the sweep (200 with its certificates, where it was 403, 403 and 401), and the list's scope came
+  from the read made before its two limiters (a role change or a failed read in between answered `workspace`, a read
+  that throws 200, where it was `own`, `own` and 502 `list_failed`). `6515a9d2` took it back: `ai-files/index.ts` is
+  `a3d2370c`'s again and the guards `b38d4e75`'s (but for F8-01's type), the timing pinned in
+  `src/cloud/edgeAiFilesCaller.test.js` section F (red against `4ab4260c`, green after). **The second membership read
+  and the second GoTrue call are deliberate in time**: each is the check made after the work it guards. A safe saving
+  would re-read the row after the body and reuse only the GoTrue answer (one call fewer a sweep); that still lets a
+  sign-out mid-upload through, so it is left as it is.
+- **F8-04 · The host rule has two words for a host that is not a DNS name.** `checkPublicHost`
+  (`_shared/gatewayReach.ts`) answers `not_a_name`; the reach check words it `malformed`, the S3 vet `local_name`, as
+  each did before (`localhost` is one: the name pattern needs a dot). Each is read by its own page and tests, so both
+  stay.
+- **F8-05 · A JSON `null` body makes thirteen of the fourteen body-reading functions throw.** MEASURED
+  (`src/cloud/edgeBodies.test.js`; on wilson-dev 2026-11-13 05:55 UTC, `admin-reset-password` with the body `null`:
+  500, `text/plain` "Internal Server Error", no CORS headers, so a browser reads it as a network error). Twelve throw
+  on the line after the read (`null.username` and the like), issue-session after its membership read; resolve-login
+  alone reads it as `{}`. The same for resolve-login's `{ "username": 5 }` or a non-string `workspace_slug`
+  (`:323-324`), after the limiter has counted it: no floor, not the uniform body. All as at `a71cd144`: F8 is a
+  refactor and kept them. No app sends either. Fix shape: one object check per function, each a change of answer.
+- **F8-06 · The clients' message tables have no `too_large`.** An admin, operator or AI request refused for size
+  reads "Request failed (413)." or "AI request failed (413)." (`src/cloud/adminApi.js:77`, `src/admin/operatorApi.js`,
+  `src/cloud/aiProxy.js:30-57,130`); storage shows the `detail`. No app request comes near a cap (the design round and
+  review round 1 re-read every caller). For a session in `src/`.
+- **F8-07 · A client made with no `auth` options starts a refresh timer that is never stopped.** INFERRED from
+  auth-js 2.65.0 (the library supabase-js 2.45.4 ships): outside a browser, `GoTrueClient` starts a 30 s auto-refresh
+  ticker. The guards', issue-session's, resolve-login's and the two storage functions' clients are made that way, as
+  before F8, and so are gateway-reach's and gateway-ticket's service clients, which come from the guards. Only
+  gateway-reach's and gateway-ticket's CALLER clients and gatewayGuard's service client (gateway-enrol, gateway-sync,
+  gateway-events) are quiet. No answer shows it. A decision for the controller: quiet clients
+  everywhere, later or never.
+- **F8-08 · Past 64 MiB the platform answers for the function (past 2 MiB for gateway-enrol).** MEASURED on
+  wilson-dev (2026-11-13): before F8 the old ai-proxy read 1 to 64 MiB whole (200, 04:45 UTC), so the platform sets no
+  limit before the function. What the 546s of 2026-08-11 were is INFERRED, and the two readings disagree: from that
+  64 MiB read, that they came from forwarding large bodies upstream; but the record of that day
+  (`src/cloud/aiProxy.js:43-55`) says the worker died handling the request body, before it reached Anthropic. Neither
+  is measured. With F8 a body past its cap is read through and thrown away up
+  to `DRAIN_MAX_BYTES` (64 MiB) and answered 413 (1 MiB and 8 MiB to storage-presign in 0.4 and 1.1 s; 35 MiB to
+  ai-proxy in 4.1 s; 06:38 UTC); a 70 MiB body is cut at 64 MiB and the platform answered 504 after 168 s. Without the
+  read-through a 1 MiB body got no answer in 90 s (06:10 UTC): the relay answers only after the upload is received.
+  gateway-enrol, whose read runs before any check and before anyone is authenticated, drains only to
+  `PRE_AUTH_DRAIN_MAX_BYTES` (2 MiB; no gateway sends more than about 20 KiB) and is cut there, its answer unchanged
+  (review round 2). Past 2 MiB the platform answers for it, as for the 70 MiB body (INFERRED: not measured at 2 MiB).
+  No app request or gateway is near any of these numbers.
+- **F8-09 · Three gateway functions answer an over-size body 400, not 413.** gateway-reach (4 KiB), gateway-ticket
+  (16 KiB) and gateway-enrol (64 KiB) read under a cap and answer the empty result with their shape refusal
+  (`gateway-reach/index.ts:91-94`, `gateway-ticket/index.ts:81-84`, `gateway-enrol/index.ts:57-71`); gateway-sync,
+  gateway-events and storage-read-urls answer 413. As before F8. Fix shape: compare `length` as gateway-sync does.
+- **F8-10 · A malformed bucket master secret reads as configured.** `storageSecretCryptoConfigured()` is true for any
+  non-empty value, so storage-presign and storage-read-urls answer 500 `secret_unusable` for a malformed one, not 503
+  `crypto_unavailable`. As before.
+- **F8-11 · The admin and member guards read a failed membership lookup as "no row".** `liveMembership`
+  (`_shared/adminGuard.ts`) hands the read's error back unjudged and both guards answer 403 `forbidden` for it, not
+  503; the operator guard answers 503 for its own row read. As before F8 (pinned in `src/cloud/edgeGuards.test.js`);
+  it fails closed either way.
+- **F8-12 · storage-secret tells an endpoint refusal three ways.** A config the signer cannot read answers 409 with
+  its bare sentence in `set` (no "the secret was not saved", no WIL-3007 row) and in `probe` (no `stage`); a resolved
+  private address answers with both. `set` seals the secret before it reads the config (a malformed master is 500
+  `encrypt_failed` before any read); `probe` never asks whether the master is set (409 or 500, never 503). As before;
+  pinned in `src/cloud/edgeStorage.test.js`.
+- **F8-13 · Small things gateway-ticket does, pinned as they were.** 51 copies of one clip id are refused (the cap
+  counts before duplicates fold, `_shared/gatewayShapes.ts:387`); a gateway whose version is null or unreadable passes
+  the hard floor (`compareVersions` answers 0); a master secret that is not 32 bytes is "will not open" (the key read
+  again, then 503 `key_unavailable`), not 503 `crypto_unavailable`; with no master and no key yet, a key pair is
+  generated before the seal fails (nothing is stored).
+- **F8-14 · Stale words in two headers.** `_shared/readUrls.ts:27-28` and `:143` describe a
+  `can_presign_project_read` check the code no longer makes (MO1 moved the decision to the row);
+  `_shared/rateLimit.ts:31` says "the eight authenticated callers" (16 calls in 13 functions are open by default).
+  Comments only. And one key that says more than it needs: `makeS3Presigner`'s cache key (`_shared/s3Presign.ts`)
+  holds the region beside the day, and without it nothing would change, since a presigner is made for one bucket and
+  always signs for that bucket's region (review round 2, T1).
+- **F8-15 · `src/cloud/aiFiles.test.js` leaks `fetch` between tests.** MEASURED by review round 1: in one
+  non-isolated worker with shuffle seed 11, 13 of its tests fail; the project's default isolated run is unaffected.
+  Not F8's file.
+- **F8-16 · The own-host check skips itself when `SUPABASE_URL` is malformed.** `supabaseHost()`
+  (`_shared/gatewayReachRun.ts`), which storage-presign and storage-secret now use for the S3 vet, answers `undefined`
+  for an empty or malformed `SUPABASE_URL`, where the old inline `new URL(…)` threw; the `*.supabase.(co|in|net|com)`
+  rule still applies. Unreachable: the guard's client needs the same URL first (review round 1, INFERRED). The same
+  since the second merger for storage-gc (`8a0bdb4f`): its drain's `storage-gc/index.ts:403` hands the S3 vet
+  `supabaseHost()`, so an empty or malformed `SUPABASE_URL` skips the own-host check where the old inline
+  `new URL(…)` threw and the run answered 500 `gc_failed`. Unreachable there too: the guard's GoTrue call needs the
+  URL before the drain is reached (review round 3, INFERRED).
+- **F8-17 · The harness's membership fake accepts a read with no workspace filter.** `seatCaller`
+  (`src/cloud/edgeHarness.js`) answers a `workspace_members` read that names the user but no workspace as a hit, so
+  under it a membership read that lost its workspace filter still seats the caller: `edgeStorage.test.js`,
+  `edgeBodies.test.js` and `edgeAiProxy.test.js` would not see that regression. `edgeGuards.test.js` pins each
+  guard's filters and catches a dropped one. VERIFIED by a mutant (review round 2, "whole").
+- **F8-18 · A body of exactly 64 MiB is cancelled after its last byte, not read to its end.** The drain stops once
+  it has counted `DRAIN_MAX_BYTES` and cancels the stream, so a body of exactly 64 MiB, or one that crosses 64 MiB in
+  its last chunk, is cancelled after its last byte instead of being read to its end (gateway-enrol's the same at
+  2 MiB since review round 2). VERIFIED by review round 2 ("drain"); whether the relay then answers is not measured.
+  Only bodies of 64 MiB and up (2 MiB and up at gateway-enrol).
+- **F8-19 · One test counts a getter, not bytes read.**
+  `src/tools/rabbit_v0.1.0/storage/storagePresignBoundary.test.js:693-695` counts reads of the request's `body`
+  getter, not bytes read, so it would pass a reader that took the stream and refused a declared length without
+  reading it. `edgeBodies.test.js` and `edgeBodyReader.test.js` count the bytes and catch that. VERIFIED (review round
+  2).
 
 ## F4 (2026-11-13, wave 2 of `docs/sessions/PLAN_WEEK_2026-11-04.md`) — left open
 

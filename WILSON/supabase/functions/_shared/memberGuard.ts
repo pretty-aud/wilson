@@ -12,13 +12,17 @@
 //   * no MFA step-up. That gate exists for admin ACTIONS; enrolled users
 //     are already TOTP-challenged at sign-in by GoTrue, and demanding aal2
 //     for every AI call would break nothing-sensitive member flows.
+//
+// F8 (wave 2, 2026-11-13): composed from adminGuard.ts's shared pieces:
+// authenticate (the bearer, GoTrue, the claims) and liveMembership WITHOUT
+// withRole (the select stays `is_active` alone). What stays its own: no role
+// is asked, no MFA, and the refusals and their order below.
 // =============================================================================
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
-import { corsHeaders, decodeJwtPayload, reply } from './adminGuard.ts'
+import { authenticate, liveMembership, reply, type GuardClient } from './adminGuard.ts'
 
 export type MemberContext = {
-  admin: ReturnType<typeof createClient>
+  admin: GuardClient
   callerId: string
   workspaceId: string
 }
@@ -28,44 +32,22 @@ type GuardResult =
   | { ok: false; res: Response }
 
 export async function requireActiveMember(req: Request): Promise<GuardResult> {
-  const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
-  const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-
-  const authHeader = req.headers.get('authorization') ?? ''
-  const token = authHeader.toLowerCase().startsWith('bearer ')
-    ? authHeader.slice(7)
-    : ''
-  if (!token) return { ok: false, res: reply({ error: 'unauthorized' }, 401) }
-
-  const admin = createClient(SUPABASE_URL, SERVICE_ROLE)
-
-  const { data: caller, error: callerErr } = await admin.auth.getUser(token)
-  if (callerErr || !caller.user) {
-    return { ok: false, res: reply({ error: 'unauthorized' }, 401) }
-  }
+  const who = await authenticate(req)
+  if (!who.ok) return { ok: false, res: reply({ error: 'unauthorized' }, 401) }
+  const { admin, user, claims } = who.caller
 
   // Claims from the TOKEN payload (adminGuard rationale): workspace_id is
   // minted by custom_access_token_hook; only a best-effort copy lands in
-  // raw_app_meta_data.
-  const payload = decodeJwtPayload(token)
-  const pmd = (payload.app_metadata ?? {}) as Record<string, unknown>
-  const md = caller.user.app_metadata ?? {}
-  const workspaceId =
-    typeof pmd.workspace_id === 'string' ? pmd.workspace_id :
-    typeof md.workspace_id === 'string' ? md.workspace_id : null
-  if (!workspaceId) {
+  // raw_app_meta_data. Any ACTIVE member: the role is not asked.
+  if (!claims.workspaceId) {
     return { ok: false, res: reply({ error: 'forbidden' }, 403) }
   }
 
-  const { data: liveRow } = await admin
-    .from('workspace_members')
-    .select('is_active')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', caller.user.id)
-    .maybeSingle()
+  // Only is_active is read. A failed read is "no row": 403.
+  const { row: liveRow } = await liveMembership(admin, claims.workspaceId, user.id)
   if (!liveRow || !liveRow.is_active) {
     return { ok: false, res: reply({ error: 'forbidden' }, 403) }
   }
 
-  return { ok: true, ctx: { admin, callerId: caller.user.id, workspaceId } }
+  return { ok: true, ctx: { admin, callerId: user.id, workspaceId: claims.workspaceId } }
 }

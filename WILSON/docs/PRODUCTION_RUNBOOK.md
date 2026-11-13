@@ -251,6 +251,27 @@ TPN-ENC-015), `gateway-reach` (TPN-AUTH-013), `gateway-enrol` and `gateway-sync`
 `storage-presign` and `storage-read-urls` (TPN-ENC-015). `ai-proxy` was not redeployed (outside the four areas) and must be before
 any AI-key re-seal, (d). Deploy the ten after 0104, 0105 and 0106 are applied and recorded, (b).
 
+**F8 (wave 2, 2026-11-13): all 23 from one commit, then their source compared.** F8 changed `_shared/adminGuard.ts`
+and `_shared/gatewayWire.ts`, which every one of the 23 bundles, and `_shared/envelopeCrypto.ts` (new), which
+`ai-files` and `storage-gc` bundle too: so on staging (the controller's, after the wave, on her go) every function
+is deployed forward from ONE commit, the merged tip, and then the deployed SOURCE of all 23 is downloaded and compared
+with that commit file by file (each function's own folder; a name or version check has passed a stale function in
+this house). F8 did exactly that for its twenty on wilson-dev (`docs/sessions/handoffs/po-f8-2026-11-13.md` §2).
+🚨 `storage-presign`, `storage-read-urls` and `storage-gc` are never put back below the release commit while 0120's
+switch is on (0120's row in (b), and (h)): on an older storage-presign a `look` fails and nothing moves into a
+bucket, an older storage-read-urls refuses a moved file's picture and preview, and an older storage-gc can delete
+another file's body that a legacy picture names. Afterwards, one
+call each shows the shared paths answering (a staging member and admin; no factor needed): `issue-session` 200;
+`resolve-login` 200 `exists: true` for a real username and slug, and a 5 KB body 413 with `{ exists: false, email:
+null }`; `admin-user-security` on the caller 200; `admin-reset-password` and `admin-set-active` on a non-member's id
+404 `not_found` (nobody's password or state is touched); `admin-create-user` and `invite-member` with a username
+already taken 409 `username_taken` (no mail goes); `ai-proxy` one output token 200; `storage-secret`
+`{ action: 'status' }` 200; `storage-read-urls` two keys no row owns 200 with both refused; `storage-presign` a 17 KB
+path 413 `too_large`; `gateway-ticket` a clip the caller may play 200 with a ticket; `gateway-reach` an unknown
+gateway 404; `gateway-enrol` no token 401 `token_malformed`; `gateway-sync` and `gateway-events` an unknown
+`wgc_` credential 401 `unknown_gateway`; the four `operator-*` as a non-operator 403 `forbidden`; OPTIONS 204, but
+200 in the three storage functions.
+
 **First, the rollback copies.** Production's current functions came from several commits, so the only copy of each is the deployed
 one. A download writes `supabase\functions\<name>\` and the `_shared` files it bundles under its workdir, overwriting what is
 there, so it goes into a scratch folder of its own and never into a repository (`docs/sessions/TRACK_C_storage_files_prompt.md`;

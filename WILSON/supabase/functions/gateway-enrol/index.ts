@@ -42,7 +42,7 @@
 import { isRateLimited, envInt } from '../_shared/rateLimit.ts'
 import { answer, preflight, refusal, serviceClient, readJson, SYNC_INTERVAL_S } from '../_shared/gatewayGuard.ts'
 import { clientAddress, parseEnrolRequest, webAppOrigins } from '../_shared/gatewayShapes.ts'
-import { makeCredential, reachKeyOf, sha256Hex } from '../_shared/gatewayWire.ts'
+import { makeCredential, reachKeyOf, sha256Hex, PRE_AUTH_DRAIN_MAX_BYTES } from '../_shared/gatewayWire.ts'
 import { ensureSigningKey } from '../_shared/gatewaySigning.ts'
 
 Deno.serve(async (req: Request) => {
@@ -50,8 +50,11 @@ Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') return refusal(405, 'method_not_allowed', 'Use POST.')
 
   // 1. The caller: the token's shape first — nothing else is read for a
-  //    request that cannot be an enrolment.
-  const body = await readJson(req, 64 * 1024)
+  //    request that cannot be an enrolment. This read runs before every check
+  //    and the limiter, so a body past 64 KiB is read through and dropped only
+  //    up to PRE_AUTH_DRAIN_MAX_BYTES (2 MiB), not the 64 MiB default, and cut
+  //    there (review round 2, D1); the answer is the one it always was.
+  const body = await readJson(req, 64 * 1024, PRE_AUTH_DRAIN_MAX_BYTES)
   const parsed = parseEnrolRequest(req.headers.get('authorization'), body?.value)
   if (!parsed.ok && parsed.code === 'token_malformed') return refusal(parsed.status, parsed.code, parsed.detail)
 

@@ -16,13 +16,15 @@
 // stays on ai-files' own byte-identical branch, with its header.
 // =============================================================================
 
-import type { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
+// F8-01 (the second merger): the client as createClient really returns it, the
+// type the guards hand ai-files and operator-ai-files (a type only).
+import type { ServiceClient } from './adminGuard.ts'
 import {
   MAX_LIST_PAGES, absentNotedIds, certifiedGoneIds, idLookupQueries, isFileId, listQuery, readListPage, storedFileOf,
   uploadRowOf, type ListPage, type StoredFile, type UploadRow,
 } from './aiFileStore.ts'
 
-type Client = ReturnType<typeof createClient>
+type Client = ServiceClient
 
 export const ANTHROPIC_FILES_URL = 'https://api.anthropic.com/v1/files'
 export const ANTHROPIC_VERSION = '2023-06-01'

@@ -875,17 +875,7 @@ jobs:
           DENO_NO_PACKAGE_JSON: '1'
           # File (under supabase/functions/), code, count: OUTSTANDING F1-01.
           KNOWN: |
-            _shared/adminGuard.ts TS2322 1
-            _shared/memberGuard.ts TS2322 1
-            _shared/operatorGuard.ts TS2322 1
-            admin-set-active/index.ts TS2769 1
-            admin-user-security/index.ts TS2352 1
             ai-files/index.ts TS2739 1
-            operator-ai-keys/index.ts TS2352 1
-            operator-ai-keys/index.ts TS2769 1
-            operator-workspaces/index.ts TS2339 1
-            operator-workspaces/index.ts TS2488 1
-            resolve-login/index.ts TS2345 1
         run: |
           set -euo pipefail
           shopt -s nullglob

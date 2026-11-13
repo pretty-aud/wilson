@@ -50,17 +50,26 @@
 //
 // verify_jwt = false + in-function validation, like every function here
 // (the gateway can't validate this project's ES256 JWTs).
+//
+// F8 (wave 2, 2026-11-13): step 6's two reads (the configuration and the
+// sealed secret) are _shared/workspaceBucket.ts's loadWorkspaceBucket, shared
+// with storage-read-urls and storage-secret's probe; the two now run at once
+// and are judged in the order above. Every refusal's status and sentence is
+// still worded HERE, from the loader's code. The project's own host for the
+// look's vet is gatewayReachRun.supabaseHost(). The caller's own client (step
+// 5) is adminGuard.callerClient(req), with no auth options, as before.
 // =============================================================================
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
-import { corsHeaders, reply } from '../_shared/adminGuard.ts'
+import { callerClient, corsHeaders, reply } from '../_shared/adminGuard.ts'
 import { requireActiveMember } from '../_shared/memberGuard.ts'
 import { isRateLimited, envInt } from '../_shared/rateLimit.ts'
 import { checkRowShapedPath } from '../_shared/presignPath.ts'
-import { decryptStorageSecret, storageSecretCryptoConfigured } from '../_shared/storageSecretCrypto.ts'
-import { presignS3Request, s3HostAndPath, type S3Target } from '../_shared/s3Presign.ts'
+import { presignS3Request, s3HostAndPath } from '../_shared/s3Presign.ts'
 import { vetS3Host, s3Request, s3ReachDeps } from '../_shared/s3Reach.ts'
 import { lookAtObject } from '../_shared/s3Look.ts'
+import { loadWorkspaceBucket } from '../_shared/workspaceBucket.ts'
+import { supabaseHost as platformHost } from '../_shared/gatewayReachRun.ts'
+import { readBodyJson, SMALL_JSON_MAX_BYTES, TOO_LARGE } from '../_shared/gatewayWire.ts'
 
 // Expiry per method. A PUT's signature is validated when the request STARTS,
 // so a multi-GB upload may stream past it — 15 minutes is headroom for a
@@ -75,15 +84,6 @@ const METHOD: Record<string, 'PUT' | 'GET' | 'DELETE' | 'HEAD'> = {
 // authorisation path, decrypted the bucket secret, and failed at the signer
 // as a 500 rather than at the door as a 400. Found by S37's review.
 const OPS = ['put', 'get', 'del', 'head', 'look'] as const
-
-type S3Config = {
-  endpoint?: string
-  region: string
-  bucket: string
-  prefix?: string
-  accessKeyId: string
-  forcePathStyle?: boolean
-}
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders })
@@ -115,12 +115,14 @@ Deno.serve(async (req: Request) => {
     return reply({ error: 'rate_limited', detail: 'too many presign requests — wait a minute and retry' }, 429)
   }
 
+  // F8: read under a cap (largest real body 1,047 bytes, a 1,024-character
+  // path), after the guard and the limiter as before. Past it: 413. Not JSON:
+  // the old sentence. The value is handed on untouched (F8-05).
   let body: { op?: string; path?: string }
-  try {
-    body = await req.json()
-  } catch {
-    return reply({ error: 'bad_request', detail: 'the request body is not JSON' }, 400)
-  }
+  const sent = await readBodyJson(req, SMALL_JSON_MAX_BYTES)
+  if (sent.kind === 'too_large') return reply({ ...TOO_LARGE }, 413)
+  if (sent.kind === 'not_json') return reply({ error: 'bad_request', detail: 'the request body is not JSON' }, 400)
+  body = sent.value as { op?: string; path?: string }
 
   const op = typeof body.op === 'string' ? body.op : ''
   if (!(OPS as readonly string[]).includes(op)) {
@@ -133,12 +135,8 @@ Deno.serve(async (req: Request) => {
   // The project predicate, evaluated AS THE CALLER (header §5). The anon-key
   // client carries the caller's own Authorization header, so PostgREST runs
   // the SECURITY INVOKER predicate under their JWT — real RLS, real claims.
-  const token = (req.headers.get('authorization') ?? '').slice(7)
-  const asCaller = createClient(
-    Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_ANON_KEY')!,
-    { global: { headers: { Authorization: `Bearer ${token}` } } },
-  )
+  // adminGuard.callerClient, with no auth options: this file never passed any.
+  const asCaller = callerClient(req)
   // MO1 (0115): the key no longer says where a file is, because a moved file keeps its key. The
   // database decides: a key a row claims answers to that row; a new key answers to its project.
   const { data: allowed, error: predErr } = await asCaller.rpc('can_presign_object', {
@@ -155,61 +153,44 @@ Deno.serve(async (req: Request) => {
   // The workspace's storage choice. ctx.workspaceId is the guard's verified
   // claim, and the predicate above already proved the project lives in that
   // same workspace — so this config is the right tenant's by construction.
-  const { data: ws, error: wsErr } = await ctx.admin
-    .from('workspace_storage')
-    .select('mode, provider, provider_config')
-    .eq('workspace_id', ctx.workspaceId)
-    .maybeSingle()
-  if (wsErr) return reply({ error: 'storage_read_failed', detail: wsErr.message }, 500)
-
-  if (ws?.provider !== 's3' || !ws.provider_config) {
-    return reply({
-      error: 'refused',
-      detail: 'this workspace has no S3-compatible storage configured — an admin sets it in Admin Terminal → Storage',
-    }, 409)
+  // A PUT (and a look) needs the ACTIVE choice; get, head and del reach what
+  // was written (header §6).
+  const cfg = await loadWorkspaceBucket(ctx.admin, ctx.workspaceId, {
+    requireByos: op === 'put' || op === 'look',
+    withMode: true,
+  })
+  if (!cfg.ok) {
+    switch (cfg.code) {
+      case 'storage_read_failed':
+        return reply({ error: 'storage_read_failed', detail: cfg.message }, 500)
+      case 'not_s3':
+        return reply({
+          error: 'refused',
+          detail: 'this workspace has no S3-compatible storage configured — an admin sets it in Admin Terminal → Storage',
+        }, 409)
+      case 'not_active':
+        return reply({
+          error: 'refused',
+          detail: 'this workspace is on Petal cloud right now — its S3 configuration is retained but inactive, so new files do not go to the bucket',
+        }, 409)
+      case 'crypto_unavailable':
+        return reply({ error: 'crypto_unavailable', detail: 'WILSON_STORAGE_KEY_SECRET is not configured on this environment' }, 503)
+      case 'secret_read_failed':
+        return reply({ error: 'secret_read_failed', detail: cfg.message }, 500)
+      case 'no_secret':
+        return reply({
+          error: 'refused',
+          detail: 'no bucket secret is stored for this workspace — an admin saves it in Admin Terminal → Storage',
+        }, 409)
+      case 'secret_unusable':
+        // Fail CLOSED with a sentence — unlike ai-proxy's deliberate fail-soft,
+        // there is no platform fallback for a customer's bucket, and silently
+        // routing their media anywhere else would be the exact failure §4a2b
+        // exists to prevent.
+        return reply({ error: 'secret_unusable', detail: `the stored bucket secret cannot be decrypted (${cfg.message}) — re-enter it in Admin Terminal → Storage` }, 500)
+    }
   }
-  if ((op === 'put' || op === 'look') && ws.mode !== 'byos') {
-    return reply({
-      error: 'refused',
-      detail: 'this workspace is on Petal cloud right now — its S3 configuration is retained but inactive, so new files do not go to the bucket',
-    }, 409)
-  }
-
-  if (!storageSecretCryptoConfigured()) {
-    return reply({ error: 'crypto_unavailable', detail: 'WILSON_STORAGE_KEY_SECRET is not configured on this environment' }, 503)
-  }
-  const { data: sec, error: secErr } = await ctx.admin
-    .from('workspace_storage_secrets')
-    .select('secret_ciphertext')
-    .eq('workspace_id', ctx.workspaceId)
-    .maybeSingle()
-  if (secErr) return reply({ error: 'secret_read_failed', detail: secErr.message }, 500)
-  if (!sec?.secret_ciphertext) {
-    return reply({
-      error: 'refused',
-      detail: 'no bucket secret is stored for this workspace — an admin saves it in Admin Terminal → Storage',
-    }, 409)
-  }
-
-  let secret: string
-  try {
-    secret = await decryptStorageSecret(sec.secret_ciphertext as string)
-  } catch (err) {
-    // Fail CLOSED with a sentence — unlike ai-proxy's deliberate fail-soft,
-    // there is no platform fallback for a customer's bucket, and silently
-    // routing their media anywhere else would be the exact failure §4a2b
-    // exists to prevent.
-    const message = err instanceof Error ? err.message : String(err)
-    return reply({ error: 'secret_unusable', detail: `the stored bucket secret cannot be decrypted (${message}) — re-enter it in Admin Terminal → Storage` }, 500)
-  }
-
-  const cfg = ws.provider_config as S3Config
-  const target: S3Target = {
-    endpoint: cfg.endpoint,
-    region: cfg.region,
-    bucket: cfg.bucket,
-    forcePathStyle: cfg.forcePathStyle,
-  }
+  const { target, secret } = cfg
   // The prefix is applied HERE and only here (header §3): storage_path stays
   // row-shaped in the database (0051 — split_part money axis; prefix edits
   // must not orphan keys), and the client never sees or supplies it.
@@ -217,7 +198,7 @@ Deno.serve(async (req: Request) => {
 
   if (op === 'look') {
     const deps = s3ReachDeps()
-    const supabaseHost = new URL(Deno.env.get('SUPABASE_URL') ?? 'https://invalid').hostname
+    const supabaseHost = platformHost()
     const out = await lookAtObject({
       host: () => s3HostAndPath(target, 'probe').host,
       vet: (host) => vetS3Host(host, deps, { supabaseHost }),
