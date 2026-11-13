@@ -293,6 +293,42 @@ describe('ten characters typed to the pet', () => {
   })
 })
 
+// ── React.memo on the pages and the tools' roots ──
+// MEASURED BEFORE the memo (2026-11-13, at the commit before it: the pet's host and the agent's value were in,
+// so the pet no longer rendered App, and App's own renders still ran every page). Opening the nav strip and
+// moving over three of its rows was 4 renders of App, and each ran all twelve standing pages (48 page renders).
+// One change of page (D.O.G. to O.T.T.E.R.) was 6 renders of App, and each ran all twelve (72).
+describe('App renders for its own reasons, and the pages are not handed to React again', () => {
+  const runs = (mark) => Object.fromEntries(PAGES.map((name) => [name, renderSpy.renders(name, mark)]))
+
+  it('the nav strip opened and three of its rows pointed at: App runs four times, and no page under React.memo runs', async () => {
+    const view = await openApp({ enterEveryPage: true })
+    await goTo('dog')
+    const mark = renderSpy.mark()
+    await act(async () => { fireEvent.click(view.container.querySelector('button[aria-label="Navigation"], button[title="Navigation"]')) })
+    const rows = [...view.container.querySelectorAll('.wilson-nav-item')].slice(0, 3)
+    expect(rows).toHaveLength(3)
+    for (const row of rows) await act(async () => { fireEvent.mouseEnter(row) })
+    expect(renderSpy.renders('App', mark)).toBe(4)
+    // The Admin terminal is the one page left out of the memo on purpose (it computes "5m ago" while it draws).
+    expect(runs(mark)).toEqual({ ...Object.fromEntries(PAGES.map((name) => [name, 0])), AdminTerminalPage: 4 })
+  })
+
+  it('a change of page: each page that is handed the page\'s name runs once, and a page that is handed nothing does not run', async () => {
+    await openApp({ enterEveryPage: true })
+    await goTo('dog')
+    const mark = renderSpy.mark()
+    await startTo('otter')
+    await runFor(2200)                                // the transition's steps one at a time, as a browser runs them
+    expect(renderSpy.renders('App', mark)).toBe(6)
+    expect(runs(mark)).toEqual({
+      Home: 1, DeckOutlineGenerator: 1, Otter: 1, Rabbit: 1, Projects: 1,       // handed the page's name, or onNavigate
+      MothPage: 0, SettingsPage: 0, RateCardPage: 0, TeamMembersPage: 0, DashboardPage: 0, HelpPage: 0,
+      AdminTerminalPage: 6,                                                  // not under the memo: with every step
+    })
+  })
+})
+
 describe('Settings shows the pet, and only Settings does', () => {
   it('on the Settings page a decay tick reaches the card (80 becomes 79) and no other page', async () => {
     await openApp({ pet: adultPet({ hunger: 79.6 }) })

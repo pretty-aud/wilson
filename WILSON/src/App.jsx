@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, lazy, Suspense, createContext, useContext, useImperativeHandle } from 'react'
+import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, lazy, Suspense, createContext, useContext, useImperativeHandle, memo } from 'react'
 import { Menu } from 'lucide-react'
 import TitleBar from './components/TitleBar'
 import DevFixturesBadge from './dev/DevFixturesBadge'
@@ -36,15 +36,18 @@ import { resolveUserPet, saveCloudPet, mirrorPetToCache, fetchCloudPet, isStaleP
          resolveUserSettings, mirrorSettingsToCache, setUserStateOwner,
          getUserStateOwner } from './lib/userState'
 import PetNotice from './components/PetNotice'
-import Home from './components/Home'
+// F4: six of the pages below are drawn through React.memo (the `const Home =
+// memo(HomeRoot)` block under the two wrappers), so each takes a second name
+// here and keeps its own in the page table.
+import HomeRoot from './components/Home'
 import SettingsPage from './components/SettingsPage'
-import Projects from './components/Projects'
-import RateCardPage from './components/RateCard'
-import TeamMembersPage from './components/TeamMembers/TeamMembersPage'
+import ProjectsRoot from './components/Projects'
+import RateCardPageRoot from './components/RateCard'
+import TeamMembersPageRoot from './components/TeamMembers/TeamMembersPage'
 import ProjectFilesExplorer from './components/Resources/ProjectFilesExplorer'
-import DashboardPage from './components/Dashboard/DashboardPage'
+import DashboardPageRoot from './components/Dashboard/DashboardPage'
 import AdminTerminalPage from './components/AdminTerminal/AdminTerminalPage'
-import HelpPage from './components/HelpPage'
+import HelpPageRoot from './components/HelpPage'
 import UpdatePrompt from './components/UpdatePrompt'
 import ModelWarningBanner from './components/ModelWarningBanner'
 import { MfaEnrollGate } from './cloud/auth/MfaSection'
@@ -67,6 +70,8 @@ function MothSurface({ isActive }) {
     </LazyPageBoundary>
   )
 }
+// F4: the surface under React.memo. It is handed `isActive` and nothing else.
+const MothSurfaceMemo = memo(MothSurface)
 import PetCompanion from './components/PetCompanion'
 import { PET_BREEDS, pickRandomBreed } from './components/sprites/index'
 import {
@@ -112,8 +117,9 @@ function PetCompanionSlot() {
 }
 
 // Wrapper that bridges AgentProvider context to SettingsPage (and, since F4,
-// the pet's: petData, onPetModeToggle, onDifficultyChange, onPetReset, onNewPet)
-function SettingsPageWithAgent(props) {
+// the pet's: petData, onPetModeToggle, onDifficultyChange, onPetReset, onNewPet).
+// Drawn as <SettingsPageWithAgent>, which is this under React.memo (below).
+function SettingsPageBridge(props) {
   const agent = useAgent()
   const pet = useContext(PetSettingsContext)
   if (!agent) return <SettingsPage {...pet} {...props} />
@@ -158,6 +164,36 @@ function PetCompanionWithAgent(props) {
     />
   )
 }
+
+// ── The pages, each under React.memo (F4, 2026-11-13) ───────────────────────
+// App renders for reasons of its own: a hover on the nav strip, the six steps
+// of a page transition, a dialog, a notice, the chat opening. Each render
+// handed every page to React again, whatever the page was handed. These are
+// handed the same props across such a render: nothing at all, or `onNavigate`
+// (one function for as long as the page on screen is the same) and the page's
+// name; Settings' wrapper, three of App's states. So React compares: a page
+// whose props are the ones it had is not run again. A change of page runs
+// each page that is handed the page's name once, where it ran six times.
+//
+// D.O.G., O.T.T.E.R. and R.A.B.B.I.T. say the same of themselves in their own
+// index.jsx, and M.O.T.H.'s surface beside its declaration above.
+//
+// 🚨 THREE ARE NOT, each for a reason:
+//   * PageSurface: its `children` is a new element at every render of App, so
+//     a comparison would never match. What it wraps is what costs.
+//   * The Files page: mounted only while it is the page on screen.
+//   * The Admin terminal: it computes "5m ago" WHILE IT DRAWS, from the clock
+//     (UsersSection.jsx, LogsSection.jsx, AIFileStoreCard.jsx), and takes no
+//     prop. Under React.memo nothing would ever draw it again from here, and a
+//     change of page (which does, six times) is what brings those words up to
+//     date as the page is entered. A memo there would hide a real update.
+const Home = memo(HomeRoot)
+const SettingsPageWithAgent = memo(SettingsPageBridge)
+const Projects = memo(ProjectsRoot)
+const RateCardPage = memo(RateCardPageRoot)
+const TeamMembersPage = memo(TeamMembersPageRoot)
+const DashboardPage = memo(DashboardPageRoot)
+const HelpPage = memo(HelpPageRoot)
 
 // PAGE_TITLES, PAGE_BARS, the nav columns and the header's chrome all derive
 // from ONE registry now — `src/layout/pages.js`. This table was the first of
@@ -2017,7 +2053,7 @@ export default function App() {
         />
       </PageSurface>
       <PageSurface id="moth" currentPage={currentPage} overflow="hidden">
-        {mothEntered && <MothSurface isActive={currentPage === 'moth'} />}
+        {mothEntered && <MothSurfaceMemo isActive={currentPage === 'moth'} />}
       </PageSurface>
       <PageSurface id="settings" currentPage={currentPage}>
         <SettingsPageWithAgent
