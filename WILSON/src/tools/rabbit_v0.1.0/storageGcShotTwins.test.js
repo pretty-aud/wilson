@@ -133,16 +133,21 @@ describe('the orphan scan asks before it deletes', () => {
   it('FAILS CLOSED: a files read that errors — the referenced-path lookup or the twin question — throws and ends that project\'s scan with nothing removed, counted; the lookup is chunked by encoded length', () => {
     // Both readers destructure `error` and throw on it (round 2, item 2: a
     // failed read answered as "no row" made a whole chunk deletable).
-    expect(GC).toMatch(/const \{ data, error \} = await ctx\.admin\.from\('files'\)\.select\('storage_path'\)\.in\('storage_provider', \['supabase', 's3', 'local_server'\]\)\.in\('storage_path', chunk\)\s*if \(error\) throw new Error/)
-    expect(GC).toMatch(/const \{ data, error \} = await ctx\.admin\.from\('files'\)\.select\('id'\)\.in\('storage_provider', \['supabase', 's3', 'local_server'\]\)\.like\('storage_path', pattern\)\.limit\(1\)\s*if \(error\) throw new Error/)
+    // F7 round 1: the batched read sends its keys quoted and escaped (inList), a key that is not plain alone by
+    // .eq(), and any failure, whatever its error's shape, throws (readFailure).
+    // F7 round 2: the batched read is paged by id to an empty page, as the drain's guard is.
+    expect(GC).toMatch(/\.filter\('storage_path', 'in', inList\(chunk\)\)\s*if \(after !== null\) q = q\.gt\('id', after\)\s*const \{ data, error \} = await q\.order\('id', \{ ascending: true \}\)\.limit\(GUARD_PAGE\)\s*const failure = readFailure\(error, data\)\s*if \(failure\) throw new Error\(`files read failed \(referenced paths\)/)
+    expect(GC).toMatch(/\.eq\('storage_path', p\)\.limit\(1\)\s*const failure = readFailure\(error, data\)\s*if \(failure\) throw new Error/)
+    expect(GC).toMatch(/const \{ data, error \} = await ctx\.admin\.from\('files'\)\.select\('id'\)\.in\('storage_provider', \['supabase', 's3', 'local_server'\]\)\.like\('storage_path', pattern\)\.limit\(1\)\s*const failure = readFailure\(error, data\)\s*if \(failure\) throw new Error/)
     // The orphan loop catches each, counts it, and goes on to the next project.
     expect(GC).toMatch(/referenced = await referencedPaths\(ctx, objects\.map\(o => o\.path\)\)\s*\} catch \(err\) \{\s*counts\.scan_failed\+\+/)
     expect(GC).toMatch(/named = await rowNamesTwin\(ctx, twin\)\s*\} catch \(err\) \{\s*counts\.scan_failed\+\+/)
     expect(GC).toMatch(/scan_failed: number/)
     expect(GC).toMatch(/scan_failed: 0/)
     // The `.in()` chunks are cut by what the URL will carry, not by count.
-    expect(GC).toMatch(/for \(const chunk of chunkByEncodedLength\(paths\)\)/)
-    expect(GC).toMatch(/encodeURIComponent\(p\)\.length/)
+    // F7 round 1: counted as the request really carries each value, quoted and form-encoded.
+    expect(GC).toMatch(/for \(const chunk of chunkByEncodedLength\(plain\)\)/)
+    expect(GC).toMatch(/new URLSearchParams\(\{ v: listValue\(p\) \}\)\.toString\(\)\.length/)
     expect(GC).not.toMatch(/paths\.slice\(i, i \+ 100\)/)
   })
 })

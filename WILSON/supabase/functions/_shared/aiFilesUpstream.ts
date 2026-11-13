@@ -313,7 +313,11 @@ export async function writeCertificate(
   }
 }
 
-/** Run `fn` over `items`, `limit` at a time, in order of completion. */
+/**
+ * Run `fn` over `items`, `limit` at a time. The answers come back in the ORDER OF `items`, whatever order the calls
+ * finish in: `out[i]` is `fn(items[i])`. The sweeps (ai-files, operator-ai-files) read each file's outcome by its
+ * index in the plan (F7), so this order is load-bearing.
+ */
 export async function pooled<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length)
   let next = 0

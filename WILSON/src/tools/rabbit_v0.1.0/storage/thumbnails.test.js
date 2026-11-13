@@ -698,7 +698,12 @@ describe('review fixes', () => {
     const gc = executable(readFileSync(
       join(process.cwd(), 'supabase', 'functions', 'storage-gc', 'index.ts'), 'utf-8',
     ))
-    expect(gc).toMatch(/refErr = answer\.error/)
+    // F7 (0137 wave): the read is batched per chunk (namedQueuePaths); a chunk's
+    // failed read marks each of its paths failed, and the row's verdict reads it.
+    // Round 1: any failure counts, whatever the error's shape (readFailure), and the row reads `failed.has` first.
+    // Round 2: a path an earlier page already found named stays named; every other path of the chunk is failed.
+    expect(gc).toMatch(/for \(const p of chunk\) if \(!named\.has\(p\)\) failed\.set\(p, failure\)/)
+    expect(gc).toMatch(/if \(asked\[column\]\.failed\.has\(row\.object_path\)\) \{ refErr = /)
     expect(gc).toMatch(/if \(refErr\) \{/)
     expect(gc).toMatch(/restorability check failed, nothing deleted/)
   })
@@ -786,12 +791,14 @@ describe('wiring: disposal and CI registration', () => {
     // find nothing, delete a restorable preview and stamp it 'deleted' in the
     // ledger — the exact failure the paragraph above exists to prevent,
     // re-entering through this session's own fix.
-    expect(gc).toMatch(
-      /\(row as \{ kind\?: string \}\)\.kind === 'thumbnail'/,
-    )
+    expect(gc).toMatch(/row\.kind === 'thumbnail'\s*\? 'thumbnail_url'/)
     expect(gc).not.toMatch(/row\.bucket_id === THUMBNAIL_BUCKET/)
     expect(gc).toMatch(/: \[refColumn\]/)
-    expect(gc).toMatch(/\.eq\(column, row\.object_path\)/)
+    // F7: the batched read asks each column for the page's paths, a thumbnail
+    // row's path in thumbnail_url (by kind), and the verdict reads that column.
+    expect(gc).toMatch(/\.filter\(column, 'in', inList\(chunk\)\)/)
+    expect(gc).toMatch(/r\.provider === 's3' \|\| r\.kind === 'thumbnail'/)
+    expect(gc).toMatch(/asked\[column\]\.named\.has\(row\.object_path\)/)
   })
 
   it('🚨 S44: the drain SELECTS kind — omitting it silently deletes previews', () => {

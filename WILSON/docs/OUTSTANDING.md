@@ -4913,3 +4913,160 @@ no fix in the product.
   the line (the 04:43 UTC job had succeeded on each of the last four nights and takes them at its next run). The
   purge is right and the test's count is not its own. `docs/PRODUCTION_RUNBOOK.md` now names it with suite 74's #34
   and #35 and suite 25's #13 as a healthy red. Fix shape: have the test count only the row it backdated.
+
+## F7 (2026-11-13, wave 2's database per-row work on `po/f7-database-per-row-work`; 0137, suite 139) — left open
+
+What 0137 and the three functions left, each with its measurement. Round 1 (nine reviewers) found two blockers, one
+of them a security finding, both fixed before anything reached dev. Round 2 (five reviewers, after the apply) found
+no blocker and nothing of security; what it changed is in the next commit (storage-gc's orphan scan paged, the tests),
+and what both rounds recorded is here. 0137 is applied on dev, so a fault in it is fixed by a later migration, never by
+editing it; none needed one.
+
+- **F7-01 · auth_events_insert still asks has_active_membership per row.** MEASURED on dev's live text: its WITH CHECK
+  is `... AND ((workspace_id IS NULL) OR has_active_membership(workspace_id))`, with no pin to the claim anywhere, so
+  the sub-select would change which company a member may name. One call per inserted sign-in event: negligible.
+  Left by design (0137's header).
+- **F7-02 · workspace_members' two read policies still ask it per row.** MEASURED (CI on `11256e74`: suites 14, 16, 24,
+  38 and 67 red with 42P17): `ws_members_self_update`'s WITH CHECK reads workspace_members by a sub-query, and the
+  row-security rewriter refuses to expand a table's policies a second time on one path once any of them holds a
+  sub-query; with the sub-select in `ws_members_select` and `ws_members_admin_write` every client UPDATE of a member
+  row recursed. A company's members are few rows. Fix shape: express self_update's "a member's row keeps its company"
+  without a sub-query (a trigger, or a definer helper), then restate the two with the next migration and its probe.
+- **F7-03 · Other helpers still run per row.** MEASURED on dev's 283 live policies: `can_write_project` in 70 policies
+  on 21 tables, `can_access_project_money` 34 on 9, `current_app_role` 32 on 15, `can_edit_shot_lists` 22 on 8,
+  `can_access_project_legal` 14 on 4, `is_live_workspace_admin` 12 on 8, `moth_can_read_target` 9 on 6,
+  `is_platform_operator` 5 on 4, `two_factor_satisfied` 5 on 3; all definers but `current_app_role`. Also
+  `fn_try_uuid` in 26 (22 on `storage.objects`, 4 on `realtime.messages`), plpgsql with an EXCEPTION block, so a
+  sub-transaction per row: the cost 0137 took out of the meter, still paid on storage and channel reads;
+  `rabbit_money_segment` 19 on 1, `moth_can_write_target` 8 on 3, `rabbit_legal_segment` 8 on 1,
+  `otter_is_course_owner` 7 on 3. Most take the row's project and cannot be lifted out of the row.
+  `is_platform_operator()` and `two_factor_satisfied()` (no argument, STABLE definers) and
+  `is_live_workspace_admin(workspace_id)` beside the workspace pin could take the same once-per-statement form, under
+  0137's proof and its recursion probe. Counted, not timed: dev is too small to show their cost. Measurement that
+  would: EXPLAIN (ANALYZE) of a storage listing and of a project's tasks read on staging's sizes, as a client, rolled
+  back, with the helper's calls counted in the plan's filters.
+- **F7-04 · storage-gc's round trips that stay one per row.** INFERRED by the design round and round 1: the queue's
+  status stamps (grouped, a run killed by the 150 s clock between a removal and its stamp would leave a disposal with
+  no certificate, then stamped `missing`), `remove()` with `certify()` per orphan (a batch answers one error, and a
+  kill would lose up to a batch of certificates), the projects and file_events reads per folder of the orphan scan
+  (groupable only with an exact per-folder fallback), and the twin question per old shot object. Measurement owed: the
+  stamps' share of a real run's time.
+- **F7-05 · The meter's arm 1b still reads both buckets of every company on every upload.** MEASURED on dev's plan
+  (126 objects at 04:24 UTC, none spelled otherwise): 0137 cut the cost per object from fn_try_uuid's sub-transaction
+  (about 0.2 ms) to a regular expression (about 5 µs), but arm 1b is still a scan of every object in rabbit-files and
+  rabbit-thumbnails. At dev's size the planner scans for arm 1a too (126 objects read once per project; the index
+  serves it only with seq scans off): the 26.7 to 2.8 ms is the sub-transactions gone. Making 1b read less needs an
+  index on `storage.objects` (a table of the storage schema): her decision, walkthrough 98's first question.
+  Measurement that settles whether to ask: the meter's EXPLAIN on staging's object count.
+- **F7-06 · 0137's own meter check runs the old meter for every company.** INFERRED: about 0.2 ms per object of both
+  buckets, times the number of companies, before any lock that makes anyone wait (it holds ACCESS SHARE only). Read the
+  rehearsal's time on staging and production before the apply (the runbook's row says so).
+- **F7-07 · rekey_file_body's picture-only phase sets a thumbnail_url without asking 0115's claim.** INFERRED by
+  round 1 (r1-gc, finding 4) from 0133: every other writer of a key consults `file_key_admissible`'s step 5, which
+  holds a queued key against a new row. storage-gc now reads and acts on 50 queue rows at a time, so the window is one
+  slice. Fix shape: the same step 5 for `p_to_thumb` in a later migration.
+- **F7-08 · A bin poster's path may hold any character but `//`, `..` and a backslash.** MEASURED by reading 0091's
+  `bin_files_poster_path_shape_chk`. It is how a key holding `")` could reach storage-gc's queue (round 1's security
+  finding, fixed in the drain: lists are quoted and escaped, and any key that is not plain is asked alone). Fix shape:
+  give the poster column `file_key_shape_ok`'s segment rule.
+- **F7-09 · No provider filter is proved for storage-gc's guard, so its read is a scan of `files`.** MEASURED on dev
+  (both indexes on the columns are partial on the provider; with seq scans off the unfiltered read still scans): a
+  network_share row can never name a bucket key (0117's CHECKs), but nothing in the schema stops a google_drive row
+  from naming one. The read is batched: MEASURED in the tests (round 2), a full page of 500 rows (250 bodies and their
+  250 pictures, typical keys) is 20 reads of `files` when nothing is named and 40 when everything is, where it was
+  500. **The orphan scan's two lookups keep the filter** (`referencedPaths` and the twin question `rowNamesTwin` ask
+  only `supabase`, `s3` and `local_server` rows, as before F7): so a google_drive row naming a `rabbit-files` key does
+  not keep it from the orphan scan, though the drain's guard asks every provider (a network_share row cannot name one,
+  by 0117's CHECKs). Kept on purpose: without the filter the twin question's LIKE is a scan of `files` for every old
+  object, which puts the 150 s deadline at risk. Fix shape, hers (walkthrough 98's second question): a CHECK retiring
+  google_drive (`storage_provider <> 'google_drive'`, after counting the rows on each environment: 0 on dev), which
+  would make the filter provable everywhere, the partial indexes usable and the orphan scan's filter complete.
+- **F7-10 · An event row naming a file id over about 2.7 kB can no longer be inserted, and a long one can stop the
+  apply.** INFERRED (round 1, and round 2 by reading): 0137's `app_events_file_id_idx` indexes `context->>'file_id'`
+  of every row, and a btree entry holds at most about 2,704 bytes, so a row whose file id is incompressible and longer
+  fails with 54000 where it was accepted before (0021's CHECK lets `context` be up to 8,000 characters, and any active
+  member may insert into their own company's app_events). No writer of this product names such an id: ai-files and
+  operator-ai-files accept only `file_` and 8 to 96 letters and digits, and no database function puts a client's file
+  id into app_events (dev's longest: 101 characters). The same member can make a staging or production apply, or a
+  re-run, refuse by first writing a file id over 1,000 bytes: the pre-flight refuses rather than build midway (the
+  runbook's row: read `longest_id` just before the apply; the 90-day purge removes such a row). The check is not
+  atomic with the build either (SHARE is taken at §4, after §3): a long row written between them aborts the build, a
+  safe refusal.
+- **F7-11 · CI's storage schema was never listed.** INFERRED by round 1 (r1-meter): whether arm 1a's range is served
+  by an index on CI's local stack is not known (correct either way). On dev it is served only with seq scans off, by
+  `objects_bucket_id_name_version_key` (F7-05).
+- **F7-12 · Two pgTAP pins prove less than their words since the sub-select also names `current_workspace_id()`.**
+  Fixed in suites 99 (test 4) and 101 (test 5), which now look for the pin itself. MEASURED by reading in round 2: no
+  other suite finds the pin by a bare `current_workspace_id()` substring (suite 103:166 reads a column's default;
+  suites 90, 95 and 100 pin whole texts). Suite 01:129 is in F7-18. Closed.
+- **F7-13 · The AI file list's main read (readUploadRows) takes a generic plan from a connection's sixth call.**
+  MEASURED on dev, 2026-11-13 04:52 UTC, one rolled-back session: the read prepared as PostgREST sends it (the JSON
+  key and every value as parameters), `plan_cache_mode` auto, as service_role, eight runs. The first five are custom
+  plans on `app_events_ai_files_ws_id_idx`, 0.75 ms; from the sixth the generic plan, a walk of `app_events_pkey`
+  with a filter: 4.3 ms for dev's busiest company (2,855 AI rows), 6.9 ms for a company with none (all 14,294 rows
+  walked). readCertifiedGone (2.2 to 2.9 ms) and readAbsentNoted (1.3 to 1.5 ms) kept custom plans in all nine runs.
+  MEASURED whole, 05:11 and 05:15 UTC on a quiet dev: the statement as sent, its JSON reply included, twelve runs, and
+  the old shape timed the same way (the two indexes and the statistics dropped inside a rolled-back transaction):
+  readUploadRows 5.1 ms for the first five and 8.6 ms after, the old shape 8.9 and 8.5; readCertifiedGone 5.7 against
+  6.0; readAbsentNoted 1.85 against 1.85. So at dev's size the indexes save about 4 ms on a connection's first five
+  upload reads and nothing after; the 44 ms live mean before 0137 was CI's load on dev and stale statistics. Whether
+  the two indexes earn their write cost (F7-17) is part of the same later decision. A generic plan cannot match an index on `context->>'tool'` when the key
+  is a parameter, and PostgREST keeps its prepared statements for a connection's life, so a pooled connection's
+  steady state is the generic plan, which grows with `app_events`. Options for a later migration, the controller's
+  and her call (walkthrough 98's third question): an index on `app_events (workspace_id, code, id)` that a generic
+  plan can use, or `plan_cache_mode = force_custom_plan` for service_role (INFERRED by round 2: PostgREST applies the
+  role's settings per request, so only the Edge Functions' service-role reads would change). Measurement that
+  settles it: the same eight runs on staging's `app_events`.
+- **F7-14 · A slow spell on dev, 04:30 to 04:50 UTC, to be read again.** MEASURED from dev's statement statistics,
+  04:30:47 to 04:49:57 UTC: readUploadRows ran 15 more times at a mean of 1,183 ms, readCertifiedGone 5 at 48.7 ms,
+  readAbsentNoted 5 at 80.7 ms. At 04:52 nothing was running on `app_events` and no lock was held on it; the worst plan
+  measured (F7-13) is 7 ms, and a cold first touch cost 95 to 200 ms. Read as dev's small server being slow in that
+  window (a cold cache or its disk), not a plan. READ AGAIN, 04:49:57 to 05:04:22 UTC (CI's smoke and Playwright on
+  `c23648dd` ran on dev): readUploadRows 60 calls at a mean of 51 ms, readCertifiedGone and readAbsentNoted 20 each at
+  11 ms; on a quiet dev at 05:11 the whole statements took 8.6, 5.7 and 1.8 ms. The live means follow CI's load on
+  dev's small server. Left open: a statement's first run on a fresh connection cost 46 to 270 ms in one timing loop,
+  while EXPLAIN shows under 1 ms of planning and every page already in memory (05:12 UTC); read as cold data, not
+  settled.
+- **F7-15 · 0137's own comments that are wrong (never edited: the file is applied).** MEASURED by reading the file:
+  line 15 says "207 calls" for the row's-column form; with `ws_members_select` and both clauses of
+  `ws_members_admin_write` left alone it restates 204 of them, plus notes_select's 1 and the 13 bare calls: 218, the
+  number §2 checks. Line 178 says "the one exception"; there are three policies, four clauses. Lines 1669 to 1671 say
+  each probe statement carries a WHERE or a RETURNING "so the read policies are collected too": true of the UPDATE
+  only (the DELETE's and the INSERT's `RETURNING 1` name no column, so they ask for no read right); the coverage is
+  still complete, and the handbook's §4.4 has the reasoning. Lines 63 and 64 say `app_events`' inserts wait "while" the
+  indexes are built; they wait from §4 to the commit (the runbook's row says so). Line 70 says the search_path is the
+  caller's again at the end: true, and `lock_timeout` (5 s) and the setting `f7.caller_search_path` stay set to the
+  transaction's end (harmless; a chained rehearsal's later files inherit them).
+- **F7-16 · Two small edges, grouped.** (a) INFERRED by round 2 (0137:1720 to 1723): the recursion probe re-raises only
+  `lock_not_available` and `query_canceled`, so a deadlock (40P01) on a statement kind outside the must-succeed rule
+  (FOR UPDATE, DELETE and INSERT, anything as anon, every table outside `public`, `storage.objects` included) counts
+  as a pass with nothing proven. Near impossible: the probe takes only weak locks. Fix shape, in a later file's probe:
+  re-raise `deadlock_detected`, and require success on `storage.objects` too, which holds 12 of the restated clauses.
+  (b) Older than F7, INFERRED by round 1: `rabbit_object_incoming_bytes` (0057:192) raises "bigint out of range" for a
+  size of 19 or more digits, though its comment says it never raises; the old and the new meter raise alike, and no
+  member path to such metadata was found (an upload's length is checked against the bucket's limit first).
+- **F7-17 · The file-id index holds an entry for every event row, most of them empty.** INFERRED by round 2: about 80%
+  of dev's `app_events` rows carry no `file_id` (2,831 AI rows of 14,177 before 0137), so each of those inserts adds an
+  empty entry. A partial index `WHERE (context->>'file_id') IS NOT NULL` would serve both naming reads (in a custom
+  plan an `= ANY` over the given ids implies it), and readAbsentNoted, which names no file id, could never take it, so
+  round 1's trap (a partial index taken for its predicate alone) stays shut. Small: take it only in a later migration
+  that touches this index anyway.
+- **F7-18 · Test notes, grouped (round 2).** Each is a test that proves less than its words; none hides a fault found.
+  `src/cloud/edgeSweeps.test.js`: ai-files' "after equals what the list then answers" compares against the
+  member-scoped list (no `workspace_members` row is planted, so the list answers `scope: 'own'`; every planted upload
+  is the admin's, so the two agree, and a sweep whose `after` was cut to the caller's own uploads would pass too: plant
+  a live admin and a second member's upload, and assert `scope === 'workspace'`); the two "says the same" cases
+  (ai-files' `remaining` against `after.count`, the operator's `remaining_attributed` against `left_alone`) compare
+  fields filled from one variable, so neither can go red, and the first case of each block is what proves the totals.
+  Suite 139: its recursion probe (`t139_recursion`, 139:85 to 116), the guard that lasts after 0137, is weaker than
+  0137's (as authenticated only, four statements with no WHERE or RETURNING, and no check that each statement was
+  rewritten, so a table whose PREPAREs all fail for another reason reads "no recursion"); #28, #29 and #55 (and #31's
+  exact sum) count everything company `11111111` can see, so they hold only while dev's fixture company has no real
+  rows; #26 is held by two restated policies at once (`tasks_update`'s own sub-select and the projects hop through
+  `projects_select`), so it goes red only if both break. Suite 01:129 pins the sub-select without the
+  `(workspace_id = current_workspace_id())` pin that suites 99 and 101 added (behaviour still held by suite 115:1815
+  and :1826). The brief's item 4 controls at the migration's level (a policy put back per row fails the
+  post-condition; a guard removed fails the comparison) exist only in the session's scratch files and ran against
+  `bcc8b131`'s file: the comparison is unchanged since, by diff, but the exception plant was proven against the one-row
+  check `6bdd30f2` replaced, and no plant restates `ws_members_select` or `ws_members_admin_write` as text. The
+  hand-off says which file each plant ran against.
