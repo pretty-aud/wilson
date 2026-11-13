@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
+import { useRabbitLive } from '../../tools/rabbit_v0.1.0/state/rabbitLive'
 import { usePermissions } from '../../permissions/usePermissions'
 
 export function useTaskTemplates() {
@@ -31,7 +32,9 @@ export function useTaskTemplates() {
     ? (perms.workspaceId || rabbit?.DEFAULT_WORKSPACE_ID)
     : null
   const adapterMode = rabbit?.adapterMode
-  const adapterStatus = rabbit?.adapterStatus
+  // F4: from its own context, not off the value (rabbitLive.js). The load below
+  // runs again when `online` flips, as before.
+  const adapterStatus = useRabbitLive('adapterStatus', rabbit)
 
   const [templates, setTemplates] = useState([])
   const [loading, setLoading] = useState(false)

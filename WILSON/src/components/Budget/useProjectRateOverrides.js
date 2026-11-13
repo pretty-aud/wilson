@@ -23,6 +23,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
+import { useRabbitLive } from '../../tools/rabbit_v0.1.0/state/rabbitLive'
 import { buildProjectRatesMirror } from '../../tools/rabbit_v0.1.0/projectRates'
 
 export function useProjectRateOverrides() {
@@ -31,7 +32,9 @@ export function useProjectRateOverrides() {
   const project       = rabbit?.project
   const projectId     = rabbit?.project?.id
   const adapterMode   = rabbit?.adapterMode
-  const adapterStatus = rabbit?.adapterStatus
+  // F4: from its own context, not off the value (rabbitLive.js). The load below
+  // runs again when `online` flips, as before.
+  const adapterStatus = useRabbitLive('adapterStatus', rabbit)
 
   const [overrides, setOverrides] = useState([])
   const [loading, setLoading]     = useState(false)

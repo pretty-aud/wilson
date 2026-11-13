@@ -32,6 +32,11 @@ import { v4 as uuidv4 } from 'uuid';
 // The context object lives in its own module (BC2): a leaf that only reads
 // it — BinPoster — need not import this file, which builds the cloud client.
 import { RabbitContext } from './rabbitContext';
+// F4 (2026-11-13): the eight pieces of state that move on their own clock (a
+// presence heartbeat, a channel's status, an ingestion's progress, the undo
+// toast, the adapter's status) are provided BESIDE the value, not in it, and
+// D.O.G.'s six fields as one object of their own. rabbitLive.js says why.
+import { liveGetters, withRabbitLive, withRabbitProjects } from './rabbitLive';
 // Session 26: the project folder's self-description. Built here from the
 // loaded bundle and handed to the adapter, so both backends mirror the
 // same shape — that is the one job a portable manifest has.
@@ -8863,11 +8868,35 @@ export function RabbitProvider({ children }) {
   // workspace-level rate card CRUD lives outside the project bundle).
   const getAdapter = useCallback(() => adapterRef.current, []);
 
+  // ── What moves on its own clock (F4, 2026-11-13) ─────────
+  // These eight were fields and deps of the value below, so a presence
+  // heartbeat, a channel's status, a step of an ingestion, the undo toast
+  // coming or going and every refresh of the projects list handed a new value
+  // to every reader (about seventy files). They are STATE here exactly as
+  // before: no setter, no handler and no load is changed. What changed is how
+  // they leave the provider:
+  //   • each of the seven that something shows is provided through a context
+  //     of its own (withRabbitLive, in the return below), and the component
+  //     that shows it reads it with useRabbitLive: it is drawn again in the
+  //     same commit as before, and nobody else is;
+  //   • all eight are still fields of the value, as GETTERS over `liveRef`.
+  //     `ctx.undoToast` in a handler, or in a test's probe after an action,
+  //     answers with the state as of this provider's last render. A getter
+  //     tells nobody, so a component must not read one while it draws:
+  //     rabbitLive.test.jsx reads every source file under src for that.
+  // The ref is written while rendering, not in an effect, so that a reader
+  // drawn in this same commit for another reason is never one commit behind.
+  const live = {
+    adapterStatus, undoToast, activeIngestion, ingestionRun,
+    realtimeStatus, presentUsers, workspaceRealtimeStatus, workspacePresentUsers,
+  };
+  const liveRef = useRef(live);
+  liveRef.current = live;
+
   // ── Context value ───────────────────────────────────────
-  const value = useMemo(() => ({
+  const value = useMemo(() => liveGetters({
     // identity
     adapterMode,
-    adapterStatus,
     switchAdapter,
     refreshProjectsIndex,
     getAdapter,
@@ -8973,14 +9002,12 @@ export function RabbitProvider({ children }) {
     loadingProject,
     error,
 
-    // intake
-    activeIngestion,
+    // intake (activeIngestion: a getter, see `live` above)
     startIngestion,
     acceptIngestion,
     discardIngestion,
 
-    // background ingestion
-    ingestionRun,
+    // background ingestion (ingestionRun: a getter)
     startBackgroundIngestion,
     cancelBackgroundIngestion,
     dismissBackgroundIngestion,
@@ -8995,21 +9022,19 @@ export function RabbitProvider({ children }) {
     myProjectRole,
     projectIsStaffed,
 
-    // realtime (Session 7; 'off' outside cloud mode)
-    realtimeStatus,
-    presentUsers,
+    // realtime (Session 7; 'off' outside cloud mode). realtimeStatus and
+    // presentUsers: getters.
     reloadActiveProject,
 
-    // workspace realtime (Session 8; 'off' outside cloud mode)
-    workspaceRealtimeStatus,
-    workspacePresentUsers,
+    // workspace realtime (Session 8; 'off' outside cloud mode).
+    // workspaceRealtimeStatus and workspacePresentUsers: getters.
     subscribeWorkspaceEvents,
 
     // revert-to-state (Session 7)
     revertHistoryEntry,
 
-    // undo toast — its Undo held while a view says so (S5d R2-04)
-    undoToast,
+    // undo toast — its Undo held while a view says so (S5d R2-04).
+    // undoToast: a getter.
     dismissUndoToast,
     undoHeld, holdUndo,
 
@@ -9146,17 +9171,18 @@ export function RabbitProvider({ children }) {
 
     // selectors
     ...memoSelectors,
-  }), [
-    adapterMode, adapterStatus, switchAdapter, refreshProjectsIndex, getAdapter,
-    activeProjectId, projectsIndex, bundle, loadingProject, error, activeIngestion,
+  }, liveRef), [
+    // F4: none of the eight in `live` is here. Each was; that was the cost.
+    adapterMode, switchAdapter, refreshProjectsIndex, getAdapter,
+    activeProjectId, projectsIndex, bundle, loadingProject, error,
     startIngestion, acceptIngestion, discardIngestion,
-    ingestionRun, startBackgroundIngestion, cancelBackgroundIngestion, dismissBackgroundIngestion,
+    startBackgroundIngestion, cancelBackgroundIngestion, dismissBackgroundIngestion,
     projectMembers, refreshProjectMembers, addProjectMember, updateProjectMemberRole,
     updateProjectMemberTitle,
     removeProjectMember, myProjectRole, projectIsStaffed,
-    realtimeStatus, presentUsers, reloadActiveProject, revertHistoryEntry,
-    workspaceRealtimeStatus, workspacePresentUsers, subscribeWorkspaceEvents,
-    undoToast, dismissUndoToast, undoHeld, holdUndo,
+    reloadActiveProject, revertHistoryEntry,
+    subscribeWorkspaceEvents,
+    dismissUndoToast, undoHeld, holdUndo,
     createProject, updateProject, deleteProject, setActiveProject,
     addPhase, updatePhase, deletePhase, reorderPhases,
     addAsset, updateAsset, deleteAsset, deleteAssets, reorderAssets,
@@ -9205,7 +9231,20 @@ export function RabbitProvider({ children }) {
     memoSelectors,
   ]);
 
-  return <RabbitContext.Provider value={value}>{children}</RabbitContext.Provider>;
+  // D.O.G.'s six (F4): it read them off the whole value, so every write to the
+  // open project ran D.O.G., on screen or off. One object of their own, which
+  // changes with the mode, the projects list and (through updateProject, the
+  // only one of the four functions with a dep that moves) the open project's
+  // id. The value above still carries all six.
+  const projects = useMemo(() => ({
+    adapterMode, projectsIndex, refreshProjectsIndex, createProject, updateProject, getAdapter,
+  }), [adapterMode, projectsIndex, refreshProjectsIndex, createProject, updateProject, getAdapter]);
+
+  return (
+    <RabbitContext.Provider value={value}>
+      {withRabbitProjects(projects, withRabbitLive(live, children))}
+    </RabbitContext.Provider>
+  );
 }
 
 export function useRabbit() {

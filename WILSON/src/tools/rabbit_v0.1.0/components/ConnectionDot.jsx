@@ -72,6 +72,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 import { useRabbit } from '../state/RabbitProvider'
+import { useRabbitLive } from '../state/rabbitLive'
 import { StatusDot } from '../../../ui/StatusDot'
 import { supabase } from '../../../cloud/auth/supabaseClient'
 import { heldSession } from '../../../cloud/auth/heldSession'
@@ -108,6 +109,10 @@ const readWatchdog = () => connectionWatchdog.getSnapshot()
 /** The dot's state: { view, announcement }. */
 function useConnection({ active = true } = {}) {
   const ctx = useRabbit()
+  // F4 (2026-11-13): the two the dot follows that move on their own clock,
+  // each from a context of its own and not off the value (state/rabbitLive.js).
+  const adapterStatus = useRabbitLive('adapterStatus', ctx)
+  const realtimeStatus = useRabbitLive('realtimeStatus', ctx)
   const adapter = ctx?.getAdapter?.() || null
   const kind = adapterKindOf(ctx?.adapterMode, adapter)
   const projectId = ctx?.activeProjectId || null
@@ -251,7 +256,7 @@ function useConnection({ active = true } = {}) {
   // refetch replaces (R1-7) — and only when it disagrees with what the dot
   // measured or is measuring: the provider's own boot status() flips
   // false → true just after the dot's first probe, and that is not news (R2-4).
-  const adapterOnline = ctx?.adapterStatus?.online
+  const adapterOnline = adapterStatus?.online
   const measured = result?.kind === kind ? result : null
   const measuredRef = useRef(null)
   measuredRef.current = measured
@@ -286,7 +291,7 @@ function useConnection({ active = true } = {}) {
   const view = connectionView({
     kind,
     result: measured,
-    realtimeStatus: ctx?.realtimeStatus,
+    realtimeStatus,
     projectOpen: !!projectId,
     browserOffline,
     reconnecting: kind === 'cloud' && reconnecting,

@@ -24,7 +24,9 @@
 // changes of its state here: its clocks from 3 s to 63 s) ran D.O.G. 13
 // times and O.T.T.E.R. 13 times; ten characters typed to the pet ran each 10
 // times; one presence heartbeat ran D.O.G. once (60 component renders with
-// what it draws) and O.T.T.E.R. not at all.
+// what it draws) and O.T.T.E.R. not at all; and one row added to the open
+// project by a colleague ran D.O.G. once (measured at e3e5efb1, the commit
+// before R.A.B.B.I.T.'s volatile state left its value).
 // =============================================================================
 import { renderSpy } from './lib/renderSpy'
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
@@ -197,7 +199,7 @@ async function openApp() {
   world.pet = { ...PET }
   const fx = buildDevFixtures()
   const adapter = fx.rabbitAdapter()
-  adapter.subscribeProjectChanges = (_id, _onEvent, opts = {}) => { world.live.project = opts; return () => {} }
+  adapter.subscribeProjectChanges = (_id, onEvent, opts = {}) => { world.live.project = opts; world.live.event = onEvent; return () => {} }
   adapter.subscribeWorkspaceChanges = () => () => {}
   world.adapter = adapter
   const view = render(<App />)
@@ -268,6 +270,29 @@ describe('the two tool roots are left alone', () => {
     expect(renderSpy.which(TOOLS, mark)).toEqual([])
   })
 
+  it('by a presence heartbeat in R.A.B.B.I.T.', async () => {
+    await openApp()
+    const mark = renderSpy.mark()
+    await heartbeat()
+    expect(renderSpy.renders('RabbitProvider', mark)).toBe(1)      // it did arrive
+    expect(renderSpy.which(TOOLS, mark)).toEqual([])
+  })
+
+  // D.O.G. reads the projects list and four functions, not the open project
+  // (state/rabbitLive.js, useRabbitProjects). The undo toast reads the whole
+  // value: it being drawn is the proof that the value did change.
+  it('by a row a colleague adds to the project open in R.A.B.B.I.T.', async () => {
+    await openApp()
+    const mark = renderSpy.mark()
+    await act(async () => {
+      world.live.event({
+        table: 'assets', op: 'INSERT', oldRecord: null,
+        record: { id: 'a-from-a-colleague', project_id: world.projectId, name: 'Fog machine', type: 'prop', status: 'not_started', created_at: NOW.toISOString(), updated_at: NOW.toISOString() },
+      })
+    })
+    expect(renderSpy.renders('UndoToast', mark)).toBeGreaterThan(0)
+    expect(renderSpy.which(TOOLS, mark)).toEqual([])
+  })
 })
 
 describe('a field being typed in keeps its focus and its words', () => {

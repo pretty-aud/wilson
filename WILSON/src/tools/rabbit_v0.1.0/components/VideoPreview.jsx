@@ -116,9 +116,11 @@ export function VideoStage({ file, projectId, managed, onClose, onOpenExternally
 
   // 🚨 DEPEND ON THE METHOD, NOT ON `ctx` — S39's review finding, and it is
   // worse here than it was there. RabbitProvider rebuilds its context value
-  // with a useMemo whose deps include `bundle`, `presentUsers` and
-  // `realtimeStatus`, so `ctx` gets a new identity on ANY state change at all:
-  // a collaborator's presence ping, an unrelated optimistic update. Depending
+  // with a useMemo whose deps include `bundle`, so `ctx` gets a new identity
+  // on every change to the open project: a colleague's row arriving, an
+  // unrelated optimistic update. (Until F4, 2026-11-13, a collaborator's
+  // presence ping and the channel's status were deps too; they are provided
+  // beside the value now, state/rabbitLive.js. The rule stands.) Depending
   // on the whole object makes resolveSrc → load → the effect all re-fire, which
   // re-mints the signed URL and hands the <video> a NEW src — restarting
   // playback from the beginning, mid-view, for a reason the viewer cannot see.

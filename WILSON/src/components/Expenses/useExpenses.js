@@ -11,6 +11,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
+import { useRabbitLive } from '../../tools/rabbit_v0.1.0/state/rabbitLive'
 
 const MAX_HISTORY = 10
 
@@ -20,7 +21,9 @@ export function useExpenses() {
   const project     = rabbit?.project
   const projectId   = project?.id
   const adapterMode = rabbit?.adapterMode
-  const adapterStatus = rabbit?.adapterStatus
+  // F4: from its own context, not off the value (rabbitLive.js). The load below
+  // runs again when `online` flips, as before.
+  const adapterStatus = useRabbitLive('adapterStatus', rabbit)
 
   const [expenses, setExpenses] = useState([])
   const [loading, setLoading]   = useState(false)
