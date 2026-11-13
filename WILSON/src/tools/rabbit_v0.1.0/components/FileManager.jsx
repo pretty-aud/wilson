@@ -376,9 +376,11 @@ export default function FileManager({
     [assetFiles],
   )
   // 🚨 DEPEND ON THE METHOD, NOT ON `ctx`. RabbitProvider builds its context
-  // with a useMemo whose deps include `bundle`, `presentUsers` and
-  // `realtimeStatus`, so `ctx` gets a new identity on any state change at all —
-  // a collaborator's presence ping, an unrelated optimistic update. Depending
+  // with a useMemo whose deps include `bundle`, so `ctx` gets a new identity
+  // on every change to the open project — a colleague's row arriving, an
+  // unrelated optimistic update. (Until F4, 2026-11-13, a collaborator's
+  // presence ping and the channel's status were deps too; they are provided
+  // beside the value now, state/rabbitLive.js. The rule stands.) Depending
   // on the whole object re-signs every visible thumbnail on each of those, and
   // because a fresh signed URL is a new `src`, every tile RELOADS. The
   // useCallback'd method is stable.

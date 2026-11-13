@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, lazy, Suspense } from 'react'
+import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, lazy, Suspense, createContext, useContext, useImperativeHandle, memo } from 'react'
 import { Menu } from 'lucide-react'
 import TitleBar from './components/TitleBar'
 import DevFixturesBadge from './dev/DevFixturesBadge'
@@ -36,15 +36,18 @@ import { resolveUserPet, saveCloudPet, mirrorPetToCache, fetchCloudPet, isStaleP
          resolveUserSettings, mirrorSettingsToCache, setUserStateOwner,
          getUserStateOwner } from './lib/userState'
 import PetNotice from './components/PetNotice'
-import Home from './components/Home'
+// F4: six of the pages below are drawn through React.memo (the `const Home =
+// memo(HomeRoot)` block under the two wrappers), so each takes a second name
+// here and keeps its own in the page table.
+import HomeRoot from './components/Home'
 import SettingsPage from './components/SettingsPage'
-import Projects from './components/Projects'
-import RateCardPage from './components/RateCard'
-import TeamMembersPage from './components/TeamMembers/TeamMembersPage'
+import ProjectsRoot from './components/Projects'
+import RateCardPageRoot from './components/RateCard'
+import TeamMembersPageRoot from './components/TeamMembers/TeamMembersPage'
 import ProjectFilesExplorer from './components/Resources/ProjectFilesExplorer'
-import DashboardPage from './components/Dashboard/DashboardPage'
+import DashboardPageRoot from './components/Dashboard/DashboardPage'
 import AdminTerminalPage from './components/AdminTerminal/AdminTerminalPage'
-import HelpPage from './components/HelpPage'
+import HelpPageRoot from './components/HelpPage'
 import UpdatePrompt from './components/UpdatePrompt'
 import ModelWarningBanner from './components/ModelWarningBanner'
 import { MfaEnrollGate } from './cloud/auth/MfaSection'
@@ -67,12 +70,14 @@ function MothSurface({ isActive }) {
     </LazyPageBoundary>
   )
 }
+// F4: the surface under React.memo. It is handed `isActive` and nothing else.
+const MothSurfaceMemo = memo(MothSurface)
 import PetCompanion from './components/PetCompanion'
 import { PET_BREEDS, pickRandomBreed } from './components/sprites/index'
 import {
   COMPANION_PROMPT
 } from './tools/otter_v0.3.1/prompts.js'
-import { AgentProvider, useAgent } from './agent'
+import { AgentProvider, useAgent, useAgentInput } from './agent'
 import { otterFetch, subscribeOtterAdapterMode } from './tools/otter_v0.3.1/adapters'
 import { retrieveOtterKnowledge, clearPetKnowledgeCache } from './tools/otter_v0.3.1/petKnowledge'
 import { clearS3ReadUrlCache } from './tools/rabbit_v0.1.0/storage/s3Provider'
@@ -97,12 +102,30 @@ import { pushModal, isTopModal, focusableWithin } from './ui/overlay'
 import LeaveEditDialog from './tools/rabbit_v0.1.0/views/scenes/LeaveEditDialog'
 import UndoToast from './tools/rabbit_v0.1.0/components/UndoToast'
 
-// Wrapper that bridges AgentProvider context to SettingsPage
-function SettingsPageWithAgent(props) {
+// F4 (2026-11-13): the pet lives in <PetHost> (below App in this file). Two
+// things of it are drawn elsewhere, and each reaches its place through a
+// context of its own, so a change in the pet draws those two places and
+// nothing between: the companion, which the host builds and
+// <PetCompanionSlot> draws where the companion always was (the last child of
+// the signed-in column); and Settings' pet card, which is handed the pet and
+// its four actions here, in the wrapper that already handed it the agent's.
+const PetCompanionContext = createContext(null)
+const PetSettingsContext = createContext(null)
+
+function PetCompanionSlot() {
+  return useContext(PetCompanionContext)
+}
+
+// Wrapper that bridges AgentProvider context to SettingsPage (and, since F4,
+// the pet's: petData, onPetModeToggle, onDifficultyChange, onPetReset, onNewPet).
+// Drawn as <SettingsPageWithAgent>, which is this under React.memo (below).
+function SettingsPageBridge(props) {
   const agent = useAgent()
-  if (!agent) return <SettingsPage {...props} />
+  const pet = useContext(PetSettingsContext)
+  if (!agent) return <SettingsPage {...pet} {...props} />
   return (
     <SettingsPage
+      {...pet}
       {...props}
       agentEnabled={agent.agentEnabled}
       onAgentEnabledChange={agent.setAgentEnabled}
@@ -117,8 +140,11 @@ function SettingsPageWithAgent(props) {
 }
 
 // Wrapper that bridges AgentProvider context to PetCompanion props
+// (F4: the text being typed to the agent has a context of its own, which this
+// wrapper alone reads; it is no field of the agent's value any more.)
 function PetCompanionWithAgent(props) {
   const agent = useAgent()
+  const agentInput = useAgentInput()
   if (!agent) return <PetCompanion {...props} />
   const onOtterPage = props.currentPage === 'otter'
   return (
@@ -128,7 +154,7 @@ function PetCompanionWithAgent(props) {
       agentMode={onOtterPage && agent.agentMode}
       onAgentModeToggle={agent.setAgentMode}
       agentMessages={agent.agentMessages}
-      agentInput={agent.agentInput}
+      agentInput={agentInput}
       onAgentInputChange={agent.handleAgentInputChange}
       onSendAgent={agent.sendAgentMessage}
       onClearAgent={() => agent.setAgentMessages([])}
@@ -138,6 +164,39 @@ function PetCompanionWithAgent(props) {
     />
   )
 }
+
+// ── The pages, each under React.memo (F4, 2026-11-13) ───────────────────────
+// App renders for reasons of its own: a hover on the nav strip, the six steps
+// of a page transition, a dialog, a notice, the chat opening. Each render
+// handed every page to React again, whatever the page was handed. These are
+// handed the same props across such a render: nothing at all, or `onNavigate`
+// (one function for as long as the page on screen is the same) and the page's
+// name; Settings' wrapper, three of App's states. So React compares: a page
+// whose props are the ones it had is not run again. A change of page runs
+// each page that is handed the page's name once, where it ran six times.
+//
+// D.O.G., O.T.T.E.R. and R.A.B.B.I.T. say the same of themselves in their own
+// index.jsx, and M.O.T.H.'s surface beside its declaration above.
+//
+// 🚨 THREE ARE NOT, each for a reason:
+//   * PageSurface: its `children` is a new element at every render of App, so
+//     a comparison would never match. What it wraps is what costs.
+//   * The Files page: mounted only while it is the page on screen.
+//   * The Admin terminal: it computes "5m ago" WHILE IT DRAWS, from the clock
+//     (UsersSection.jsx, LogsSection.jsx, AIFileStoreCard.jsx), and takes no
+//     prop. Under React.memo nothing would ever draw it again from here, and a
+//     change of page (which does, six times) is what brings those words up to
+//     date as the page is entered. A memo there would hide a real update.
+//     While the page is OPEN, the words move by lib/minuteClock.js (review
+//     round 1): the pet's ticks that used to draw every page, and kept them
+//     moving by accident, are gone since F4.
+const Home = memo(HomeRoot)
+const SettingsPageWithAgent = memo(SettingsPageBridge)
+const Projects = memo(ProjectsRoot)
+const RateCardPage = memo(RateCardPageRoot)
+const TeamMembersPage = memo(TeamMembersPageRoot)
+const DashboardPage = memo(DashboardPageRoot)
+const HelpPage = memo(HelpPageRoot)
 
 // PAGE_TITLES, PAGE_BARS, the nav columns and the header's chrome all derive
 // from ONE registry now — `src/layout/pages.js`. This table was the first of
@@ -685,6 +744,10 @@ export default function App() {
       // at this computer cannot see the previous person's pet for a beat.
       setPetData(null);
       petUserIdRef.current = null;
+      // Review round 2 (A-R2-1): the pet on screen is nobody's now, so a save
+      // still queued for this person is refused, even before the permissions
+      // have heard of the sign-out.
+      petPersonRef.current = null;
       petPersistedSigRef.current = null;
       // Phase 3: the two error channels were left set across sign-out, so the
       // next person at this computer inherited "Ollie isn't being saved" from
@@ -925,7 +988,23 @@ export default function App() {
   // ═══════════════════════════════════════════════════════════════════
   //  PET STATE — lifted from O.T.T.E.R. to be app-wide
   // ═══════════════════════════════════════════════════════════════════
-  const [petData, setPetData] = useState(null);
+  //
+  // F4 (2026-11-13): THE PET ITSELF IS NOT HELD HERE ANY MORE. `petData`, its
+  // 30-second tick, its sleep, its dreams, its jump and its chat lived in this
+  // component, so each of them rendered App, and App renders every page: 14
+  // renders of everything in an idle minute, 36 while the pet slept, one for
+  // each character typed to it (App.rerender.test.jsx holds the counts). They
+  // are <PetHost>'s now, below this component in the file and round the
+  // signed-in column in the tree, and a tick draws the pet and nothing else.
+  //
+  // What stays here is what changes rarely and what the sign-out reads: who
+  // the pet belongs to, how it is loaded and saved, and the channels that say
+  // so. The loads, the stale-copy refresh and the sign-out below still SET the
+  // pet, each with the line it had; `setPetData` hands it to the host's own
+  // setter. The host is mounted in App's first commit and never unmounted, so
+  // the setter is there before any effect here can call it.
+  const petHostRef = useRef(null);
+  const setPetData = useCallback((next) => { petHostRef.current?.setPetData(next); }, []);
   // S30: refs, not state. `petSaving` was only ever the in-flight guard, and
   // having it in savePet's dependency list changed savePet's identity on every
   // save — which tore down and rebuilt the 30-second save interval each time.
@@ -982,6 +1061,12 @@ export default function App() {
   // S31: who the pet belongs to, in a ref so savePet's identity stays stable.
   // null when signed out, which is what routes a save to the per-device cache.
   const petUserIdRef = useRef(null);
+  // F4, review round 1 (A-1): who is signed in, as App last drew. Written while
+  // App draws, so in a commit it is current before any effect of that commit
+  // runs; performPetSave refuses a routing that names somebody else (its note
+  // says why). undefined until the permissions first resolve.
+  const signedInUserRef = useRef(undefined);
+  if (perms.ready) signedInUserRef.current = perms.userId || null;
   // 🚨 R2 OF A3: WHO THE STORED SESSION SAYS THIS IS, KNOWN BEFORE PERMISSIONS
   // RESOLVE.
   //
@@ -999,11 +1084,27 @@ export default function App() {
   // kept so the save path can ask "do I KNOW I am signed out?" rather than
   // "is the owner installed yet?". Cleared wherever the session ends.
   const bootOwnerRef = useRef(null);
+  // 🚨 F4, review round 2 (A-R2-1, A-R2-3): WHOSE THE PET ON SCREEN, AND ITS
+  // CHAT, ARE: the person the identity effect below last saw signed in (null
+  // signed out); before it first runs, the stored session's (bootOwnerRef).
+  // That effect moves it, and blanks the pet, when the person changes; the
+  // sign-out moves it when it blanks the pet. savePet labels each save with it.
+  const petPersonRef = useRef(undefined);
+  const petPersonNow = useCallback(() => (
+    petPersonRef.current !== undefined ? petPersonRef.current : bootOwnerRef.current
+  ), []);
+  // Whether a save made for `person` may still be written: the pet is still
+  // theirs, the routing (once installed) names them, and they are the one App
+  // last drew signed in. performPetSave asks it as a write starts and before
+  // what it does after an await; savePet, before it reports a landing.
+  const isPetPerson = useCallback((person) => (
+    person === petPersonNow()
+    && (!petUserIdRef.current || petUserIdRef.current === person)
+    && (signedInUserRef.current === undefined || signedInUserRef.current === person)
+  ), [petPersonNow]);
   // S31: the last material signature actually written. Primed by both load
   // paths so that LOADING a pet never counts as a change to persist.
   const petPersistedSigRef = useRef(null);
-  const petTimerRef = useRef(null);
-  // (S31: petSaveTimerRef is gone with the 30-second auto-save it armed.)
 
   // ── Phase 3: the Create Egg action, reported on the page that hosts it ─────
   //
@@ -1046,32 +1147,14 @@ export default function App() {
   const petSyncToastRef = useRef(false);
   // What the async catch below needs to know about NOW, not about the render
   // that started the read: is a pet on screen, and is the session held offline?
+  // (F4: <PetHost> writes `petDataRef` as it renders, where the pet now is.)
   const petDataRef = useRef(null);
-  petDataRef.current = petData;
   const permsOfflineRef = useRef(false);
   permsOfflineRef.current = perms.offline;
 
-  // Companion state
+  // Companion state (F4: whether the chat is open stays here, because a change
+  // of page closes it; what is in the chat is <PetHost>'s).
   const [companionOpen, setCompanionOpen] = useState(false);
-  const [chatMessages, setChatMessages] = useState([]);
-  const [chatInput, setChatInput] = useState('');
-  const chatInputRef = useRef('');
-  const handleChatInputChange = useCallback((val) => {
-    chatInputRef.current = val;
-    setChatInput(val);
-  }, []);
-  const [chatLoading, setChatLoading] = useState(false);
-  const [chatThinking, setChatThinking] = useState(false);
-  const [feedbackJustRated, setFeedbackJustRated] = useState(false);
-  const [thumbFlash, setThumbFlash] = useState(null);
-  const [flashFeed, setFlashFeed] = useState(false);
-  const [flashPet, setFlashPet] = useState(false);
-  const [attentionJump, setAttentionJump] = useState(false);
-  const [eggWobble, setEggWobble] = useState(false);
-  const [sleepZCycle, setSleepZCycle] = useState(0);
-  const [cloudVisible, setCloudVisible] = useState(false);
-  const [showHatchModal, setShowHatchModal] = useState(false);
-  const [hatchNameInput, setHatchNameInput] = useState('');
 
   // Save pet — local Express in Electron, localStorage on the web (localData).
   //
@@ -1132,11 +1215,34 @@ export default function App() {
   // ⚠️ The fallback exists for a pet object that somehow has no anchor at all
   // (a hand-edited cache). Sending null would be rejected by toPetRow and the
   // save would fail for a reason nobody could read.
-  const performPetSave = useCallback(async (data) => {
+  const performPetSave = useCallback(async (data, person) => {
     try {
       const next = data.lastUpdatedAt
         ? data
         : { ...data, lastUpdatedAt: new Date().toISOString() };
+      // 🚨 F4, review round 1 (A-1): A CHANGE THAT IS THE LEAVING PERSON'S IS
+      // WRITTEN NOWHERE. Since F4 the pet's material-change save runs in
+      // PetHost, a child of App, and a child's effects run BEFORE App's in a
+      // commit they share. When another account signs in over this one (A then
+      // B, no sign-out between) in the same commit as a decay tick that changes
+      // something material, the save ran before the identity effect below had
+      // cleared the routing: still addressed to A, it went out with B's session
+      // (saveCloudPet named no user then), and A's pet overwrote B's row. Before F4
+      // both effects were App's and the identity effect, declared first, ran
+      // first. So a save is refused while the person App last drew signed in
+      // is somebody else (A then nobody too: the old order wrote A's pet into
+      // the unattributed device store).
+      // 🚨 Review round 2 (A-R2-1): AND IT IS ASKED OF THE PERSON THE SAVE WAS
+      // MADE FOR, not of whoever is there when it runs. Round 1 compared the
+      // routing with the person signed in as a write STARTED, and a save queued
+      // behind one in flight starts when that one returns: by then B's read
+      // could have installed B's routing, and A's pet went to B's row (or, A
+      // signed out, to the unattributed device store). savePet labels each
+      // save with the person the pet is for (petPersonRef), and isPetPerson
+      // refuses it once that person is gone. Refused without a word: an error
+      // or a notice from here would tell the next person about a change they
+      // did not make ("could not be reached ... Reopen WILSON").
+      if (!isPetPerson(person)) return false;
       // 🚨 S31: the destination is "is there a signed-in user", NOT "is this
       // Electron". `hasLocalServer()` (window.electronAPI) is true for the
       // DESKTOP APP IN CLOUD MODE too, so branching on it would pin every
@@ -1148,12 +1254,15 @@ export default function App() {
       // S30 moved petSaving to a ref for exactly this reason.
       const owner = petUserIdRef.current;
       if (owner) {
-        await saveCloudPet(next);
+        // The row names its owner: should the client's session move to
+        // somebody else after the check above, the database refuses it.
+        await saveCloudPet(next, owner);
         // The cache is a mirror, never the authority. It must not be able to
         // report failure for a cloud write that succeeded. A3: it is written
         // under the OWNER's key, so the next person at this computer cannot be
-        // handed this pet.
-        await mirrorPetToCache(next, owner);
+        // handed this pet. Review round 2: and not once the person has changed
+        // during the write; a sign-out cleared their cache, and it stays so.
+        if (isPetPerson(person)) await mirrorPetToCache(next, owner);
       } else if (getUserStateOwner() || bootOwnerRef.current) {
         // 🚨 R1 OF A3: SIGNED IN, BUT THE PET'S ROUTING IS NOT ESTABLISHED.
         //
@@ -1182,6 +1291,10 @@ export default function App() {
       } else {
         await savePetData(next, owner);
       }
+      // Review round 2: a write that outlived its person says nothing to the
+      // next one, and is false to its caller, so Pet Mode's second save
+      // (resumeAnchorAfterLandedSave) does not stamp the next person's pet.
+      if (!isPetPerson(person)) return false;
       setPetSaveError(null);
       // A later success clears the STICKY notice outright — R2: the
       // kind === 'error' condition meant an 'info' one ("refreshed") was
@@ -1196,6 +1309,8 @@ export default function App() {
       setPetNotice(n => (n && n.kind === 'error' ? null : n));
       return true;
     } catch (err) {
+      // Review round 2: nor does its failure, if its person has gone.
+      if (!isPetPerson(person)) return false;
       // ── A3: 0068's refusal is not a save failure ──────────────────────────
       //
       // 🚨 AND IT IS EXPLICITLY NOT RETRIED. Retrying would re-send the same
@@ -1210,8 +1325,15 @@ export default function App() {
           message: 'Your pet changed on another device — refreshed.',
         });
         try {
-          const fresh = await fetchCloudPet();
-          if (fresh) {
+          // Named for the person this save was for (the routing named them
+          // as it went out): should the client's session have moved to
+          // somebody else since, the read answers null, not their pet.
+          const fresh = await fetchCloudPet(person);
+          // 🚨 F4, review round 2 (A-R2-5): ONLY FOR THE PERSON IT WAS READ
+          // FOR. A re-read landing after B's pet put A's pet on B's screen and,
+          // the routing read after the await, in B's cache; B's next Feed then
+          // wrote it to B's row.
+          if (fresh && isPetPerson(person)) {
             const brought = applyOfflineDecay(fresh);
             // Prime, do not save: this is a LOAD, and the account already holds
             // the copy it is loading.
@@ -1230,7 +1352,7 @@ export default function App() {
       setPetSaveError(err?.message || 'Your pet could not be saved.');
       return false;
     }
-  }, []);
+  }, [isPetPerson]);
 
   // The queue is created ONCE and must stay that way — recreating it would
   // drop whatever is queued and lose the in-flight guard. It reaches the write
@@ -1241,13 +1363,19 @@ export default function App() {
   performPetSaveRef.current = performPetSave;
   const petSaveQueueRef = useRef(null);
   if (petSaveQueueRef.current === null) {
-    petSaveQueueRef.current = createCoalescingSave((data) => performPetSaveRef.current(data));
+    petSaveQueueRef.current = createCoalescingSave((job) => performPetSaveRef.current(job.data, job.person));
   }
 
+  // Review round 2 (A-R2-1): each save carries the person it is made for (the
+  // queue keeps the newest, label and all), and its caller is told it landed
+  // only while that person is still here: a save of A's overtaken by one of
+  // B's settles with B's result, and A's follow-ups must not act on B's pet.
   const savePet = useCallback(async (data) => {
     if (!data) return false;
-    return petSaveQueueRef.current(data);
-  }, []);
+    const person = petPersonNow();
+    const landed = await petSaveQueueRef.current({ data, person });
+    return landed && isPetPerson(person);
+  }, [petPersonNow, isPetPerson]);
 
   // Load the CACHED pet on mount so the companion renders instantly. The
   // authoritative read is the sign-in effect below; this one is the cache.
@@ -1277,12 +1405,20 @@ export default function App() {
         // ⚠️ loadPet(userId) returns NULL rather than minting when this account
         // has never been cached here. A first sign-in on a new computer must
         // not flash a blank egg before the account's real pet arrives.
+        //
+        // 🚨 F4, review round 2: AND ONLY WHILE THIS IS STILL THAT PERSON'S
+        // LAUNCH. If the permissions have already named somebody else (another
+        // tab signed in while this one launched), the stored session's person
+        // is not here, so neither the cache key nor the cached pet is set for
+        // them: asked before the key is set, and again when the read lands.
+        const someoneElse = (person) => petPersonRef.current !== undefined && petPersonRef.current !== person;
         const owner = await storedSessionUserId();
+        if (someoneElse(owner)) return;
         // R2: the save path consults this during the window before permissions
         // resolve. See bootOwnerRef.
         bootOwnerRef.current = owner;
         const stored = await loadPet(owner);
-        if (!mounted || !stored) return;
+        if (!mounted || !stored || someoneElse(owner)) return;
         const fresh = applyOfflineDecay(stored);
         // Prime, do not save. An offline death computed here is idempotent —
         // the next load recomputes the same ghost from the same anchor — so
@@ -1320,6 +1456,14 @@ export default function App() {
   useEffect(() => {
     if (!perms.ready) return;
     const userId = perms.userId || null;
+    // Review round 2: whose the pet on screen was until now (see petPersonRef).
+    // On the first run, the stored session's person if the mount effect has
+    // named one: their cached pet stays when the permissions name them, and
+    // goes when they name somebody else (a launch race).
+    const previousPerson = petPersonRef.current !== undefined
+      ? petPersonRef.current
+      : (bootOwnerRef.current ?? undefined);
+    petPersonRef.current = userId;
     // 🚨 A3: THE PET'S ROUTING IS NOT SET HERE ANY MORE — only CLEARED here.
     //
     // This used to be `petUserIdRef.current = userId`, unconditionally, BEFORE
@@ -1345,14 +1489,26 @@ export default function App() {
       // row. The account-scoped cache closes the ADOPTION route into another
       // account; this closes the write route.
       //
-      // ⚠️ Only when the ref already held somebody. On a cold start it is null
-      // and the mount effect has just rendered this person's cached pet —
-      // blanking there would replace an instant render with a blank screen
-      // until the cloud answers, which is the thing that effect exists to
-      // prevent.
+      // ⚠️ Only when somebody was there before: the ref held somebody, or (review
+      // round 2, below) the person signed in changed. On a cold start the ref
+      // is null and the mount effect has just rendered this person's cached
+      // pet — blanking there would replace an instant render with a blank
+      // screen until the cloud answers, which is the thing that effect exists
+      // to prevent.
       const previousOwner = petUserIdRef.current;
       petUserIdRef.current = null;
       if (previousOwner) { setPetData(null); petSyncRetryRef.current.cancel(); petSyncToastRef.current = false; }
+      else if (previousPerson !== undefined && previousPerson !== userId) {
+        // 🚨 F4, review round 2 (A-R2-3): ON ANY CHANGE OF PERSON, ROUTED OR
+        // NOT. The line above needs a routing, so when A's read had failed, or
+        // B signed in before it landed, A's pet and chat stayed for B: B's first
+        // message took A's conversation to the model, and a failed read of B's
+        // left A's pet, its feedback quoting A's chat, in B's system prompt. So
+        // too at a launch whose stored session is A's while the permissions
+        // name B: A's cached pet goes. The sync toast's flag is kept: B's read
+        // landing takes down A's toast.
+        setPetData(null); petSyncRetryRef.current.cancel();
+      }
     }
     // The settings writers live in other components and must know too. They are
     // a different store with a different failure mode — a settings write that
@@ -1607,670 +1763,6 @@ export default function App() {
     if (!bridge?.setSignedInUser) return;
     bridge.setSignedInUser({ userId: perms.ready ? (perms.userId || null) : null }).catch(() => {});
   }, [perms.ready, perms.userId]);
-
-  // Decay timer — runs every 30 seconds
-  useEffect(() => {
-    if (!petData) return;
-    petTimerRef.current = setInterval(() => {
-      setPetData(prev => {
-        if (!prev) return prev;
-        if (prev.form === 'egg' || prev.form === 'corpse' || prev.form === 'ghost') return prev;
-        // R1 of A3: `=== false`, not falsy, so this genuinely mirrors
-        // applyOfflineDecay. They disagreed for `petMode: undefined` — frozen
-        // while the app was open, decaying while it was closed — and the
-        // commit claimed they were the same. Unreachable today (fromPetRow
-        // always yields a boolean and defaultPet sets true); made true anyway,
-        // because the claim is what the next reader will rely on.
-        if (prev.petMode === false) return prev;
-
-        const next = { ...prev };
-        const rates = DECAY_RATES[next.difficulty] || DECAY_RATES.medium;
-        const babyMult = next.form === 'baby' ? 2 : 1;
-        const perTick = 0.5; // 30s = 0.5 min
-
-        // Sleep check: has sleep ended?
-        if (next.sleepingSince) {
-          const sleepDur = SLEEP_DURATIONS[next.difficulty] || SLEEP_DURATIONS.medium;
-          if (Date.now() - new Date(next.sleepingSince).getTime() >= sleepDur) {
-            next.sleepingSince = null;
-            next.lastSleptAt = new Date().toISOString();
-            next.interactionCount = 0;
-          } else {
-            next.state = derivePetState(next);
-            next.lastUpdatedAt = new Date().toISOString();
-            return next;
-          }
-        }
-
-        // Should pet fall asleep?
-        const timeSinceLastSleep = next.lastSleptAt ? (Date.now() - new Date(next.lastSleptAt).getTime()) / 60000 : 999;
-        if ((next.interactionCount >= 15 || timeSinceLastSleep >= 30) && !next.sleepingSince && next.lastSleptAt !== null) {
-          next.sleepingSince = new Date().toISOString();
-          next.state = derivePetState(next);
-          next.lastUpdatedAt = new Date().toISOString();
-          return next;
-        }
-
-        // Apply decay
-        next.hunger = Math.max(0, next.hunger - rates.hunger * babyMult * perTick);
-        next.happiness = Math.max(0, next.happiness - rates.happiness * babyMult * perTick);
-
-        // Death check
-        if (next.hunger <= 0) {
-          next.form = 'corpse';
-          next.state = 'dead';
-          next.diedAt = new Date().toISOString();
-          next.hunger = 0;
-          setTimeout(() => {
-            setPetData(p => {
-              if (!p || p.form !== 'corpse') return p;
-              const ghost = { ...p, form: 'ghost' };
-              ghost.state = derivePetState(ghost);
-              savePet(ghost);
-              return ghost;
-            });
-            // 🚨 A3: SAME CONSTANT AS THE LOAD PATH. This timeout is the ONLY
-            // thing that used to promote a corpse, and closing the app inside
-            // it stranded the pet as a corpse forever. petLifecycle's
-            // applyOfflineDecay now finishes the transition on load, and both
-            // read CORPSE_TO_GHOST_MS so the window cannot drift.
-          }, CORPSE_TO_GHOST_MS);
-        }
-
-        // Baby evolution check
-        if (next.form === 'baby' && next.bornAt) {
-          const evolveTime = EVOLVE_TIMES[next.difficulty] || EVOLVE_TIMES.medium;
-          if (Date.now() - new Date(next.bornAt).getTime() >= evolveTime) {
-            next.form = 'adult';
-            next.evolvedAt = new Date().toISOString();
-          }
-        }
-
-        next.state = derivePetState(next);
-        next.lastUpdatedAt = new Date().toISOString();
-        return next;
-      });
-    }, 30000);
-
-    return () => clearInterval(petTimerRef.current);
-  }, [petData?.form, petData?.petMode, petData?.difficulty]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── S31: THE 30-SECOND AUTO-SAVE IS GONE, AND THAT IS THE FIX ─────────────
-  //
-  // It used to be:
-  //     petSaveTimerRef.current = setInterval(() => {
-  //       setPetData(p => { if (p) savePet(p); return p; });
-  //     }, 30000);
-  //   }, [petData, savePet]);
-  //
-  // 🚨 It is deleted rather than debounced, because on a shared per-user row it
-  // is the clobber itself. localData.js's KNOWN GAP note called this out when
-  // the app was still "a one-window product": two clients each running this
-  // timer overwrite each other's whole pet object every half minute, and
-  // Audrey's hunger would visibly jitter between two values — the exact symptom
-  // she asked to have removed.
-  //
-  // ⚠️ And it was worst precisely where it looked safest. The decay reducer
-  // returns the IDENTICAL object reference for an egg, a corpse, a ghost, or
-  // petMode off, so `petData` never changes, so this effect was never torn down
-  // and fired cleanly every 30s over the other machine's live state. Audrey's
-  // own pet is a GHOST — one of those four. The egg race was the sharpest case:
-  // hatch on the laptop, and the desktop still holding an egg writes it back
-  // within 30 seconds, so the adult is gone and the next hatch rolls a
-  // different breed.
-  //
-  // Nothing is lost by deleting it. Decay does not NEED persisting: hunger and
-  // happiness are a value at `lastUpdatedAt`, and applyOfflineDecay recomputes
-  // the difference on the next read. Every user-visible interaction already
-  // saves synchronously (feed, pet, hatch, thumb, difficulty, petMode, reset),
-  // and the material transitions the timer used to catch — falling asleep,
-  // waking, evolving, dying — now persist at the point they happen, in the
-  // decay tick above.
-  //
-  // The invariant that makes this safe: hunger/happiness and lastUpdatedAt are
-  // only ever written TOGETHER, by savePet.
-  //
-  // What replaces it: persist only when a MATERIAL field changes. This effect
-  // depends on petData, so it re-runs on every decay tick, but it WRITES only
-  // when the signature moves — which is why deleting the timer does not lose
-  // sleep, waking, evolution or death. The ref is primed by both load paths, so
-  // loading a pet is never mistaken for changing one.
-  useEffect(() => {
-    if (!petData) return;
-    const sig = petMaterialSignature(petData);
-    if (petPersistedSigRef.current === null) { petPersistedSigRef.current = sig; return; }
-    if (petPersistedSigRef.current === sig) return;
-    petPersistedSigRef.current = sig;
-    savePet(petData);
-  }, [petData, savePet]);
-
-  // Sleep Z cycle animation
-  useEffect(() => {
-    if (petData?.state !== 'sleeping') return;
-    const id = setInterval(() => setSleepZCycle(c => c + 1), 2000);
-    return () => clearInterval(id);
-  }, [petData?.state]);
-
-  // Dream cloud intermittent visibility — show 3s, hide 8-15s
-  useEffect(() => {
-    if (!petData || petData.form === 'egg' || petData.form === 'corpse' || petData.form === 'ghost') return;
-    if (!petData.petMode) return;
-    let timeout;
-    function cycle() {
-      setCloudVisible(true);
-      timeout = setTimeout(() => {
-        setCloudVisible(false);
-        timeout = setTimeout(cycle, 8000 + Math.random() * 7000);
-      }, 3000);
-    }
-    timeout = setTimeout(cycle, 2000 + Math.random() * 5000);
-    return () => clearTimeout(timeout);
-  }, [petData?.form, petData?.petMode]);
-
-  // Random attention-seeking jump — every 20-60 seconds
-  useEffect(() => {
-    if (!petData || petData.form === 'egg' || petData.form === 'corpse' || petData.form === 'ghost') return;
-    if (!petData.petMode || petData.sleepingSince) return;
-    let timeout;
-    function scheduleJump() {
-      timeout = setTimeout(() => {
-        setAttentionJump(true);
-        setTimeout(() => {
-          setAttentionJump(false);
-          scheduleJump();
-        }, 500);
-      }, 20000 + Math.random() * 40000);
-    }
-    scheduleJump();
-    return () => clearTimeout(timeout);
-  }, [petData?.form, petData?.petMode, petData?.sleepingSince]);
-
-  // ── Pet action handlers ──
-  const handleFeed = useCallback(() => {
-    if (!petData || (petData.form !== 'baby' && petData.form !== 'adult')) return;
-    if (petData.sleepingSince) return;
-    setPetData(prev => {
-      if (!prev) return prev;
-      if (prev.hunger >= 100) return prev;
-      // A3: hunger moved, so the anchor moves with it. See performPetSave —
-      // the save no longer stamps one, because a stamp on every write made
-      // migration 0068's stale-write guard inert.
-      const next = { ...prev, hunger: Math.min(100, prev.hunger + 25), lastFedAt: new Date().toISOString(), interactionCount: prev.interactionCount + 1, lastUpdatedAt: new Date().toISOString() };
-      next.state = derivePetState(next);
-      savePet(next);
-      return next;
-    });
-    setFlashFeed(true);
-    setTimeout(() => setFlashFeed(false), 600);
-  }, [petData, savePet]);
-
-  const handlePetAction = useCallback(() => {
-    if (!petData) return;
-    if (petData.form === 'egg') {
-      setEggWobble(true);
-      setTimeout(() => setEggWobble(false), 500);
-      setPetData(prev => {
-        if (!prev) return prev;
-        const next = { ...prev, eggPetCount: prev.eggPetCount + 1 };
-        if (next.eggPetCount >= next.eggHatchThreshold) {
-          next.form = 'baby';
-          next.breed = pickRandomBreed();
-          next.bornAt = new Date().toISOString();
-          next.hunger = 80;
-          next.happiness = 80;
-          // A3: hatching sets both numbers, so it sets the anchor too.
-          next.lastUpdatedAt = new Date().toISOString();
-          next.lastSleptAt = new Date().toISOString();
-          next.state = derivePetState(next);
-          savePet(next);
-          setTimeout(() => {
-            setHatchNameInput(next.name || 'Ollie');
-            setShowHatchModal(true);
-          }, 600);
-        } else {
-          savePet(next);
-        }
-        return next;
-      });
-      return;
-    }
-    if (petData.form === 'baby' || petData.form === 'adult') {
-      if (petData.sleepingSince) {
-        setPetData(prev => {
-          if (!prev) return prev;
-          // A3: decay resumes now, so the anchor is now. Without this the next
-          // cold start would decay the whole sleep as if the pet had been awake
-          // through it.
-          const next = { ...prev, sleepingSince: null, lastSleptAt: new Date().toISOString(), interactionCount: 0, lastUpdatedAt: new Date().toISOString() };
-          next.state = derivePetState(next);
-          savePet(next);
-          return next;
-        });
-        return;
-      }
-      setPetData(prev => {
-        if (!prev) return prev;
-        // A3: happiness moved, so the anchor moves with it.
-        const next = { ...prev, happiness: Math.min(100, prev.happiness + 20), lastPettedAt: new Date().toISOString(), interactionCount: prev.interactionCount + 1, lastUpdatedAt: new Date().toISOString() };
-        next.state = derivePetState(next);
-        savePet(next);
-        return next;
-      });
-      setFlashPet(true);
-      setTimeout(() => setFlashPet(false), 600);
-    }
-  }, [petData, savePet]);
-
-  const handleThumbRating = useCallback((rating) => {
-    if (feedbackJustRated || chatMessages.length === 0) return;
-    const lastAssistant = [...chatMessages].reverse().find(m => m.role === 'assistant');
-    const lastUser = [...chatMessages].reverse().find(m => m.role === 'user');
-    if (!lastAssistant) return;
-
-    setFeedbackJustRated(true);
-    setThumbFlash(rating);
-    setTimeout(() => setThumbFlash(null), 1000);
-
-    setPetData(prev => {
-      if (!prev) return prev;
-      // 🚨 A3: WHAT IS STORED IS BOUNDED, AND MEASURED.
-      //
-      // These two fields were stored UNTRUNCATED (the 2000-character trim above
-      // applies only to what is SENT to the model), fifty entries are kept, and
-      // Create Egg carries the whole array into the new pet. MEASURED on
-      // wilson-dev 2026-09-07: fifty entries whose botResponse is 4096
-      // characters — the ceiling a max_tokens 1024 reply reaches — come to
-      // 219,807 bytes against user_pets' 262,144-byte CHECK. 84% of the cap,
-      // and `userMsg` is whatever somebody pasted into the chat, which is not
-      // bounded at all. A violation throws inside saveCloudPet, and the write
-      // most likely to trip it is the one taken by a person whose pet has just
-      // died.
-      //
-      // 🚨 THE ONLY CONSUMER SLICES BOTH TO 60 CHARACTERS (the RECENT FEEDBACK
-      // block in sendChat, which shows the last ten). Nothing displays these
-      // strings anywhere. So the bound below loses nothing that is read, and
-      // takes a maximal array from ~220 KB to under 55 KB — an order of
-      // magnitude clear of the cap instead of inside its noise.
-      const entry = {
-        timestamp: new Date().toISOString(),
-        userMsg: (lastUser?.content || '').slice(0, FEEDBACK_SNIPPET_CHARS),
-        botResponse: (lastAssistant.content || '').slice(0, FEEDBACK_SNIPPET_CHARS),
-        rating
-      };
-      const feedback = [...(prev.feedback || []), entry].slice(-50);
-      const next = {
-        ...prev,
-        feedback,
-        totalThumbsUp: prev.totalThumbsUp + (rating === 'up' ? 1 : 0),
-        totalThumbsDown: prev.totalThumbsDown + (rating === 'down' ? 1 : 0)
-      };
-      if (rating === 'up' && prev.petMode && (prev.form === 'baby' || prev.form === 'adult')) {
-        next.happiness = Math.min(100, next.happiness + 5);
-        // A3: and ONLY here. A thumbs-down changes the feedback array and no
-        // number, so it re-sends the anchor it holds and 0068 accepts it as an
-        // equal — which is what stops a rating from a stale window counting as
-        // "this copy is newer".
-        next.lastUpdatedAt = new Date().toISOString();
-      }
-      next.state = derivePetState(next);
-      savePet(next);
-      return next;
-    });
-  }, [feedbackJustRated, chatMessages, savePet]);
-
-  const handleHatchConfirm = useCallback(() => {
-    const name = hatchNameInput.trim() || 'Ollie';
-    setPetData(prev => {
-      if (!prev) return prev;
-      const next = { ...prev, name };
-      savePet(next);
-      return next;
-    });
-    // Also save to O.T.T.E.R. settings
-    loadOtterSettings().then(s => {
-      saveOtterSettings({ ...s, companionName: name }).catch(() => {});
-    }).catch(() => {});
-    setShowHatchModal(false);
-  }, [hatchNameInput, savePet]);
-
-  // ── Companion chat ──
-  const sendChat = useCallback(async () => {
-    const currentInput = chatInputRef.current;
-    // AI rides the authenticated ai-proxy now — signed out means no chat
-    // (PetCompanion shows the reason via aiUnavailable).
-    if (!currentInput.trim() || !authed) return;
-    const userMsg = { role: 'user', content: currentInput };
-    const newMessages = [...chatMessages, userMsg];
-    setChatMessages(newMessages);
-    setChatInput('');
-    chatInputRef.current = '';
-    setChatLoading(true);
-    setChatThinking(true);
-    setFeedbackJustRated(false);
-
-    if (petData && petData.petMode && (petData.form === 'baby' || petData.form === 'adult')) {
-      setPetData(prev => prev ? { ...prev, interactionCount: (prev.interactionCount || 0) + 1 } : prev);
-    }
-
-    // Build context
-    let context = '\n\n--- CURRENT CONTEXT ---';
-    context += `\n\nCURRENT WILSON PAGE: ${currentPage}`;
-    // 🚨 A FOURTH hand-kept list of page names lived here. It was missing
-    // four of the twelve pages and still said "System Settings" after Q7
-    // renamed it. It is the registry now, like the other three — and
-    // `adminOnly` is filtered out exactly as the nav filters it, so the
-    // companion does not tell a non-admin that an Admin terminal exists.
-    const pageList = PAGES
-      .filter(p => !p.adminOnly)
-      .map(p => (p.subtitle ? `${p.title} (${p.subtitle})` : p.title))
-      .join(', ');
-    context += '\nAVAILABLE PAGES: ' + pageList;
-
-    // RABBIT knowledge snippet — appended when the user is on the
-    // RABBIT page so the companion can field tool-specific questions
-    // without polluting the base companion prompt for other tools.
-    if (currentPage === 'rabbit') {
-      context += `\n\nRABBIT KNOWLEDGE:`;
-      context += `\nRABBIT is a production-planning tool with this hierarchy: Workspace → Projects → Phases → Assets → Tasks. Each task carries bid_days, logged_days, status, priority, and an assigned_role_slug. Task dependencies form a DAG; the critical path is the longest-weighted chain through that DAG by bid_days.`;
-      context += `\nTabs (left submenu): Project Summary (overview cards), Project Assets (table or gallery, inline editing, type/phase filters), Timeline (Gantt with day/week/month/quarter/year zoom + critical path highlight), Budget (Summary / By Phase / By Role / By Asset / Custom), Intake Wizard (Prepare → Run → Review — turns source documents into a structured breakdown via the Anthropic API).`;
-      context += `\nResources submenu (slide-out): Projects (list + create), Rate Card (workspace-level role/day_rate table), Settings (adapter mode, default currency, default rate card).`;
-      context += `\nStorage adapters: Local Server (default, single-user, in-app Express), Supabase (multi-user Postgres), Google Drive (read-only sync; writes deferred to v0.2).`;
-      context += `\nTask statuses (10): bidding, waiting_to_start, in_progress, blocked, on_hold, pending_review, revisions, approved, final, omitted. Done = approved/final/omitted.`;
-      context += `\nAsset types include character, environment, prop, vehicle, vfx, animation, rig, model, texture, audio, vo, music, cinematic, ui, level, script, treatment, concept, storyboard, illustration, document, deliverable, other (24 total).`;
-      context += `\nIntake supported formats: PDF, DOCX, PPTX, TXT, MD only. The wizard's AI features are included with the workspace sign-in — no API key setup needed.`;
-      context += `\nCommon flows: import a script → Intake Wizard. Switch projects → project picker in the RABBIT header. Set day rates → Rate Card page. Mark a task done → inline-edit its status on the Project Assets tab. Change adapter or default currency → App settings → Storage tab.`;
-      context += `\nRABBIT is currently v0.1.0 inside WILSON v0.6. Costs in the budget tabs come from the active rate card; tasks whose role isn't in the card compute at 0 (the Summary tab surfaces a warning).`;
-    }
-
-    // Pet status context
-    if (petData) {
-      context += `\n\nPET STATUS:`;
-      context += `\nName: ${petData.name} | Gender: ${petData.gender} | Breed: ${petData.breed || 'otter'} | Form: ${petData.form} | State: ${petData.state}`;
-      context += `\nHunger: ${Math.round(petData.hunger)}/100 | Happiness: ${Math.round(petData.happiness)}/100`;
-      context += `\nDifficulty: ${petData.difficulty} | Pet Mode: ${petData.petMode}`;
-
-      if (!petData.petMode) {
-        context += `\n\nPet mode is OFF. You are in helper-only mode. Do not reference hunger, sleep, or pet state. Just be a helpful study buddy.`;
-      }
-
-      if (petData.feedback && petData.feedback.length > 0) {
-        const recent = petData.feedback.slice(-10);
-        context += `\n\nRECENT FEEDBACK (last ${recent.length}):`;
-        for (const fb of recent) {
-          const userSnippet = (fb.userMsg || '').slice(0, 60);
-          const botSnippet = (fb.botResponse || '').slice(0, 60);
-          context += `\n[${fb.rating}] User: "${userSnippet}" → You: "${botSnippet}"`;
-        }
-        context += `\nTotal: ${petData.totalThumbsUp} thumbs up / ${petData.totalThumbsDown} thumbs down`;
-      }
-    }
-
-    try {
-      // ── PHASE 6: the pet reads the lessons ────────────────────────────────
-      // Audrey asked Tomithy how to scale something in Blender — written down
-      // in her Blender course — and it told her to look it up herself. It was
-      // not broken: the three blocks above are the WHOLE of what this function
-      // has ever known, and none of them contains a line of course content.
-      //
-      // 🚨 INSIDE the try, so the `finally` below still clears the spinner.
-      //    setChatLoading(true) fires at the top of this function and the only
-      //    thing that lowers it is that finally — an await added between them
-      //    hangs the pet's thinking dots forever on any rejection.
-      // 🚨 OUTSIDE the retry loop below, or a retried overload re-runs every
-      //    read for a request that already fetched its content.
-      // 🚨 NOT gated on `currentPage === 'otter'`. The pet is on every page and
-      //    Audrey's question does not become a Blender question only while she
-      //    is already looking at the Blender course.
-      //
-      // 🚨 AND BOUNDED. Every otterFetch runs `cloudActive()`, which awaits a
-      //    BARE `supabase.auth.getSession()` — no ceiling. callAI, the only
-      //    network call this function used to make, deliberately wraps that
-      //    same await in withTimeout(…, AUTH_TIMEOUT_MS) because an abandoned
-      //    getSession() holds auth-js's global per-storageKey lock and every
-      //    later call queues behind it. Adding an UNBOUNDED session read in
-      //    front of the spinner would have re-opened, in the pet, exactly the
-      //    hang that ceiling was built to close.
-      //    ⚠️ withTimeout races but never aborts: the reads keep running and
-      //    are discarded. That is fine — what matters is that the chat is free.
-      //
-      // retrieveOtterKnowledge is written to resolve, never throw — but this is
-      // belt and braces, because a chat that dies on a retrieval failure is
-      // strictly worse than the "look it up yourself" it replaces.
-      let knowledgeBlock = '';
-      try {
-        const knowledge = await withTimeout(
-          retrieveOtterKnowledge({ question: currentInput, fetchImpl: otterFetch }),
-          KNOWLEDGE_TIMEOUT_MS, 'reading your courses',
-        );
-        knowledgeBlock = knowledge.block;
-      } catch { /* answer without the library rather than not at all */ }
-      context += knowledgeBlock;
-
-      // Load O.T.T.E.R. settings for custom companion prompt
-      let companionPrompt = COMPANION_PROMPT;
-      try {
-        const otterSettings = await loadOtterSettings();
-        if (otterSettings.prompts?.companion) companionPrompt = otterSettings.prompts.companion;
-      } catch { /* use default */ }
-
-      // Truncate conversation history to stay within token limits
-      // Keep last 40 messages (~20 exchanges), trim older ones but always keep first exchange for continuity
-      const MAX_HISTORY = 40;
-      const MAX_MSG_CHARS = 2000;
-      let trimmedMessages = newMessages.map(m => ({
-        role: m.role,
-        content: m.content.length > MAX_MSG_CHARS ? m.content.slice(0, MAX_MSG_CHARS) + '…' : m.content,
-      }));
-      if (trimmedMessages.length > MAX_HISTORY) {
-        const first2 = trimmedMessages.slice(0, 2);
-        const recent = trimmedMessages.slice(-MAX_HISTORY + 2);
-        trimmedMessages = [...first2, { role: 'user', content: '[Earlier conversation trimmed for brevity]' }, { role: 'assistant', content: 'Got it, I remember the gist!' }, ...recent];
-      }
-
-      // Retry logic for overloaded/rate-limit errors
-      let data;
-      let lastError;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        if (attempt > 0) await new Promise(r => setTimeout(r, 2000 * attempt));
-        try {
-          data = await callAI({
-            model: modelFor('pet.chat'),
-            max_tokens: 1024,
-            system: companionPrompt + context,
-            messages: trimmedMessages,
-            tool: 'companion',
-          });
-          break;
-        } catch (fetchErr) {
-          lastError = fetchErr.message || 'Network error';
-          const authish = /invalid|auth|key|permission|sign in/i.test(lastError) && !isRetryableAIError(fetchErr);
-          if (attempt < 2 && !authish) continue;
-          throw fetchErr;
-        }
-      }
-      // S30: a thinking block can occupy content[0]; find the text block.
-      const reply = textFromMessage(data) || 'Sorry, I had trouble thinking of a response!';
-      setChatMessages(prev => [...prev, { role: 'assistant', content: reply }]);
-    } catch (e) {
-      const msg = e.message || 'Unknown error';
-      setChatMessages(prev => [...prev, { role: 'assistant', content: `Oops! ${msg}` }]);
-    } finally {
-      setChatLoading(false);
-      setChatThinking(false);
-    }
-  }, [chatMessages, authed, currentPage, petData]);
-
-  // A bare Shift tap opens and closes the companion — never while typing in a
-  // field, never over a dialog (post-overhaul S2a, Audrey's C12). It was
-  // Enter, which took the key from every focused button (OUTSTANDING P1-01);
-  // Enter now presses whatever has focus. The listener lives in
-  // lib/companionHotkey.js so a test mounts the SAME handler the app installs.
-  //
-  // Installed ONCE, in a layout effect, reading the pet and the sign-in
-  // overlay through a ref at the moment of a tap (review round 2, B-R2-02 and
-  // B-R2-04): window listeners run in the order they were added, and the
-  // session's activity listener — which closes "Still there?" on any key — is
-  // added in a passive effect once signed in. Installed first and never again,
-  // the hotkey sees that alert still open on the very keydown that closes it,
-  // so the tap that wakes the screen does not also open the pet; and a pet
-  // update every 30s no longer resets a half-made tap.
-  const companionKeyState = useRef({ petData, showOverlay });
-  useLayoutEffect(() => { companionKeyState.current = { petData, showOverlay }; });
-  useLayoutEffect(() => installCompanionShiftHotkey({
-    getState: () => companionKeyState.current,
-    toggle: () => setCompanionOpen(prev => !prev),
-  }), []);
-
-  // Handle navigation links from companion chat
-  const handleCompanionNavLink = useCallback((navStr) => {
-    // navStr format: "nav:type:slug" or "nav:type:slug:subslug"
-    const parts = navStr.replace(/^nav:/, '').split(':');
-    const type = parts[0];
-    if (type === 'quiz' || type === 'library' || type === 'hotkeys' || type === 'functions') {
-      navigateTo('otter');
-    } else if (type === 'software' || type === 'subject' || type === 'lesson') {
-      navigateTo('otter');
-    }
-    setCompanionOpen(false);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Pet settings callbacks (for SettingsPage) ──
-  // 🚨 R2 OF A3: THE RESUME ANCHOR IS EARNED, NOT ASSERTED — AND R1'S FIX FOR
-  // IT WAS A WORSE BUG THAN THE ONE IT FIXED.
-  //
-  // R1 was right that turning Pet Mode back ON is a decay-clock event: while
-  // it is off nothing advances the anchor (the live tick returns `prev`,
-  // applyOfflineDecay skips), so the row keeps the anchor from the moment it
-  // was switched off, and the first launch after switching it on measures the
-  // WHOLE paused period and applies it in one go — six hours off, flipped on,
-  // reopened, hunger 0, form 'ghost'.
-  //
-  // 🚨 BUT STAMPING `now` INSIDE THE TOGGLE MADE MIGRATION 0068 INERT FOR THE
-  // ONE CONTROL WALKTHROUGH 07 TELLS AUDREY TO PRESS. A stale window's write
-  // is refused because its anchor is OLDER; a fresh stamp makes it newer, so
-  // the whole six-hour-old pet — hunger, happiness, form, name, the feedback
-  // array — was accepted over the other machine's, silently, with no notice.
-  // One click. It was also the only save in the app that minted a fresh anchor
-  // without moving hunger or happiness, which is exactly the shape 0068's
-  // header says makes the guard inert.
-  //
-  // So the anchor is taken in TWO STEPS. The toggle is saved with the anchor
-  // the window is HOLDING, which 0068 can still refuse; only a save that
-  // LANDED — which means this window's copy is the account's copy — earns the
-  // fresh one. A stale window gets the refusal, the re-read and the notice
-  // instead, which is ruling 4 working as intended.
-  //
-  // ⚠️ Two round trips for one toggle, and a window of one of them in which
-  // another machine could write between the two. That is bounded by a network
-  // round trip instead of by however long Pet Mode was off, which is the trade
-  // being made.
-  const resumeAnchorAfterLandedSave = useCallback((landed) => {
-    if (!landed) return;
-    setPetData(cur => {
-      if (!cur || cur.petMode !== true) return cur;
-      // Only the forms that decay. An egg, a corpse or a ghost gains nothing
-      // from a fresh anchor — applyOfflineDecay skips all three — so bumping
-      // there would spend a round trip to weaken 0068 for no benefit, and
-      // Audrey's own pet is a ghost.
-      if (cur.form !== 'baby' && cur.form !== 'adult') return cur;
-      const bumped = { ...cur, lastUpdatedAt: new Date().toISOString() };
-      savePet(bumped);
-      return bumped;
-    });
-  }, [savePet]);
-
-  const handlePetModeToggle = useCallback((enabled) => {
-    setPetData(prev => {
-      if (!prev) return prev;
-      const next = { ...prev, petMode: enabled };
-      next.state = derivePetState(next);
-      const resuming = enabled && prev.petMode === false;
-      const saving = savePet(next);
-      if (resuming) saving.then(resumeAnchorAfterLandedSave);
-      return next;
-    });
-  }, [savePet, resumeAnchorAfterLandedSave]);
-
-  const handleDifficultyChange = useCallback((difficulty) => {
-    setPetData(prev => {
-      if (!prev) return prev;
-      const next = { ...prev, difficulty };
-      savePet(next);
-      return next;
-    });
-  }, [savePet]);
-
-  const handlePetReset = useCallback(() => {
-    setPetData(prev => {
-      if (!prev) return prev;
-      const next = { ...prev, feedback: [], totalThumbsUp: 0, totalThumbsDown: 0, interactionCount: 0 };
-      savePet(next);
-      return next;
-    });
-  }, [savePet]);
-
-  // 🚨 S31: this was `catch { /* silent */ }` — structurally the same shape as
-  // the Validator's "Accept Fix", a green tick over a write that may not have
-  // happened. Hatching a new egg is the one action taken by somebody whose pet
-  // has DIED, so failing at it silently is the worst possible moment to be
-  // quiet.
-  //
-  // 🚨 PHASE 3 (2026-08-12) — THIS IS THE FIX FOR AUDREY'S REPORT. It used to
-  // call `newPetEgg()`, which asked a PER-DEVICE store whether the pet was a
-  // ghost. Three independent reasons that could only fail:
-  //
-  //   * the pet follows the PERSON since S31, so the device copy is a cache
-  //     that a second computer may never have held;
-  //   * `hasLocalServer()` picked the branch, and it is true for the desktop
-  //     app IN CLOUD MODE;
-  //   * an OFFLINE death is never written to ANY store — applyOfflineDecay
-  //     computes the ghost in memory and both load paths deliberately prime
-  //     the signature ref instead of saving. So the screen said "ghost" while
-  //     the cache AND the account row both still said "adult", and re-pointing
-  //     the old check at the account would have thrown just the same.
-  //
-  // The pet React is rendering is the only thing that knows the pet is dead, so
-  // that is what decides, via the pure canCreateNewEgg(). savePet() then does
-  // the write, and it is the one function that routes by ACCOUNT.
-  //
-  // ⚠️ petPersistedSigRef is primed BEFORE the await, exactly as it was: the
-  // material-change effect must see the egg as already-persisted so it does not
-  // fire a second, competing save for the same object.
-  const handleNewPet = useCallback(async () => {
-    setNewPetStatus(null);
-    if (newPetPendingRef.current) return;
-
-    const current = petData;
-    if (!canCreateNewEgg(current)) {
-      // ⚠️ One message, not a ternary on `current`. The "pet has not loaded yet"
-      // arm had NO REACHABLE RENDERER — SettingsPage gates the whole pet panel,
-      // this status block included, on `{petData && …}`, so a null pet means
-      // there is no button to press and nowhere to show it. That is the repo's
-      // signature no-caller shape and it does not get to ship again here.
-      setNewPetStatus({ ok: false, message: 'A new egg can only be created once your pet has died.' });
-      return;
-    }
-
-    newPetPendingRef.current = true;
-    setNewPetPending(true);
-    try {
-      const pet = mintEggFrom(current);
-      // Invalidate any pet read that was already in flight — see petEpochRef.
-      petEpochRef.current += 1;
-      setPetData(pet);
-      setChatMessages([]);
-      petPersistedSigRef.current = petMaterialSignature(pet);
-      const saved = await savePet(pet);
-      setNewPetStatus(saved
-        ? { ok: true, message: 'A new egg is on its way. Pet it a few times to hatch it.' }
-        : { ok: false, message: 'The new egg could not be saved, so it may not reach your other computers. Check your connection and try again.' });
-    } catch (err) {
-      setNewPetStatus({ ok: false, message: err?.message || 'A new egg could not be created.' });
-    } finally {
-      newPetPendingRef.current = false;
-      setNewPetPending(false);
-    }
-  }, [savePet, petData]);
 
   // Transition: fade-out(250ms) → compress(600ms) → title-hold(400ms) → [swap] → expand(600ms) → fade-in(250ms) → idle
   // fromHistory: true when the browser back/forward button initiated the
@@ -2665,15 +2157,13 @@ export default function App() {
         />
       </PageSurface>
       <PageSurface id="moth" currentPage={currentPage} overflow="hidden">
-        {mothEntered && <MothSurface isActive={currentPage === 'moth'} />}
+        {mothEntered && <MothSurfaceMemo isActive={currentPage === 'moth'} />}
       </PageSurface>
       <PageSurface id="settings" currentPage={currentPage}>
         <SettingsPageWithAgent
-          petData={petData}
-          onPetModeToggle={handlePetModeToggle}
-          onDifficultyChange={handleDifficultyChange}
-          onPetReset={handlePetReset}
-          onNewPet={handleNewPet}
+          // F4: the pet and its four actions (petData, onPetModeToggle,
+          // onDifficultyChange, onPetReset, onNewPet) reach the page from
+          // <PetHost>, through the wrapper; the three below are still App's.
           // Phase 3: pressing Create Egg used to set an error into state whose
           // ONLY renderer is the companion chat panel — which is closed on
           // every page change. The page that hosts the button now reports its
@@ -2783,6 +2273,34 @@ export default function App() {
           controls stay reachable. Rendered signed in or out — a hung sign-in
           is the same hang. */}
       <ConnectionLostBanner />
+      {/* F4: the pet's host. It draws nothing itself: it holds the pet and its
+          clocks, and hands the companion to <PetCompanionSlot> (the last child
+          of the column below) and the pet to Settings' card. It is OUTSIDE
+          the signed-in gate because the pet is: the cached pet is read before
+          the session is known, and a sign-out empties the pet without
+          unmounting what holds it. The column is its `children`, the same
+          element across a tick of the pet, so a tick does not draw it. */}
+      <PetHost
+        ref={petHostRef}
+        authed={authed}
+        currentPage={currentPage}
+        showOverlay={showOverlay}
+        perms={perms}
+        isDarkPage={isDarkPage}
+        petBottomOffset={petBottomOffset}
+        petVisible={petVisible}
+        companionOpen={companionOpen}
+        setCompanionOpen={setCompanionOpen}
+        navigateTo={navigateTo}
+        petSaveError={petSaveError}
+        savePet={savePet}
+        petDataRef={petDataRef}
+        petPersistedSigRef={petPersistedSigRef}
+        petEpochRef={petEpochRef}
+        newPetPendingRef={newPetPendingRef}
+        setNewPetStatus={setNewPetStatus}
+        setNewPetPending={setNewPetPending}
+      >
       {authed && (
         <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
@@ -3014,50 +2532,10 @@ export default function App() {
           )}
 
           {/* ===== PET COMPANION OVERLAY — visible on ALL pages ===== */}
-          {petData && (
-            <PetCompanionWithAgent
-              currentPage={currentPage}
-              petData={petData}
-              petSaveError={petSaveError}
-              // R1 of A3: the cloud-only sentence is only TRUE for a save made
-              // by a signed-in person. petSaveError multiplexes load, sync,
-              // save and egg failures, so on a failed SYNC it said "this
-              // change is not stored" when there was no change, and signed out
-              // the pet genuinely is local.
-              petIsCloudBacked={!!perms.userId}
-              companionOpen={companionOpen}
-              onCompanionToggle={setCompanionOpen}
-              chatMessages={chatMessages}
-              chatInput={chatInput}
-              onChatInputChange={handleChatInputChange}
-              onSendChat={sendChat}
-              onClearChat={() => setChatMessages([])}
-              chatLoading={chatLoading}
-              chatThinking={chatThinking}
-              feedbackJustRated={feedbackJustRated}
-              thumbFlash={thumbFlash}
-              onThumbRating={handleThumbRating}
-              onFeed={handleFeed}
-              onPetAction={handlePetAction}
-              flashFeed={flashFeed}
-              flashPet={flashPet}
-              eggWobble={eggWobble}
-              sleepZCycle={sleepZCycle}
-              cloudVisible={cloudVisible}
-              attentionJump={attentionJump}
-              showHatchModal={showHatchModal}
-              hatchNameInput={hatchNameInput}
-              onHatchNameChange={setHatchNameInput}
-              onHatchConfirm={handleHatchConfirm}
-              isDarkPage={isDarkPage}
-              onNavigateLink={handleCompanionNavLink}
-              bottomOffset={petBottomOffset}
-              petVisible={petVisible}
-              aiUnavailable={!authed}
-            />
-          )}
+          <PetCompanionSlot />
         </div>
       )}
+      </PetHost>
 
       {/* Auth overlay — company → username → password. Wait for the initial
           session check so returning users don't briefly see the login form. */}
@@ -3302,5 +2780,863 @@ export default function App() {
     <LeaveEditDialog />
     </RabbitProvider>
     </AgentProvider>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  THE PET'S HOST (F4, 2026-11-13)
+// ═══════════════════════════════════════════════════════════════════
+//
+// Everything of the pet that changes on its own clock or with a keystroke:
+// the pet itself (`petData`, which the 30-second decay tick rewrites), the
+// sleep "Z" every 2 s, the dream cloud, the attention jump, the flashes, the
+// hatch dialog, and the chat with its text. All of it was App's state, and
+// App renders every page, so each of those changes rendered every page. It is
+// here LINE FOR LINE as it was there, and in this file, because the tests
+// that hold the pet's rules read this file's text (userStateWiring.test.js,
+// petKnowledgeWiring.test.js, companionHotkey.test.jsx, legalSurfaces.test.js).
+// A change in any of it now renders this component, the companion and, while
+// Settings is the page on screen, Settings' pet card. It does not render App.
+//
+// 🚨 IT WRAPS THE SIGNED-IN COLUMN; IT DOES NOT SIT AFTER IT. Two reasons,
+// both from the code. The pet outlives the column: the cached pet is read
+// before the session is known, and a sign-out sets the pet to null without
+// unmounting what holds it, so the host is mounted with App and stays. And
+// Settings reads the pet, which a context can only hand DOWN. The column is
+// not drawn for a tick of the pet all the same: `children` is the element
+// App made at ITS last render, and React does not draw again an element it
+// has been handed before.
+//
+// What it does not hold stays App's and arrives as props: whose pet this is
+// and how it is loaded and saved (`savePet` and the refs), and the state a
+// change of page or a sign-out writes (whether the chat is open, whether the
+// pet is on screen, the Create Egg result). App sets the pet through the
+// handle (its `setPetData`).
+function PetHost({
+  ref, children,
+  authed, currentPage, showOverlay, perms, isDarkPage, petBottomOffset, petVisible,
+  companionOpen, setCompanionOpen, navigateTo,
+  petSaveError, savePet, petDataRef, petPersistedSigRef, petEpochRef, newPetPendingRef,
+  setNewPetStatus, setNewPetPending,
+}) {
+  const [petData, setPetData] = useState(null);
+  // (App's way in, `useImperativeHandle`, is below the chat's and the hatch
+  // dialog's state: it clears them.)
+  const petTimerRef = useRef(null);
+  // (S31: petSaveTimerRef is gone with the 30-second auto-save it armed.)
+  petDataRef.current = petData;
+
+  // Companion state
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const chatInputRef = useRef('');
+  const handleChatInputChange = useCallback((val) => {
+    chatInputRef.current = val;
+    setChatInput(val);
+  }, []);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatThinking, setChatThinking] = useState(false);
+  const [feedbackJustRated, setFeedbackJustRated] = useState(false);
+  const [thumbFlash, setThumbFlash] = useState(null);
+  const [flashFeed, setFlashFeed] = useState(false);
+  const [flashPet, setFlashPet] = useState(false);
+  const [attentionJump, setAttentionJump] = useState(false);
+  const [eggWobble, setEggWobble] = useState(false);
+  const [sleepZCycle, setSleepZCycle] = useState(0);
+  const [cloudVisible, setCloudVisible] = useState(false);
+  const [showHatchModal, setShowHatchModal] = useState(false);
+  const [hatchNameInput, setHatchNameInput] = useState('');
+  // Review round 2 (A-R2-2, A-R2-4): how many times App has blanked the pet,
+  // which it does when the person signs out or changes. An answer, or a hatch
+  // dialog, set going before the count moved is the leaving person's.
+  const personChangesRef = useRef(0);
+  // App's loads, its stale-copy refresh and its sign-out set the pet through
+  // this. 🚨 F4, review round 1 (A-3; OUTSTANDING F4-04): WHEN APP BLANKS THE
+  // PET, THE PERSON IS LEAVING (a sign-out, or another account signed in over
+  // this one), AND THEIR CHAT LEAVES WITH THEM, with what they were typing.
+  // Only a new egg and Clear chat emptied it, so the next person at the
+  // computer was shown it, and sendChat sent it to the model as the history
+  // of the next person's session. So it was before F4 too.
+  // 🚨 Review round 2: and so do the spinner of an answer still on its way,
+  // which sendChat now drops (A-R2-2), and the hatch dialog with the name
+  // typed into it (A-R2-4: B's pet came up under "Your egg hatched!" with A's
+  // words, and Confirm gave B's pet A's name).
+  useImperativeHandle(ref, () => ({
+    setPetData: (next) => {
+      if (next === null) {
+        personChangesRef.current += 1;
+        chatInputRef.current = '';
+        setChatInput('');
+        setChatMessages([]);
+        setChatLoading(false);
+        setChatThinking(false);
+        setShowHatchModal(false);
+        setHatchNameInput('');
+      }
+      setPetData(next);
+    },
+  }), []);
+
+  // Decay timer — runs every 30 seconds
+  useEffect(() => {
+    if (!petData) return;
+    petTimerRef.current = setInterval(() => {
+      setPetData(prev => {
+        if (!prev) return prev;
+        if (prev.form === 'egg' || prev.form === 'corpse' || prev.form === 'ghost') return prev;
+        // R1 of A3: `=== false`, not falsy, so this genuinely mirrors
+        // applyOfflineDecay. They disagreed for `petMode: undefined` — frozen
+        // while the app was open, decaying while it was closed — and the
+        // commit claimed they were the same. Unreachable today (fromPetRow
+        // always yields a boolean and defaultPet sets true); made true anyway,
+        // because the claim is what the next reader will rely on.
+        if (prev.petMode === false) return prev;
+
+        const next = { ...prev };
+        const rates = DECAY_RATES[next.difficulty] || DECAY_RATES.medium;
+        const babyMult = next.form === 'baby' ? 2 : 1;
+        const perTick = 0.5; // 30s = 0.5 min
+
+        // Sleep check: has sleep ended?
+        if (next.sleepingSince) {
+          const sleepDur = SLEEP_DURATIONS[next.difficulty] || SLEEP_DURATIONS.medium;
+          if (Date.now() - new Date(next.sleepingSince).getTime() >= sleepDur) {
+            next.sleepingSince = null;
+            next.lastSleptAt = new Date().toISOString();
+            next.interactionCount = 0;
+          } else {
+            next.state = derivePetState(next);
+            next.lastUpdatedAt = new Date().toISOString();
+            return next;
+          }
+        }
+
+        // Should pet fall asleep?
+        const timeSinceLastSleep = next.lastSleptAt ? (Date.now() - new Date(next.lastSleptAt).getTime()) / 60000 : 999;
+        if ((next.interactionCount >= 15 || timeSinceLastSleep >= 30) && !next.sleepingSince && next.lastSleptAt !== null) {
+          next.sleepingSince = new Date().toISOString();
+          next.state = derivePetState(next);
+          next.lastUpdatedAt = new Date().toISOString();
+          return next;
+        }
+
+        // Apply decay
+        next.hunger = Math.max(0, next.hunger - rates.hunger * babyMult * perTick);
+        next.happiness = Math.max(0, next.happiness - rates.happiness * babyMult * perTick);
+
+        // Death check
+        if (next.hunger <= 0) {
+          next.form = 'corpse';
+          next.state = 'dead';
+          next.diedAt = new Date().toISOString();
+          next.hunger = 0;
+          setTimeout(() => {
+            setPetData(p => {
+              if (!p || p.form !== 'corpse') return p;
+              const ghost = { ...p, form: 'ghost' };
+              ghost.state = derivePetState(ghost);
+              savePet(ghost);
+              return ghost;
+            });
+            // 🚨 A3: SAME CONSTANT AS THE LOAD PATH. This timeout is the ONLY
+            // thing that used to promote a corpse, and closing the app inside
+            // it stranded the pet as a corpse forever. petLifecycle's
+            // applyOfflineDecay now finishes the transition on load, and both
+            // read CORPSE_TO_GHOST_MS so the window cannot drift.
+          }, CORPSE_TO_GHOST_MS);
+        }
+
+        // Baby evolution check
+        if (next.form === 'baby' && next.bornAt) {
+          const evolveTime = EVOLVE_TIMES[next.difficulty] || EVOLVE_TIMES.medium;
+          if (Date.now() - new Date(next.bornAt).getTime() >= evolveTime) {
+            next.form = 'adult';
+            next.evolvedAt = new Date().toISOString();
+          }
+        }
+
+        next.state = derivePetState(next);
+        next.lastUpdatedAt = new Date().toISOString();
+        return next;
+      });
+    }, 30000);
+
+    return () => clearInterval(petTimerRef.current);
+  }, [petData?.form, petData?.petMode, petData?.difficulty]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── S31: THE 30-SECOND AUTO-SAVE IS GONE, AND THAT IS THE FIX ─────────────
+  //
+  // It used to be:
+  //     petSaveTimerRef.current = setInterval(() => {
+  //       setPetData(p => { if (p) savePet(p); return p; });
+  //     }, 30000);
+  //   }, [petData, savePet]);
+  //
+  // 🚨 It is deleted rather than debounced, because on a shared per-user row it
+  // is the clobber itself. localData.js's KNOWN GAP note called this out when
+  // the app was still "a one-window product": two clients each running this
+  // timer overwrite each other's whole pet object every half minute, and
+  // Audrey's hunger would visibly jitter between two values — the exact symptom
+  // she asked to have removed.
+  //
+  // ⚠️ And it was worst precisely where it looked safest. The decay reducer
+  // returns the IDENTICAL object reference for an egg, a corpse, a ghost, or
+  // petMode off, so `petData` never changes, so this effect was never torn down
+  // and fired cleanly every 30s over the other machine's live state. Audrey's
+  // own pet is a GHOST — one of those four. The egg race was the sharpest case:
+  // hatch on the laptop, and the desktop still holding an egg writes it back
+  // within 30 seconds, so the adult is gone and the next hatch rolls a
+  // different breed.
+  //
+  // Nothing is lost by deleting it. Decay does not NEED persisting: hunger and
+  // happiness are a value at `lastUpdatedAt`, and applyOfflineDecay recomputes
+  // the difference on the next read. Every user-visible interaction already
+  // saves synchronously (feed, pet, hatch, thumb, difficulty, petMode, reset),
+  // and the material transitions the timer used to catch — falling asleep,
+  // waking, evolving, dying — now persist at the point they happen, in the
+  // decay tick above.
+  //
+  // The invariant that makes this safe: hunger/happiness and lastUpdatedAt are
+  // only ever written TOGETHER, by savePet.
+  //
+  // What replaces it: persist only when a MATERIAL field changes. This effect
+  // depends on petData, so it re-runs on every decay tick, but it WRITES only
+  // when the signature moves — which is why deleting the timer does not lose
+  // sleep, waking, evolution or death. The ref is primed by both load paths, so
+  // loading a pet is never mistaken for changing one.
+  useEffect(() => {
+    if (!petData) return;
+    const sig = petMaterialSignature(petData);
+    if (petPersistedSigRef.current === null) { petPersistedSigRef.current = sig; return; }
+    if (petPersistedSigRef.current === sig) return;
+    petPersistedSigRef.current = sig;
+    savePet(petData);
+  }, [petData, savePet]);
+
+  // Sleep Z cycle animation
+  useEffect(() => {
+    if (petData?.state !== 'sleeping') return;
+    const id = setInterval(() => setSleepZCycle(c => c + 1), 2000);
+    return () => clearInterval(id);
+  }, [petData?.state]);
+
+  // Dream cloud intermittent visibility — show 3s, hide 8-15s
+  useEffect(() => {
+    if (!petData || petData.form === 'egg' || petData.form === 'corpse' || petData.form === 'ghost') return;
+    if (!petData.petMode) return;
+    let timeout;
+    function cycle() {
+      setCloudVisible(true);
+      timeout = setTimeout(() => {
+        setCloudVisible(false);
+        timeout = setTimeout(cycle, 8000 + Math.random() * 7000);
+      }, 3000);
+    }
+    timeout = setTimeout(cycle, 2000 + Math.random() * 5000);
+    return () => clearTimeout(timeout);
+  }, [petData?.form, petData?.petMode]);
+
+  // Random attention-seeking jump — every 20-60 seconds
+  useEffect(() => {
+    if (!petData || petData.form === 'egg' || petData.form === 'corpse' || petData.form === 'ghost') return;
+    if (!petData.petMode || petData.sleepingSince) return;
+    let timeout;
+    function scheduleJump() {
+      timeout = setTimeout(() => {
+        setAttentionJump(true);
+        setTimeout(() => {
+          setAttentionJump(false);
+          scheduleJump();
+        }, 500);
+      }, 20000 + Math.random() * 40000);
+    }
+    scheduleJump();
+    return () => clearTimeout(timeout);
+  }, [petData?.form, petData?.petMode, petData?.sleepingSince]);
+
+  // ── Pet action handlers ──
+  const handleFeed = useCallback(() => {
+    if (!petData || (petData.form !== 'baby' && petData.form !== 'adult')) return;
+    if (petData.sleepingSince) return;
+    setPetData(prev => {
+      if (!prev) return prev;
+      if (prev.hunger >= 100) return prev;
+      // A3: hunger moved, so the anchor moves with it. See performPetSave —
+      // the save no longer stamps one, because a stamp on every write made
+      // migration 0068's stale-write guard inert.
+      const next = { ...prev, hunger: Math.min(100, prev.hunger + 25), lastFedAt: new Date().toISOString(), interactionCount: prev.interactionCount + 1, lastUpdatedAt: new Date().toISOString() };
+      next.state = derivePetState(next);
+      savePet(next);
+      return next;
+    });
+    setFlashFeed(true);
+    setTimeout(() => setFlashFeed(false), 600);
+  }, [petData, savePet]);
+
+  const handlePetAction = useCallback(() => {
+    if (!petData) return;
+    if (petData.form === 'egg') {
+      setEggWobble(true);
+      setTimeout(() => setEggWobble(false), 500);
+      setPetData(prev => {
+        if (!prev) return prev;
+        const next = { ...prev, eggPetCount: prev.eggPetCount + 1 };
+        if (next.eggPetCount >= next.eggHatchThreshold) {
+          next.form = 'baby';
+          next.breed = pickRandomBreed();
+          next.bornAt = new Date().toISOString();
+          next.hunger = 80;
+          next.happiness = 80;
+          // A3: hatching sets both numbers, so it sets the anchor too.
+          next.lastUpdatedAt = new Date().toISOString();
+          next.lastSleptAt = new Date().toISOString();
+          next.state = derivePetState(next);
+          savePet(next);
+          // Review round 2 (A-R2-4): not for the next person, if this one
+          // leaves in the 600 ms.
+          const hatchedFor = personChangesRef.current;
+          setTimeout(() => {
+            if (personChangesRef.current !== hatchedFor) return;
+            setHatchNameInput(next.name || 'Ollie');
+            setShowHatchModal(true);
+          }, 600);
+        } else {
+          savePet(next);
+        }
+        return next;
+      });
+      return;
+    }
+    if (petData.form === 'baby' || petData.form === 'adult') {
+      if (petData.sleepingSince) {
+        setPetData(prev => {
+          if (!prev) return prev;
+          // A3: decay resumes now, so the anchor is now. Without this the next
+          // cold start would decay the whole sleep as if the pet had been awake
+          // through it.
+          const next = { ...prev, sleepingSince: null, lastSleptAt: new Date().toISOString(), interactionCount: 0, lastUpdatedAt: new Date().toISOString() };
+          next.state = derivePetState(next);
+          savePet(next);
+          return next;
+        });
+        return;
+      }
+      setPetData(prev => {
+        if (!prev) return prev;
+        // A3: happiness moved, so the anchor moves with it.
+        const next = { ...prev, happiness: Math.min(100, prev.happiness + 20), lastPettedAt: new Date().toISOString(), interactionCount: prev.interactionCount + 1, lastUpdatedAt: new Date().toISOString() };
+        next.state = derivePetState(next);
+        savePet(next);
+        return next;
+      });
+      setFlashPet(true);
+      setTimeout(() => setFlashPet(false), 600);
+    }
+  }, [petData, savePet]);
+
+  const handleThumbRating = useCallback((rating) => {
+    if (feedbackJustRated || chatMessages.length === 0) return;
+    const lastAssistant = [...chatMessages].reverse().find(m => m.role === 'assistant');
+    const lastUser = [...chatMessages].reverse().find(m => m.role === 'user');
+    if (!lastAssistant) return;
+
+    setFeedbackJustRated(true);
+    setThumbFlash(rating);
+    setTimeout(() => setThumbFlash(null), 1000);
+
+    setPetData(prev => {
+      if (!prev) return prev;
+      // 🚨 A3: WHAT IS STORED IS BOUNDED, AND MEASURED.
+      //
+      // These two fields were stored UNTRUNCATED (the 2000-character trim above
+      // applies only to what is SENT to the model), fifty entries are kept, and
+      // Create Egg carries the whole array into the new pet. MEASURED on
+      // wilson-dev 2026-09-07: fifty entries whose botResponse is 4096
+      // characters — the ceiling a max_tokens 1024 reply reaches — come to
+      // 219,807 bytes against user_pets' 262,144-byte CHECK. 84% of the cap,
+      // and `userMsg` is whatever somebody pasted into the chat, which is not
+      // bounded at all. A violation throws inside saveCloudPet, and the write
+      // most likely to trip it is the one taken by a person whose pet has just
+      // died.
+      //
+      // 🚨 THE ONLY CONSUMER SLICES BOTH TO 60 CHARACTERS (the RECENT FEEDBACK
+      // block in sendChat, which shows the last ten). Nothing displays these
+      // strings anywhere. So the bound below loses nothing that is read, and
+      // takes a maximal array from ~220 KB to under 55 KB — an order of
+      // magnitude clear of the cap instead of inside its noise.
+      const entry = {
+        timestamp: new Date().toISOString(),
+        userMsg: (lastUser?.content || '').slice(0, FEEDBACK_SNIPPET_CHARS),
+        botResponse: (lastAssistant.content || '').slice(0, FEEDBACK_SNIPPET_CHARS),
+        rating
+      };
+      const feedback = [...(prev.feedback || []), entry].slice(-50);
+      const next = {
+        ...prev,
+        feedback,
+        totalThumbsUp: prev.totalThumbsUp + (rating === 'up' ? 1 : 0),
+        totalThumbsDown: prev.totalThumbsDown + (rating === 'down' ? 1 : 0)
+      };
+      if (rating === 'up' && prev.petMode && (prev.form === 'baby' || prev.form === 'adult')) {
+        next.happiness = Math.min(100, next.happiness + 5);
+        // A3: and ONLY here. A thumbs-down changes the feedback array and no
+        // number, so it re-sends the anchor it holds and 0068 accepts it as an
+        // equal — which is what stops a rating from a stale window counting as
+        // "this copy is newer".
+        next.lastUpdatedAt = new Date().toISOString();
+      }
+      next.state = derivePetState(next);
+      savePet(next);
+      return next;
+    });
+  }, [feedbackJustRated, chatMessages, savePet]);
+
+  const handleHatchConfirm = useCallback(() => {
+    const name = hatchNameInput.trim() || 'Ollie';
+    setPetData(prev => {
+      if (!prev) return prev;
+      const next = { ...prev, name };
+      savePet(next);
+      return next;
+    });
+    // Also save to O.T.T.E.R. settings
+    loadOtterSettings().then(s => {
+      saveOtterSettings({ ...s, companionName: name }).catch(() => {});
+    }).catch(() => {});
+    setShowHatchModal(false);
+  }, [hatchNameInput, savePet]);
+
+  // ── Companion chat ──
+  const sendChat = useCallback(async () => {
+    const currentInput = chatInputRef.current;
+    // AI rides the authenticated ai-proxy now — signed out means no chat
+    // (PetCompanion shows the reason via aiUnavailable).
+    if (!currentInput.trim() || !authed) return;
+    // 🚨 F4, review round 2 (A-R2-2): AN ANSWER IS FOR THE PERSON WHO ASKED.
+    // If the person signs out or changes while it is on its way, App blanks
+    // the chat (personChangesRef moves), and an answer landing after that was
+    // shown to the next person and sent back to the model as theirs. It is
+    // dropped; and the question is not sent again, or at all, once its asker
+    // has gone, since the call would go out under the next person's session.
+    const asked = personChangesRef.current;
+    const userMsg = { role: 'user', content: currentInput };
+    const newMessages = [...chatMessages, userMsg];
+    setChatMessages(newMessages);
+    setChatInput('');
+    chatInputRef.current = '';
+    setChatLoading(true);
+    setChatThinking(true);
+    setFeedbackJustRated(false);
+
+    if (petData && petData.petMode && (petData.form === 'baby' || petData.form === 'adult')) {
+      setPetData(prev => prev ? { ...prev, interactionCount: (prev.interactionCount || 0) + 1 } : prev);
+    }
+
+    // Build context
+    let context = '\n\n--- CURRENT CONTEXT ---';
+    context += `\n\nCURRENT WILSON PAGE: ${currentPage}`;
+    // 🚨 A FOURTH hand-kept list of page names lived here. It was missing
+    // four of the twelve pages and still said "System Settings" after Q7
+    // renamed it. It is the registry now, like the other three — and
+    // `adminOnly` is filtered out exactly as the nav filters it, so the
+    // companion does not tell a non-admin that an Admin terminal exists.
+    const pageList = PAGES
+      .filter(p => !p.adminOnly)
+      .map(p => (p.subtitle ? `${p.title} (${p.subtitle})` : p.title))
+      .join(', ');
+    context += '\nAVAILABLE PAGES: ' + pageList;
+
+    // RABBIT knowledge snippet — appended when the user is on the
+    // RABBIT page so the companion can field tool-specific questions
+    // without polluting the base companion prompt for other tools.
+    if (currentPage === 'rabbit') {
+      context += `\n\nRABBIT KNOWLEDGE:`;
+      context += `\nRABBIT is a production-planning tool with this hierarchy: Workspace → Projects → Phases → Assets → Tasks. Each task carries bid_days, logged_days, status, priority, and an assigned_role_slug. Task dependencies form a DAG; the critical path is the longest-weighted chain through that DAG by bid_days.`;
+      context += `\nTabs (left submenu): Project Summary (overview cards), Project Assets (table or gallery, inline editing, type/phase filters), Timeline (Gantt with day/week/month/quarter/year zoom + critical path highlight), Budget (Summary / By Phase / By Role / By Asset / Custom), Intake Wizard (Prepare → Run → Review — turns source documents into a structured breakdown via the Anthropic API).`;
+      context += `\nResources submenu (slide-out): Projects (list + create), Rate Card (workspace-level role/day_rate table), Settings (adapter mode, default currency, default rate card).`;
+      context += `\nStorage adapters: Local Server (default, single-user, in-app Express), Supabase (multi-user Postgres), Google Drive (read-only sync; writes deferred to v0.2).`;
+      context += `\nTask statuses (10): bidding, waiting_to_start, in_progress, blocked, on_hold, pending_review, revisions, approved, final, omitted. Done = approved/final/omitted.`;
+      context += `\nAsset types include character, environment, prop, vehicle, vfx, animation, rig, model, texture, audio, vo, music, cinematic, ui, level, script, treatment, concept, storyboard, illustration, document, deliverable, other (24 total).`;
+      context += `\nIntake supported formats: PDF, DOCX, PPTX, TXT, MD only. The wizard's AI features are included with the workspace sign-in — no API key setup needed.`;
+      context += `\nCommon flows: import a script → Intake Wizard. Switch projects → project picker in the RABBIT header. Set day rates → Rate Card page. Mark a task done → inline-edit its status on the Project Assets tab. Change adapter or default currency → App settings → Storage tab.`;
+      context += `\nRABBIT is currently v0.1.0 inside WILSON v0.6. Costs in the budget tabs come from the active rate card; tasks whose role isn't in the card compute at 0 (the Summary tab surfaces a warning).`;
+    }
+
+    // Pet status context
+    if (petData) {
+      context += `\n\nPET STATUS:`;
+      context += `\nName: ${petData.name} | Gender: ${petData.gender} | Breed: ${petData.breed || 'otter'} | Form: ${petData.form} | State: ${petData.state}`;
+      context += `\nHunger: ${Math.round(petData.hunger)}/100 | Happiness: ${Math.round(petData.happiness)}/100`;
+      context += `\nDifficulty: ${petData.difficulty} | Pet Mode: ${petData.petMode}`;
+
+      if (!petData.petMode) {
+        context += `\n\nPet mode is OFF. You are in helper-only mode. Do not reference hunger, sleep, or pet state. Just be a helpful study buddy.`;
+      }
+
+      if (petData.feedback && petData.feedback.length > 0) {
+        const recent = petData.feedback.slice(-10);
+        context += `\n\nRECENT FEEDBACK (last ${recent.length}):`;
+        for (const fb of recent) {
+          const userSnippet = (fb.userMsg || '').slice(0, 60);
+          const botSnippet = (fb.botResponse || '').slice(0, 60);
+          context += `\n[${fb.rating}] User: "${userSnippet}" → You: "${botSnippet}"`;
+        }
+        context += `\nTotal: ${petData.totalThumbsUp} thumbs up / ${petData.totalThumbsDown} thumbs down`;
+      }
+    }
+
+    try {
+      // ── PHASE 6: the pet reads the lessons ────────────────────────────────
+      // Audrey asked Tomithy how to scale something in Blender — written down
+      // in her Blender course — and it told her to look it up herself. It was
+      // not broken: the three blocks above are the WHOLE of what this function
+      // has ever known, and none of them contains a line of course content.
+      //
+      // 🚨 INSIDE the try, so the `finally` below still clears the spinner.
+      //    setChatLoading(true) fires at the top of this function and the only
+      //    thing that lowers it is that finally (or, once its asker has gone,
+      //    App's blank of the chat) — an await added between them hangs the
+      //    pet's thinking dots forever on any rejection.
+      // 🚨 OUTSIDE the retry loop below, or a retried overload re-runs every
+      //    read for a request that already fetched its content.
+      // 🚨 NOT gated on `currentPage === 'otter'`. The pet is on every page and
+      //    Audrey's question does not become a Blender question only while she
+      //    is already looking at the Blender course.
+      //
+      // 🚨 AND BOUNDED. Every otterFetch runs `cloudActive()`, which awaits a
+      //    BARE `supabase.auth.getSession()` — no ceiling. callAI, the only
+      //    network call this function used to make, deliberately wraps that
+      //    same await in withTimeout(…, AUTH_TIMEOUT_MS) because an abandoned
+      //    getSession() holds auth-js's global per-storageKey lock and every
+      //    later call queues behind it. Adding an UNBOUNDED session read in
+      //    front of the spinner would have re-opened, in the pet, exactly the
+      //    hang that ceiling was built to close.
+      //    ⚠️ withTimeout races but never aborts: the reads keep running and
+      //    are discarded. That is fine — what matters is that the chat is free.
+      //
+      // retrieveOtterKnowledge is written to resolve, never throw — but this is
+      // belt and braces, because a chat that dies on a retrieval failure is
+      // strictly worse than the "look it up yourself" it replaces.
+      let knowledgeBlock = '';
+      try {
+        const knowledge = await withTimeout(
+          retrieveOtterKnowledge({ question: currentInput, fetchImpl: otterFetch }),
+          KNOWLEDGE_TIMEOUT_MS, 'reading your courses',
+        );
+        knowledgeBlock = knowledge.block;
+      } catch { /* answer without the library rather than not at all */ }
+      context += knowledgeBlock;
+
+      // Load O.T.T.E.R. settings for custom companion prompt
+      let companionPrompt = COMPANION_PROMPT;
+      try {
+        const otterSettings = await loadOtterSettings();
+        if (otterSettings.prompts?.companion) companionPrompt = otterSettings.prompts.companion;
+      } catch { /* use default */ }
+
+      // Truncate conversation history to stay within token limits
+      // Keep last 40 messages (~20 exchanges), trim older ones but always keep first exchange for continuity
+      const MAX_HISTORY = 40;
+      const MAX_MSG_CHARS = 2000;
+      let trimmedMessages = newMessages.map(m => ({
+        role: m.role,
+        content: m.content.length > MAX_MSG_CHARS ? m.content.slice(0, MAX_MSG_CHARS) + '…' : m.content,
+      }));
+      if (trimmedMessages.length > MAX_HISTORY) {
+        const first2 = trimmedMessages.slice(0, 2);
+        const recent = trimmedMessages.slice(-MAX_HISTORY + 2);
+        trimmedMessages = [...first2, { role: 'user', content: '[Earlier conversation trimmed for brevity]' }, { role: 'assistant', content: 'Got it, I remember the gist!' }, ...recent];
+      }
+
+      // Retry logic for overloaded/rate-limit errors
+      let data;
+      let lastError;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) await new Promise(r => setTimeout(r, 2000 * attempt));
+        if (personChangesRef.current !== asked) return;
+        try {
+          data = await callAI({
+            model: modelFor('pet.chat'),
+            max_tokens: 1024,
+            system: companionPrompt + context,
+            messages: trimmedMessages,
+            tool: 'companion',
+          });
+          break;
+        } catch (fetchErr) {
+          lastError = fetchErr.message || 'Network error';
+          const authish = /invalid|auth|key|permission|sign in/i.test(lastError) && !isRetryableAIError(fetchErr);
+          if (attempt < 2 && !authish) continue;
+          throw fetchErr;
+        }
+      }
+      // S30: a thinking block can occupy content[0]; find the text block.
+      const reply = textFromMessage(data) || 'Sorry, I had trouble thinking of a response!';
+      if (personChangesRef.current !== asked) return;
+      setChatMessages(prev => [...prev, { role: 'assistant', content: reply }]);
+    } catch (e) {
+      if (personChangesRef.current !== asked) return;
+      const msg = e.message || 'Unknown error';
+      setChatMessages(prev => [...prev, { role: 'assistant', content: `Oops! ${msg}` }]);
+    } finally {
+      // Once its asker has gone the blank lowered these, and the next
+      // person's own question may have raised them again.
+      if (personChangesRef.current === asked) {
+        setChatLoading(false);
+        setChatThinking(false);
+      }
+    }
+  }, [chatMessages, authed, currentPage, petData]);
+
+  // A bare Shift tap opens and closes the companion — never while typing in a
+  // field, never over a dialog (post-overhaul S2a, Audrey's C12). It was
+  // Enter, which took the key from every focused button (OUTSTANDING P1-01);
+  // Enter now presses whatever has focus. The listener lives in
+  // lib/companionHotkey.js so a test mounts the SAME handler the app installs.
+  //
+  // Installed ONCE, in a layout effect, reading the pet and the sign-in
+  // overlay through a ref at the moment of a tap (review round 2, B-R2-02 and
+  // B-R2-04): window listeners run in the order they were added, and the
+  // session's activity listener — which closes "Still there?" on any key — is
+  // added in a passive effect once signed in. Installed first and never again,
+  // the hotkey sees that alert still open on the very keydown that closes it,
+  // so the tap that wakes the screen does not also open the pet; and a pet
+  // update every 30s no longer resets a half-made tap.
+  const companionKeyState = useRef({ petData, showOverlay });
+  useLayoutEffect(() => { companionKeyState.current = { petData, showOverlay }; });
+  useLayoutEffect(() => installCompanionShiftHotkey({
+    getState: () => companionKeyState.current,
+    toggle: () => setCompanionOpen(prev => !prev),
+  }), []);
+
+  // Handle navigation links from companion chat
+  const handleCompanionNavLink = useCallback((navStr) => {
+    // navStr format: "nav:type:slug" or "nav:type:slug:subslug"
+    const parts = navStr.replace(/^nav:/, '').split(':');
+    const type = parts[0];
+    if (type === 'quiz' || type === 'library' || type === 'hotkeys' || type === 'functions') {
+      navigateTo('otter');
+    } else if (type === 'software' || type === 'subject' || type === 'lesson') {
+      navigateTo('otter');
+    }
+    setCompanionOpen(false);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Pet settings callbacks (for SettingsPage) ──
+  // 🚨 R2 OF A3: THE RESUME ANCHOR IS EARNED, NOT ASSERTED — AND R1'S FIX FOR
+  // IT WAS A WORSE BUG THAN THE ONE IT FIXED.
+  //
+  // R1 was right that turning Pet Mode back ON is a decay-clock event: while
+  // it is off nothing advances the anchor (the live tick returns `prev`,
+  // applyOfflineDecay skips), so the row keeps the anchor from the moment it
+  // was switched off, and the first launch after switching it on measures the
+  // WHOLE paused period and applies it in one go — six hours off, flipped on,
+  // reopened, hunger 0, form 'ghost'.
+  //
+  // 🚨 BUT STAMPING `now` INSIDE THE TOGGLE MADE MIGRATION 0068 INERT FOR THE
+  // ONE CONTROL WALKTHROUGH 07 TELLS AUDREY TO PRESS. A stale window's write
+  // is refused because its anchor is OLDER; a fresh stamp makes it newer, so
+  // the whole six-hour-old pet — hunger, happiness, form, name, the feedback
+  // array — was accepted over the other machine's, silently, with no notice.
+  // One click. It was also the only save in the app that minted a fresh anchor
+  // without moving hunger or happiness, which is exactly the shape 0068's
+  // header says makes the guard inert.
+  //
+  // So the anchor is taken in TWO STEPS. The toggle is saved with the anchor
+  // the window is HOLDING, which 0068 can still refuse; only a save that
+  // LANDED — which means this window's copy is the account's copy — earns the
+  // fresh one. A stale window gets the refusal, the re-read and the notice
+  // instead, which is ruling 4 working as intended.
+  //
+  // ⚠️ Two round trips for one toggle, and a window of one of them in which
+  // another machine could write between the two. That is bounded by a network
+  // round trip instead of by however long Pet Mode was off, which is the trade
+  // being made.
+  const resumeAnchorAfterLandedSave = useCallback((landed) => {
+    if (!landed) return;
+    setPetData(cur => {
+      if (!cur || cur.petMode !== true) return cur;
+      // Only the forms that decay. An egg, a corpse or a ghost gains nothing
+      // from a fresh anchor — applyOfflineDecay skips all three — so bumping
+      // there would spend a round trip to weaken 0068 for no benefit, and
+      // Audrey's own pet is a ghost.
+      if (cur.form !== 'baby' && cur.form !== 'adult') return cur;
+      const bumped = { ...cur, lastUpdatedAt: new Date().toISOString() };
+      savePet(bumped);
+      return bumped;
+    });
+  }, [savePet]);
+
+  const handlePetModeToggle = useCallback((enabled) => {
+    setPetData(prev => {
+      if (!prev) return prev;
+      const next = { ...prev, petMode: enabled };
+      next.state = derivePetState(next);
+      const resuming = enabled && prev.petMode === false;
+      const saving = savePet(next);
+      if (resuming) saving.then(resumeAnchorAfterLandedSave);
+      return next;
+    });
+  }, [savePet, resumeAnchorAfterLandedSave]);
+
+  const handleDifficultyChange = useCallback((difficulty) => {
+    setPetData(prev => {
+      if (!prev) return prev;
+      const next = { ...prev, difficulty };
+      savePet(next);
+      return next;
+    });
+  }, [savePet]);
+
+  const handlePetReset = useCallback(() => {
+    setPetData(prev => {
+      if (!prev) return prev;
+      const next = { ...prev, feedback: [], totalThumbsUp: 0, totalThumbsDown: 0, interactionCount: 0 };
+      savePet(next);
+      return next;
+    });
+  }, [savePet]);
+
+  // 🚨 S31: this was `catch { /* silent */ }` — structurally the same shape as
+  // the Validator's "Accept Fix", a green tick over a write that may not have
+  // happened. Hatching a new egg is the one action taken by somebody whose pet
+  // has DIED, so failing at it silently is the worst possible moment to be
+  // quiet.
+  //
+  // 🚨 PHASE 3 (2026-08-12) — THIS IS THE FIX FOR AUDREY'S REPORT. It used to
+  // call `newPetEgg()`, which asked a PER-DEVICE store whether the pet was a
+  // ghost. Three independent reasons that could only fail:
+  //
+  //   * the pet follows the PERSON since S31, so the device copy is a cache
+  //     that a second computer may never have held;
+  //   * `hasLocalServer()` picked the branch, and it is true for the desktop
+  //     app IN CLOUD MODE;
+  //   * an OFFLINE death is never written to ANY store — applyOfflineDecay
+  //     computes the ghost in memory and both load paths deliberately prime
+  //     the signature ref instead of saving. So the screen said "ghost" while
+  //     the cache AND the account row both still said "adult", and re-pointing
+  //     the old check at the account would have thrown just the same.
+  //
+  // The pet React is rendering is the only thing that knows the pet is dead, so
+  // that is what decides, via the pure canCreateNewEgg(). savePet() then does
+  // the write, and it is the one function that routes by ACCOUNT.
+  //
+  // ⚠️ petPersistedSigRef is primed BEFORE the await, exactly as it was: the
+  // material-change effect must see the egg as already-persisted so it does not
+  // fire a second, competing save for the same object.
+  const handleNewPet = useCallback(async () => {
+    setNewPetStatus(null);
+    if (newPetPendingRef.current) return;
+
+    const current = petData;
+    if (!canCreateNewEgg(current)) {
+      // ⚠️ One message, not a ternary on `current`. The "pet has not loaded yet"
+      // arm had NO REACHABLE RENDERER — SettingsPage gates the whole pet panel,
+      // this status block included, on `{petData && …}`, so a null pet means
+      // there is no button to press and nowhere to show it. That is the repo's
+      // signature no-caller shape and it does not get to ship again here.
+      setNewPetStatus({ ok: false, message: 'A new egg can only be created once your pet has died.' });
+      return;
+    }
+
+    newPetPendingRef.current = true;
+    setNewPetPending(true);
+    const askedFor = personChangesRef.current;
+    try {
+      const pet = mintEggFrom(current);
+      // Invalidate any pet read that was already in flight — see petEpochRef.
+      petEpochRef.current += 1;
+      setPetData(pet);
+      setChatMessages([]);
+      petPersistedSigRef.current = petMaterialSignature(pet);
+      const saved = await savePet(pet);
+      // Review round 2: the leaving person's result is not said to the next
+      // person, on the Settings page they now have.
+      if (personChangesRef.current !== askedFor) return;
+      setNewPetStatus(saved
+        ? { ok: true, message: 'A new egg is on its way. Pet it a few times to hatch it.' }
+        : { ok: false, message: 'The new egg could not be saved, so it may not reach your other computers. Check your connection and try again.' });
+    } catch (err) {
+      setNewPetStatus({ ok: false, message: err?.message || 'A new egg could not be created.' });
+    } finally {
+      newPetPendingRef.current = false;
+      setNewPetPending(false);
+    }
+  }, [savePet, petData]);
+
+  // ── What Settings' pet card is handed (F4) ──
+  // The pet WHILE SETTINGS IS THE PAGE ON SCREEN, and otherwise the pet as the
+  // card last drew it: a page off screen is not drawn again for a tick of the
+  // pet, and it is handed the pet as it is in the very render that brings it
+  // back (`currentPage` is a prop, so that render runs this). No pet at all (a
+  // sign-out, a change of account) is handed on at once, whatever the page, so
+  // no page keeps the last person's.
+  const settingsPetRef = useRef(null);
+  if (currentPage === 'settings' || !petData) settingsPetRef.current = petData;
+  const settingsPet = settingsPetRef.current;
+  // handleNewPet is made again with every change of the pet (it reads it).
+  // Settings is handed ONE function for the life of the app, which calls the
+  // newest: the same shape as performPetSaveRef in App.
+  const handleNewPetRef = useRef(handleNewPet);
+  handleNewPetRef.current = handleNewPet;
+  const onNewPet = useCallback(() => handleNewPetRef.current(), []);
+  const petSettings = useMemo(() => ({
+    petData: settingsPet,
+    onPetModeToggle: handlePetModeToggle,
+    onDifficultyChange: handleDifficultyChange,
+    onPetReset: handlePetReset,
+    onNewPet,
+  }), [settingsPet, handlePetModeToggle, handleDifficultyChange, handlePetReset, onNewPet]);
+
+  // ── The companion, built here and drawn by <PetCompanionSlot> (F4) ──
+  const petCompanion = petData && (
+      <PetCompanionWithAgent
+        currentPage={currentPage}
+        petData={petData}
+        petSaveError={petSaveError}
+        // R1 of A3: the cloud-only sentence is only TRUE for a save made
+        // by a signed-in person. petSaveError multiplexes load, sync,
+        // save and egg failures, so on a failed SYNC it said "this
+        // change is not stored" when there was no change, and signed out
+        // the pet genuinely is local.
+        petIsCloudBacked={!!perms.userId}
+        companionOpen={companionOpen}
+        onCompanionToggle={setCompanionOpen}
+        chatMessages={chatMessages}
+        chatInput={chatInput}
+        onChatInputChange={handleChatInputChange}
+        onSendChat={sendChat}
+        onClearChat={() => setChatMessages([])}
+        chatLoading={chatLoading}
+        chatThinking={chatThinking}
+        feedbackJustRated={feedbackJustRated}
+        thumbFlash={thumbFlash}
+        onThumbRating={handleThumbRating}
+        onFeed={handleFeed}
+        onPetAction={handlePetAction}
+        flashFeed={flashFeed}
+        flashPet={flashPet}
+        eggWobble={eggWobble}
+        sleepZCycle={sleepZCycle}
+        cloudVisible={cloudVisible}
+        attentionJump={attentionJump}
+        showHatchModal={showHatchModal}
+        hatchNameInput={hatchNameInput}
+        onHatchNameChange={setHatchNameInput}
+        onHatchConfirm={handleHatchConfirm}
+        isDarkPage={isDarkPage}
+        onNavigateLink={handleCompanionNavLink}
+        bottomOffset={petBottomOffset}
+        petVisible={petVisible}
+        aiUnavailable={!authed}
+      />
+  );
+
+  return (
+    <PetSettingsContext.Provider value={petSettings}>
+      <PetCompanionContext.Provider value={petCompanion}>
+        {children}
+      </PetCompanionContext.Provider>
+    </PetSettingsContext.Provider>
   );
 }

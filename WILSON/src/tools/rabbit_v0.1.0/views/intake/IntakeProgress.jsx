@@ -12,6 +12,7 @@
 import { useEffect, useRef } from 'react'
 import { Sparkles, Loader2, AlertCircle, X } from 'lucide-react'
 import { useRabbit } from '../../state/RabbitProvider'
+import { useRabbitLive } from '../../state/rabbitLive'
 
 export default function IntakeProgress({
   projectId,
@@ -21,7 +22,10 @@ export default function IntakeProgress({
   onBack,
 }) {
   const ctx = useRabbit()
-  const run = ctx?.ingestionRun
+  // F4 (2026-11-13): the run from a context of its own, not off the value
+  // (state/rabbitLive.js). The effect below still hands the result on when the
+  // run is done: this component is drawn at every step of the run, as before.
+  const run = useRabbitLive('ingestionRun', ctx)
   const startBackgroundIngestion = ctx?.startBackgroundIngestion
   const cancelBackgroundIngestion = ctx?.cancelBackgroundIngestion
   const dismissBackgroundIngestion = ctx?.dismissBackgroundIngestion
