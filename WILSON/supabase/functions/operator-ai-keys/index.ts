@@ -142,7 +142,9 @@ Deno.serve(async (req: Request) => {
           .range(from, from + PAGE - 1)
         if (error) return { rows, error: error.message as string }
         if (total === null) total = typeof count === 'number' ? count : 0
-        const page = (data ?? []) as Array<Record<string, unknown>>
+        // The select list is built at run time, so no row type can be read
+        // from it: the rows are named here (F8: a type only, nothing runs differently).
+        const page = (data ?? []) as unknown as Array<Record<string, unknown>>
         rows.push(...page)
         if (page.length === 0 || rows.length >= total) break
       }

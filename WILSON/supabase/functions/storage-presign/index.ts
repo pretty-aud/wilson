@@ -56,11 +56,11 @@
 // with storage-read-urls and storage-secret's probe; the two now run at once
 // and are judged in the order above. Every refusal's status and sentence is
 // still worded HERE, from the loader's code. The project's own host for the
-// look's vet is gatewayReachRun.supabaseHost().
+// look's vet is gatewayReachRun.supabaseHost(). The caller's own client (step
+// 5) is adminGuard.callerClient(req), with no auth options, as before.
 // =============================================================================
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
-import { corsHeaders, reply } from '../_shared/adminGuard.ts'
+import { callerClient, corsHeaders, reply } from '../_shared/adminGuard.ts'
 import { requireActiveMember } from '../_shared/memberGuard.ts'
 import { isRateLimited, envInt } from '../_shared/rateLimit.ts'
 import { checkRowShapedPath } from '../_shared/presignPath.ts'
@@ -132,12 +132,8 @@ Deno.serve(async (req: Request) => {
   // The project predicate, evaluated AS THE CALLER (header §5). The anon-key
   // client carries the caller's own Authorization header, so PostgREST runs
   // the SECURITY INVOKER predicate under their JWT — real RLS, real claims.
-  const token = (req.headers.get('authorization') ?? '').slice(7)
-  const asCaller = createClient(
-    Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_ANON_KEY')!,
-    { global: { headers: { Authorization: `Bearer ${token}` } } },
-  )
+  // adminGuard.callerClient, with no auth options: this file never passed any.
+  const asCaller = callerClient(req)
   // MO1 (0115): the key no longer says where a file is, because a moved file keeps its key. The
   // database decides: a key a row claims answers to that row; a new key answers to its project.
   const { data: allowed, error: predErr } = await asCaller.rpc('can_presign_object', {

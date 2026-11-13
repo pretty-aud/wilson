@@ -12,13 +12,16 @@
 // envelope is damaged) is replaced once, at once: gateways learn the new
 // public half at their next sync (ten seconds), and an unknown kid makes a
 // gateway sync once more before refusing (GW2), so the cost is a hiccup.
+//
+// F8 (wave 2, 2026-11-13): the client is typed adminGuard.ServiceClient (a
+// type only).
 // =============================================================================
 
-import type { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
+import type { ServiceClient } from './adminGuard.ts'
 import { generateSigningKey, importSigningPrivateKey, KEY_ROTATE_AFTER_SECONDS } from './gatewayTicket.ts'
 import { GatewayKeyCryptoUnavailable, openSigningKey, sealSigningKey } from './gatewayKeyCrypto.ts'
 
-type Client = ReturnType<typeof createClient>
+type Client = ServiceClient
 export type KeyRow = { kid: string; public_key: string; private_key_ciphertext: string }
 
 /** The workspace's current key, or a new one stored in its place when none is young enough. */

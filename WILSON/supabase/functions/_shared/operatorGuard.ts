@@ -37,15 +37,24 @@
 // Operator status is inserted into public.platform_operators by SQL, out of
 // band. That means the platform tier cannot be escalated from a web
 // session at all — a property worth more than the convenience of a button.
+//
+// F8 (wave 2, 2026-11-13): steps 1 and 2 (the bearer, GoTrue) are
+// adminGuard.authenticate and the factor read is adminGuard.hasVerifiedTotp,
+// shared with the other two guards. The three differences above stay here,
+// unshared: no workspace in the context (the claims are not asked at all);
+// the platform_operators read is this file's own and a failure of it is 503
+// (liveMembership hands its error back unjudged, which is right for the other
+// two guards and wrong here); and MFA is hard both ways, enrolment asked
+// BEFORE the step-up (an operator with no factor on an aal1 token hears
+// mfa_enrollment_required, not mfa_required).
 // =============================================================================
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
-import { corsHeaders, reply, decodeJwtPayload } from './adminGuard.ts'
+import { authenticate, corsHeaders, reply, decodeJwtPayload, hasVerifiedTotp, type GuardClient } from './adminGuard.ts'
 
 export { corsHeaders, reply, decodeJwtPayload }
 
 export type OperatorContext = {
-  admin: ReturnType<typeof createClient>
+  admin: GuardClient
   callerId: string
   callerLabel: string | null
 }
@@ -55,29 +64,18 @@ type GuardResult =
   | { ok: false; res: Response }
 
 export async function requirePlatformOperator(req: Request): Promise<GuardResult> {
-  const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
-  const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-
-  const authHeader = req.headers.get('authorization') ?? ''
-  const token = authHeader.toLowerCase().startsWith('bearer ')
-    ? authHeader.slice(7)
-    : ''
-  if (!token) return { ok: false, res: reply({ error: 'unauthorized' }, 401) }
-
-  const admin = createClient(SUPABASE_URL, SERVICE_ROLE)
-
   // GoTrue validates the ES256 signature. Everything below trusts the user id
-  // this returns, never anything decoded from the token by hand.
-  const { data: caller, error: callerErr } = await admin.auth.getUser(token)
-  if (callerErr || !caller.user) {
-    return { ok: false, res: reply({ error: 'unauthorized' }, 401) }
-  }
+  // this returns, never anything decoded from the token by hand (the aal
+  // excepted, read from the validated token as the other guards read it).
+  const who = await authenticate(req)
+  if (!who.ok) return { ok: false, res: reply({ error: 'unauthorized' }, 401) }
+  const { admin, user, claims } = who.caller
 
   // Live row IS the authority (see header note 2).
   const { data: liveRow, error: rowErr } = await admin
     .from('platform_operators')
     .select('user_id')
-    .eq('user_id', caller.user.id)
+    .eq('user_id', user.id)
     .maybeSingle()
   if (rowErr) {
     // A failed lookup is not a pass. The whole point of the live-row check is
@@ -90,41 +88,34 @@ export async function requirePlatformOperator(req: Request): Promise<GuardResult
 
   // MFA, hard (see header note 3). supabase-js reports most failures on the
   // `error` channel rather than throwing, so both are handled — an unchecked
-  // `error` here would be the fail-open this guard exists to avoid.
-  let hasVerified = false
-  try {
-    const { data: factorData, error: factorErr } = await admin.auth.admin.mfa.listFactors({
-      userId: caller.user.id,
-    })
-    if (factorErr) throw factorErr
-    hasVerified = (factorData?.factors ?? []).some(
-      (f: { factor_type?: string; status?: string }) =>
-        f.factor_type === 'totp' && f.status === 'verified',
-    )
-  } catch {
+  // `error` here would be the fail-open this guard exists to avoid
+  // (hasVerifiedTotp checks both).
+  const mfa = await hasVerifiedTotp(admin, user.id)
+  if (!mfa.ok) {
     return { ok: false, res: reply({ error: 'mfa_check_failed' }, 503) }
   }
-  if (!hasVerified) {
+  // Enrolment first, then the step-up: do not swap these two.
+  if (!mfa.verified) {
     return { ok: false, res: reply({ error: 'mfa_enrollment_required' }, 403) }
   }
-  if (decodeJwtPayload(token).aal !== 'aal2') {
+  if (claims.aal !== 'aal2') {
     return { ok: false, res: reply({ error: 'mfa_required' }, 403) }
   }
 
   // Label for the audit trail. Best-effort: an operator need not be a member
   // of any workspace, so there may be no username to find.
-  let callerLabel: string | null = caller.user.email ?? null
+  let callerLabel: string | null = user.email ?? null
   try {
     const { data: m } = await admin
       .from('workspace_members')
       .select('username')
-      .eq('user_id', caller.user.id)
+      .eq('user_id', user.id)
       .limit(1)
       .maybeSingle()
     if (m?.username) callerLabel = m.username as string
   } catch { /* label is decoration; never fail the call for it */ }
 
-  return { ok: true, ctx: { admin, callerId: caller.user.id, callerLabel } }
+  return { ok: true, ctx: { admin, callerId: user.id, callerLabel } }
 }
 
 // ── Platform audit trail ─────────────────────────────────────────────────────

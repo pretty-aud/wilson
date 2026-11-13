@@ -21,11 +21,11 @@
 // sealed secret) are _shared/workspaceBucket.ts's loadWorkspaceBucket, shared
 // with storage-presign and storage-secret's probe; the two now run at once
 // and are judged in the order they always were. The refusals are worded HERE,
-// in this function's own words (bucketRefusal below), unchanged since P1.
+// in this function's own words (bucketRefusal below), unchanged since P1. The
+// caller's own client is adminGuard.callerClient(req), built lazily as before.
 // =============================================================================
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
-import { corsHeaders, reply } from '../_shared/adminGuard.ts'
+import { callerClient, corsHeaders, reply, type ServiceClient } from '../_shared/adminGuard.ts'
 import { requireActiveMember, type MemberContext } from '../_shared/memberGuard.ts'
 import { isRateLimited, envInt } from '../_shared/rateLimit.ts'
 import { presignS3Request } from '../_shared/s3Presign.ts'
@@ -60,12 +60,10 @@ Deno.serve(async (req: Request) => {
   // The caller's own client: the anon key carrying the caller's JWT, so the
   // predicate and the row read run under real RLS and real claims (the S33
   // rule — evaluated as the caller, never replicated).
-  let callerClient: ReturnType<typeof createClient> | null = null
-  const asCaller = () => (callerClient ??= createClient(
-    Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_ANON_KEY')!,
-    { global: { headers: { Authorization: `Bearer ${(req.headers.get('authorization') ?? '').slice(7)}` } } },
-  ))
+  // Built lazily, once, the first time a row is read (adminGuard.callerClient,
+  // with no auth options: this file never passed any).
+  let own: ServiceClient | null = null
+  const asCaller = () => (own ??= callerClient(req))
 
   const out = await handleReadUrls<MemberContext>(req, {
     guard: async () => {

@@ -610,7 +610,13 @@ describe('the five functions keep the house order and the S33 rule (text pins)',
     const src = fn('gateway-ticket')
     expect(src).toMatch(/asCaller\s*\.from\('gateways_visible'\)/)
     expect(src).toMatch(/asCaller\.rpc\('gateway_clips_for_tickets'/)
-    expect(src).toContain("Deno.env.get('SUPABASE_ANON_KEY')")
+    // F8 (c): the anon-key client is built by adminGuard.callerClient, quiet as
+    // it always was; the function asks for it by name, and the anon key is read
+    // there. The handler test (src/cloud/edgeTicketKey.test.js, "one successful
+    // call for one clip: seven round trips") holds the rest: gateways_visible and
+    // gateway_clips_for_tickets asked by 'caller', never 'service'.
+    expect(src).toContain('const asCaller = callerClient(req, { quiet: true })')
+    expect(read('supabase', 'functions', '_shared', 'adminGuard.ts')).toContain("Deno.env.get('SUPABASE_ANON_KEY')")
     expect(src).not.toMatch(/ctx\.admin\.rpc\('gateway_clips_for_tickets'/)
     expect(src).toMatch(/from\('gateway_ticket_mints'\)\.insert\(mints\)[\s\S]*?return answer\(/)
   })

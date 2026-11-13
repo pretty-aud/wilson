@@ -29,13 +29,16 @@
 //    so the client can say "wait a minute" instead of "wrong password". The
 //    status depends only on the caller's own request count in the window,
 //    never on whether a username or a company exists.
+//
+// F8 (wave 2, 2026-11-13): the CORS headers, the JSON answer (inside this
+// file's own TIMED reply, so the floor still applies to every answer) and the
+// service-role client (no options, as before) are adminGuard.ts's. The floor,
+// the IP, both limiter buckets closed on failure, the audit row, the uniform
+// miss and the contract version stay this file's own.
 // =============================================================================
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
+import { corsHeaders, reply as jsonReply, serviceClient } from '../_shared/adminGuard.ts'
 import { envInt, isRateLimited } from '../_shared/rateLimit.ts'
-
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
-const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
 // Response-time floor. Sized in S1 for one lookup; below the round trip since
 // B1 (see the header). Raising it above ~400 ms would make it real again at
@@ -140,12 +143,6 @@ function escapeLike(s: string): string {
   return s.replace(/[\\%_]/g, (c) => `\\${c}`).replace(/\*/g, '_')
 }
 
-const corsHeaders = {
-  'access-control-allow-origin': '*',
-  'access-control-allow-methods': 'POST, OPTIONS',
-  'access-control-allow-headers': 'content-type, authorization, apikey',
-}
-
 type AttemptRow = {
   workspace_id?: string | null
   username_tried?: string | null
@@ -165,17 +162,14 @@ Deno.serve(async (req: Request) => {
   // Uniform response shape for every outcome.
   const reply = async (body: Record<string, unknown>, status = 200) => {
     await sleepUntil(deadline)
-    return new Response(JSON.stringify(body), {
-      status,
-      headers: { ...corsHeaders, 'content-type': 'application/json' },
-    })
+    return jsonReply(body, status)
   }
 
   if (req.method !== 'POST') {
     return reply({ exists: false, email: null }, 405)
   }
 
-  const admin = createClient(SUPABASE_URL, SERVICE_ROLE)
+  const admin = serviceClient()
 
   // Fire-and-forget audit row; never on the response path.
   const log = (row: AttemptRow) => {
