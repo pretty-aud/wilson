@@ -517,6 +517,9 @@ about whether anything is meant to use it.
 matches only the declaration — the writer is spelled `setOtterContext`. That is
 how a first pass this session concluded, wrongly, that it was never written.
 
+F4 (2026-11-13): each write is a render of App. Since F4 that renders the shell
+and no page (the pages are under `React.memo`); before, it rendered every page.
+
 ### The companion prompt tells the model to emit links against a context block that does not exist
 
 **OBSERVED (2026-08-14, Phase 6.)** `COMPANION_PROMPT` (`prompts.js`) says:
@@ -1332,6 +1335,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Post-overhaul F4 (2026-11-13, wave 2; `po/f4-rerender-discipline` into `feat/post-overhaul-edit-versioning`) — re-render discipline, nothing new on the screen meant: the pet's state in `PetHost` under App, the agent's value memoized and its input apart, `React.memo` on the pages and the three tools' roots, R.A.B.B.I.T.'s state that moves on its own clock out of the provider's value (`state/rabbitLive.js`), the Assets tab's warnings from one index (rabbit C5), O.T.T.E.R.'s lesson body and reference views memoized, D.O.G.'s preview placeholders at module level and its parse kept; measured in the running app before and after (a minute of the pet 2,105.7 to 2,859.2 ms of drawing → 42.4 to 50.7 ms); the render spy `src/lib/renderSpy.js` and its pins; two review rounds on Opus 5.5, whose security defects (the pet's saves and chat reaching the next person's account or screen) and the five things F4 had made worse were fixed in the session; no migration, no SQL, no Edge Function | F4-01 to F4-03, F4-05 to F4-13 (F4-04, the pet's chat kept for the next person, was found and fixed in the session) | P1-16 (the preview's loop, `b151c20e`). Comment markers: 4 → 4. |
 | MO3 (M.O.T.H. Session 3, 2026-11-08; `po/moth3-tags`) — typed tags, relationships and workspace notes: migrations 0124 to 0129 on wilson-dev, the notes' tiers and trash, the `[[` and `#` pickers in R.A.B.B.I.T., M.O.T.H.'s typed-tag drawer, notes, tags and links in the graph and its record; two whole-session review rounds. | MO3-01 to MO3-12 (above, after MO2's list). | MO2-03 (links are saved: 0127, and the page's link drop), MO2-09, MO2-10, MO2-11, MO2-12 and MO2-18 (0124). |
 | MO2 (M.O.T.H. Session 2, 2026-11-07; `po/moth2-graph`) — the graph engine merged with its callers, migrations 0122 and 0123 on wilson-dev, the graph, glow, HUD and navigation; two whole-session review rounds. | MO2-01 to MO2-23 (above, after MO2a's list). | MO2a's R1-17, R1-18, R1-4, 5, 22, 52, R1-11, 23, R1-8, 24, R1-25, R1-13, R1-6, R1-3, R1-7, R1-32, R1-33, R1-34. |
 | MO1 (M.O.T.H. Session 1, 2026-11-02 to 2026-11-07; `po/moth1-foundations-9l5hbg`) — migrations 0107 to 0119 and 0121, the Edge Functions, the desktop's trash, moves and office-server routes, and the lazy Moth page; two whole-session review rounds. | MO1-01 to MO1-15 (below, at the end of this file). | The workspace channel's private rows and the write hops on `tasks` and `assets` (A-R1-04, A-R2-03), `files_delete`'s hop (C-R2-01), S4d-01, S4d-02: 0107 to 0109. OSP-01, OSP-07, S4c-12 for claimed keys: 0114, 0115 and the Edge Functions. S4b-06's first half and the receipts' residual 1: 0121, 0115. |
@@ -1559,7 +1563,6 @@ defines them; a row's "owner" is who acts first.
 - **P1-13 · O.T.T.E.R.'s duplicate-found dialog is unreachable** (`renderDuplicateModal`; nothing sets its state). INFERRED from the code; would settle it: an import of a course whose slug exists. From A4-9.
 - **P1-14 · "Import failed: …" is `window.alert`** (`Otter.jsx` `handleImportFile`). MEASURED. From A4-10.
 - **P1-15 · Two `window.confirm` left** (`TeamView.jsx:388` "Remove from project", `:693` "Remove from roster"). MEASURED (P1's grep audit: 2). W9 already ruled the conversion; behaviour, so not P1's visual close.
-- **P1-16 · The slide preview logs "Maximum update depth exceeded"** when the duplicate resolver previews (`LayoutVisualizer`, C4). MEASURED. Needs a C4 ruling. From A4-13.
 - **P1-17 · Opening a task template logs React's "unique key" warning** (`TaskTemplateManager` → `TemplateEditor`). MEASURED by V2's probe.
 - **Autoplay (R4-36).** MEASURED: the video preview starts playing when it opens (`VideoPreview.jsx:177`, `controls autoPlay`), with no reduced-motion path. Left under C1 by B4; plan §5 names it for this file.
 
@@ -4913,3 +4916,118 @@ no fix in the product.
   the line (the 04:43 UTC job had succeeded on each of the last four nights and takes them at its next run). The
   purge is right and the test's count is not its own. `docs/PRODUCTION_RUNBOOK.md` now names it with suite 74's #34
   and #35 and suite 25's #13 as a healthy red. Fix shape: have the test count only the row it backdated.
+
+## F4 (2026-11-13, wave 2 of `docs/sessions/PLAN_WEEK_2026-11-04.md`) — left open
+
+Re-render discipline (`po/f4-rerender-discipline`; brief `docs/sessions/briefs/po-f4-rerender-discipline.md`).
+What F4 met outside its list, what its measurements left, and what its two review rounds recorded. None is fixed.
+Review round 1 (six reviewers, Opus 5.5): two security defects and the five the round found F4 had made worse
+were fixed in the session, the five by her answer *"Fix them now (Recommended)"* (2026-11-13). Review round 2
+(five reviewers, Opus 5.5) found the first security fix incomplete (a save queued behind one in flight still
+reached the next person's account, and the pet's chat reached them by three other paths) and two of the five
+half done (Settings' Models tab drew the loaded words over stale copies; the open lesson was parsed again at
+every change of page): those were fixed in the session too, the first as security, the two as the rest of her
+answer. What is below was left.
+
+- **F4-01 · Two pet pictures draw repeated React keys.** MEASURED in the running app (every pet render of an
+  otter: *"Encountered two children with the same key"*, the key `o14_13`) and while reading the sprites: each
+  sprite keys a pixel by its place (`src/components/sprites/index.jsx:98`, `` key={`o${x}_${y}`} ``) and the otter
+  and the monkey (`mk2_1`) paint a place twice. React may then drop or keep the wrong pixel on an update. Before F4
+  too. Fix shape: paint each place once, or key by the call's index.
+- **F4-02 · In the pet's agent mode the Send button sends nothing.** MEASURED in the running app before F4 and
+  unchanged by it: the button is `onClick={activeOnSend}` (`src/components/PetCompanion.jsx:226`), which hands the
+  click event to `sendAgentMessage(overrideInput)` (`src/agent/AgentProvider.jsx:263`); `overrideInput ||
+  agentInputRef.current` is the event, and *"currentInput.trim is not a function"* is an unhandled rejection. Enter
+  sends. Fix shape: `onClick={() => activeOnSend()}`.
+- **F4-03 · Day-scale words drawn from the clock move only when their component draws.** INFERRED by reading.
+  Today's date and the days left in R.A.B.B.I.T. (`views/budget/ClientViewTab.jsx:216`,
+  `components/MilestoneTrashModal.jsx:46`) and M.O.T.H. (`components/MothTrashView.jsx:14`, `MothTimeSlider.jsx:14`)
+  are computed from `Date.now()` while drawing. Before F4 a live pet's ticks drew every page and these with them; a
+  page left open across midnight now keeps yesterday's word. The minutes-and-hours words (the Admin terminal's,
+  O.T.T.E.R.'s requests) were fixed in the session: they read `lib/minuteClock.js`. Fix shape: the same clock.
+- **F4-05 · A change to the project open in R.A.B.B.I.T. is a new value for every reader of the provider.** MEASURED
+  (rabbit C1's other half; F4 took the state that moves on its own clock out of the value, `state/rabbitLive.js`):
+  one task renamed on the Assets tab is one commit in which all seven readers mounted there run, 574 component
+  renders (`state/volatileState.rerender.test.jsx`, pinned at that number so it moves with the code); in the running
+  app (development build, the Assets tab open, every page entered) a new value with nothing on the tab changed drew
+  17 readers and 2,237 components in 119 to 123 ms. Not only a write makes one (review round 2, E-1, by
+  reading; F4's commit `f7b20e87` said a write): the Bins tab's gateway refresh, every 60 s while the tab is open
+  in a company with gateways (`views/BinsView.jsx:347`), runs `discover` (`adapters/gatewayBins.js:248`), which
+  calls its `onChange` whatever it found, and the provider's handler (`gatewayChangedRef`, `RabbitProvider.jsx:6700`)
+  sets the bundle's `binFiles` and `binsInfo` with `ticketsRev` one more: a new value with nothing written, and
+  again at each batch of tickets (a hover on a tile). Before F4 too. Fix shape: split the value by what changes
+  together (the bundle's slices, the views, the actions), or a store read with selectors; and set nothing when
+  the gateways' state is unchanged.
+- **F4-06 · `NotesView.review.test.jsx` went red once under load.** OBSERVED once, not reproduced: *"a note moved to
+  the trash elsewhere: said in words, the editor locks, and no save is tried again"* read `ed.isEditable` true just
+  after the words appeared (line 177), in a run of 108 files on four workers; alone it passed three runs of three.
+  It reads nothing F4 changed. Fix shape: wait for the lock, not for the words.
+- **F4-07 · A link in the pet's chat goes through the first page's navigation.** INFERRED by reading (review round
+  1): `handleCompanionNavLink` (`src/App.jsx`, the pet's host) has `[]` as its deps, so it keeps the first render's
+  `navigateTo`, whose `currentPage` is the page the app opened on. On R.A.B.B.I.T. with an unsaved edit a link in
+  a chat reply skips the "leave with an unsaved edit?" question; on O.T.T.E.R. a link to O.T.T.E.R. replays the
+  2.2 s transition and, on the web, pushes a second history entry. The same before F4 (the handler was App's, with
+  the same deps). Fix shape: read `navigateTo` through a ref.
+- **F4-08 · The agent's own conversation is not cleared when the person changes.** INFERRED by reading:
+  `AgentProvider`'s `agentMessages` (`src/agent/AgentProvider.jsx`) is cleared by nothing on a sign-out or when
+  another person signs in over the first, so the next person's pet in agent mode shows the last person's
+  conversation and sends it as history. The pet's own chat had the same defect (F4-04, found by review round 1 and
+  fixed in the session, `4917d5cb`); this is the agent's half, outside the pet. Before F4 too. Security-adjacent:
+  one person's words shown to, and sent as, another. Fix shape: the provider clears its messages (and its pending
+  diff and proposal) when the signed-in person changes.
+- **F4-09 · D.O.G.'s Prompts tab shows the models as they were when D.O.G. last drew.** INFERRED by reading
+  (review round 2, B-3): `src/components/settings/ModelPicker.jsx:61` and `:65` read `modelFor()` and
+  `defaultModelFor()` while drawing, and D.O.G. is under `React.memo` since F4 (`e3e5efb1`). A load of the tiers
+  that lands while the tab is open (App's, when an offline launch's connection comes back) shows nothing there
+  until D.O.G. draws for a reason of its own; before F4, App's next render drew it. Caused by F4. Fix shape: a
+  subscription to the tiers in `lib/activeModel.js`, read by the picker with `useSyncExternalStore` (the flag's
+  subscription tells only that a first load landed).
+- **F4-10 · The model tiers stay the first person's when another signs in over them.** INFERRED by reading
+  (review round 2, B-4): `src/App.jsx` loads the tiers in an effect on `[authed, perms.offline]` only, and neither
+  changes when another person signs in with no sign-out between. The second person's Settings shows the first's own
+  choices and the first's company's defaults, and `modelFor()` answers from them, until Refresh. Before F4 too.
+  Security-adjacent: one person's settings shown to, and used for, another. Fix shape: key the load on the
+  signed-in person's id and empty the tiers (and the flag) when it changes.
+- **F4-11 · The session's source guards and render pins have blind spots, and one rule calls correct code an
+  error.** CONFIRMED by temporary tests, deleted (review round 2, C-2 to C-5), and by reading (E-3, E-4); caused
+  by F4 (`ca2aa63f`, `f7b20e87`, `99d14da0`):
+  - `otterRerender.test.jsx`'s rule that a view reads no ref while it draws misses an alias (`const r = ref;
+    r.current`), a ref handed to a helper, a `[]` callback called while drawing, `Reflect.get` and
+    `({ current: cur } = ref)`; and it calls correct code an error: a handler made in the body and handed by name
+    (`const toTop = () => ref.current…; onClick={toTop}`), `onClick={cond ? () => … : undefined}`, a callback ref
+    (`ref={(el) => { r.current = el }}`). Its lists may hold only state and props (a memo's value, a hook's
+    result or a callback in a list is refused; `[x?.type]` reads as `undefined`).
+  - `src/lib/renderSpy.js`'s `typesOf` does not see a memo loaded through `lazy()`: `rendersOf` gives 0 and
+    `assertSeen` throws, so a pin on one fails rather than passes.
+  - `rabbitLive.test.jsx`'s list of readers matches only a single-quoted `useRabbitLive('name'`, and its guard on
+    D.O.G.'s six fields (line 258) only `rabbitCtx?.name`: a plain `rabbitCtx.bundle` passes the guard and is
+    `undefined` when it runs, since D.O.G.'s object holds six fields.
+  - `views/assetWarningRender.test.jsx:139` pins the provider's `tasksAbout` calls at 0 with nothing in the file
+    showing that the counter counts one (`ctx.selectTasksByAsset` still calls it and would), and by the reviewer's
+    reading no test fails if the rows stop asking for their warning.
+
+  Fix shape: one item at a time, each with a plant that turns it red.
+- **F4-12 · R.A.B.B.I.T.'s value does not list `authUserId`, and two readers ask for the adapter while drawing.**
+  INFERRED by reading (review round 2, E-2): `authUserId` is a field of the value (`state/RabbitProvider.jsx:9119`)
+  and not one of its `useMemo`'s deps (so at `a71cd144` too). Before F4 the adapter's status, set after every auth
+  event, made a new value; since F4 each `setAuthUserId` is fresh only because another field moves in the same
+  commit (`withdrawUserId` through the `canWithdraw*` callbacks and `recentlyWithdrawn`, `recoverableEditDrafts`
+  through `draftPersonKey`, or `projectMembers`). No reader sees the wrong person today. `components/ConnectionDot.jsx:118`
+  and `src/tools/moth_v0.1.0/MothPage.jsx:125` call `getAdapter()` while they draw; on a desktop launch in
+  `local_server` mode whose server answers offline, the one field of the value that changes is `tableViewLast`
+  (`state/tableViewsState.js:590`'s effect), and that is what takes the dot out of "pending". A refactor of
+  either would make these real. Fix shape: list `authUserId` in the deps; hand the adapter's kind to the
+  readers through `state/rabbitLive.js`.
+- **F4-13 · What a change of person still leaves to the next one.** INFERRED by reading (review round 2's fix,
+  `8a9d6652`, which closed the rest). Before F4 too:
+  - The pet's chat request (`callAI`, `src/App.jsx`'s `sendChat`) reads the session's token when it is sent: a
+    question asked by A that goes out as the client takes B's session (another tab's sign-in) goes to the model
+    under B's account. Its answer is dropped since `8a9d6652`; the question is not. Security-adjacent. Fix shape:
+    the request names its person and the AI proxy refuses another's token (an Edge Function's change).
+  - When another person signs in over the first with no sign-out between, the first's save notice (its toast and
+    Settings' copy) and the Create Egg status stay up, as a sign-out would have cleared them; their words are
+    generic. One of them can be the database's own refusal: since the session's commits the pet's and settings'
+    saves name their person, so a save of the first's that goes out as the client takes the second's session is
+    refused (SQLSTATE 42501) and can show, in that moment, as the first's save error. `src/lib/userStateWiring.test.js:342` pins exactly two `setPetNoticeSticky(null)` in `App.jsx`
+    ("cleared on sign-out and on a later successful save, and nowhere else"), so a third clear changes that test
+    too. Fix shape: the identity effect clears them where it blanks the pet.
