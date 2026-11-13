@@ -167,24 +167,61 @@ async function collectObjects(
 // key (S4c) is one UUID longer, and a hundred of them in one `.in()` is a
 // query string a gateway may refuse whole.
 const IN_CHUNK_CHARS = 6000
+
+// 🚨 F7 round 1 (SECURITY): A LIST OF KEYS IS SENT QUOTED AND ESCAPED, AND A
+// KEY THAT IS NOT PLAIN IS NOT SENT IN A LIST AT ALL. postgrest-js's `.in()`
+// quotes a value holding `,()` but escapes neither `"` nor `\`, and PostgREST
+// reads the list only up to its first closing `)`, ignoring what follows. So
+// one key holding `")` (a bin poster's path may) ended the list early and every
+// key after it in the chunk was never asked: each read "nothing names this",
+// and was deleted. Each value now goes as `"…"` with `\` and `"` escaped
+// (PostgREST's quoted value reads `\x` as x), counted by the same encoding the
+// request uses; and only a PLAIN key (letters, digits, `.`, `_`, `/`, `-`) is
+// listed at all: any other goes alone through `.eq()`, which PostgREST reads to
+// the end of the value, exact for every string.
+const PLAIN_KEY = /^[A-Za-z0-9._/-]+$/
+function listValue(p: string): string {
+  return `"${p.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+}
+function inList(paths: string[]): string {
+  return `(${paths.map(listValue).join(',')})`
+}
 function chunkByEncodedLength(paths: string[]): string[][] {
   const chunks: string[][] = []
   let cur: string[] = []
   let len = 0
   for (const p of paths) {
-    const n = encodeURIComponent(p).length + 3
+    // What the request really carries for this value: its quoted form, form-encoded, and a comma.
+    const n = new URLSearchParams({ v: listValue(p) }).toString().length - 2 + 1
     if (cur.length > 0 && len + n > IN_CHUNK_CHARS) { chunks.push(cur); cur = []; len = 0 }
     cur.push(p); len += n
   }
   if (cur.length > 0) chunks.push(cur)
   return chunks
 }
+/** The words of a failed read, whatever shape its error came in (postgrest-js parses any JSON body into it). */
+function readFailure(error: unknown, data: unknown): string | null {
+  if (error) {
+    const m = (error as { message?: unknown }).message
+    if (typeof m === 'string' && m) return m
+    try { return JSON.stringify(error) || 'unknown error' } catch { return 'unknown error' }
+  }
+  return Array.isArray(data) ? null : 'the answer was not a list'
+}
 async function referencedPaths(ctx: AdminContext, paths: string[]): Promise<Set<string>> {
   const out = new Set<string>()
-  for (const chunk of chunkByEncodedLength(paths)) {
-    const { data, error } = await ctx.admin.from('files').select('storage_path').in('storage_provider', ['supabase', 's3', 'local_server']).in('storage_path', chunk)
-    if (error) throw new Error(`files read failed (referenced paths): ${error.message}`)
-    for (const r of data ?? []) out.add(r.storage_path as string)
+  const plain = paths.filter(p => PLAIN_KEY.test(p))
+  for (const chunk of chunkByEncodedLength(plain)) {
+    const { data, error } = await ctx.admin.from('files').select('storage_path').in('storage_provider', ['supabase', 's3', 'local_server']).filter('storage_path', 'in', inList(chunk))
+    const failure = readFailure(error, data)
+    if (failure) throw new Error(`files read failed (referenced paths): ${failure}`)
+    for (const r of (data ?? []) as unknown as Array<Record<string, unknown>>) out.add(r.storage_path as string)
+  }
+  for (const p of paths.filter(p => !PLAIN_KEY.test(p))) {
+    const { data, error } = await ctx.admin.from('files').select('storage_path').in('storage_provider', ['supabase', 's3', 'local_server']).eq('storage_path', p).limit(1)
+    const failure = readFailure(error, data)
+    if (failure) throw new Error(`files read failed (referenced paths): ${failure}`)
+    if ((data ?? []).length > 0) out.add(p)
   }
   return out
 }
@@ -220,32 +257,55 @@ type QueueRow = { id: number; bucket_id: string; object_path: string; provider: 
 // file someone can still restore: it reads every row, every provider, every
 // workspace, trashed or not, exactly as the per-row read did.
 //
-// 🚨 PAGED. PostgREST answers at most max_rows (1000) per read even for
-// service_role; a chunk whose rows passed the cap would leave paths unseen,
-// and an unseen path reads as "nothing names this": a licence to delete.
+// 🚨 PAGED TO THE END. PostgREST answers at most max_rows per read even for
+// service_role, and max_rows is a setting (1000 in config.toml, the dashboard's
+// own on a hosted project); a chunk whose rows passed it would leave paths
+// unseen, and an unseen path reads as "nothing names this": a licence to
+// delete. So the pages go by id, each after the last id seen, until one comes
+// back EMPTY, whatever the cap is.
 //
-// 🚨 A FAILED READ NAMES NOTHING AS FREE. A chunk whose read errors marks each
-// of its paths failed for that column, and the row is stamped `failed`, with
-// today's words, exactly as its own failed read stamped it.
+// 🚨 A FAILED READ NAMES NOTHING AS FREE. A read that errors, whatever its
+// error's shape, or answers anything but a list, marks each of its paths failed
+// for that column, and the row is stamped `failed`, with today's words, exactly
+// as its own failed read stamped it.
+//
+// 🚨 ITS ANSWER IS USED AT ONCE. The drain reads a slice of the queue's page and
+// acts on that slice before reading the next, so "nothing names this" is at
+// most one slice old when the object is removed. 0115's claim holds a queued
+// key against a new row meanwhile (file_key_admissible, step 5).
 const GUARD_PAGE = 1000
+const GUARD_SLICE = 50
 async function namedQueuePaths(
   ctx: AdminContext, column: 'storage_path' | 'thumbnail_url', paths: string[],
 ): Promise<{ named: Set<string>; failed: Map<string, string> }> {
   const named = new Set<string>()
   const failed = new Map<string, string>()
-  for (const chunk of chunkByEncodedLength([...new Set(paths)])) {
-    for (let from = 0; ; from += GUARD_PAGE) {
-      const { data, error } = await ctx.admin.from('files').select(`id, ${column}`)
-        .in(column, chunk).order('id', { ascending: true }).range(from, from + GUARD_PAGE - 1)
-      if (error) {
-        for (const p of chunk) failed.set(p, error.message)
+  const unique = [...new Set(paths)]
+  for (const chunk of chunkByEncodedLength(unique.filter(p => PLAIN_KEY.test(p)))) {
+    let after: string | null = null
+    for (;;) {
+      let q = ctx.admin.from('files').select(`id, ${column}`).filter(column, 'in', inList(chunk))
+      if (after !== null) q = q.gt('id', after)
+      const { data, error } = await q.order('id', { ascending: true }).limit(GUARD_PAGE)
+      const failure = readFailure(error, data)
+      if (failure) {
+        for (const p of chunk) failed.set(p, failure)
         break
       }
-      for (const r of (data ?? []) as unknown as Array<Record<string, unknown>>) {
+      const rows = (data ?? []) as unknown as Array<Record<string, unknown>>
+      if (rows.length === 0) break
+      for (const r of rows) {
         if (typeof r[column] === 'string') named.add(r[column] as string)
       }
-      if (!data || data.length < GUARD_PAGE) break
+      after = String(rows[rows.length - 1].id)
     }
+  }
+  // A key that is not plain is asked alone, exactly, as the per-row read asked it.
+  for (const p of unique.filter(p => !PLAIN_KEY.test(p))) {
+    const { data, error } = await ctx.admin.from('files').select('id').eq(column, p).limit(1)
+    const failure = readFailure(error, data)
+    if (failure) failed.set(p, failure)
+    else if ((data ?? []).length > 0) named.add(p)
   }
   return { named, failed }
 }
@@ -366,18 +426,21 @@ Deno.serve(async (req) => {
     if (qErr) throw new Error(`queue read: ${qErr.message}`)
     const rows = (pending ?? []) as unknown as QueueRow[]
 
-    // The restorability guard's reads, for the whole page at once (F7, C3; see
-    // namedQueuePaths). A body row asks storage_path, a thumbnail row
-    // thumbnail_url, and an s3 row both (MO1, below); each row's decision
-    // further down is the one its own read gave.
-    const unreserved = rows.filter(r => !isReservedProjectObject(r.object_path))
+    for (let s = 0; s < rows.length; s += GUARD_SLICE) {
+    const slice = rows.slice(s, s + GUARD_SLICE)
+    // The restorability guard's reads, for a slice of the page at once (F7, C3;
+    // see namedQueuePaths), acted on before the next slice is read. A body row
+    // asks storage_path, a thumbnail row thumbnail_url, and an s3 row both
+    // (MO1, below); each row's decision further down is the one its own read
+    // gave.
+    const unreserved = slice.filter(r => !isReservedProjectObject(r.object_path))
     const bodyAsk = await namedQueuePaths(ctx, 'storage_path',
       unreserved.filter(r => r.provider === 's3' || r.kind !== 'thumbnail').map(r => r.object_path))
     const thumbAsk = await namedQueuePaths(ctx, 'thumbnail_url',
       unreserved.filter(r => r.provider === 's3' || r.kind === 'thumbnail').map(r => r.object_path))
     const asked = { storage_path: bodyAsk, thumbnail_url: thumbAsk }
 
-    for (const row of rows) {
+    for (const row of slice) {
       // Reserved guard, FIRST — refuse in depth rather than trusting the
       // orphan scan to be the only way here.
       //
@@ -438,8 +501,7 @@ Deno.serve(async (req) => {
       let stillRef = false
       let refErr: { message: string } | null = null
       for (const column of refColumns) {
-        const failedWith = asked[column].failed.get(row.object_path)
-        if (failedWith !== undefined) { refErr = { message: failedWith }; break }
+        if (asked[column].failed.has(row.object_path)) { refErr = { message: asked[column].failed.get(row.object_path) as string }; break }
         if (asked[column].named.has(row.object_path)) { stillRef = true; break }
       }
       // 🚨 A FAILED READ PUSHES NOTHING (S37's rule). supabase-js RESOLVES on
@@ -552,6 +614,7 @@ Deno.serve(async (req) => {
           .eq('id', row.id)
       }
     }
+    } // the slice
 
     // ── 2. Orphan scan: rabbit-files (this workspace's projects only) ──────
     const scanBudget = { left: MAX_OBJECTS } // RUN-wide, not per-project

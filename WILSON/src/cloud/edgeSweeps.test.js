@@ -34,6 +34,44 @@ function likeToRegExp(pattern) {
   return new RegExp(re + '$')
 }
 
+// PostgREST's list grammar (QueryParams.hs, v12.2.3), ported (round 1, r1-gc):
+//   pListVal     = lexeme '(' *> pListElement `sepBy1` ',' <* lexeme ')'      -- and NO end of input: a tail is ignored
+//   pListElement = try (pQuotedValue <* notFollowedBy (noneOf ",)")) <|> many (noneOf ",)")
+//   pQuotedValue = '"' *> many (noneOf "\\\"" <|> ('\\' *> anyChar)) <* '"'
+function parseList(s) {
+  let i = 0
+  const ws = () => { while (s[i] === ' ' || s[i] === '\t') i++ }
+  ws(); if (s[i] !== '(') throw new Error('PGRST100: expected (')
+  i++; ws()
+  const out = []
+  for (;;) {
+    const save = i
+    let val = null
+    if (s[i] === '"') {
+      let j = i + 1, acc = '', ok = false
+      while (j < s.length) {
+        if (s[j] === '\\') { if (j + 1 < s.length) { acc += s[j + 1]; j += 2; continue } break }
+        if (s[j] === '"') { ok = true; j++; break }
+        acc += s[j]; j++
+      }
+      if (ok && (j >= s.length || s[j] === ',' || s[j] === ')')) { val = acc; i = j }
+    }
+    if (val === null) {
+      i = save
+      let acc = ''
+      while (i < s.length && s[i] !== ',' && s[i] !== ')') acc += s[i++]
+      val = acc
+    }
+    out.push(val)
+    if (s[i] === ',') { i++; continue }
+    break
+  }
+  ws(); if (s[i] !== ')') throw new Error('PGRST100: expected )')
+  return out
+}
+// postgrest-js 1.16.1's `.in()`: quotes a value holding , ( or ) and escapes nothing.
+const postgrestJsIn = (values) => `(${[...new Set(values)].map((v) => (typeof v === 'string' && /[,()]/.test(v) ? `"${v}"` : `${v}`)).join(',')})`
+
 function valueOf(row, column) {
   const j = column.split('->>')
   if (j.length === 2) {
@@ -49,8 +87,9 @@ function makeDb() {
     tables: {},
     objects: {}, // bucket -> [{ path, created_at }]
     log: [], // every query and storage call a function sent, in order
-    fail: () => null, // (query) => error message | null
+    fail: () => null, // (query) => an error message, or an error of any shape ({ raw }), or null
     removeFail: () => null, // (bucket, paths) => error message | null
+    maxRows: 1000, // PostgREST's max_rows: a setting, 1000 in config.toml
     nextId: 1000,
     clock: Date.parse('2026-11-13T00:00:00.000Z'),
   }
@@ -61,7 +100,14 @@ function makeDb() {
     insert(payload) { this.op = 'insert'; this.payload = payload; return this }
     update(payload) { this.op = 'update'; this.payload = payload; return this }
     eq(c, v) { this.filters.push({ k: 'eq', c, v }); return this }
-    in(c, vs) { this.filters.push({ k: 'in', c, v: [...vs] }); return this }
+    // As on the wire: postgrest-js builds the list, PostgREST parses it back (a bad one fails the read).
+    in(c, vs) { return this.filter(c, 'in', postgrestJsIn(vs)) }
+    filter(c, op, text) {
+      if (op !== 'in') throw new Error(`stand-in: filter op ${op}`)
+      try { this.filters.push({ k: 'in', c, v: parseList(text), wire: text }) } catch (e) { this.parseError = e.message }
+      return this
+    }
+    gt(c, v) { this.filters.push({ k: 'gt', c, v }); return this }
     like(c, v) { this.filters.push({ k: 'like', c, v }); return this }
     order(c, o = {}) { this.orders.push({ c, asc: o.ascending !== false }); return this }
     limit(n) { this.cap = n; return this }
@@ -72,15 +118,24 @@ function makeDb() {
         const v = valueOf(row, f.c)
         if (f.k === 'eq') return v !== null && v === f.v
         if (f.k === 'in') return v !== null && f.v.includes(v)
+        if (f.k === 'gt') return v !== null && String(v) > String(f.v)
         if (f.k === 'like') return v !== null && likeToRegExp(f.v).test(v)
         return false
       })
     }
     then(resolve, reject) { return Promise.resolve().then(() => this.run()).then(resolve, reject) }
+    // Only the columns the select names come back, as PostgREST answers.
+    project(r) {
+      if (!this.cols || this.cols.trim() === '*') return { ...r }
+      const out = {}
+      for (const c of this.cols.split(',').map((x) => x.trim())) out[c] = r[c]
+      return out
+    }
     run() {
       db.log.push({ table: this.table, op: this.op, filters: this.filters.map((f) => ({ ...f })), payload: this.payload })
+      if (this.parseError) return { data: null, error: { message: this.parseError, code: 'PGRST100' } }
       const failed = db.fail(this)
-      if (failed) return { data: null, error: { message: failed } }
+      if (failed) return { data: null, error: typeof failed === 'object' && 'raw' in failed ? failed.raw : { message: failed } }
       const rows = rowsOf(this.table)
       if (this.op === 'insert') {
         for (const p of [].concat(this.payload)) rows.push({ id: db.nextId++, created_at: new Date(db.clock).toISOString(), ...p })
@@ -99,10 +154,10 @@ function makeDb() {
       }
       if (this.to !== null) out = out.slice(this.from, this.to + 1)
       if (this.cap !== null) out = out.slice(0, this.cap)
-      // PostgREST's max_rows (config.toml: 1000), which binds service_role too.
-      out = out.slice(0, 1000)
-      if (this.single) return { data: out[0] ? { ...out[0] } : null, error: null }
-      return { data: out.map((r) => ({ ...r })), error: null }
+      // PostgREST's max_rows, which binds service_role too.
+      out = out.slice(0, typeof db.maxRows === 'object' ? (db.maxRows[this.table] ?? 1000) : db.maxRows)
+      if (this.single) return { data: out[0] ? this.project(out[0]) : null, error: null }
+      return { data: out.map((r) => this.project(r)), error: null }
     }
   }
   const storage = {
@@ -404,6 +459,61 @@ describe('storage-gc: the guard reads a page of the queue in chunks, and decides
     expect(queueRow(q).status).toBe('skipped')
   })
 
+  // Round 1 (r1-gc, SECURITY): a key holding `")` once ended postgrest-js's list early, and every key after it
+  // in the chunk was never asked, so each was deleted while a row named it.
+  const HOSTILE = [
+    key('q")z.png.jpg'), key('a"b,c.png.jpg'), key('back\\slash (1).png.jpg'), key('"quoted".png.jpg'),
+    ' ' + key('leading-space.png.jpg'), key('Budget (final), v2.png.jpg'), key('plain-after.png.jpg'),
+  ]
+  for (const at of [0, 3, 6]) {
+    it(`a hostile key at position ${at + 1} of a chunk: every key in it is still asked, and every named one kept`, async () => {
+      const keys = [...HOSTILE]
+      keys.splice(at, 0, keys.splice(0, 1)[0]) // the `")` key moved to this position
+      for (const k of keys) {
+        object('rabbit-thumbnails', k)
+        queue({ object_path: k, bucket_id: 'rabbit-thumbnails', kind: 'thumbnail' })
+        fileRow({ storage_provider: 'supabase', storage_path: k.replace(/\.jpg$/, ''), thumbnail_url: k })
+      }
+      await call('storage-gc')
+      for (const k of keys) {
+        expect(inBucket('rabbit-thumbnails', k)).toBe(true)
+        expect(db.tables.storage_gc_queue.find((q) => q.object_path === k).status).toBe('skipped')
+      }
+    })
+  }
+
+  it('and an unnamed hostile key is still found free, alone: the exact read decides it', async () => {
+    const k = key('q")z.png.jpg')
+    object('rabbit-thumbnails', k)
+    const q = queue({ object_path: k, bucket_id: 'rabbit-thumbnails', kind: 'thumbnail' })
+    await call('storage-gc')
+    expect(queueRow(q).status).toBe('deleted')
+    expect(db.log.some((x) => x.table === 'files' && x.filters.some((f) => f.k === 'eq' && f.c === 'thumbnail_url' && f.v === k))).toBe(true)
+  })
+
+  for (const [label, raw] of [['an empty object', {}], ['a bare string', 'Bad gateway'], ['an error with no message', { error: 'upstream' }]]) {
+    it(`a read whose error is ${label} still fails the row closed`, async () => {
+      const k = key(`err-${label.length}.pdf`)
+      object('rabbit-files', k)
+      const q = queue({ object_path: k })
+      db.fail = (query) => (query.table === 'files' && query.op === 'select' ? { raw } : null)
+      await call('storage-gc')
+      expect(inBucket('rabbit-files', k)).toBe(true)
+      expect(queueRow(q).status).toBe('failed')
+    })
+  }
+
+  it('with max_rows set to 3, five rows naming five keys of one chunk are all read', async () => {
+    db.maxRows = { files: 3 } // the guard's reads capped; the queue's own page is not
+    const keys = [0, 1, 2, 3, 4].map((i) => key(`capped-${i}.pdf`))
+    for (const k of keys) { object('rabbit-files', k); queue({ object_path: k }); fileRow({ storage_provider: 'supabase', storage_path: k }) }
+    await call('storage-gc')
+    for (const k of keys) {
+      expect(inBucket('rabbit-files', k)).toBe(true)
+      expect(db.tables.storage_gc_queue.find((q) => q.object_path === k).status).toBe('skipped')
+    }
+  })
+
   it('an s3 row asks both columns: a failed storage_path read fails it even when a picture names it', async () => {
     s3Workspace()
     const k = key('s3-both.bin')
@@ -470,6 +580,17 @@ describe('ai-files: an admin sweep answers the totals a second listing would', (
     plant()
     await call('ai-files', 'DELETE', { sweep: true })
     expect(storeListings()).toBe(1)
+    // ...and reads this environment's rows once: the upload rows, the certificates, the notes, the rows naming the ids.
+    expect(db.log.filter((q) => q.table === 'app_events' && q.op === 'select').length).toBe(4)
+  })
+})
+
+describe('pooled answers in the order of its items, whatever order the calls finish in', () => {
+  it('the slowest first still answers first', async () => {
+    const { pooled } = await import('../../supabase/functions/_shared/aiFilesUpstream.ts')
+    const delays = [40, 30, 20, 10, 0]
+    const out = await pooled(delays, 2, (d) => new Promise((r) => setTimeout(() => r(`done ${d}`), d)))
+    expect(out).toEqual(delays.map((d) => `done ${d}`))
   })
 })
 

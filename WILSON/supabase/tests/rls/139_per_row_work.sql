@@ -18,7 +18,7 @@
 -- =============================================================================
 
 BEGIN;
-SELECT plan(55);
+SELECT plan(60);
 
 SELECT * FROM tests.rls_setup();
 
@@ -317,6 +317,23 @@ END;
 $f$;
 SELECT public.t139_cut('t139_no_1b', '      -- 1b.', '      -- 2.');
 SELECT public.t139_cut('t139_no_2', E'      UNION ALL\n      -- 2.', '    ) c;');
+-- The LIVE body with one piece of text swapped (the range's ends, 1b's buckets): more controls.
+CREATE FUNCTION public.t139_swap(p_name text, p_from text, p_to text) RETURNS void LANGUAGE plpgsql AS $f$
+DECLARE
+  s text := (SELECT prosrc FROM pg_proc WHERE oid = 'public.workspace_petal_committed_bytes(uuid)'::regprocedure);
+BEGIN
+  IF strpos(s, p_from) = 0 THEN
+    RAISE EXCEPTION 't139_swap: % not found in the live body', p_from;
+  END IF;
+  EXECUTE format('CREATE FUNCTION public.%I(ws uuid) RETURNS bigint LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS %L',
+                 p_name, replace(s, p_from, p_to));
+END;
+$f$;
+SELECT public.t139_swap('t139_le', $s$o.name COLLATE "C" <  ($s$, $s$o.name COLLATE "C" <= ($s$);
+SELECT public.t139_swap('t139_ff', $s$p.id::text || '0')$s$, $s$p.id::text || '/' || chr(255))$s$);
+SELECT public.t139_swap('t139_1b_files', $s$WHERE o.bucket_id IN ('rabbit-files', 'rabbit-thumbnails')
+         AND split_part$s$, $s$WHERE o.bucket_id IN ('rabbit-files')
+         AND split_part$s$);
 
 -- P1 and P2 are company A's, Q is B's; PURGED names no project any more.
 INSERT INTO public.projects (id, workspace_id, title, created_by) VALUES
@@ -337,15 +354,22 @@ INSERT INTO storage.objects (bucket_id, name, metadata) VALUES
   ('rabbit-files',      'projects/aaaa1390-0000-4000-8000-000000000001.x/y.bin',          '{"size": "1024"}'),
   ('rabbit-files',      'projects/dddd1390-0000-4000-8000-0000000000ff/m.bin',            '{"size": "2048"}'),
   ('rabbit-thumbnails', 'projects/dddd1390-0000-4000-8000-0000000000ff/m.bin.jpg',        '{"size": "4096"}'),
-  ('rabbit-files',      'projects/aaaa1390-0000-4000-8000-000000000001/zz.bin',           '{"contentLength": "8192"}');
+  ('rabbit-files',      'projects/aaaa1390-0000-4000-8000-000000000001/zz.bin',           '{"contentLength": "8192"}'),
+  -- The range's two ends (round 1): a name past every ASCII byte inside the prefix, the upper bound itself, and the
+  -- next prefix over; an upper-case id in the pictures bucket (arm 1b's other bucket) and under another root.
+  ('rabbit-files',      'projects/aaaa1390-0000-4000-8000-000000000001/日本.mov',          '{"size": "16384"}'),
+  ('rabbit-files',      'projects/aaaa1390-0000-4000-8000-0000000000010',                 '{"size": "65536"}'),
+  ('rabbit-files',      'projects/aaaa1390-0000-4000-8000-0000000000010/z.bin',           '{"size": "131072"}'),
+  ('rabbit-thumbnails', 'projects/AAAA1390-0000-4000-8000-000000000001/u.jpg',            '{"size": "32768"}'),
+  ('rabbit-files',      'other/AAAA1390-0000-4000-8000-000000000001/o.bin',               '{"size": "262144"}');
 -- The moved copy: a row of P2 whose key's second segment names no project, and its picture.
 INSERT INTO public.files (project_id, workspace_id, name, storage_provider, storage_path, thumbnail_url) VALUES
   ('aaaa1390-0000-4000-8000-000000000002', '11111111-1111-1111-1111-111111111111', 'm.bin', 'supabase',
    'projects/dddd1390-0000-4000-8000-0000000000ff/m.bin', 'projects/dddd1390-0000-4000-8000-0000000000ff/m.bin.jpg');
 
 -- 31
-SELECT is(public.workspace_petal_committed_bytes('11111111-1111-1111-1111-111111111111'), 14463::bigint,
-  'A: canonical 1 + picture 2 + upper 4 + braces 8 + no hyphens 16 + extra hyphen 32 + empty third segment 64 + moved 2048 + its picture 4096 + contentLength 8192; not the two-segment key, B''s, other/ or P1.x');
+SELECT is(public.workspace_petal_committed_bytes('11111111-1111-1111-1111-111111111111'), 63615::bigint,
+  'A: canonical 1 + picture 2 + upper 4 + braces 8 + no hyphens 16 + extra hyphen 32 + empty third segment 64 + moved 2048 + its picture 4096 + contentLength 8192 + a non-ASCII name 16384 + an upper-case picture 32768; not the two-segment key, B''s, other/, P1.x, the upper bound or the next prefix');
 -- 32
 SELECT is(public.workspace_petal_committed_bytes('11111111-1111-1111-1111-111111111111'),
           public.t139_old_meter('11111111-1111-1111-1111-111111111111'),
@@ -368,46 +392,59 @@ SELECT isnt(public.t139_no_2('11111111-1111-1111-1111-111111111111'),
             public.t139_old_meter('11111111-1111-1111-1111-111111111111'),
   'CONTROL: without arm 2 the moved copy and its picture are not counted');
 -- 37
+SELECT isnt(public.t139_le('11111111-1111-1111-1111-111111111111'), public.t139_old_meter('11111111-1111-1111-1111-111111111111'),
+  'CONTROL: with the upper bound closed (<=) the name equal to it is counted, which 0115 never counted');
+-- 38
+SELECT isnt(public.t139_ff('11111111-1111-1111-1111-111111111111'), public.t139_old_meter('11111111-1111-1111-1111-111111111111'),
+  'CONTROL: with the upper bound written ''/'' || chr(255) a non-ASCII name under the prefix is not counted, a quota bypass');
+-- 39
+SELECT isnt(public.t139_1b_files('11111111-1111-1111-1111-111111111111'), public.t139_old_meter('11111111-1111-1111-1111-111111111111'),
+  'CONTROL: with arm 1b reading only rabbit-files, an upper-case picture is not counted');
+-- 40
 SELECT is((SELECT md5(replace(prosrc, chr(13), '')) FROM pg_proc WHERE oid = 'public.workspace_petal_committed_bytes(uuid)'::regprocedure),
   '67bd041258c73fecae5b4031357e42d2', 'the meter is 0137''s body');
--- 38
+-- 41
 SELECT ok((SELECT p.prosecdef AND p.provolatile = 's' AND r.rolbypassrls FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner
             WHERE p.oid = 'public.workspace_petal_committed_bytes(uuid)'::regprocedure),
   'a STABLE definer whose owner bypasses row security');
--- 39
+-- 42
 SELECT ok(NOT has_function_privilege('anon', 'public.workspace_petal_committed_bytes(uuid)', 'EXECUTE')
           AND NOT has_function_privilege('authenticated', 'public.workspace_petal_committed_bytes(uuid)', 'EXECUTE')
           AND has_function_privilege('service_role', 'public.workspace_petal_committed_bytes(uuid)', 'EXECUTE'),
   'service_role only');
--- 40
+-- 43
 SELECT is((SELECT count(*)::int FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects'
              AND policyname = 'petal_storage_quota_insert' AND permissive = 'RESTRICTIVE' AND cmd = 'INSERT'), 1,
   'the quota''s RESTRICTIVE policy is still there, as it was');
 
 -- ── E. The indexes ────────────────────────────────────────────────────────────
--- 41
+-- 44
 SELECT is((SELECT count(*)::int FROM unnest(ARRAY['bin_files_location_idx', 'budget_lines_project_idx', 'folders_project_idx',
                                                   'scenes_project_idx', 'tasks_project_idx', 'otter_courses_ws_owner_idx']) n
             WHERE to_regclass('public.' || n) IS NOT NULL), 0,
   'the six narrow indexes are gone');
--- 42
+-- 45
 SELECT is((SELECT count(*)::int FROM pg_index i
             WHERE i.indexrelid IN ('public.bin_files_location_path_idx'::regclass, 'public.budget_lines_project_sheet_idx'::regclass,
                                    'public.folders_project_path_uniq'::regclass, 'public.scenes_project_number_idx'::regclass,
                                    'public.tasks_project_phase_idx'::regclass, 'public.otter_courses_owner_slug_uidx'::regclass)
               AND i.indisvalid AND i.indisready), 6,
   'the six wider ones with the same leading columns are here and valid');
--- 43
-SELECT is(pg_get_indexdef('public.app_events_ai_files_file_id_idx'::regclass),
-  'CREATE INDEX app_events_ai_files_file_id_idx ON public.app_events USING btree (((context ->> ''file_id''::text))) WHERE ((context ->> ''tool''::text) = ''ai-files''::text)',
-  'the file-id index, partial on the ai-files rows');
--- 44
+-- 46
+SELECT is(pg_get_indexdef('public.app_events_file_id_idx'::regclass),
+  'CREATE INDEX app_events_file_id_idx ON public.app_events USING btree (((context ->> ''file_id''::text)))',
+  'the file-id index, over every row (partial on the AI rows, the planner took it for that predicate alone)');
+-- 47
 SELECT is(pg_get_indexdef('public.app_events_ai_files_ws_id_idx'::regclass),
   'CREATE INDEX app_events_ai_files_ws_id_idx ON public.app_events USING btree (workspace_id, id) WHERE ((code = ''WIL-6001''::text) AND ((context ->> ''tool''::text) = ''ai-files''::text))',
   'the workspace-and-id index, partial on the upload rows');
--- 45
-SELECT is((SELECT count(*)::int FROM pg_index WHERE indexrelid IN ('public.app_events_ai_files_file_id_idx'::regclass, 'public.app_events_ai_files_ws_id_idx'::regclass)
+-- 48
+SELECT is((SELECT count(*)::int FROM pg_index WHERE indexrelid IN ('public.app_events_file_id_idx'::regclass, 'public.app_events_ai_files_ws_id_idx'::regclass)
              AND indisvalid AND indisready), 2, 'both valid');
+-- 49
+SELECT ok((SELECT pg_get_statisticsobjdef(s.oid) FROM pg_statistic_ext s WHERE s.stxname = 'app_events_context_tool_stats')
+            ~ '^CREATE STATISTICS public\.app_events_context_tool_stats ON \(context ->> ''tool''::text\) FROM (public\.)?app_events$',
+  'statistics on the JSON tool value, so the planner knows how common an AI row is');
 
 -- The reads exactly as PostgREST sends them: every value and the JSON key bound as parameters. Enough AI file rows
 -- that a look-up of two ids by the file-id index is plainly cheaper than walking the workspace's rows (on CI's empty
@@ -430,49 +467,58 @@ PREPARE t139_naming(text, text, text, text, text[]) AS
    ORDER BY "public"."app_events"."id" ASC LIMIT 1000 OFFSET 0;
 SET LOCAL enable_seqscan = off;
 SET LOCAL plan_cache_mode = force_custom_plan;
--- 46
+-- 50
 SELECT ok(strpos(public.t139_plan($q$EXECUTE t139_rows('WIL-6001', 'tool', 'ai-files', '11111111-1111-1111-1111-111111111111')$q$),
                  'app_events_ai_files_ws_id_idx') > 0,
   'readUploadRows(ws) as sent, a custom plan: the workspace-and-id index');
--- 47
+-- 51
 SELECT ok(strpos(public.t139_plan($q$EXECUTE t139_naming('WIL-6001', 'tool', 'ai-files', 'file_id', ARRAY['file_t13900000001', 'file_t13900000002'])$q$),
-                 'app_events_ai_files_file_id_idx') > 0,
+                 'app_events_file_id_idx') > 0,
   'readUploadRowsNaming(ids) as sent, a custom plan: the file-id index');
+PREPARE t139_absent(uuid, text, text, text, text, text) AS
+  SELECT "public"."app_events"."context" FROM "public"."app_events"
+   WHERE "public"."app_events"."workspace_id" = $1 AND "public"."app_events"."event_type" = $2
+     AND "public"."app_events"."context"->>$3 = $4 AND "public"."app_events"."context"->>$5 = $6
+   ORDER BY "public"."app_events"."id" ASC LIMIT 1000 OFFSET 0;
+-- 52
+SELECT ok(strpos(public.t139_plan($q$EXECUTE t139_absent('11111111-1111-1111-1111-111111111111', 'admin', 'tool', 'ai-files', 'stage', 'absent')$q$),
+                 'app_events_file_id_idx') = 0,
+  'readAbsentNoted (no file id named) is not sent through the file-id index (round 1: a partial one was, 30 times slower)');
 SET LOCAL plan_cache_mode = force_generic_plan;
--- 48
+-- 53
 SELECT ok(strpos(public.t139_plan($q$EXECUTE t139_rows('WIL-6001', 'tool', 'ai-files', '11111111-1111-1111-1111-111111111111')$q$),
-                 'app_events_ai_files_') = 0,
-  'CONTROL, the caveat as a test: a generic plan cannot prove the predicate, so it does not use either');
--- 49
+                 'app_events_ai_files_ws_id_idx') = 0,
+  'the caveat, pinned: a generic plan cannot prove the partial predicate (the key and the values are parameters)');
+-- 54
 SELECT ok(strpos(public.t139_plan($q$EXECUTE t139_naming('WIL-6001', 'tool', 'ai-files', 'file_id', ARRAY['file_t13900000001'])$q$),
-                 'app_events_ai_files_') = 0,
-  'CONTROL: nor for the file ids (the JSON key itself is a parameter)');
+                 'app_events_file_id_idx') = 0,
+  'nor match the file-id expression (the JSON key itself is a parameter); the reads keep custom plans: PostgREST''s parameters at execution');
 SET LOCAL plan_cache_mode = auto;
 SET LOCAL enable_seqscan = on;
--- 50
+-- 55
 SELECT is((SELECT count(*)::int FROM public.app_events
             WHERE code = 'WIL-6001' AND context->>'tool' = 'ai-files' AND workspace_id = '11111111-1111-1111-1111-111111111111'), 3000,
-  'the index answers the same rows as the table');
--- 51
+  'the planted upload rows, read by their predicate (a row count, not a plan)');
+-- 56
 SELECT is((SELECT count(*)::int FROM public.app_events
             WHERE context->>'tool' = 'ai-files' AND context->>'file_id' = ANY (ARRAY['file_t13900000001', 'file_t13900003000', 'file_nope'])), 2,
-  'and by file id');
+  'and by file id (a row count, not a plan)');
 
 -- ── A, again, as the end of the file ───────────────────────────────────────────
--- 52
+-- 57
 SELECT is((SELECT count(*)::int FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects'
              AND COALESCE(qual, '') || COALESCE(with_check, '') LIKE '%SELECT %has_active_membership(%current_workspace_id()) AS has_active_membership)%'), 9,
   'the nine storage.objects policies that called it ask once');
--- 53
+-- 58
 SELECT is((SELECT count(*)::int FROM pg_policies WHERE schemaname = 'public' AND tablename = 'workspaces' AND policyname = 'workspaces_admin_update'
              AND qual LIKE '((id = %current_workspace_id()) AND %( SELECT %has_active_membership(%current_workspace_id()) AS has_active_membership))'
              AND with_check = qual), 1,
   'workspaces_admin_update (its column is id, pinned to the claim) restated in both clauses');
--- 54
+-- 59
 SELECT is((SELECT count(*)::int FROM pg_policies WHERE schemaname = 'public' AND tablename = 'asset_versions'
              AND COALESCE(qual, '') || COALESCE(with_check, '') LIKE '%(a.workspace_id = %current_workspace_id()) AND ( SELECT %has_active_membership(%current_workspace_id()) AS has_active_membership)%'), 3,
   'the EXISTS shape keeps its alias pin beside the sub-select (asset_versions'' three)');
--- 55
+-- 60
 SELECT is(public.t139_per_row(), 'public.auth_events.auth_events_insert, public.workspace_members.ws_members_admin_write, public.workspace_members.ws_members_select',
   'and still only the three left per row');
 

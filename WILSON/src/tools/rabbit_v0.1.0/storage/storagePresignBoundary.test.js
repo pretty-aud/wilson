@@ -278,10 +278,10 @@ describe('the wiring is real — every link in the presign chain has a caller', 
     const fn = read('supabase', 'functions', 'storage-gc', 'index.ts')
     expect(fn).toContain("row.provider === 's3'\n        ? ['storage_path', 'thumbnail_url']\n        : [refColumn]")
     // F7: the guard's reads are batched per chunk (namedQueuePaths), both columns for an s3 row.
-    expect(fn).toContain('.in(column, chunk)')
+    expect(fn).toContain(".filter(column, 'in', inList(chunk))")
     expect(fn).toContain("unreserved.filter(r => r.provider === 's3' || r.kind !== 'thumbnail')")
     // The first column that failed or names it ends the asking, and a failure deletes nothing.
-    const failedFirst = 'if (failedWith !== undefined) { refErr = { message: failedWith }; break }'
+    const failedFirst = 'if (asked[column].failed.has(row.object_path)) { refErr = { message: asked[column].failed.get(row.object_path) as string }; break }'
     const namedNext = 'if (asked[column].named.has(row.object_path)) { stillRef = true; break }'
     expect(fn).toContain(failedFirst)
     expect(fn.indexOf(failedFirst)).toBeLessThan(fn.indexOf(namedNext))

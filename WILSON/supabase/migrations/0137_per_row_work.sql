@@ -6,7 +6,7 @@
 --
 -- WHAT THIS CHANGES
 -- -----------------
---   §4  186 of the 189 policies that call has_active_membership (0008) restated by ONE substitution: the call
+--   §5  186 of the 189 policies that call has_active_membership (0008) restated by ONE substitution: the call
 --       becomes `(SELECT public.has_active_membership(public.current_workspace_id()))`. The function is a SECURITY
 --       DEFINER (never inlined), so a bare call runs once per row the policy looks at; inside `(SELECT ...)` the
 --       planner runs it once per statement (an InitPlan). It is made for the bare form, has_active_membership(
@@ -19,7 +19,9 @@
 --       the same value. Where the pin is not TRUE, the AND holding it is not TRUE either way. AND, OR and EXISTS are
 --       TRUE exactly when their inputs say so, so the policy's answer is unchanged. (has_active_membership is not
 --       strict: of NULL it answers FALSE, so the AND holding the pin can be FALSE in one form and NULL in the other; no
---       NOT, CASE, COALESCE, IS or comparison sits on any call's path, so that never shows.)
+--       NOT, CASE, COALESCE, IS or comparison sits on any call's path, so that never shows.) The argument also takes
+--       the claim to stay one value through a statement: PostgREST, storage and Realtime set request.jwt.claims
+--       between statements, never within one, and the per-row form read it per row where the sub-select reads it once.
 --       THREE ARE LEFT, each clause's text pinned here. auth_events_insert has no pin at all (`workspace_id IS NULL OR
 --       has_active_membership(workspace_id)`): substituting would change which company a member may name.
 --       ws_members_select and ws_members_admin_write, workspace_members' read-side policies: ws_members_self_update
@@ -47,17 +49,23 @@
 --       is unchanged; storage.objects.metadata stays the only size source. The new body is installed under a
 --       candidate's name first, and the old and the new must answer the same for every workspace in one statement
 --       before the real function is replaced. The RESTRICTIVE petal_storage_quota_insert is not touched.
---   §5  The six indexes that are the leading part of a wider index on the same table, non-unique, with the same
+--   §4  Two indexes for ai-files' reads of app_events (they read the AI file rows by a JSON path, and the table had
+--       only 0021's two indexes): one by the file id (every row: partial on the AI rows, the planner took it for the
+--       predicate alone and made readAbsentNoted 30 times slower in the rehearsal), one by workspace in id order for
+--       the AI file rows; statistics on the JSON `tool` value, and app_events analysed, so the planner knows how
+--       common an AI row is.
+--   §6  The six indexes that are the leading part of a wider index on the same table, non-unique, with the same
 --       predicate where they have one, dropped: bin_files_location_idx (0091), budget_lines_project_idx (0037),
 --       folders_project_idx (0041), scenes_project_idx (0040), tasks_project_idx (0000), otter_courses_ws_owner_idx
 --       (0022). Nothing names them; no constraint, key or conflict target uses them.
---   §6  Two partial indexes for ai-files' reads of app_events (they read the AI file rows by a JSON path, and the
---       table had only 0021's two indexes): one by the file id, one by workspace in id order.
 --
--- LOCKS. ALTER POLICY takes ACCESS EXCLUSIVE on each of the 65 tables (storage.objects among them) and DROP INDEX on
--- six of them, held to the commit; CREATE INDEX takes SHARE on app_events (its writes wait). The meter's check, the
--- only step whose time grows with the data, runs first, before any of those locks. A 5 s lock_timeout: a busy moment
--- refuses rather than queues everyone behind it; run it again.
+-- LOCKS, in the file's order. §3, the meter's check, reads every workspace's objects twice under ACCESS SHARE (no
+-- one waits). §4 takes SHARE on app_events (its inserts wait) while two indexes are built and the table is analysed:
+-- both read the whole table, so their time grows with it. Then §5's ALTER POLICY takes ACCESS EXCLUSIVE on each of the
+-- 64 tables (storage.objects and app_events among them) and §6's DROP INDEX on five of the same and on budget_lines;
+-- those are catalog changes of milliseconds, but every lock is held to the commit, so reads and writes of all of them
+-- wait from that moment to the end. A 5 s lock_timeout: a busy moment refuses rather than queues everyone behind it;
+-- run it again.
 --
 -- One transaction, re-runnable, no enum, no CONCURRENTLY. The search_path is the caller's again at the end.
 -- Suite 139_per_row_work.sql.
@@ -122,13 +130,25 @@ BEGIN
     END IF;
   END LOOP;
   -- The two new indexes are absent or exactly this file's.
-  IF pg_catalog.to_regclass('public.app_events_ai_files_file_id_idx') IS NOT NULL
-     AND pg_catalog.pg_get_indexdef(pg_catalog.to_regclass('public.app_events_ai_files_file_id_idx')) IS DISTINCT FROM 'CREATE INDEX app_events_ai_files_file_id_idx ON public.app_events USING btree (((context ->> ''file_id''::text))) WHERE ((context ->> ''tool''::text) = ''ai-files''::text)' THEN
-    RAISE EXCEPTION '0137 refused: an index app_events_ai_files_file_id_idx is here that this file did not make';
+  IF pg_catalog.to_regclass('public.app_events_file_id_idx') IS NOT NULL
+     AND pg_catalog.pg_get_indexdef(pg_catalog.to_regclass('public.app_events_file_id_idx')) IS DISTINCT FROM 'CREATE INDEX app_events_file_id_idx ON public.app_events USING btree (((context ->> ''file_id''::text)))' THEN
+    RAISE EXCEPTION '0137 refused: an index app_events_file_id_idx is here that this file did not make';
   END IF;
   IF pg_catalog.to_regclass('public.app_events_ai_files_ws_id_idx') IS NOT NULL
      AND pg_catalog.pg_get_indexdef(pg_catalog.to_regclass('public.app_events_ai_files_ws_id_idx')) IS DISTINCT FROM 'CREATE INDEX app_events_ai_files_ws_id_idx ON public.app_events USING btree (workspace_id, id) WHERE ((code = ''WIL-6001''::text) AND ((context ->> ''tool''::text) = ''ai-files''::text))' THEN
     RAISE EXCEPTION '0137 refused: an index app_events_ai_files_ws_id_idx is here that this file did not make';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_catalog.pg_statistic_ext s WHERE s.stxname = 'app_events_context_tool_stats'
+               AND pg_catalog.pg_get_statisticsobjdef(s.oid) IS DISTINCT FROM 'CREATE STATISTICS public.app_events_context_tool_stats ON (context ->> ''tool''::text) FROM public.app_events') THEN
+    RAISE EXCEPTION '0137 refused: statistics app_events_context_tool_stats are here that this file did not make';
+  END IF;
+  -- An index entry has a size limit (about 2.7 kB), and a member can write any JSON into an event of their own
+  -- company (0021). No writer of this product names a file id longer than 100 characters; a row naming one over
+  -- 1,000 bytes is not the product's, and could stop the index from being built: brought to the controller, not
+  -- built over.
+  IF EXISTS (SELECT 1 FROM public.app_events WHERE pg_catalog.octet_length(context ->> 'file_id') > 1000) THEN
+    RAISE EXCEPTION '0137 refused: % app_events rows name a file id over 1,000 bytes long; none is one this product writes',
+      (SELECT count(*) FROM public.app_events WHERE pg_catalog.octet_length(context ->> 'file_id') > 1000);
   END IF;
 END
 $$;
@@ -568,7 +588,20 @@ GRANT EXECUTE ON FUNCTION public.workspace_petal_committed_bytes(UUID) TO servic
 COMMENT ON FUNCTION public.workspace_petal_committed_bytes(UUID) IS
   'Track C / 0073, restated by 0115 and 0137: bytes this workspace holds as COMMITTED objects in rabbit-files + rabbit-thumbnails. Every object under one of its projects (0137: by the canonical key prefix on storage''s index, and by 0115''s rule for any other spelling of the project''s id), plus the copies its files name whose key''s second segment names no project any more: a copy moved out of a project still counts after that project is purged. service_role only (0056).';
 
--- §4 The 188 policies, restated --------------------------------------------------------
+-- §4 ai-files' reads of app_events (before any ACCESS EXCLUSIVE lock: both builds and the analyse read the whole table)
+-- readUploadRowsNaming and readCertifiedGone(ids): the rows naming these file ids. Every row, not only the AI ones:
+-- partial on `tool`, the planner used it for that predicate alone in readAbsentNoted (2.4 ms became 78 ms on dev's
+-- rehearsal); whole, it serves only a query that names file ids, and ANALYZE keeps statistics on its expression.
+CREATE INDEX IF NOT EXISTS app_events_file_id_idx ON public.app_events ((context ->> 'file_id'));
+-- readUploadRows(ws), the hottest: one workspace's AI file rows in id order, the order it pages in.
+CREATE INDEX IF NOT EXISTS app_events_ai_files_ws_id_idx ON public.app_events (workspace_id, id)
+  WHERE code = 'WIL-6001' AND (context ->> 'tool') = 'ai-files';
+-- How common an AI row is: without these statistics the planner takes `tool = 'ai-files'` for 0.5% of the table (it is
+-- 20% on dev) and misjudges both indexes.
+CREATE STATISTICS IF NOT EXISTS public.app_events_context_tool_stats ON ((context ->> 'tool')) FROM public.app_events;
+ANALYZE public.app_events;
+
+-- §5 The 186 policies, restated --------------------------------------------------------
 ALTER POLICY app_events_insert ON public.app_events
   WITH CHECK (((workspace_id = public.current_workspace_id()) AND (SELECT public.has_active_membership(public.current_workspace_id())) AND (event_type <> 'admin'::text) AND ((code IS NULL) OR (code !~ '^WIL-41'::text))));
 
@@ -1506,21 +1539,13 @@ CASE
     ELSE public.fn_try_uuid((storage.foldername(name))[2])
 END)));
 
--- §5 The six narrow indexes --------------------------------------------------------------
+-- §6 The six narrow indexes --------------------------------------------------------------
 DROP INDEX IF EXISTS public.bin_files_location_idx;
 DROP INDEX IF EXISTS public.budget_lines_project_idx;
 DROP INDEX IF EXISTS public.folders_project_idx;
 DROP INDEX IF EXISTS public.scenes_project_idx;
 DROP INDEX IF EXISTS public.tasks_project_idx;
 DROP INDEX IF EXISTS public.otter_courses_ws_owner_idx;
-
--- §6 ai-files' reads of app_events ---------------------------------------------------------
--- readUploadRowsNaming and readCertifiedGone(ids): the rows naming these file ids.
-CREATE INDEX IF NOT EXISTS app_events_ai_files_file_id_idx ON public.app_events ((context ->> 'file_id'))
-  WHERE (context ->> 'tool') = 'ai-files';
--- readUploadRows(ws), the hottest: one workspace's AI file rows in id order, the order it pages in.
-CREATE INDEX IF NOT EXISTS app_events_ai_files_ws_id_idx ON public.app_events (workspace_id, id)
-  WHERE code = 'WIL-6001' AND (context ->> 'tool') = 'ai-files';
 
 -- §7 Post-conditions ------------------------------------------------------------------------
 CREATE TEMP TABLE _f7_pol_after ON COMMIT DROP AS
@@ -1622,12 +1647,16 @@ BEGIN
          AND i.indisvalid AND i.indisready) <> 6 THEN
     RAISE EXCEPTION '0137 post-condition: a wider index is missing or not valid';
   END IF;
-  IF pg_catalog.pg_get_indexdef(pg_catalog.to_regclass('public.app_events_ai_files_file_id_idx')) IS DISTINCT FROM 'CREATE INDEX app_events_ai_files_file_id_idx ON public.app_events USING btree (((context ->> ''file_id''::text))) WHERE ((context ->> ''tool''::text) = ''ai-files''::text)'
+  IF pg_catalog.pg_get_indexdef(pg_catalog.to_regclass('public.app_events_file_id_idx')) IS DISTINCT FROM 'CREATE INDEX app_events_file_id_idx ON public.app_events USING btree (((context ->> ''file_id''::text)))'
      OR pg_catalog.pg_get_indexdef(pg_catalog.to_regclass('public.app_events_ai_files_ws_id_idx')) IS DISTINCT FROM 'CREATE INDEX app_events_ai_files_ws_id_idx ON public.app_events USING btree (workspace_id, id) WHERE ((code = ''WIL-6001''::text) AND ((context ->> ''tool''::text) = ''ai-files''::text))'
      OR (SELECT count(*) FROM pg_catalog.pg_index i
-          WHERE i.indexrelid IN (pg_catalog.to_regclass('public.app_events_ai_files_file_id_idx'), pg_catalog.to_regclass('public.app_events_ai_files_ws_id_idx'))
+          WHERE i.indexrelid IN (pg_catalog.to_regclass('public.app_events_file_id_idx'), pg_catalog.to_regclass('public.app_events_ai_files_ws_id_idx'))
             AND i.indisvalid AND i.indisready) <> 2 THEN
     RAISE EXCEPTION '0137 post-condition: the ai-files indexes are not this file''s';
+  END IF;
+  IF (SELECT pg_catalog.pg_get_statisticsobjdef(s.oid) FROM pg_catalog.pg_statistic_ext s
+       WHERE s.stxname = 'app_events_context_tool_stats') IS DISTINCT FROM 'CREATE STATISTICS public.app_events_context_tool_stats ON (context ->> ''tool''::text) FROM public.app_events' THEN
+    RAISE EXCEPTION '0137 post-condition: the statistics on app_events'' tool are not this file''s';
   END IF;
 END
 $$;
@@ -1635,59 +1664,77 @@ $$;
 -- No table's policies recurse, for a client's statement of any kind. The rewriter refuses with 42P17 ("infinite
 -- recursion detected in policy") when it meets a table's policies a second time on one path and any of them holds a
 -- sub-query; a sub-select added where a policy's own sub-query leads back to its table would fail every such statement.
--- PREPARE parses and rewrites without planning or running anything. It runs as authenticated (this file's own role
--- bypasses row security, so it would expand no policy at all), and the caller's role is set back after.
+-- PREPARE parses and rewrites without planning or running anything (it takes the statement's ordinary lock on each
+-- table, which writes do not wait for). Each table, as authenticated and as anon (this file's own role bypasses row
+-- security, so it would expand no policy at all): a read, a read FOR UPDATE, an UPDATE, a DELETE and an INSERT, each
+-- with a WHERE or a RETURNING so the read policies are collected too (an upsert's policies are the union of the
+-- INSERT's and the UPDATE's). The read and the UPDATE of every protected table in public must be rewritten as
+-- authenticated; a lock that could not be had refuses rather than passes. The caller's role is set back after.
 DO $$
 DECLARE
   r      RECORD;
   v_role text := current_user;
   v_col  text;
   v_bad  text := '';
-  v_ok   int := 0;
+  v_miss text := '';
   q      text;
+  k      text;
+  who    text;
+  ok     boolean;
 BEGIN
   BEGIN
     EXECUTE 'DEALLOCATE f7_rls_probe';
   EXCEPTION WHEN OTHERS THEN
     NULL;
   END;
-  PERFORM pg_catalog.set_config('role', 'authenticated', true);
-  FOR r IN
-    SELECT n.nspname, c.relname, c.oid
-      FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-     WHERE c.relkind IN ('r', 'p') AND c.relrowsecurity
-       AND n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname !~ '^pg_'
-     ORDER BY 1, 2
-  LOOP
-    SELECT pg_catalog.quote_ident(a.attname) INTO v_col FROM pg_catalog.pg_attribute a
-     WHERE a.attrelid = r.oid AND a.attnum > 0 AND NOT a.attisdropped AND a.attgenerated = '' AND a.attidentity = ''
-     ORDER BY a.attnum LIMIT 1;
-    FOREACH q IN ARRAY ARRAY[
-      pg_catalog.format('SELECT 1 FROM %I.%I', r.nspname, r.relname),
-      pg_catalog.format('UPDATE %I.%I SET %s = %s', r.nspname, r.relname, v_col, v_col),
-      pg_catalog.format('DELETE FROM %I.%I', r.nspname, r.relname),
-      pg_catalog.format('INSERT INTO %I.%I DEFAULT VALUES', r.nspname, r.relname)]
+  FOREACH who IN ARRAY ARRAY['authenticated', 'anon'] LOOP
+    PERFORM pg_catalog.set_config('role', who, true);
+    FOR r IN
+      SELECT n.nspname, c.relname, c.oid
+        FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+       WHERE c.relkind IN ('r', 'p') AND c.relrowsecurity
+         AND n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname !~ '^pg_'
+       ORDER BY 1, 2
     LOOP
-      BEGIN
-        EXECUTE 'PREPARE f7_rls_probe AS ' || q;
-        EXECUTE 'DEALLOCATE f7_rls_probe';
-        v_ok := v_ok + 1;
-      EXCEPTION
-        WHEN SQLSTATE '42P17' THEN
-          v_bad := v_bad || r.nspname || '.' || r.relname || ' (' || pg_catalog.split_part(q, ' ', 1) || ') ';
-        WHEN OTHERS THEN
-          NULL; -- a statement this role may not even name (a schema it cannot use) cannot recurse for it either
-      END;
+      SELECT pg_catalog.quote_ident(a.attname) INTO v_col FROM pg_catalog.pg_attribute a
+       WHERE a.attrelid = r.oid AND a.attnum > 0 AND NOT a.attisdropped AND a.attgenerated = '' AND a.attidentity = ''
+       ORDER BY a.attnum LIMIT 1;
+      FOREACH k IN ARRAY ARRAY['SELECT', 'FOR UPDATE', 'UPDATE', 'DELETE', 'INSERT'] LOOP
+        q := CASE k
+          WHEN 'SELECT' THEN pg_catalog.format('SELECT 1 FROM %I.%I', r.nspname, r.relname)
+          WHEN 'FOR UPDATE' THEN pg_catalog.format('SELECT 1 FROM %I.%I FOR UPDATE', r.nspname, r.relname)
+          WHEN 'UPDATE' THEN pg_catalog.format('UPDATE %I.%I SET %s = %s WHERE true RETURNING 1', r.nspname, r.relname, v_col, v_col)
+          WHEN 'DELETE' THEN pg_catalog.format('DELETE FROM %I.%I WHERE true RETURNING 1', r.nspname, r.relname)
+          ELSE pg_catalog.format('INSERT INTO %I.%I DEFAULT VALUES RETURNING 1', r.nspname, r.relname)
+        END;
+        ok := false;
+        BEGIN
+          IF q IS NOT NULL THEN
+            EXECUTE 'PREPARE f7_rls_probe AS ' || q;
+            EXECUTE 'DEALLOCATE f7_rls_probe';
+            ok := true;
+          END IF;
+        EXCEPTION
+          WHEN SQLSTATE '42P17' THEN
+            v_bad := v_bad || r.nspname || '.' || r.relname || ' (' || k || ', ' || who || ') ';
+          WHEN lock_not_available OR query_canceled THEN
+            RAISE;
+          WHEN OTHERS THEN
+            NULL; -- a statement this role may not even name (a schema it cannot use) cannot recurse for it either
+        END;
+        IF NOT ok AND who = 'authenticated' AND r.nspname = 'public' AND k IN ('SELECT', 'UPDATE')
+           AND NOT pg_catalog.strpos(v_bad, r.nspname || '.' || r.relname || ' (' || k || ', ') > 0 THEN
+          v_miss := v_miss || r.relname || ' (' || k || ') ';
+        END IF;
+      END LOOP;
     END LOOP;
   END LOOP;
   EXECUTE pg_catalog.format('SET LOCAL ROLE %I', v_role);
-  -- The probe ran: at least a read of every protected table in public was rewritten.
-  IF v_ok < (SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-              WHERE c.relkind IN ('r', 'p') AND c.relrowsecurity AND n.nspname = 'public') THEN
-    RAISE EXCEPTION '0137 post-condition: the row-security probe rewrote only % statements', v_ok;
-  END IF;
   IF v_bad <> '' THEN
     RAISE EXCEPTION '0137 post-condition: a client''s statement would recurse in row security on %', v_bad;
+  END IF;
+  IF v_miss <> '' THEN
+    RAISE EXCEPTION '0137 post-condition: the row-security probe could not rewrite %', v_miss;
   END IF;
 END
 $$;
