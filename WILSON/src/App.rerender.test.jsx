@@ -44,7 +44,13 @@ import { render, cleanup, act, fireEvent, screen } from '@testing-library/react'
 
 // perms: who is signed in, as a store the stand-in for usePermissions reads, so a test can sign another person in.
 // rows: each cloud save with the session it went out under. petOf: the account pet of a person other than the first.
-const world = vi.hoisted(() => ({ pet: null, saves: [], ai: null, perms: null, permsListeners: new Set(), rows: [], petOf: {}, owner: undefined }))
+// Review round 2: gate holds cloud writes in flight; local and mirrors are the device store and the cache, each with
+// the owner it was written under; failFor, the people whose account read fails; cacheOf, a person's pet cached on
+// this computer; refuse, 0068's refusal of the next cloud write; reread, what the stale-copy re-read returns.
+const world = vi.hoisted(() => ({
+  pet: null, saves: [], ai: null, perms: null, permsListeners: new Set(), rows: [], petOf: {}, owner: undefined,
+  gate: null, local: [], mirrors: [], failFor: new Set(), cacheOf: {}, refuse: null, reread: null,
+}))
 
 // ── The thirteen pages: stand-ins of the same names, drawn by the app's own table ──
 vi.mock('./components/Home', () => ({ default: function Home() { return <p>home page</p> } }))
@@ -111,8 +117,11 @@ vi.mock('./cloud/aiFiles', () => ({ releaseAllAIFiles: async () => {} }))
 vi.mock('./lib/modelSources', () => ({ loadModelSources: async () => {}, migrateLegacyUserModelPrefs: async () => {} }))
 vi.mock('./lib/localData', () => ({
   hasLocalServer: () => false,
-  loadPet: async () => (world.pet ? { ...world.pet } : null),
-  savePetData: async (pet) => { world.saves.push(pet) },
+  loadPet: async (owner) => {
+    const pet = owner && owner in world.cacheOf ? world.cacheOf[owner] : world.pet
+    return pet ? { ...pet } : null
+  },
+  savePetData: async (pet, owner) => { world.saves.push(pet); world.local.push({ owner: owner ?? null, name: pet.name, hunger: pet.hunger }) },
   clearPetCache: async () => {},
   loadOtterSettings: async () => ({}),
   saveOtterSettings: async () => ({}),
@@ -120,14 +129,22 @@ vi.mock('./lib/localData', () => ({
 }))
 vi.mock('./lib/userState', () => ({
   resolveUserPet: async (userId) => {
+    // A failed read fails after a round trip, as a network's does (an instant one outran the blank that precedes it).
+    if (world.failFor.has(userId)) { await new Promise((resolve) => setTimeout(resolve, 10)); throw new Error('The account read failed.') }
     const pet = world.petOf[userId] || world.pet
     return { pet: pet ? { ...pet } : null, adopted: false }
   },
-  // The cloud writes the signed-in session's row (saveCloudPet names no user): the session is world.perms' person.
-  saveCloudPet: async (pet) => { world.saves.push(pet); world.rows.push({ session: world.perms?.userId ?? null, name: pet.name, sleepingSince: pet.sleepingSince ?? null }) },
-  mirrorPetToCache: async () => {},
-  fetchCloudPet: async () => null,
-  isStalePetWrite: () => false,
+  // The cloud writes the signed-in session's row (saveCloudPet names no user): the session is world.perms' person,
+  // read as the write goes out; with a gate, the round trip then waits on it.
+  saveCloudPet: async (pet) => {
+    if (world.refuse) { const refusal = world.refuse; world.refuse = null; throw refusal }
+    world.saves.push(pet)
+    world.rows.push({ session: world.perms?.userId ?? null, name: pet.name, sleepingSince: pet.sleepingSince ?? null })
+    if (world.gate) await world.gate.promise
+  },
+  mirrorPetToCache: async (pet, owner) => { world.mirrors.push({ owner, name: pet.name }) },
+  fetchCloudPet: async () => (world.reread ? world.reread() : null),
+  isStalePetWrite: (err) => err?.stale === true,
   resolveUserSettings: async () => ({ settings: null }),
   mirrorSettingsToCache: async () => {},
   setUserStateOwner: (userId) => { world.owner = userId },
@@ -224,6 +241,13 @@ beforeEach(() => {
   world.owner = undefined
   world.perms = PERMS
   world.ai = vi.fn(() => new Promise(() => {}))
+  world.gate = null
+  world.local.length = 0
+  world.mirrors.length = 0
+  world.failFor.clear()
+  world.cacheOf = {}
+  world.refuse = null
+  world.reread = null
 })
 afterEach(() => {
   cleanup(); _resetOverlaysForTests()
@@ -481,20 +505,86 @@ describe('the pet itself (green before F4 and after)', () => {
   })
 })
 
-// ── Another person signed in over this one, with no sign-out between ────────
+// ── A change of person: another signed in over this one, or this one signed out ──
 // Review round 1 (A-1, A-3). Since F4 the pet's material-change save is a
 // PetHost effect, and a child's effects run before App's in a commit they
 // share: in the commit that signs B in over A, a decay tick's change of A's
 // pet was saved before App's identity effect cleared A's routing, and went out
 // with B's session (saveCloudPet names no user). And the chat was never
 // cleared: B was shown A's conversation, and it went to the model as B's.
-describe('another person signed in over this one, with no sign-out between (review round 1)', () => {
+// Review round 2 (A-R2-1 to A-R2-6, and reviewer D's two cases): that check
+// was made when a write starts, so a save queued behind one in flight went to
+// B's row, or at a sign-out to the device's unattributed store, and a refused
+// one told B "could not be reached" about A's change; an answer on its way
+// landed after the clear; the clear needed A's routing to have been installed
+// (and a thumb then rated A's words into B's pet); the hatch dialog and the
+// stale-copy refresh outlived the person; and the one-commit check said only
+// who drew (PetHost draws in every commit of App's). Found with them: a failed
+// write of A's was said to B, and A's Pet Mode resume, told of a landing (its
+// own, or B's that overtook it), stamped B's pet and saved it.
+describe('a change of person: another signed in over this one, or this one signed out (review rounds 1 and 2)', () => {
   // Asleep 100 s of its 120 (medium): the decay tick at 30 s wakes it, a material change, saved at once.
   const wakesAtTheTick = () => asleep({
     sleepingSince: new Date(NOW.getTime() - 100_000).toISOString(),
     lastSleptAt: new Date(NOW.getTime() - 100_000).toISOString(),
   })
   const nextField = () => document.querySelector('input[placeholder^="Ask Bramble"]')
+  const feed = (view) => view.container.querySelector('button[title="Feed"]')
+  const thumbsUp = () => document.querySelector('.lucide-thumbs-up')?.closest('button') ?? null
+  const confirm = () => [...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Confirm') ?? null
+  const egg = () => adultPet({ form: 'egg', eggPetCount: 0, eggHatchThreshold: 2, bornAt: null, evolvedAt: null })
+  /** Every cloud write from here on is held in flight, until the function returned is called: with an error, they fail. */
+  const holdCloudWrites = () => {
+    let settle
+    world.gate = { promise: new Promise((resolve, reject) => { settle = (error) => (error ? reject(error) : resolve()) }) }
+    return (error) => { world.gate = null; settle(error) }
+  }
+  /** The first person asks their pet something, from its chat. */
+  async function askAsFirstPerson(view) {
+    const input = await openChat(view)
+    await act(async () => { fireEvent.change(input, { target: { value: 'my own question' } }) })
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
+    await tick(50)
+  }
+  /** The next person's chat field, on their own pet (Bramble), which must be the one on screen. */
+  async function nextPersonsField(view) {
+    if (!nextField()) await act(async () => { fireEvent.click(sprite(view)) })
+    expect(nextField()).not.toBeNull()
+    return nextField()
+  }
+  /** The conversation the next person's first message takes to the model. */
+  async function nextPersonSends(field) {
+    world.ai = vi.fn(async () => ({ content: [{ type: 'text', text: 'ok' }] }))
+    await act(async () => { fireEvent.change(field, { target: { value: 'hello' } }) })
+    await act(async () => { fireEvent.keyDown(field, { key: 'Enter' }) })
+    await tick(50)
+    return world.ai.mock.calls[0][0].messages
+  }
+  /**
+   * What PetHost held at each commit `run` drew, read off the committed tree as React hands it to the commit hook:
+   * the person App handed it as signed in, and its pet (its first state). renderSpy says who drew; this, with what.
+   */
+  function petHostAtEachCommit(run) {
+    const hook = globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__
+    const record = hook.onCommitFiberRoot
+    const seen = []
+    const find = (fiber) => {
+      for (let node = fiber; node; node = node.sibling) {
+        if (node.type?.name === 'PetHost') return node
+        const inner = find(node.child)
+        if (inner) return inner
+      }
+      return null
+    }
+    hook.onCommitFiberRoot = (...args) => {
+      record.apply(hook, args)
+      const host = find(args[1].current)
+      const pet = host?.memoizedState?.memoizedState ?? null
+      seen.push({ signedIn: host?.memoizedProps.perms?.userId ?? null, pet: pet && { name: pet.name, sleepingSince: pet.sleepingSince } })
+    }
+    try { run() } finally { hook.onCommitFiberRoot = record }
+    return seen
+  }
 
   it('CONTROL: with nobody else signing in, the tick wakes the pet and the waking is saved, to the person signed in', async () => {
     await openApp({ pet: wakesAtTheTick() })
@@ -508,12 +598,13 @@ describe('another person signed in over this one, with no sign-out between (revi
     world.petOf['u-B'] = adultPet({ name: 'Bramble' })
     const view = await openApp({ pet: wakesAtTheTick() })
     world.rows.length = 0
-    const mark = renderSpy.mark()
     // A synchronous act and timers: React draws the sign-in and the tick in ONE commit (an async act would draw the
     // sign-in first, in a commit of its own, and the identity effect would then run before the tick's save).
-    act(() => { signInAs('u-B'); vi.advanceTimersByTime(30_000) })
-    const first = renderSpy.since(mark)[0].map((entry) => entry.name)
-    expect(first).toEqual(expect.arrayContaining(['App', 'PetHost']))  // one commit: the sign-in and the tick together
+    const commits = petHostAtEachCommit(() => act(() => { signInAs('u-B'); vi.advanceTimersByTime(30_000) }))
+    // A-R2-6: said of what the commit holds, not of who drew in it (PetHost draws in every commit of App's): the first
+    // commit hands PetHost the next person AND holds the pet the tick woke. A sign-in drawn alone, which the old check
+    // (App and PetHost among the first commit's names) passed, gives the same person with the pet still asleep.
+    expect(commits[0]).toEqual({ signedIn: 'u-B', pet: { name: 'Biscuit', sleepingSince: null } })
     await tick(50)
     expect(world.rows.filter((row) => row.name === 'Biscuit')).toEqual([])
     // And the next person's pet is the one there.
@@ -544,5 +635,232 @@ describe('another person signed in over this one, with no sign-out between (revi
     await act(async () => { fireEvent.keyDown(field, { key: 'Enter' }) })
     await tick(50)
     expect(world.ai.mock.calls[0][0].messages).toEqual([{ role: 'user', content: 'hello' }])
+  })
+
+  // ── Review round 2 ──
+  it('A-R2-1: a save queued behind one in flight is written for nobody once another person is signed in, their own pet landed first', async () => {
+    world.petOf['u-B'] = adultPet({ name: 'Bramble' })
+    const view = await openApp({ pet: adultPet({ hunger: 50 }) })
+    await openChat(view)
+    world.rows.length = 0
+    const release = holdCloudWrites()
+    await act(async () => { fireEvent.click(feed(view)) })     // 50 to 75: out, and held
+    await act(async () => { fireEvent.click(feed(view)) })     // 75 to 100: queued behind it
+    expect(world.rows).toEqual([{ session: 'u-1', name: 'Biscuit', sleepingSince: null }])
+    await act(async () => { signInAs('u-B') })
+    await tick(50)                                              // B's read lands: B's pet, B's routing
+    await nextPersonsField(view)
+    await act(async () => { release() })
+    await tick(50)
+    // Before: the queued 100 went out under B's session, and into B's cache ({ u-B, Biscuit } in both).
+    expect(world.rows).toEqual([{ session: 'u-1', name: 'Biscuit', sleepingSince: null }])
+    expect(world.mirrors.filter((mirror) => mirror.owner === 'u-B')).toEqual([])
+  })
+
+  it('A-R2-1: a save queued behind one in flight, when the person signs out before it runs, is written to no store', async () => {
+    const view = await openApp({ pet: adultPet({ hunger: 50 }) })
+    await openChat(view)
+    world.rows.length = 0
+    world.mirrors.length = 0
+    const release = holdCloudWrites()
+    await act(async () => { fireEvent.click(feed(view)) })
+    await act(async () => { fireEvent.click(feed(view)) })
+    await act(async () => { signInAs(null) })                  // the sign-out reaches the permissions
+    await tick(50)
+    await act(async () => { release() })
+    await tick(50)
+    // Before: the queued 100 went to the device's unattributed store ({ owner: null, Biscuit, 100 }).
+    expect({ rows: world.rows, local: world.local, mirrors: world.mirrors }).toEqual({
+      rows: [{ session: 'u-1', name: 'Biscuit', sleepingSince: null }], local: [], mirrors: [],
+    })
+  })
+
+  it('the leaving person\'s refused save says nothing to the next person', async () => {
+    world.failFor.add('u-B')                                    // B's read fails: B's own cached pet comes up, with B's error
+    world.cacheOf['u-B'] = adultPet({ name: 'Bramble' })
+    const view = await openApp({ pet: adultPet({ hunger: 50 }) })
+    await openChat(view)
+    const release = holdCloudWrites()
+    await act(async () => { fireEvent.click(feed(view)) })
+    await act(async () => { fireEvent.click(feed(view)) })     // queued: the first person's
+    await act(async () => { signInAs('u-B') })
+    await tick(50)
+    await nextPersonsField(view)
+    expect(view.container.textContent).toContain('The account read failed.')     // B's own error, said to B
+    await act(async () => { release() })
+    await tick(50)
+    // Before: "Bramble isn't being saved. Your pet could not be reached in your account ... Reopen WILSON", about A's Feed.
+    expect(view.container.textContent).not.toContain('could not be reached')
+  })
+
+  it('nor does a write of theirs that fails once they have gone', async () => {
+    world.petOf['u-B'] = adultPet({ name: 'Bramble' })
+    const view = await openApp({ pet: adultPet({ hunger: 50 }) })
+    await openChat(view)
+    const release = holdCloudWrites()
+    await act(async () => { fireEvent.click(feed(view)) })     // out, and held
+    await act(async () => { signInAs('u-B') })
+    await tick(50)
+    await nextPersonsField(view)
+    await act(async () => { release(new Error('The write timed out.')) })
+    await tick(50)
+    expect(view.container.textContent).not.toContain('The write timed out.')
+  })
+
+  it('and one that lands once they have gone is not a landing: Pet Mode\'s resume does not stamp the next person\'s pet', async () => {
+    world.petOf['u-B'] = adultPet({ name: 'Bramble' })
+    await openApp({ pet: adultPet({ petMode: false }) })
+    await goTo('settings')
+    const release = holdCloudWrites()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'toggle pet mode' })) })   // on: the held anchor first
+    await act(async () => { signInAs('u-B') })
+    await tick(50)
+    expect(settingsPet()).toContain('Bramble')
+    world.rows.length = 0
+    await act(async () => { release() })
+    await tick(50)
+    // A landing earns a fresh anchor (resumeAnchorAfterLandedSave): one of A's must not be stamped on B's pet and saved.
+    expect(world.rows).toEqual([])
+  })
+
+  it('nor is a save of theirs that the next person\'s overtook in the queue (it settles with that one\'s result)', async () => {
+    world.petOf['u-B'] = adultPet({ name: 'Bramble' })
+    const view = await openApp()
+    await goTo('settings')
+    const toggle = () => screen.getByRole('button', { name: 'toggle pet mode' })
+    const release = holdCloudWrites()
+    await act(async () => { fireEvent.click(toggle()) })        // off: out, and held
+    await act(async () => { fireEvent.click(toggle()) })        // on again, a resume: queued behind it
+    await act(async () => { signInAs('u-B') })
+    await tick(50)
+    await nextPersonsField(view)
+    world.rows.length = 0
+    await act(async () => { fireEvent.click(feed(view)) })     // B's Feed, queued: it takes the resume's place
+    await act(async () => { release() })
+    await tick(50)
+    // B's Feed is written, and only it: told that landing was its own, A's resume stamped B's pet and saved it again.
+    expect(world.rows).toEqual([{ session: 'u-B', name: 'Bramble', sleepingSince: null }])
+  })
+
+  it('A-R2-2: an answer still on its way when another person signs in is dropped: they are not shown it and do not send it', async () => {
+    world.petOf['u-B'] = adultPet({ name: 'Bramble' })
+    let answer
+    world.ai = vi.fn(() => new Promise((resolve) => { answer = resolve }))
+    const view = await openApp()
+    await askAsFirstPerson(view)
+    expect(world.ai).toHaveBeenCalledTimes(1)
+    await act(async () => { signInAs('u-B') })
+    await tick(50)
+    await act(async () => { answer({ content: [{ type: 'text', text: 'A reply for the first person.' }] }) })
+    await tick(50)
+    const field = await nextPersonsField(view)
+    expect(view.container.textContent).not.toContain('A reply for the first person.')
+    expect(await nextPersonSends(field)).toEqual([{ role: 'user', content: 'hello' }])
+  })
+
+  it('A-R2-2: and one on its way when the person signs out: the next person to sign in is not shown it and does not send it', async () => {
+    world.petOf['u-B'] = adultPet({ name: 'Bramble' })
+    let answer
+    world.ai = vi.fn(() => new Promise((resolve) => { answer = resolve }))
+    const view = await openApp()
+    await askAsFirstPerson(view)
+    await act(async () => { signInAs(null) })
+    await tick(50)
+    await act(async () => { answer({ content: [{ type: 'text', text: 'A reply for the first person.' }] }) })
+    await tick(50)
+    await act(async () => { signInAs('u-B') })
+    await tick(50)
+    const field = await nextPersonsField(view)
+    expect(view.container.textContent).not.toContain('A reply for the first person.')
+    expect(await nextPersonSends(field)).toEqual([{ role: 'user', content: 'hello' }])
+  })
+
+  it('A-R2-3: with no routing installed (the first person\'s read failed), their chat leaves all the same, and none of it is rated into the next pet', async () => {
+    world.failFor.add('u-1')                                    // A's read fails: A's cached pet stays, with no routing
+    world.petOf['u-B'] = adultPet({ name: 'Bramble' })
+    world.ai = vi.fn(async () => ({ content: [{ type: 'text', text: 'A reply for the first person.' }] }))
+    const view = await openApp()
+    await askAsFirstPerson(view)
+    expect(view.container.textContent).toContain('A reply for the first person.')
+    await act(async () => { fireEvent.change(chatInput(), { target: { value: 'half a tho' } }) })
+    await act(async () => { signInAs('u-B') })
+    await tick(50)
+    const field = await nextPersonsField(view)
+    // A thumb on what the chat holds writes it into the pet's feedback, and the pet is saved: B's pet, to B's row.
+    world.saves.length = 0
+    if (thumbsUp()) await act(async () => { fireEvent.click(thumbsUp()) })
+    await tick(10)
+    expect(JSON.stringify(world.saves)).not.toContain('my own question')
+    expect(view.container.textContent).not.toContain('my own question')
+    expect(view.container.textContent).not.toContain('A reply for the first person.')
+    expect(field.value).toBe('')
+    expect(await nextPersonSends(field)).toEqual([{ role: 'user', content: 'hello' }])
+  })
+
+  it('A-R2-3: and when the next person\'s read fails too, the first person\'s cached pet is not left on their screen', async () => {
+    world.failFor.add('u-1')
+    world.failFor.add('u-B')
+    world.cacheOf['u-B'] = null                                 // and B has no pet cached on this computer
+    const view = await openApp()
+    expect(sprite(view)).not.toBeNull()                          // A's cached pet
+    await act(async () => { signInAs('u-B') })
+    await tick(50)
+    // Before: A's pet stayed on B's screen, and its feedback, quoting A's chat, went into B's system prompt.
+    expect(sprite(view)).toBeNull()
+  })
+
+  it('A-R2-4: the hatch dialog and the name typed into it leave with the person', async () => {
+    world.petOf['u-B'] = adultPet({ name: 'Bramble' })
+    const view = await openApp({ pet: egg() })
+    await act(async () => { fireEvent.click(sprite(view)) })
+    await act(async () => { fireEvent.click(sprite(view)) })    // the second pat hatches it
+    await tick(600)                                              // and the dialog comes up
+    const name = screen.getByText('Your egg hatched!').parentElement.querySelector('input')
+    await act(async () => { fireEvent.change(name, { target: { value: 'A private name' } }) })
+    await act(async () => { signInAs('u-B') })
+    await tick(50)
+    world.rows.length = 0
+    if (confirm()) await act(async () => { fireEvent.click(confirm()) })
+    await tick(10)
+    // Before: B's pet came up under "Your egg hatched!" with A's words, and Confirm wrote { session: 'u-B', name: 'A private name' }.
+    expect(world.rows).toEqual([])
+    expect(view.container.textContent).not.toContain('Your egg hatched!')
+    expect([...document.querySelectorAll('input')].map((input) => input.value)).not.toContain('A private name')
+  })
+
+  it('A-R2-4: a hatch dialog still due when the person changes does not come up for the next person', async () => {
+    world.petOf['u-B'] = adultPet({ name: 'Bramble' })
+    const view = await openApp({ pet: egg() })
+    await act(async () => { fireEvent.click(sprite(view)) })
+    await act(async () => { fireEvent.click(sprite(view)) })    // hatched: the dialog is due in 600 ms
+    await act(async () => { signInAs('u-B') })
+    await tick(700)
+    expect(view.container.textContent).not.toContain('Your egg hatched!')
+  })
+
+  it('A-R2-5: the stale-copy refresh is put on screen and in the cache only for the person it was read for', async () => {
+    world.petOf['u-B'] = adultPet({ name: 'Bramble' })
+    const view = await openApp({ pet: adultPet({ hunger: 50 }) })
+    await openChat(view)
+    world.mirrors.length = 0
+    // 0068 refuses the first person's Feed; the re-read of their account is held until the next person's pet has landed.
+    world.refuse = Object.assign(new Error('pet_stale_write'), { stale: true })
+    let reread = null
+    world.reread = () => new Promise((resolve) => { reread = () => resolve(adultPet({ hunger: 60 })) })
+    await act(async () => { fireEvent.click(feed(view)) })
+    await tick(10)
+    expect(reread).not.toBeNull()                               // the re-read is out
+    await act(async () => { signInAs('u-B') })
+    await tick(50)
+    await act(async () => { reread() })
+    await tick(50)
+    // Before: A's Biscuit came up on B's screen, mirrored into B's cache ({ u-B, Biscuit }), and B's next Feed wrote it to B's row.
+    await nextPersonsField(view)
+    expect(chatInput()).toBeNull()
+    expect(world.mirrors.filter((mirror) => mirror.name === 'Biscuit')).toEqual([])
+    world.rows.length = 0
+    await act(async () => { fireEvent.click(feed(view)) })
+    await tick(10)
+    expect(world.rows).toEqual([{ session: 'u-B', name: 'Bramble', sleepingSince: null }])
   })
 })

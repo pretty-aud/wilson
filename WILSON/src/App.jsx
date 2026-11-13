@@ -187,6 +187,9 @@ function PetCompanionWithAgent(props) {
 //     prop. Under React.memo nothing would ever draw it again from here, and a
 //     change of page (which does, six times) is what brings those words up to
 //     date as the page is entered. A memo there would hide a real update.
+//     While the page is OPEN, the words move by lib/minuteClock.js (review
+//     round 1): the pet's ticks that used to draw every page, and kept them
+//     moving by accident, are gone since F4.
 const Home = memo(HomeRoot)
 const SettingsPageWithAgent = memo(SettingsPageBridge)
 const Projects = memo(ProjectsRoot)
@@ -741,6 +744,10 @@ export default function App() {
       // at this computer cannot see the previous person's pet for a beat.
       setPetData(null);
       petUserIdRef.current = null;
+      // Review round 2 (A-R2-1): the pet on screen is nobody's now, so a save
+      // still queued for this person is refused, even before the permissions
+      // have heard of the sign-out.
+      petPersonRef.current = null;
       petPersistedSigRef.current = null;
       // Phase 3: the two error channels were left set across sign-out, so the
       // next person at this computer inherited "Ollie isn't being saved" from
@@ -1077,6 +1084,24 @@ export default function App() {
   // kept so the save path can ask "do I KNOW I am signed out?" rather than
   // "is the owner installed yet?". Cleared wherever the session ends.
   const bootOwnerRef = useRef(null);
+  // 🚨 F4, review round 2 (A-R2-1, A-R2-3): WHOSE THE PET ON SCREEN, AND ITS
+  // CHAT, ARE: the person the identity effect below last saw signed in (null
+  // signed out); before it first runs, the stored session's (bootOwnerRef).
+  // That effect moves it, and blanks the pet, when the person changes; the
+  // sign-out moves it when it blanks the pet. savePet labels each save with it.
+  const petPersonRef = useRef(undefined);
+  const petPersonNow = useCallback(() => (
+    petPersonRef.current !== undefined ? petPersonRef.current : bootOwnerRef.current
+  ), []);
+  // Whether a save made for `person` may still be written: the pet is still
+  // theirs, the routing (once installed) names them, and they are the one App
+  // last drew signed in. performPetSave asks it as a write starts and before
+  // what it does after an await; savePet, before it reports a landing.
+  const isPetPerson = useCallback((person) => (
+    person === petPersonNow()
+    && (!petUserIdRef.current || petUserIdRef.current === person)
+    && (signedInUserRef.current === undefined || signedInUserRef.current === person)
+  ), [petPersonNow]);
   // S31: the last material signature actually written. Primed by both load
   // paths so that LOADING a pet never counts as a change to persist.
   const petPersistedSigRef = useRef(null);
@@ -1190,7 +1215,7 @@ export default function App() {
   // ⚠️ The fallback exists for a pet object that somehow has no anchor at all
   // (a hand-edited cache). Sending null would be rejected by toPetRow and the
   // save would fail for a reason nobody could read.
-  const performPetSave = useCallback(async (data) => {
+  const performPetSave = useCallback(async (data, person) => {
     try {
       const next = data.lastUpdatedAt
         ? data
@@ -1204,14 +1229,20 @@ export default function App() {
       // cleared the routing: still addressed to A, it went out with B's session
       // (saveCloudPet names no user), and A's pet overwrote B's row. Before F4
       // both effects were App's and the identity effect, declared first, ran
-      // first. So a routing that names somebody other than the person signed in
-      // as App last drew is refused here; the identity effect clears it in the
-      // same commit. (A then nobody refuses too: the old order wrote A's pet
-      // into the unattributed device store.)
-      if (petUserIdRef.current && signedInUserRef.current !== undefined
-          && petUserIdRef.current !== signedInUserRef.current) {
-        return false;
-      }
+      // first. So a save is refused while the person App last drew signed in
+      // is somebody else (A then nobody too: the old order wrote A's pet into
+      // the unattributed device store).
+      // 🚨 Review round 2 (A-R2-1): AND IT IS ASKED OF THE PERSON THE SAVE WAS
+      // MADE FOR, not of whoever is there when it runs. Round 1 compared the
+      // routing with the person signed in as a write STARTED, and a save queued
+      // behind one in flight starts when that one returns: by then B's read
+      // could have installed B's routing, and A's pet went to B's row (or, A
+      // signed out, to the unattributed device store). savePet labels each
+      // save with the person the pet is for (petPersonRef), and isPetPerson
+      // refuses it once that person is gone. Refused without a word: an error
+      // or a notice from here would tell the next person about a change they
+      // did not make ("could not be reached ... Reopen WILSON").
+      if (!isPetPerson(person)) return false;
       // 🚨 S31: the destination is "is there a signed-in user", NOT "is this
       // Electron". `hasLocalServer()` (window.electronAPI) is true for the
       // DESKTOP APP IN CLOUD MODE too, so branching on it would pin every
@@ -1227,8 +1258,9 @@ export default function App() {
         // The cache is a mirror, never the authority. It must not be able to
         // report failure for a cloud write that succeeded. A3: it is written
         // under the OWNER's key, so the next person at this computer cannot be
-        // handed this pet.
-        await mirrorPetToCache(next, owner);
+        // handed this pet. Review round 2: and not once the person has changed
+        // during the write; a sign-out cleared their cache, and it stays so.
+        if (isPetPerson(person)) await mirrorPetToCache(next, owner);
       } else if (getUserStateOwner() || bootOwnerRef.current) {
         // 🚨 R1 OF A3: SIGNED IN, BUT THE PET'S ROUTING IS NOT ESTABLISHED.
         //
@@ -1257,6 +1289,10 @@ export default function App() {
       } else {
         await savePetData(next, owner);
       }
+      // Review round 2: a write that outlived its person says nothing to the
+      // next one, and is false to its caller, so Pet Mode's second save
+      // (resumeAnchorAfterLandedSave) does not stamp the next person's pet.
+      if (!isPetPerson(person)) return false;
       setPetSaveError(null);
       // A later success clears the STICKY notice outright — R2: the
       // kind === 'error' condition meant an 'info' one ("refreshed") was
@@ -1271,6 +1307,8 @@ export default function App() {
       setPetNotice(n => (n && n.kind === 'error' ? null : n));
       return true;
     } catch (err) {
+      // Review round 2: nor does its failure, if its person has gone.
+      if (!isPetPerson(person)) return false;
       // ── A3: 0068's refusal is not a save failure ──────────────────────────
       //
       // 🚨 AND IT IS EXPLICITLY NOT RETRIED. Retrying would re-send the same
@@ -1286,7 +1324,11 @@ export default function App() {
         });
         try {
           const fresh = await fetchCloudPet();
-          if (fresh) {
+          // 🚨 F4, review round 2 (A-R2-5): ONLY FOR THE PERSON IT WAS READ
+          // FOR. A re-read landing after B's pet put A's pet on B's screen and,
+          // the routing read after the await, in B's cache; B's next Feed then
+          // wrote it to B's row.
+          if (fresh && isPetPerson(person)) {
             const brought = applyOfflineDecay(fresh);
             // Prime, do not save: this is a LOAD, and the account already holds
             // the copy it is loading.
@@ -1305,7 +1347,7 @@ export default function App() {
       setPetSaveError(err?.message || 'Your pet could not be saved.');
       return false;
     }
-  }, []);
+  }, [isPetPerson]);
 
   // The queue is created ONCE and must stay that way — recreating it would
   // drop whatever is queued and lose the in-flight guard. It reaches the write
@@ -1316,13 +1358,19 @@ export default function App() {
   performPetSaveRef.current = performPetSave;
   const petSaveQueueRef = useRef(null);
   if (petSaveQueueRef.current === null) {
-    petSaveQueueRef.current = createCoalescingSave((data) => performPetSaveRef.current(data));
+    petSaveQueueRef.current = createCoalescingSave((job) => performPetSaveRef.current(job.data, job.person));
   }
 
+  // Review round 2 (A-R2-1): each save carries the person it is made for (the
+  // queue keeps the newest, label and all), and its caller is told it landed
+  // only while that person is still here: a save of A's overtaken by one of
+  // B's settles with B's result, and A's follow-ups must not act on B's pet.
   const savePet = useCallback(async (data) => {
     if (!data) return false;
-    return petSaveQueueRef.current(data);
-  }, []);
+    const person = petPersonNow();
+    const landed = await petSaveQueueRef.current({ data, person });
+    return landed && isPetPerson(person);
+  }, [petPersonNow, isPetPerson]);
 
   // Load the CACHED pet on mount so the companion renders instantly. The
   // authoritative read is the sign-in effect below; this one is the cache.
@@ -1395,6 +1443,9 @@ export default function App() {
   useEffect(() => {
     if (!perms.ready) return;
     const userId = perms.userId || null;
+    // Review round 2: whose the pet on screen was until now (see petPersonRef).
+    const previousPerson = petPersonRef.current;
+    petPersonRef.current = userId;
     // 🚨 A3: THE PET'S ROUTING IS NOT SET HERE ANY MORE — only CLEARED here.
     //
     // This used to be `petUserIdRef.current = userId`, unconditionally, BEFORE
@@ -1420,14 +1471,24 @@ export default function App() {
       // row. The account-scoped cache closes the ADOPTION route into another
       // account; this closes the write route.
       //
-      // ⚠️ Only when the ref already held somebody. On a cold start it is null
-      // and the mount effect has just rendered this person's cached pet —
-      // blanking there would replace an instant render with a blank screen
-      // until the cloud answers, which is the thing that effect exists to
-      // prevent.
+      // ⚠️ Only when somebody was there before: the ref held somebody, or (review
+      // round 2, below) the person signed in changed. On a cold start the ref
+      // is null and the mount effect has just rendered this person's cached
+      // pet — blanking there would replace an instant render with a blank
+      // screen until the cloud answers, which is the thing that effect exists
+      // to prevent.
       const previousOwner = petUserIdRef.current;
       petUserIdRef.current = null;
       if (previousOwner) { setPetData(null); petSyncRetryRef.current.cancel(); petSyncToastRef.current = false; }
+      else if (previousPerson !== undefined && previousPerson !== userId) {
+        // 🚨 F4, review round 2 (A-R2-3): ON ANY CHANGE OF PERSON, ROUTED OR
+        // NOT. The line above needs a routing, so when A's read had failed, or
+        // B signed in before it landed, A's pet and chat stayed for B: B's first
+        // message took A's conversation to the model, and a failed read of B's
+        // left A's pet, its feedback quoting A's chat, in B's system prompt. The
+        // sync toast's flag is kept: B's read landing takes down A's toast.
+        setPetData(null); petSyncRetryRef.current.cancel();
+      }
     }
     // The settings writers live in other components and must know too. They are
     // a different store with a different failure mode — a settings write that
@@ -2739,7 +2800,8 @@ function PetHost({
   setNewPetStatus, setNewPetPending,
 }) {
   const [petData, setPetData] = useState(null);
-  // (App's way in, `useImperativeHandle`, is below the chat's state: it clears it.)
+  // (App's way in, `useImperativeHandle`, is below the chat's and the hatch
+  // dialog's state: it clears them.)
   const petTimerRef = useRef(null);
   // (S31: petSaveTimerRef is gone with the 30-second auto-save it armed.)
   petDataRef.current = petData;
@@ -2752,23 +2814,6 @@ function PetHost({
     chatInputRef.current = val;
     setChatInput(val);
   }, []);
-  // App's loads, its stale-copy refresh and its sign-out set the pet through
-  // this. 🚨 F4, review round 1 (A-3; OUTSTANDING F4-04): WHEN APP BLANKS THE
-  // PET, THE PERSON IS LEAVING (a sign-out, or another account signed in over
-  // this one), AND THEIR CHAT LEAVES WITH THEM, with what they were typing.
-  // Only a new egg and Clear chat emptied it, so the next person at the
-  // computer was shown it, and sendChat sent it to the model as the history
-  // of the next person's session. So it was before F4 too.
-  useImperativeHandle(ref, () => ({
-    setPetData: (next) => {
-      if (next === null) {
-        chatInputRef.current = '';
-        setChatInput('');
-        setChatMessages([]);
-      }
-      setPetData(next);
-    },
-  }), []);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatThinking, setChatThinking] = useState(false);
   const [feedbackJustRated, setFeedbackJustRated] = useState(false);
@@ -2781,6 +2826,36 @@ function PetHost({
   const [cloudVisible, setCloudVisible] = useState(false);
   const [showHatchModal, setShowHatchModal] = useState(false);
   const [hatchNameInput, setHatchNameInput] = useState('');
+  // Review round 2 (A-R2-2, A-R2-4): how many times App has blanked the pet,
+  // which it does when the person signs out or changes. An answer, or a hatch
+  // dialog, set going before the count moved is the leaving person's.
+  const personChangesRef = useRef(0);
+  // App's loads, its stale-copy refresh and its sign-out set the pet through
+  // this. 🚨 F4, review round 1 (A-3; OUTSTANDING F4-04): WHEN APP BLANKS THE
+  // PET, THE PERSON IS LEAVING (a sign-out, or another account signed in over
+  // this one), AND THEIR CHAT LEAVES WITH THEM, with what they were typing.
+  // Only a new egg and Clear chat emptied it, so the next person at the
+  // computer was shown it, and sendChat sent it to the model as the history
+  // of the next person's session. So it was before F4 too.
+  // 🚨 Review round 2: and so do the spinner of an answer still on its way,
+  // which sendChat now drops (A-R2-2), and the hatch dialog with the name
+  // typed into it (A-R2-4: B's pet came up under "Your egg hatched!" with A's
+  // words, and Confirm gave B's pet A's name).
+  useImperativeHandle(ref, () => ({
+    setPetData: (next) => {
+      if (next === null) {
+        personChangesRef.current += 1;
+        chatInputRef.current = '';
+        setChatInput('');
+        setChatMessages([]);
+        setChatLoading(false);
+        setChatThinking(false);
+        setShowHatchModal(false);
+        setHatchNameInput('');
+      }
+      setPetData(next);
+    },
+  }), []);
 
   // Decay timer — runs every 30 seconds
   useEffect(() => {
@@ -2997,7 +3072,11 @@ function PetHost({
           next.lastSleptAt = new Date().toISOString();
           next.state = derivePetState(next);
           savePet(next);
+          // Review round 2 (A-R2-4): not for the next person, if this one
+          // leaves in the 600 ms.
+          const hatchedFor = personChangesRef.current;
           setTimeout(() => {
+            if (personChangesRef.current !== hatchedFor) return;
             setHatchNameInput(next.name || 'Ollie');
             setShowHatchModal(true);
           }, 600);
@@ -3113,6 +3192,13 @@ function PetHost({
     // AI rides the authenticated ai-proxy now — signed out means no chat
     // (PetCompanion shows the reason via aiUnavailable).
     if (!currentInput.trim() || !authed) return;
+    // 🚨 F4, review round 2 (A-R2-2): AN ANSWER IS FOR THE PERSON WHO ASKED.
+    // If the person signs out or changes while it is on its way, App blanks
+    // the chat (personChangesRef moves), and an answer landing after that was
+    // shown to the next person and sent back to the model as theirs. It is
+    // dropped; and the question is not sent again, or at all, once its asker
+    // has gone, since the call would go out under the next person's session.
+    const asked = personChangesRef.current;
     const userMsg = { role: 'user', content: currentInput };
     const newMessages = [...chatMessages, userMsg];
     setChatMessages(newMessages);
@@ -3188,8 +3274,9 @@ function PetHost({
       //
       // 🚨 INSIDE the try, so the `finally` below still clears the spinner.
       //    setChatLoading(true) fires at the top of this function and the only
-      //    thing that lowers it is that finally — an await added between them
-      //    hangs the pet's thinking dots forever on any rejection.
+      //    thing that lowers it is that finally (or, once its asker has gone,
+      //    App's blank of the chat) — an await added between them hangs the
+      //    pet's thinking dots forever on any rejection.
       // 🚨 OUTSIDE the retry loop below, or a retried overload re-runs every
       //    read for a request that already fetched its content.
       // 🚨 NOT gated on `currentPage === 'otter'`. The pet is on every page and
@@ -3246,6 +3333,7 @@ function PetHost({
       let lastError;
       for (let attempt = 0; attempt < 3; attempt++) {
         if (attempt > 0) await new Promise(r => setTimeout(r, 2000 * attempt));
+        if (personChangesRef.current !== asked) return;
         try {
           data = await callAI({
             model: modelFor('pet.chat'),
@@ -3264,13 +3352,19 @@ function PetHost({
       }
       // S30: a thinking block can occupy content[0]; find the text block.
       const reply = textFromMessage(data) || 'Sorry, I had trouble thinking of a response!';
+      if (personChangesRef.current !== asked) return;
       setChatMessages(prev => [...prev, { role: 'assistant', content: reply }]);
     } catch (e) {
+      if (personChangesRef.current !== asked) return;
       const msg = e.message || 'Unknown error';
       setChatMessages(prev => [...prev, { role: 'assistant', content: `Oops! ${msg}` }]);
     } finally {
-      setChatLoading(false);
-      setChatThinking(false);
+      // Once its asker has gone the blank lowered these, and the next
+      // person's own question may have raised them again.
+      if (personChangesRef.current === asked) {
+        setChatLoading(false);
+        setChatThinking(false);
+      }
     }
   }, [chatMessages, authed, currentPage, petData]);
 
@@ -3427,6 +3521,7 @@ function PetHost({
 
     newPetPendingRef.current = true;
     setNewPetPending(true);
+    const askedFor = personChangesRef.current;
     try {
       const pet = mintEggFrom(current);
       // Invalidate any pet read that was already in flight — see petEpochRef.
@@ -3435,6 +3530,9 @@ function PetHost({
       setChatMessages([]);
       petPersistedSigRef.current = petMaterialSignature(pet);
       const saved = await savePet(pet);
+      // Review round 2: the leaving person's result is not said to the next
+      // person, on the Settings page they now have.
+      if (personChangesRef.current !== askedFor) return;
       setNewPetStatus(saved
         ? { ok: true, message: 'A new egg is on its way. Pet it a few times to hatch it.' }
         : { ok: false, message: 'The new egg could not be saved, so it may not reach your other computers. Check your connection and try again.' });
