@@ -580,7 +580,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       },
       // Agent generation: fill a stub subject with real content
       async generateSubjectContentFromAgent(subjectSlug) {
-        return generateSubjectContent(subjectSlug, { skipNavigation: true });
+        return agentGenContentRef.current(subjectSlug, { skipNavigation: true });
       },
       // Get active software metadata (name, type)
       async getActiveSoftwareMeta() {
@@ -2455,6 +2455,14 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
   agentGenSingleRef.current = agentGenerateSingleSubject;
   const agentGenCourseRef = useRef(null);
   agentGenCourseRef.current = agentGenerateCourse;
+  // F4 (2026-11-13): the third. The interface called generateSubjectContent as
+  // the render that registered it held it. Until F4 the interface was
+  // registered again on every render of the agent's provider (its value was a
+  // new object each time), so that copy was never old; the value is one
+  // object now and the interface is registered on a change, so this call
+  // reads the newest too, as its two neighbours always have.
+  const agentGenContentRef = useRef(null);
+  agentGenContentRef.current = generateSubjectContent;
 
   // ═══════════════════════════════════════════════════════════════
   //  QUIZ GENERATION

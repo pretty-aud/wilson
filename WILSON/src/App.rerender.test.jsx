@@ -259,6 +259,28 @@ describe('ten characters typed to the pet', () => {
     expect(input.value).toBe('lighthouse')
   })
 
+  // Red until AgentProvider's value was memoized and its input text taken out of it: each character was a new
+  // value, and Settings' wrapper reads the value, so Settings ran ten times (O.T.T.E.R. and R.A.B.B.I.T. read it
+  // too; AgentProvider.rerender.test.jsx holds a reader like theirs).
+  it('ten characters typed to the agent (the pet at work, on O.T.T.E.R.) draw the pet and no page; the field keeps its focus', async () => {
+    const view = await openApp({ enterEveryPage: true })
+    await goTo('otter')
+    await openChat(view)
+    await act(async () => { fireEvent.click(document.querySelector('button[title="Switch to Agent"]')) })
+    const input = document.querySelector('input[placeholder^="Tell Biscuit"]')
+    expect(input).not.toBeNull()
+    input.focus()
+    const mark = renderSpy.mark()
+    for (let i = 1; i <= 10; i++) {
+      await act(async () => { fireEvent.change(input, { target: { value: 'lighthouse'.slice(0, i) } }) })
+    }
+    expect(renderSpy.renders('PetCompanion', mark)).toBe(10)
+    expect(renderSpy.which(SHELL, mark)).toEqual([])
+    expect(document.querySelector('input[placeholder^="Tell Biscuit"]')).toBe(input)
+    expect(document.activeElement).toBe(input)
+    expect(input.value).toBe('lighthouse')
+  })
+
   it('the field being typed in keeps its focus and its words across a minute of the pet\'s own ticks', async () => {
     const view = await openApp()
     const input = await openChat(view)

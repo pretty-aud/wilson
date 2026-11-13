@@ -72,7 +72,7 @@ import { PET_BREEDS, pickRandomBreed } from './components/sprites/index'
 import {
   COMPANION_PROMPT
 } from './tools/otter_v0.3.1/prompts.js'
-import { AgentProvider, useAgent } from './agent'
+import { AgentProvider, useAgent, useAgentInput } from './agent'
 import { otterFetch, subscribeOtterAdapterMode } from './tools/otter_v0.3.1/adapters'
 import { retrieveOtterKnowledge, clearPetKnowledgeCache } from './tools/otter_v0.3.1/petKnowledge'
 import { clearS3ReadUrlCache } from './tools/rabbit_v0.1.0/storage/s3Provider'
@@ -134,8 +134,11 @@ function SettingsPageWithAgent(props) {
 }
 
 // Wrapper that bridges AgentProvider context to PetCompanion props
+// (F4: the text being typed to the agent has a context of its own, which this
+// wrapper alone reads; it is no field of the agent's value any more.)
 function PetCompanionWithAgent(props) {
   const agent = useAgent()
+  const agentInput = useAgentInput()
   if (!agent) return <PetCompanion {...props} />
   const onOtterPage = props.currentPage === 'otter'
   return (
@@ -145,7 +148,7 @@ function PetCompanionWithAgent(props) {
       agentMode={onOtterPage && agent.agentMode}
       onAgentModeToggle={agent.setAgentMode}
       agentMessages={agent.agentMessages}
-      agentInput={agent.agentInput}
+      agentInput={agentInput}
       onAgentInputChange={agent.handleAgentInputChange}
       onSendAgent={agent.sendAgentMessage}
       onClearAgent={() => agent.setAgentMessages([])}
