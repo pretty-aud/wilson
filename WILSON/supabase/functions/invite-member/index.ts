@@ -29,6 +29,7 @@
 // =============================================================================
 
 import { corsHeaders, reply, requireWorkspaceAdmin } from '../_shared/adminGuard.ts'
+import { readBodyJson, SMALL_JSON_MAX_BYTES, TOO_LARGE } from '../_shared/gatewayWire.ts'
 
 // Where the invite link lands when the invitee clicks through the email.
 // Falls back to SUPABASE_URL so the function still works in environments
@@ -61,8 +62,13 @@ Deno.serve(async (req: Request) => {
   const { admin, callerId, workspaceId: callerWorkspaceId } = guard.ctx
 
   // 2. Parse + validate the invite payload.
+  // F8: read under a cap (largest real body 591 bytes). Past it: 413. Not
+  // JSON: the old bad_json. The value is handed on untouched (JSON null still throws below, F8-05).
   let body: Body
-  try { body = await req.json() } catch { return reply({ error: 'bad_json' }, 400) }
+  const sent = await readBodyJson(req, SMALL_JSON_MAX_BYTES)
+  if (sent.kind === 'too_large') return reply({ ...TOO_LARGE }, 413)
+  if (sent.kind === 'not_json') return reply({ error: 'bad_json' }, 400)
+  body = sent.value as Body
 
   const email       = typeof body.email       === 'string' ? body.email.trim().toLowerCase()       : ''
   const username    = typeof body.username    === 'string' ? body.username.trim().toLowerCase()    : ''

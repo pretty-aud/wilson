@@ -193,13 +193,26 @@ export async function reachProof(reachKey: string, nonce: string): Promise<strin
  * body is read through its stream, stopping one chunk past the limit — never
  * buffered whole first. `{ value: undefined, length }` when there is nothing
  * or too much (the caller compares `length`), `null` when it is not JSON.
+ *
+ * F8 (wave 2, 2026-11-13): it DECODES AS IT READS. It used to keep every
+ * chunk, then join them into one buffer, then decode: for a moment the body
+ * twice over, one copy more than the runtime's own `req.json()`, which for
+ * ai-proxy's large bodies could kill the worker at a smaller body than before.
+ * Now each chunk goes through one streaming TextDecoder into the text and is
+ * let go. A streaming decoder gives exactly the text decoding the whole would
+ * (the Encoding Standard's rule): a character split across two chunks, a
+ * byte-order mark split or alone (stripped, so a lone one is "nothing sent"),
+ * bytes that are not UTF-8 (U+FFFD), all the same; edgeBodies.test.js holds
+ * that against the old reader, chunking by chunking. Every return value is
+ * the old one.
  */
 export async function readJsonLimited(req: Request, maxBytes: number): Promise<{ value: unknown; length: number } | null> {
   const declared = Number(req.headers.get('content-length') ?? '')
   if (Number.isFinite(declared) && declared > maxBytes) return { value: undefined, length: declared }
   if (!req.body) return { value: undefined, length: 0 }
   const reader = req.body.getReader()
-  const parts: Uint8Array[] = []
+  const decoder = new TextDecoder()
+  let text = ''
   let total = 0
   for (;;) {
     const { value, done } = await reader.read()
@@ -210,12 +223,9 @@ export async function readJsonLimited(req: Request, maxBytes: number): Promise<{
       try { await reader.cancel() } catch { /* already done */ }
       return { value: undefined, length: total }
     }
-    parts.push(value)
+    text += decoder.decode(value, { stream: true })
   }
-  const bytes = new Uint8Array(total)
-  let off = 0
-  for (const p of parts) { bytes.set(p, off); off += p.length }
-  const text = new TextDecoder().decode(bytes)
+  text += decoder.decode()
   if (!text) return { value: undefined, length: 0 }
   try {
     return { value: JSON.parse(text), length: total }
@@ -223,6 +233,75 @@ export async function readJsonLimited(req: Request, maxBytes: number): Promise<{
     return null
   }
 }
+
+/** What `await req.json()` gave a function, read under a byte cap (F8). */
+export type BodyRead =
+  /** Parsed: ANY JSON value, `null`, a number or an array included, exactly as req.json() handed it over. */
+  | { kind: 'json'; value: unknown }
+  /** What made req.json() throw: an empty body, text that is not JSON, or a body that failed while it was read. */
+  | { kind: 'not_json' }
+  /** Declared or read past the cap: refused, never read to its end. */
+  | { kind: 'too_large'; length: number }
+
+/**
+ * F8 (wave 2, 2026-11-13): the bounded stand-in for `await req.json()`. Each
+ * of the fourteen functions that read their body with an unbounded
+ * `req.json()` reads it here and keeps its own answers by `kind`: `not_json`
+ * is what its `catch` answered, `json` hands the value on UNTOUCHED (a JSON
+ * `null` included: thirteen of them still throw on it, as before, F8-05; do
+ * not make that kinder here), and `too_large` is the one new answer, 413.
+ */
+export async function readBodyJson(req: Request, maxBytes: number): Promise<BodyRead> {
+  let read: { value: unknown; length: number } | null
+  try {
+    read = await readJsonLimited(req, maxBytes)
+  } catch {
+    return { kind: 'not_json' } // the stream failed: req.json() threw there too
+  }
+  if (read === null) return { kind: 'not_json' }
+  if (read.length > maxBytes) return { kind: 'too_large', length: read.length }
+  if (read.value === undefined) return { kind: 'not_json' } // nothing was sent: req.json() threw on ''
+  return { kind: 'json', value: read.value }
+}
+
+/** The house answer for a body past its cap (gateway-sync, gatewayShapes, readUrls): the words beside the code. */
+export const TOO_LARGE = { error: 'too_large', detail: 'the request is too large' } as const
+
+// ── The caps (F8, DESIGN.md §7.4) ───────────────────────────────────────────
+// Each number is MEASURED from the largest body a real caller builds that the
+// function's own validators accept, in UTF-8 bytes (a field outside ASCII at
+// three bytes a character). No caller is in electron/.
+
+/**
+ * The eleven admin, operator and storage actions. Largest real bodies:
+ * admin-create-user 649, admin-reset-password 50, admin-set-active 65,
+ * admin-user-security 50, invite-member 591, operator-ai-keys 583 (a
+ * 500-character key), operator-models 942, operator-storage-plans 1,610 (a
+ * 500-character note: the largest), operator-workspaces 929, storage-presign
+ * 1,047 (a 1,024-character path), storage-secret 1,564 (a 512-character
+ * secret). 16 KiB is ten times the largest, and gateway-ticket's own cap.
+ */
+export const SMALL_JSON_MAX_BYTES = 16 * 1024
+
+/**
+ * resolve-login (largest real body 254 bytes: `{ company }` of 80 three-byte
+ * characters, LoginScreen.jsx) and issue-session (55 bytes, `{ workspace_id }`,
+ * LoginScreen.jsx and WorkspaceSwitcher.jsx). 4 KiB is sixteen times the
+ * larger, and gateway-reach's own cap.
+ */
+export const SIGN_IN_JSON_MAX_BYTES = 4 * 1024
+
+/**
+ * ai-proxy: the provider's 32 MiB request ceiling (as the client itself
+ * records it, referenceModel.js) plus 1 MiB for the fields WILSON adds and
+ * strips (`tool`, `betas`, `stream`). No client-side bound on inline text
+ * exists (the D.O.G. picker alone admits 20 × 262,144 characters, before
+ * project files and notes), and no caller sends an inline picture or PDF any
+ * more (they go as file ids), so nothing tighter can be read from the code:
+ * any lower number could refuse a request that works today. It bounds an
+ * unbounded read; it does not say the relay survives 33 MiB (F8-08).
+ */
+export const AI_PROXY_JSON_MAX_BYTES = 33 * 1024 * 1024
 
 /** The bearer value of an Authorization header, or '' (case-insensitive scheme). */
 export function bearerOf(header: string | null | undefined): string {

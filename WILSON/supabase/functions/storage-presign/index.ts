@@ -69,6 +69,7 @@ import { vetS3Host, s3Request, s3ReachDeps } from '../_shared/s3Reach.ts'
 import { lookAtObject } from '../_shared/s3Look.ts'
 import { loadWorkspaceBucket } from '../_shared/workspaceBucket.ts'
 import { supabaseHost as platformHost } from '../_shared/gatewayReachRun.ts'
+import { readBodyJson, SMALL_JSON_MAX_BYTES, TOO_LARGE } from '../_shared/gatewayWire.ts'
 
 // Expiry per method. A PUT's signature is validated when the request STARTS,
 // so a multi-GB upload may stream past it — 15 minutes is headroom for a
@@ -114,12 +115,14 @@ Deno.serve(async (req: Request) => {
     return reply({ error: 'rate_limited', detail: 'too many presign requests — wait a minute and retry' }, 429)
   }
 
+  // F8: read under a cap (largest real body 1,047 bytes, a 1,024-character
+  // path), after the guard and the limiter as before. Past it: 413. Not JSON:
+  // the old sentence. The value is handed on untouched (F8-05).
   let body: { op?: string; path?: string }
-  try {
-    body = await req.json()
-  } catch {
-    return reply({ error: 'bad_request', detail: 'the request body is not JSON' }, 400)
-  }
+  const sent = await readBodyJson(req, SMALL_JSON_MAX_BYTES)
+  if (sent.kind === 'too_large') return reply({ ...TOO_LARGE }, 413)
+  if (sent.kind === 'not_json') return reply({ error: 'bad_request', detail: 'the request body is not JSON' }, 400)
+  body = sent.value as { op?: string; path?: string }
 
   const op = typeof body.op === 'string' ? body.op : ''
   if (!(OPS as readonly string[]).includes(op)) {

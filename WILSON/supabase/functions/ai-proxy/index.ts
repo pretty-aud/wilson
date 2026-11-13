@@ -40,6 +40,7 @@ import { corsHeaders, reply } from '../_shared/adminGuard.ts'
 import { requireActiveMember, type MemberContext } from '../_shared/memberGuard.ts'
 import { isRateLimited, envInt } from '../_shared/rateLimit.ts'
 import { decryptAiKey } from '../_shared/aiKeyCrypto.ts'
+import { readBodyJson, AI_PROXY_JSON_MAX_BYTES, TOO_LARGE } from '../_shared/gatewayWire.ts'
 
 type MemberCtxAdmin = MemberContext['admin']
 
@@ -191,8 +192,15 @@ Deno.serve(async (req: Request) => {
     return reply({ error: 'rate_limited' }, 429)
   }
 
+  // F8: read under a cap, after the guard and the limiter as before. The cap
+  // is the provider's 32 MiB request ceiling plus 1 MiB (gatewayWire.ts says
+  // why nothing tighter can be read from the code). Past it: 413. Not JSON:
+  // the old bad_json. The value is handed on untouched (F8-05).
   let body: Record<string, unknown>
-  try { body = await req.json() } catch { return reply({ error: 'bad_json' }, 400) }
+  const sent = await readBodyJson(req, AI_PROXY_JSON_MAX_BYTES)
+  if (sent.kind === 'too_large') return reply({ ...TOO_LARGE }, 413)
+  if (sent.kind === 'not_json') return reply({ error: 'bad_json' }, 400)
+  body = sent.value as Record<string, unknown>
 
   // Model ids are short; the cap keeps a hostile string out of the
   // app_events message/context CHECKs (0021: message ≤ 2000, context ≤ 8000).

@@ -19,9 +19,16 @@
 // trimmed, then GoTrue) is adminGuard.authenticate, and the answers are
 // adminGuard's corsHeaders and reply: the same four headers, byte for byte,
 // that this file used to build by hand. Everything after the token is its own.
+//
+// F8 (e): the body is read under a cap (gatewayWire.SIGN_IN_JSON_MAX_BYTES,
+// 4 KiB; the real body is 55 bytes). Past it, 413 too_large, after the token
+// is checked and BEFORE the memberships are read or anything is updated.
+// Nothing sent, or text that is not JSON, is still read as {} (the oldest
+// membership), and a JSON null is still handed on as it is.
 // =============================================================================
 
 import { authenticate, corsHeaders, reply } from '../_shared/adminGuard.ts'
+import { readBodyJson, SIGN_IN_JSON_MAX_BYTES, TOO_LARGE } from '../_shared/gatewayWire.ts'
 
 type Body = { workspace_id?: string }
 
@@ -47,11 +54,10 @@ Deno.serve(async (req: Request) => {
   const { admin, user } = who.caller
 
   let body: Body
-  try {
-    body = await req.json()
-  } catch {
-    body = {}
-  }
+  const sent = await readBodyJson(req, SIGN_IN_JSON_MAX_BYTES)
+  if (sent.kind === 'too_large') return reply({ ...TOO_LARGE }, 413)
+  // not_json is what the old `catch` read as {}; a parsed value goes on untouched.
+  body = (sent.kind === 'json' ? sent.value : {}) as Body
 
   // Collect the user's memberships.
   const { data: memberships, error: memErr } = await admin

@@ -20,12 +20,16 @@
 // block)": they document that today any size is read and answered. F8 is
 // expected to change that block, and only that block.
 //
+// F8 (e, 2026-11-13) did: that block is now "F8: every read under its cap",
+// with resolve-login's and issue-session's order beside it. Every other
+// expectation in this file is as it was before F8.
+//
 // The callers come from the harness (seatCaller / tokenFor): nobody's
 // credentials. `fetch` is replaced in every test, so nothing reaches a network.
 // =============================================================================
 
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
-import { newWorld, loadFunction, seatCaller, post, answerOf, trips, VERIFIED_TOTP } from './edgeHarness.js'
+import { newWorld, loadFunction, seatCaller, post, answerOf, trips, VERIFIED_TOTP, endlessBody } from './edgeHarness.js'
 
 vi.mock('https://esm.sh/@supabase/supabase-js@2.45.4', async () => ({
   createClient: (await import('./edgeHarness.js')).createClient,
@@ -306,20 +310,163 @@ describe.each(FUNCTIONS)('$name: the body, as it is read today', (fn) => {
   }
 })
 
-describe('today: no cap (F8 changes this block)', () => {
-  it.each(FUNCTIONS)('i. $name reads a 300,000-character valid body whole and answers it', async (fn) => {
+// F8 (e): this block was "today: no cap (F8 changes this block)", which pinned
+// that any size was read whole and answered. F8 bounds every one of the
+// fourteen reads, so the block now pins the caps (DESIGN.md §7.4, §7.5): a
+// body AT the cap is read and answered as before; a declared length past it is
+// refused 413 before a byte is read; a body that never ends is refused 413,
+// cancelled, and not read on past one chunk beyond the cap; the 300,000-
+// character body is 413 in the thirteen small functions and still accepted by
+// ai-proxy; and the 413 is answered where the body was read (what ran before
+// it is what ran before a bad body). resolve-login's and issue-session's
+// order has its own block below.
+const CAP = {
+  'admin-create-user': 16384, 'admin-reset-password': 16384, 'admin-set-active': 16384,
+  'admin-user-security': 16384, 'invite-member': 16384, 'operator-ai-keys': 16384,
+  'operator-models': 16384, 'operator-storage-plans': 16384, 'operator-workspaces': 16384,
+  'storage-presign': 16384, 'storage-secret': 16384,
+  'resolve-login': 4096, 'issue-session': 4096,
+  'ai-proxy': 33 * 1024 * 1024,
+}
+const TOO_LARGE_413 = r(413, { error: 'too_large', detail: 'the request is too large' })
+/** What each function answers past its cap: the house body, or resolve-login's uniform miss. */
+const tooLargeOf = (fn) => (fn.name === 'resolve-login' ? r(413, { exists: false, email: null }) : TOO_LARGE_413)
+/** What ran before the 413: what ran before a bad body, except issue-session, which reads no membership now. */
+const beforeTooLarge = (fn) => (fn.name === 'issue-session' ? ['auth:getUser'] : fn.before)
+/** The minimal valid body padded with an ignored field to exactly `bytes` bytes of UTF-8 (all ASCII). */
+function paddedTo(fn, bytes) {
+  const base = JSON.stringify({ ...fn.valid.body, padding: '' })
+  const text = JSON.stringify({ ...fn.valid.body, padding: 'x'.repeat(bytes - base.length) })
+  expect(text.length).toBe(bytes)
+  return text
+}
+const chunkOf = (fn) => (fn.name === 'ai-proxy' ? 1024 * 1024 : 1024)
+
+describe('F8: every read under its cap (this block was "today: no cap")', () => {
+  it('the caps are the measured ones (gatewayWire.ts)', async () => {
+    const wire = await import('../../supabase/functions/_shared/gatewayWire.ts')
+    expect(wire.SMALL_JSON_MAX_BYTES).toBe(16384)
+    expect(wire.SIGN_IN_JSON_MAX_BYTES).toBe(4096)
+    expect(wire.AI_PROXY_JSON_MAX_BYTES).toBe(34603008)
+    expect(wire.TOO_LARGE).toEqual({ error: 'too_large', detail: 'the request is too large' })
+  })
+
+  it.each(FUNCTIONS)('i. $name: a body exactly AT the cap is read and answered as the minimal valid body', async (fn) => {
+    const { out } = await send(fn, { raw: paddedTo(fn, CAP[fn.name]) }, { fetch: fn.valid.fetch })
+    expect(out).toEqual(fn.valid.answer)
+  }, 60_000)
+
+  it.each(FUNCTIONS)('i. $name: one byte past the cap, no declared length: 413 where the body is read', async (fn) => {
+    const { out, w } = await send(fn, { raw: paddedTo(fn, CAP[fn.name] + 1) }, { fetch: fn.valid.fetch })
+    expect(out).toEqual(tooLargeOf(fn))
+    expect(callNames(w)).toEqual(beforeTooLarge(fn))
+    expect(fetchCalls).toEqual([])
+  }, 60_000)
+
+  it.each(FUNCTIONS)('i. $name: a declared length past the cap is refused 413 before a byte is read', async (fn) => {
+    stubFetch('none')
+    const { w, token, handler } = await setUp(fn)
+    const { stream, state } = endlessBody(chunkOf(fn))
+    const res = await handler(post(undefined, { token, raw: stream, headers: { 'content-length': String(CAP[fn.name] + 1) } }))
+    const a = await answerOf(res)
+    expect({ status: a.status, json: a.json }).toEqual(tooLargeOf(fn))
+    expect(state.pulled).toBe(0)
+    expect(callNames(w)).toEqual(beforeTooLarge(fn))
+  })
+
+  it.each(FUNCTIONS)('i. $name: a body with no declared length that never ends: 413, cancelled, not read on past one chunk beyond the cap', async (fn) => {
+    stubFetch('none')
+    const { w, token, handler } = await setUp(fn)
+    const chunk = chunkOf(fn)
+    const { stream, state } = endlessBody(chunk)
+    const res = await handler(post(undefined, { token, raw: stream }))
+    const a = await answerOf(res)
+    expect({ status: a.status, json: a.json }).toEqual(tooLargeOf(fn))
+    expect(state.cancelled).toBe(true)
+    expect(state.pulled).toBeGreaterThan(CAP[fn.name])
+    expect(state.pulled).toBeLessThanOrEqual(CAP[fn.name] + chunk)
+    expect(callNames(w)).toEqual(beforeTooLarge(fn))
+  }, 60_000)
+
+  it.each(FUNCTIONS)('i. $name: the 413 carries the function\'s own headers (those of its answer to a bad body)', async (fn) => {
+    stubFetch('none')
+    const bad = await setUp(fn)
+    const badHeaders = (await answerOf(await bad.handler(post(undefined, { token: bad.token, raw: '{nope' })))).headers
+    const big = await setUp(fn)
+    const bigHeaders = (await answerOf(await big.handler(post(undefined, { token: big.token, raw: paddedTo(fn, CAP[fn.name] + 1) })))).headers
+    expect(bigHeaders).toEqual(badHeaders)
+  }, 60_000)
+
+  it.each(FUNCTIONS.filter((f) => f.name !== 'ai-proxy'))('i. $name: the 300,000-character valid body is now 413', async (fn) => {
     const large = fn.large ?? { ...fn.valid, body: { ...fn.valid.body, padding: 'x'.repeat(300000) } }
     expect(JSON.stringify(large.body).length).toBeGreaterThan(300000)
     const { out } = await send(fn, { body: large.body }, { fetch: large.fetch })
-    expect(out).toEqual(large.answer)
+    expect(out).toEqual(tooLargeOf(fn))
   })
-  it('i. ai-proxy forwards the whole 300,000-character message upstream', async () => {
+  it('i. ai-proxy still reads the 300,000-character body and forwards the whole message upstream', async () => {
     const fn = FUNCTIONS.find((f) => f.name === 'ai-proxy')
-    await send(fn, { body: fn.large.body }, { fetch: fn.large.fetch })
+    const { out } = await send(fn, { body: fn.large.body }, { fetch: fn.large.fetch })
+    expect(out).toEqual(fn.large.answer)
     expect(fetchCalls).toHaveLength(1)
     expect(fetchCalls[0].url).toBe('https://api.anthropic.com/v1/messages')
     const up = JSON.parse(fetchCalls[0].init.body)
     expect(up).toEqual({ model: 'harness-model', max_tokens: 5, messages: [{ role: 'user', content: 'x'.repeat(300000) }], stream: true })
+  })
+
+  it.each(FUNCTIONS.filter((f) => f.limited))('i. $name: a rate-limited caller with an over-size body hears whichever ran first', async (fn) => {
+    // Where the limiter sits before the body (ai-proxy, storage, resolve-login) the
+    // answer is its 429, unread; where it sits after (the operator functions), 413.
+    const { out } = await send(fn, { raw: paddedTo(fn, CAP[fn.name] + 1) }, { limited: true })
+    expect(out).toEqual(fn.limited.status === 429 ? fn.limited : tooLargeOf(fn))
+  }, 60_000)
+})
+
+describe('F8: resolve-login and issue-session past the cap, in order', () => {
+  const login = FUNCTIONS.find((f) => f.name === 'resolve-login')
+  const session = FUNCTIONS.find((f) => f.name === 'issue-session')
+  const big = (o) => JSON.stringify({ ...o, junk: 'x'.repeat(5000) })
+
+  it('resolve-login: counted by the limiter FIRST (the credentials bucket, closed on failure), then an audit row error, then 413 with the uniform miss, no lookup', async () => {
+    const { out, w } = await send(login, { raw: big({ username: 'nobody' }) })
+    expect(out).toEqual(r(413, { exists: false, email: null }))
+    expect(Object.keys(out.json)).not.toContain('error')
+    expect(callNames(w)).toEqual([LIMITER, 'table:auth_attempt_log'])
+    expect(w.calls[0]).toMatchObject({ kind: 'rpc', name: 'fn_rate_limit_hit', by: 'service', args: { p_bucket: 'resolve-login:user', p_subject: 'unknown', p_limit: 30, p_window_seconds: 60 } })
+    expect(w.calls[1]).toMatchObject({ op: 'insert', values: { username_tried: null, outcome: 'error', ip_address: null } })
+  })
+  it('resolve-login: an over-size company body is read as {} too: the credentials bucket and miss, not the company\'s', async () => {
+    const { out, w } = await send(login, { raw: big({ company: 'Acme' }) })
+    expect(out).toEqual(r(413, { exists: false, email: null }))
+    expect(w.calls[0].args.p_bucket).toBe('resolve-login:user')
+  })
+  it('resolve-login: a limited caller with an over-size body hears 429, logged rate_limited, nothing looked up', async () => {
+    const { out, w } = await send(login, { raw: big({ username: 'nobody' }) }, { limited: true })
+    expect(out).toEqual(r(429, { exists: false, email: null }))
+    expect(callNames(w)).toEqual([LIMITER, 'table:auth_attempt_log'])
+    expect(w.calls[1]).toMatchObject({ op: 'insert', values: { outcome: 'rate_limited' } })
+  })
+  it('resolve-login: a limiter that cannot count refuses the over-size body 429 (closed on failure), before the 413', async () => {
+    stubFetch('none')
+    const { w, handler } = await setUp(login)
+    w.rpc('fn_rate_limit_hit', () => ({ data: null, error: { message: 'down' } }))
+    const out = await outcome(handler, post(undefined, { raw: big({ username: 'nobody' }) }))
+    expect(out).toEqual(r(429, { exists: false, email: null }))
+  })
+  it('resolve-login: the 413 waits for the floor, like every answer', async () => {
+    const t0 = Date.now()
+    await send(login, { raw: big({ username: 'nobody' }) })
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(170)
+  })
+  it('issue-session: 413 too_large after the token is checked, before the membership read, and nothing is updated', async () => {
+    const { out, w } = await send(session, { raw: big({ workspace_id: 'ws-2' }) })
+    expect(out).toEqual(TOO_LARGE_413)
+    expect(callNames(w)).toEqual(['auth:getUser'])
+    expect(w.count((c) => c.name === 'workspace_members' || c.name === 'updateUserById')).toBe(0)
+  })
+  it('issue-session: signed out with an over-size body is still the 401 (the token first)', async () => {
+    const { out, w } = await send(session, { raw: big({ workspace_id: 'ws-2' }) }, { signedOut: true })
+    expect(out).toEqual(UNAUTHORIZED)
+    expect(w.calls).toEqual([])
   })
 })
 

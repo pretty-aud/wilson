@@ -52,6 +52,7 @@ import { presignS3Request, s3HostAndPath } from '../_shared/s3Presign.ts'
 import { vetS3Host, s3Request, s3ReachDeps } from '../_shared/s3Reach.ts'
 import { loadWorkspaceBucket, readWorkspaceBucketConfig } from '../_shared/workspaceBucket.ts'
 import { supabaseHost } from '../_shared/gatewayReachRun.ts'
+import { readBodyJson, SMALL_JSON_MAX_BYTES, TOO_LARGE } from '../_shared/gatewayWire.ts'
 
 function probeKey(prefix: string | undefined, label: string): string {
   const rand = Array.from(crypto.getRandomValues(new Uint8Array(8)))
@@ -73,12 +74,14 @@ Deno.serve(async (req: Request) => {
     return reply({ error: 'rate_limited', detail: 'too many requests — wait a minute and retry' }, 429)
   }
 
+  // F8: read under a cap (largest real body 1,564 bytes, a 512-character
+  // secret), after the guard and the limiter as before. Past it: 413. Not
+  // JSON: the old sentence. The value is handed on untouched (F8-05).
   let body: { action?: string; secret?: string }
-  try {
-    body = await req.json()
-  } catch {
-    return reply({ error: 'bad_request', detail: 'the request body is not JSON' }, 400)
-  }
+  const sent = await readBodyJson(req, SMALL_JSON_MAX_BYTES)
+  if (sent.kind === 'too_large') return reply({ ...TOO_LARGE }, 413)
+  if (sent.kind === 'not_json') return reply({ error: 'bad_request', detail: 'the request body is not JSON' }, 400)
+  body = sent.value as { action?: string; secret?: string }
 
   // ── set ────────────────────────────────────────────────────────────────────
   if (body.action === 'set') {

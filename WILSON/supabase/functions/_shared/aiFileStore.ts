@@ -62,7 +62,13 @@
 // The store keeps each file's name (a client's pre-release material, TPN).
 // Nothing here returns it: `publicFile` is the only shape any route answers
 // with, and it has no name. Ids, sizes and times only.
+//
+// F8 (wave 2, 2026-11-13): readSmallJson is gatewayWire.readJsonLimited (the
+// one bounded body reader, itself free of Deno and of the network) plus the
+// object check. Its name, signature and default cap are F7's to rely on.
 // =============================================================================
+
+import { readJsonLimited } from './gatewayWire.ts'
 
 /** Files older than this are the sweep's; a deck's continuation loop is minutes. */
 export const SWEEP_AGE_HOURS = 24
@@ -464,31 +470,10 @@ export const SMALL_BODY_MAX = 2048
  * cap is refused before a byte is read.
  */
 export async function readSmallJson(req: Request, max = SMALL_BODY_MAX): Promise<Record<string, unknown> | null> {
-  const declared = Number(req.headers.get('content-length') ?? '')
-  if (Number.isFinite(declared) && declared > max) return null
-  if (!req.body) return null
-  const reader = req.body.getReader()
-  const chunks: Uint8Array[] = []
-  let size = 0
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    size += value.byteLength
-    if (size > max) {
-      await reader.cancel().catch(() => {})
-      return null
-    }
-    chunks.push(value)
-  }
-  const bytes = new Uint8Array(size)
-  let at = 0
-  for (const c of chunks) { bytes.set(c, at); at += c.byteLength }
-  try {
-    const v = JSON.parse(new TextDecoder().decode(bytes))
-    return v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : null
-  } catch {
-    return null
-  }
+  const read = await readJsonLimited(req, max)
+  // null: not JSON. No value: nothing was sent, or more than the cap (declared or read).
+  const v = read?.value
+  return v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : null
 }
 
 /** A delete's answer → its certificate's outcome. 404 is gone (counted as such). */
