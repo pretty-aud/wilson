@@ -22,10 +22,21 @@
 //
 // Runtime-agnostic: the master key may be passed in (vitest) or read from
 // the Deno environment (the functions).
+//
+// F8 (wave 2, 2026-11-13): the envelope itself (the AES-GCM seal and open,
+// the master key's import and its per-isolate cache) is
+// _shared/envelopeCrypto.ts, shared with aiKeyCrypto.ts and
+// storageSecretCrypto.ts. This module keeps what is its own: its secret's
+// name and how it is read (Deno's environment ONLY, never Node's; a master
+// handed in wins even when it is '', and is never kept), its error class, its
+// additional data, its sentence for a truncated key (28 bytes: the IV and the
+// tag, where the other two say 12), and NO key versions. It gains one export,
+// gatewayMasterKey(): the environment's master, imported once per value.
 // =============================================================================
 
+import { makeEnvelopeCrypto, type EnvelopeSecret } from './envelopeCrypto.ts'
+
 const SECRET_ENV = 'WILSON_GATEWAY_KEY_SECRET'
-const IV_BYTES = 12
 
 export class GatewayKeyCryptoUnavailable extends Error {
   constructor() {
@@ -40,38 +51,37 @@ function envSecret(): string {
   return d?.env?.get?.(SECRET_ENV) ?? ''
 }
 
-function b64encode(bytes: Uint8Array): string {
-  let s = ''
-  for (const b of bytes) s += String.fromCharCode(b)
-  return btoa(s)
-}
-
-function b64decode(s: string): Uint8Array {
-  const bin = atob(s)
-  const out = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
-  return out
-}
+// One instance, one cache: this domain's, never another's. No versions here,
+// and none gained: one secret, bare envelopes.
+const envelope = makeEnvelopeCrypto({
+  unavailable: () => new GatewayKeyCryptoUnavailable(),
+  truncated: 'the sealed signing key is truncated',
+  truncatedAtBytes: 12 + 16, // the IV and the tag, with no byte of key between them
+})
 
 /**
  * 32 random bytes, base64 — `openssl rand -base64 32`. A short or malformed
- * value is refused, never stretched (aiKeyCrypto's rule).
+ * value is refused, never stretched (aiKeyCrypto's rule). The master is the
+ * argument when one is passed (`??`: an explicit '' does NOT fall back to the
+ * environment), else Deno's environment; it is TRIMMED before it is asked
+ * whether it is set (the other two modules ask first), so white space alone
+ * is "not configured" here. A master handed in is never kept.
  */
-async function importMaster(masterB64?: string): Promise<CryptoKey> {
-  const raw = (masterB64 ?? envSecret()).trim()
-  if (!raw) throw new GatewayKeyCryptoUnavailable()
-  let bytes: Uint8Array
-  try {
-    bytes = b64decode(raw)
-  } catch {
-    throw new Error(`${SECRET_ENV} is not valid base64`)
-  }
-  if (bytes.length !== 32) throw new Error(`${SECRET_ENV} must decode to exactly 32 bytes (got ${bytes.length})`)
-  return await crypto.subtle.importKey('raw', bytes, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt'])
+function master(masterB64?: string): EnvelopeSecret {
+  return { name: SECRET_ENV, raw: (masterB64 ?? envSecret()).trim(), keep: masterB64 == null }
 }
 
 export function gatewayKeyCryptoConfigured(): boolean {
   return envSecret().trim() !== ''
+}
+
+/**
+ * The environment's master key, imported (memoized by the envelope, per
+ * value). Throws what a seal or an open would: GatewayKeyCryptoUnavailable
+ * when unset, a plain Error when malformed.
+ */
+export async function gatewayMasterKey(): Promise<CryptoKey> {
+  return await envelope.keyFor(master())
 }
 
 function aad(workspaceId: string, kid: string): Uint8Array {
@@ -80,28 +90,13 @@ function aad(workspaceId: string, kid: string): Uint8Array {
 
 /** Seal a signing key's PKCS#8 (base64) for workspace + kid. */
 export async function sealSigningKey(pkcs8B64: string, workspaceId: string, kid: string, masterB64?: string): Promise<string> {
-  const key = await importMaster(masterB64)
-  const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES))
-  const ct = new Uint8Array(await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv, additionalData: aad(workspaceId, kid) },
-    key,
-    new TextEncoder().encode(pkcs8B64),
-  ))
-  const envelope = new Uint8Array(iv.length + ct.length)
-  envelope.set(iv, 0)
-  envelope.set(ct, iv.length)
-  return b64encode(envelope)
+  const key = await envelope.keyFor(master(masterB64))
+  return await envelope.seal(key, pkcs8B64, aad(workspaceId, kid))
 }
 
 /** Open a sealed signing key; throws on a wrong master key, workspace, kid or a tampered envelope. */
 export async function openSigningKey(envelopeB64: string, workspaceId: string, kid: string, masterB64?: string): Promise<string> {
-  const key = await importMaster(masterB64)
-  const envelope = b64decode(envelopeB64)
-  if (envelope.length <= IV_BYTES + 16) throw new Error('the sealed signing key is truncated')
-  const plain = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: envelope.slice(0, IV_BYTES), additionalData: aad(workspaceId, kid) },
-    key,
-    envelope.slice(IV_BYTES),
-  )
-  return new TextDecoder().decode(plain)
+  // The key first, then the envelope: a missing master is said before a bad envelope is.
+  const key = await envelope.keyFor(master(masterB64))
+  return await envelope.open(key, envelopeB64, aad(workspaceId, kid))
 }

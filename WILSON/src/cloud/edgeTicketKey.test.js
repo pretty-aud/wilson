@@ -58,7 +58,10 @@ const TODAY = { importsPerCall: 2, decryptsPerCall: 1 }
 // What a WARM call costs (a call after the first, on the same loaded
 // function). At a71cd144 it is a first call's cost again: nothing was kept.
 // The commit that keeps the opened key per isolate (C5) edits this line.
-const WARM_CALL = { imports: 2, decrypts: 1 }
+// F8 (a) lowered imports 2 → 1: the AES master is now imported once per
+// value per isolate (_shared/envelopeCrypto.ts); the sealed key is still
+// opened and the Ed25519 key still imported on every call.
+const WARM_CALL = { imports: 1, decrypts: 1 }
 
 // ── The cast ─────────────────────────────────────────────────────────────────
 
