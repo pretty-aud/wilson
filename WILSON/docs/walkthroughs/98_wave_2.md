@@ -30,16 +30,24 @@ server, and fourteen places that read a request with no size limit.
 
 **What changed underneath.**
 
-- Each of those is now written once and shared, so a fix to one is a fix to
-  all, and the copies can no longer drift apart.
+- The secret locks, the code that talks to an outside server and the
+  size-limited reading are now each written once and shared, and so are
+  three of the four bucket copies and the "who is asking?" checks in the
+  programs this session owns: a fix to one is a fix to all, and those copies
+  can no longer drift apart. The rest, the storage clean-up's own bucket
+  copy and the AI files program's second "who is asking?" check, sits in
+  programs another session was changing at the same time; it moves onto the
+  shared copy at the next merge.
 - The server does less work per request. It used to unlock a secret's master
-  key from scratch every time: ten uses now take one step where they took
-  twenty. A panel of 100 file previews now takes 104 signing steps where it
-  took 500. A video playing through the file gateway no longer re-opens the
-  company's signing key every time a clip asks for a ticket.
+  key from scratch every time: ten locks and ten unlocks now take one step
+  where they took twenty. A panel of 100 file previews now takes 104
+  signing steps where it took 500. A video playing through the file
+  gateway no longer re-opens the company's signing key every time a clip
+  asks for a ticket.
 - **One thing is new, on purpose:** a request far larger than anything the
-  app sends is now refused ("too large") instead of being read whole. Each
-  limit was set from what the app really sends, with room to spare: the
+  app sends is now refused ("too large"): what is past the limit is read
+  and thrown away, never kept. Each limit was set from what the app really
+  sends, with room to spare: the
   admin, operator and storage actions send at most about 1.6 KB and the
   limit is 16 KB; the sign-in steps send at most about 250 bytes and the
   limit is 4 KB; the AI helper's limit is 33 MB, above the AI provider's own

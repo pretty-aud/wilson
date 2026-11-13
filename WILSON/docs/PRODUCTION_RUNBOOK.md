@@ -256,8 +256,10 @@ and `_shared/gatewayWire.ts`, which every one of the 23 bundles, and `_shared/en
 is deployed forward from ONE commit, the merged tip, and then the deployed SOURCE of all 23 is downloaded and compared
 with that commit file by file (each function's own folder; a name or version check has passed a stale function in
 this house). F8 did exactly that for its twenty on wilson-dev (`docs/sessions/handoffs/po-f8-2026-11-13.md` §2).
-🚨 `storage-presign`, `storage-read-urls` and `storage-secret` are never put back below the release commit while
-0120's switch is on: a copy older than the release has no `look` and moves nothing into a bucket. Afterwards, one
+🚨 `storage-presign`, `storage-read-urls` and `storage-gc` are never put back below the release commit while 0120's
+switch is on (0120's row in (b), and (h)): on an older storage-presign a `look` fails and nothing moves into a
+bucket, an older storage-read-urls refuses a moved file's picture and preview, and an older storage-gc can delete
+another file's body that a legacy picture names. Afterwards, one
 call each shows the shared paths answering (a staging member and admin; no factor needed): `issue-session` 200;
 `resolve-login` 200 `exists: true` for a real username and slug, and a 5 KB body 413 with `{ exists: false, email:
 null }`; `admin-user-security` on the caller 200; `admin-reset-password` and `admin-set-active` on a non-member's id

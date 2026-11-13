@@ -1070,19 +1070,23 @@ A failed send never fails the write, and a missed one reads true at the next loa
 ### 4.6 Edge Functions
 
 Twelve functions, three shared guards, one shared crypto module and one shared
-limiter. All run with `verify_jwt = false` (§4.2).
+limiter. All run with `verify_jwt = false` (§4.2). **Since F8 (2026-11-13)
+there are four shared crypto modules:** `envelopeCrypto.ts` and the three built
+on it, `aiKeyCrypto.ts`, `storageSecretCrypto.ts` and `gatewayKeyCrypto.ts`
+(below, "The shared plumbing").
 
 > **Corrected 2026-10-28 (R2):** 23 functions since P1, not twelve (`supabase/functions/`, `_shared` aside). The table lists the
 > eleven of July; the twelfth, `provision-workspace`, left in S43. The other twelve: `ai-files` (§13.1), `operator-ai-files`,
 > `operator-models`, `operator-storage-plans`, `storage-presign` and `storage-secret` (§12.7a), `storage-read-urls` (P1, §12.7b),
 > and the five `gateway-*` (`docs/design/GATEWAY_DESIGN.md`). `adminGuard` is bundled by 21 of the 23, directly or through another
-> guard, and 16 call the shared limiter, `resolve-login` among them since Track B B1. Each function's secrets by name, and what
+> guard (by 23 of 23 since F8, 2026-11-13: `issue-session` and `resolve-login` import it now), and 16 call the shared limiter,
+> `resolve-login` among them since Track B B1. Each function's secrets by name, and what
 > production holds of each by the documents: `docs/PRODUCTION_RUNBOOK.md` (c).
 
 | Function | Caller | Guard | Job |
 |---|---|---|---|
 | `resolve-login` | `LoginScreen` (with `workspace_slug` since S43), `ForgotPasswordWizard` (without) | none (public, pre-auth) | Username (+ slug) → email, constant-time, uniform shape |
-| `issue-session` | `LoginScreen`, `WorkspaceSwitcher` | inline `getUser` | Seat `app_metadata.workspace_id` for the next refresh |
+| `issue-session` | `LoginScreen`, `WorkspaceSwitcher` | `adminGuard.authenticate` since F8 (inline `getUser` before) | Seat `app_metadata.workspace_id` for the next refresh |
 | `invite-member` | `InviteMemberDialog`, `MultiInviteDialog` | `requireWorkspaceAdmin` (since S17) | Invite by email, create the membership row with `onboarded_at` null |
 | `admin-create-user` | Admin Terminal → `adminApi.js` | `requireWorkspaceAdmin` | Create a member with a show-once password; optional synthesized email |
 | `admin-reset-password` | Admin Terminal | `requireWorkspaceAdmin` | Rotate a member's password, show-once |
@@ -1146,6 +1150,13 @@ original per-isolate in-memory bucket; the remaining functions have no limiter
 (§17). (`provision-workspace` was the other per-isolate one and was deleted in
 S43 — see §Onboarding.)
 
+> **Corrected by F8 (2026-11-13), counted from the code:** 19 calls in 16 functions: `ai-files` four (`ai-files`,
+> `ai-files-list`, and `ai-files-manage` twice), `ai-proxy`, the five `gateway-*`, the five `operator-*`, `resolve-login`
+> (on the durable limiter since Track B B1), `storage-presign`, `storage-read-urls` and `storage-secret`. Three fail closed
+> (`{ failOpen: false }`): `resolve-login`, `gateway-enrol` and `gateway-events`; the other sixteen calls fail open. Seven
+> functions have no limiter: `admin-create-user`, `admin-reset-password`, `admin-set-active`, `admin-user-security`,
+> `invite-member`, `issue-session` and `storage-gc`.
+
 **Show-once credentials.** WILSON stores no password anywhere. GoTrue accepts a
 plaintext password only to *set* it, so the create/reset response is the one
 moment the plaintext exists outside GoTrue's hash. `CredentialsPopup.jsx` holds
@@ -1159,19 +1170,20 @@ those accounts and an admin must reset instead; the response carries an
 
 **The shared plumbing (F8, wave 2, 2026-11-13).** Twenty of the 23 functions
 share their caller checks, their sealed secrets, a company's bucket, their
-raw-HTTP transport and their body reads; each is written once in `_shared/`
-(F7's `storage-gc`, `ai-files` and `operator-ai-files` keep their own copies
-of the bucket load and the guard calls until the second merger moves them,
-OUTSTANDING F8-02, F8-03). What composes what:
+raw-HTTP transport and their body reads; each is written once in `_shared/`.
+Of F7's three, only `storage-gc` keeps its own bucket load and only `ai-files`
+its own guard calls, until the second merger moves them (OUTSTANDING F8-02,
+F8-03); `operator-ai-files` has neither, and its one open item is F8-01's
+typing. What composes what:
 
 | Module | What it holds | Who uses it |
 |---|---|---|
-| `adminGuard.ts` | `authenticate(req)` (the bearer sliced at 7 and never trimmed, one service client, GoTrue's `getUser`, the claims decoded lazily so each guard reads them where it always did); `liveMembership(admin, ws, user, { withRole })` (the row read's error handed back, unjudged); `hasVerifiedTotp(admin, userId)` (a failure is `ok: false`; `count` from the data either way); `serviceClient()` and `callerClient(req, { quiet })`; `reply`, `jsonResponse`; the types `ServiceClient` and `GuardClient` (OUTSTANDING F8-01) | the three guards; issue-session, resolve-login, admin-user-security; gateway-reach and gateway-ticket (`callerClient(req, { quiet: true })`, as they built it); storage-presign and storage-read-urls (`callerClient(req)`, no options, as before) |
+| `adminGuard.ts` | `authenticate(req)` (the bearer sliced at 7 and never trimmed, one service client, GoTrue's `getUser`, the claims decoded lazily so each guard reads them where it always did); `liveMembership(admin, ws, user, { withRole })` (the row read's error handed back, unjudged); `hasVerifiedTotp(admin, userId)` (a failure is `ok: false`; `count` from the data either way; `verified` decided by `.some` and `count` by `.filter`, apart, as the guards and admin-user-security each decided them at `a71cd144`: review round 2); `serviceClient()` and `callerClient(req, { quiet })`; `reply`, `jsonResponse`; the types `ServiceClient` and `GuardClient` (OUTSTANDING F8-01) | the three guards; issue-session, resolve-login, admin-user-security; gateway-reach and gateway-ticket (`callerClient(req, { quiet: true })`, as they built it); storage-presign and storage-read-urls (`callerClient(req)`, no options, as before); `gatewayGuard.ts` (`serviceClient({ quiet: true })` and `jsonResponse`), and through it gateway-enrol, gateway-sync and gateway-events |
 | `memberGuard.ts`, `operatorGuard.ts` | composed from the pieces above; each keeps its own rules: the member guard any active row and no MFA; the operator guard its three differences (no workspace in the context; the live `platform_operators` row the authority, a failed read 503; MFA hard, enrolment asked before the step-up) | as before |
 | `envelopeCrypto.ts` (new) | `makeEnvelopeCrypto(spec)` and `makeVersionedEnvelopeCrypto(base, spec)`: AES-256-GCM, `base64(iv[12] ‖ ciphertext ‖ tag[16])`, the master key imported once per secret name and value per isolate | `aiKeyCrypto.ts`, `storageSecretCrypto.ts`, `gatewayKeyCrypto.ts`, each keeping its secret's name, its error class and words, its truncation line (12, 12 and 28 bytes), its AAD (the ticket keys' `gateway-signing-key:<ws>:<kid>`; none for the other two) and its versions (keyVersions.ts's for the two; none for the ticket keys) |
 | `workspaceBucket.ts` (new) | `loadWorkspaceBucket(admin, ws, { requireByos, preflightCrypto })`: the configuration and the sealed secret read at once by the service role, after the guard, on the guard's workspace; the configuration's refusals answered as soon as it is read; seven coded refusals each caller words itself; `readWorkspaceBucketConfig` | storage-presign (`requireByos` for put and look), storage-read-urls (no mode check, a GET), storage-secret (the probe: no master-key preflight, as it never had one; `set`: the configuration only) |
 | `gatewayReach.ts` | the transport (`withDeadline` with each caller's own words, the byte reader, the literal-address TLS exchange, the capped fetch-fallback read) and `checkPublicHost` | the reach check and `s3Reach.ts`; a host that is not a DNS name is `malformed` at the one and `local_name` at the other, as before (F8-04) |
-| `gatewayWire.ts` | `readJsonLimited` (decodes as it reads), `readBodyJson(req, cap)` (`json`, `not_json` or `too_large`), the caps, `TOO_LARGE`, `DRAIN_MAX_BYTES` | every function that reads a JSON body; `readSmallJson` (aiFileStore.ts) is `readJsonLimited` plus the object check |
+| `gatewayWire.ts` | `readJsonLimited` (decodes as it reads; an optional third argument bounds the drain, `DRAIN_MAX_BYTES` when left out), `readBodyJson(req, cap)` (`json`, `not_json` or `too_large`), the caps, `TOO_LARGE`, `DRAIN_MAX_BYTES`, `PRE_AUTH_DRAIN_MAX_BYTES` (review round 2) | every function that reads a JSON body (gateway-enrol alone passes `PRE_AUTH_DRAIN_MAX_BYTES`); `readSmallJson` (aiFileStore.ts) is `readJsonLimited` plus the object check |
 | `s3Presign.ts` | `presignS3Request` (unchanged, byte for byte) and `makeS3Presigner` (the signing key derived once per UTC day and region per request) | storage-read-urls' batch and storage-secret's probe; storage-presign signs one URL |
 | `gatewaySigning.ts` | the opened ticket key kept per isolate: one entry a workspace, 256 at most (least recently used out), used only when the row just read names the same kid and ciphertext AND the master key is the same | gateway-ticket |
 
@@ -1190,16 +1202,24 @@ request is too large' }` where it was read. No more than the cap and one
 chunk is ever held; the rest is read through and thrown away, undecoded, up
 to `DRAIN_MAX_BYTES` (64 MiB), and only then is the stream cancelled.
 🚨 **The read-through is load-bearing, not waste.** Measured on wilson-dev
-(2026-11-13 06:08-06:13 UTC) with a reader that refused without reading on:
-storage-presign's 413 reached the caller for 20, 64 and 256 KiB bodies, but
-1 MiB and 8 MiB bodies got NO answer within 90 s, and ai-proxy's 34 and 40 MiB
-a platform 502 after ~39 s: the hosted relay delivers an answer only once
+(2026-11-13) with a reader that refused without reading on: storage-presign's
+413 reached the caller for 20, 64 and 256 KiB bodies, but 1 MiB and 8 MiB
+bodies got NO answer within 90 s (06:08-06:13 UTC), and ai-proxy's 34 and
+40 MiB a platform 502 after ~39 s (05:55-05:57 UTC, the ladder before the
+read-through): the hosted relay delivers an answer only once
 the request body has been received. With the read-through (06:38 UTC): 1 MiB
 and 8 MiB 413 in 0.4 and 1.1 s, resolve-login 1 MiB 413 in 0.6 s, ai-proxy
 35 MiB 413 in 4.1 s. Past 64 MiB the platform answers for the function (a
-70 MiB body: 504 after 168 s). resolve-login counts an over-size body with
-its limiter first (a limited caller hears 429) and answers 413 with its
-uniform miss `{ exists: false, email: null }`, after its floor; issue-session
+70 MiB body: 504 after 168 s). gateway-enrol's read runs before any check,
+before anyone is authenticated, so it drains only to
+`PRE_AUTH_DRAIN_MAX_BYTES` (2 MiB; no gateway sends more than about 20 KiB,
+its PEM at most 16 KiB) and is cut there, past which the platform answers for
+it; its answer is unchanged (review round 2). resolve-login counts an
+over-size body with its limiter first (a limited caller hears 429) and
+answers 413 with its uniform miss `{ exists: false, email: null }`, after its
+floor; an over-size company request too, by design: past the cap its body
+is read as `{}`, so it is counted in the `:user` bucket and its 413 carries
+no `v`; issue-session
 answers 413 after the sign-in check and before the membership read. Measured
 before F8 (04:45 UTC): the old ai-proxy read a 64 MiB body whole (200), so
 the platform sets no limit of its own before the function.
@@ -1213,6 +1233,10 @@ in by a caller is never kept, and the three modules share nothing. The opened
 ticket key is kept only for the kid and ciphertext the database names on THIS
 call (the database is read on every call), and only while the master key is
 the same object the envelope cache hands back.
+
+**The one side effect of starting ai-proxy's key read beside the limiter**
+(F8 f): a call it then refuses (429, 413, 400) has now also read the company's
+key row and, when there is one, opened it; nothing is written.
 
 ### 4.7 Storage buckets
 
@@ -1886,9 +1910,11 @@ Deno's own count; when the module graph fails before any check (esm.sh
 refusing an import) the annotation says that and nothing is compared. To
 move Deno, move it with the CLI's pin and read this job first. **Since F8
 (2026-11-13) `KNOWN` holds one line, `ai-files/index.ts TS2739 1`** (F7's
-file): the guards' client typed as `GuardClient` cleared the other 27,
-storage-gc's 17 among them (CI's run on `18d73eea`: "1 known errors in 1
-groups … deno counted 1"; OUTSTANDING F1-01, F8-01).
+file). Of the other 27, the shared client type (the guards' client typed as
+`GuardClient`) cleared 25, storage-gc's 17 among them, and two one-line casts
+the last two, `admin-user-security`'s and `operator-ai-keys`' TS2352 (CI's run
+on `18d73eea`: "1 known errors in 1 groups … deno counted 1"; OUTSTANDING
+F1-01, F8-01).
 
 Repository secrets consumed (names only): `DEV_SUPABASE_URL`,
 `DEV_SUPABASE_ANON_KEY`, `DEV_PROBE_USERNAME`, `DEV_PROBE_PASSWORD`. The
