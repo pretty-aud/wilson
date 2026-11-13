@@ -37,8 +37,10 @@ vi.mock('https://esm.sh/@supabase/supabase-js@2.45.4', async () => ({
 // is 500 (the key derived 100 times), and the full-success probe, which signs
 // six URLs (server PUT, GET, DELETE; client PUT, GET, DELETE), is 30. The
 // commit that derives the key once per batch edits these two numbers.
-const BATCH_HMAC_SIGNS = 500
-const PROBE_HMAC_SIGNS = 30
+// F8 (f) did: one presigner per request derives the key once (four HMACs)
+// and signs each URL with one more: 100 URLs 500 → 104, the probe 30 → 10.
+const BATCH_HMAC_SIGNS = 104
+const PROBE_HMAC_SIGNS = 10
 
 const ST = 'WILSON_STORAGE_KEY_SECRET'
 const ST_V2 = `${ST}_V2`

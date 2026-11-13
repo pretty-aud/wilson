@@ -28,7 +28,7 @@
 import { callerClient, corsHeaders, reply, type ServiceClient } from '../_shared/adminGuard.ts'
 import { requireActiveMember, type MemberContext } from '../_shared/memberGuard.ts'
 import { isRateLimited, envInt } from '../_shared/rateLimit.ts'
-import { presignS3Request } from '../_shared/s3Presign.ts'
+import { makeS3Presigner } from '../_shared/s3Presign.ts'
 import { handleReadUrls } from '../_shared/readUrls.ts'
 import { loadWorkspaceBucket, type BucketRefusal } from '../_shared/workspaceBucket.ts'
 
@@ -102,14 +102,16 @@ Deno.serve(async (req: Request) => {
     loadSigner: async (ctx) => {
       const cfg = await loadWorkspaceBucket(ctx.admin, ctx.workspaceId, { requireByos: false })
       if (!cfg.ok) return bucketRefusal(cfg)
+      // F8 (C5): ONE presigner for this request's batch, made from this one
+      // loaded bucket and dropped with it (nothing kept between requests or
+      // companies): the signing key is derived once a day, not once a URL.
+      // Each URL keeps its own clock, as before.
+      const presigner = makeS3Presigner({ target: cfg.target, accessKeyId: cfg.accessKeyId, secretAccessKey: cfg.secret })
       return {
         ok: true,
         // The prefix is applied HERE and only here: storage_path stays
         // row-shaped in the database, and the client never sees or sends it.
-        sign: (key, expiresSeconds) => presignS3Request({
-          target: cfg.target,
-          accessKeyId: cfg.accessKeyId,
-          secretAccessKey: cfg.secret,
+        sign: (key, expiresSeconds) => presigner.presign({
           method: 'GET',
           key: cfg.prefix ? `${cfg.prefix}/${key}` : key,
           expiresSeconds,

@@ -188,6 +188,15 @@ Deno.serve(async (req: Request) => {
   if (!guard.ok) return guard.res
   const { admin, workspaceId, callerId } = guard.ctx
 
+  // F8 (f), the review's C5: the key read is STARTED here, before the limiter
+  // is awaited, and awaited where it always was (below, after validation). It
+  // never rejects and writes nothing. NOT Promise.all with the limiter: a
+  // limited call must be answered the moment the limiter says so, without
+  // waiting for the key and without reading the body. The one difference,
+  // named in DESIGN.md §8.3: a call then refused (429, 413, 400) has also
+  // read the company's key row and, when there is one, opened it.
+  const keyRead = resolveAnthropicKey(admin, workspaceId)
+
   if (await isRateLimited(admin, 'ai-proxy', workspaceId, RPM, 60)) {
     return reply({ error: 'rate_limited' }, 429)
   }
@@ -264,7 +273,7 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  const resolved = await resolveAnthropicKey(admin, workspaceId)
+  const resolved = await keyRead
   if (!resolved) {
     // 501, not 503: this is a permanent config state, and every client retry
     // loop treats 429/503/529 as transient — a 503 here would burn ~21s of

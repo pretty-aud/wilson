@@ -61,7 +61,10 @@ const TODAY = { importsPerCall: 2, decryptsPerCall: 1 }
 // F8 (a) lowered imports 2 → 1: the AES master is now imported once per
 // value per isolate (_shared/envelopeCrypto.ts); the sealed key is still
 // opened and the Ed25519 key still imported on every call.
-const WARM_CALL = { imports: 1, decrypts: 1 }
+// F8 (f) lowered it to nothing: the opened key is kept per isolate, per
+// workspace, for the same kid, ciphertext and master key (gatewaySigning.ts);
+// the signing-key read is still made on every call.
+const WARM_CALL = { imports: 0, decrypts: 0 }
 
 // ── The cast ─────────────────────────────────────────────────────────────────
 
@@ -115,8 +118,9 @@ async function keyRow(ws, { kid, master = MASTER, sealFor = ws } = {}) {
 
 /** Load the function (a fresh isolate) and make its world. */
 async function boot(env) {
-  const { handler } = await loadFunction(vi, 'gateway-ticket', env)
-  return { handler, w: newWorld() }
+  const { handler, env: live } = await loadFunction(vi, 'gateway-ticket', env)
+  // `live` is the loaded function's environment: changing it is the secret changing while warm.
+  return { handler, w: newWorld(), live }
 }
 
 /**
@@ -129,7 +133,7 @@ async function scene({ clips = [clip()], gateway = { id: GW_A, workspace_id: WS_
   vi.spyOn(Date, 'now').mockReturnValue(NOW_MS)
   const fnEnv = { ...env }
   if (secret !== null) fnEnv.WILSON_GATEWAY_KEY_SECRET = secret
-  const { handler, w } = await boot(fnEnv)
+  const { handler, w, live } = await boot(fnEnv)
   const caller = seatCaller(w, { userId: USER_A, workspaceId: WS_A })
   const key = keys ? null : await keyRow(WS_A, { kid: 'kalpha' })
   const answers = keys ?? [{ data: key.row, error: null }]
@@ -142,7 +146,7 @@ async function scene({ clips = [clip()], gateway = { id: GW_A, workspace_id: WS_
   })
   w.table('gateway_ticket_mints', () => ({ data: null, error: null }))
   const call = async (body = ask(), opts = {}) => answerOf(await handler(post(body, { token: caller.token, ...opts })))
-  return { w, caller, key, handler, call }
+  return { w, caller, key, handler, call, live }
 }
 
 const verifyAs = (ticket, pub, kid, { gw = GW_A, ws = WS_A } = {}) =>
@@ -819,7 +823,7 @@ describe('the work of one call (C5)', () => {
     expect(first.decrypts).toBe(1)
   })
 
-  it('a warm call\'s key work, counted: WARM_CALL imports and decrypts, and still one signing-key read (C5)', async () => {
+  it('a warm call opens nothing (WARM_CALL: no import, no decrypt) and still makes one signing-key read (C5)', async () => {
     const { call, w, key } = await scene()
     const run = meter()
     const first = await run(() => call())
@@ -886,7 +890,7 @@ describe('the work of one call (C5)', () => {
     }
   })
 
-  it('after a key that would not open was replaced, the next call\'s key work is a warm call\'s (C5)', async () => {
+  it('after a key that would not open was replaced, the next call opens nothing: the replacement is the one kept (C5)', async () => {
     silenceErrors()
     const bad = await keyRow(WS_A, { kid: 'kbad', master: OTHER_MASTER })
     const good = await keyRow(WS_A, { kid: 'kgood' })
@@ -912,6 +916,58 @@ describe('the work of one call (C5)', () => {
     expect(callsTo(w, 'gateway_signing_key_current').map((c) => c.args.p_rotate_after_seconds)).toEqual([31536000, 60, 31536000])
   })
 
+  it('F8 (f): the master secret removed while warm: 503 crypto_unavailable, the cold answer exactly, nothing replaced', async () => {
+    const err = silenceErrors()
+    const { call, w, live } = await scene()
+    expect((await call()).status).toBe(200)
+    expect((await call()).status).toBe(200)
+    delete live.WILSON_GATEWAY_KEY_SECRET
+    const warm = await call()
+    const cold = await (await scene({ secret: null })).call()
+    expect(pick(warm)).toEqual(pick(cold))
+    expect(warm.json.error).toBe('crypto_unavailable')
+    expect(callsTo(w, 'gateway_signing_key_put')).toEqual([])
+    expect(err).not.toHaveBeenCalled()
+  })
+
+  it('F8 (f): the master secret CHANGED while warm is a miss: the kept key is not used, the old one will not open, as cold', async () => {
+    silenceErrors()
+    const { call, w, live } = await scene()
+    expect((await call()).status).toBe(200)
+    live.WILSON_GATEWAY_KEY_SECRET = OTHER_MASTER
+    const warm = await call()
+    expect(warm.json.error).toBe('key_unavailable')
+    // The replace-once path ran, as it does cold: the current key read, then the 60-second one.
+    expect(callsTo(w, 'gateway_signing_key_current').map((c) => c.args.p_rotate_after_seconds)).toEqual([31536000, 31536000, 60])
+  })
+
+  it('F8 (f): a key that will not open is never kept: the next call tries to open it again', async () => {
+    silenceErrors()
+    const bad = await keyRow(WS_A, { kid: 'kbad', master: OTHER_MASTER })
+    const { call } = await scene({ keys: [{ data: bad.row, error: null }] })
+    const run = meter()
+    expect((await call()).json.error).toBe('key_unavailable')
+    const again = await run(() => call())
+    expect(again.out.json.error).toBe('key_unavailable')
+    expect(again.decrypts).toBe(2) // the row and its "replacement", both tried again
+  })
+
+  it('every warm call still makes the same seven round trips, in this order, by the same clients (F8 f)', async () => {
+    const { call, w } = await scene()
+    await call()
+    const before = w.calls.length
+    expect((await call()).status).toBe(200)
+    expect(trips(w).slice(before)).toEqual([
+      { kind: 'auth', name: 'getUser', by: 'service' },
+      { kind: 'table', name: 'workspace_members', by: 'service' },
+      { kind: 'rpc', name: 'fn_rate_limit_hit', by: 'service' },
+      { kind: 'table', name: 'gateways_visible', by: 'caller' },
+      { kind: 'rpc', name: 'gateway_clips_for_tickets', by: 'caller' },
+      { kind: 'rpc', name: 'gateway_signing_key_current', by: 'service' },
+      { kind: 'table', name: 'gateway_ticket_mints', by: 'service' },
+    ])
+  })
+
   it('safety 4 — a fresh load (a new isolate) starts cold again', async () => {
     const first = await scene()
     const run = meter()
@@ -923,4 +979,44 @@ describe('the work of one call (C5)', () => {
     expect(r.imports).toEqual(['raw', 'pkcs8'])
     expect(r.decrypts).toBe(1)
   })
+})
+
+describe('the kept keys are bounded: 256 workspaces, the least recently used leaving (F8 f)', () => {
+  const wsId = (i) => `f0000000-0000-4000-8000-${String(i).padStart(12, '0')}`
+  async function setUpMany(n) {
+    vi.stubGlobal('Deno', { env: { get: (k) => (k === 'WILSON_GATEWAY_KEY_SECRET' ? MASTER : undefined) } })
+    vi.resetModules()
+    const mod = await import('../../supabase/functions/_shared/gatewaySigning.ts')
+    const w = newWorld()
+    const rows = {}
+    for (let i = 1; i <= n; i++) rows[wsId(i)] = (await keyRow(wsId(i), { kid: `k${i}` })).row
+    w.rpc('gateway_signing_key_current', (args) => ({ data: rows[args.p_workspace], error: null }))
+    const admin = createClient(SUPABASE_URL, SERVICE_KEY)
+    const run = meter()
+    const sign = async (i) => {
+      const r = await run(() => mod.signingKeyFor(admin, wsId(i)))
+      return { kid: r.out.kid, decrypts: r.decrypts, pkcs8: r.imports.filter((f) => f === 'pkcs8').length }
+    }
+    return { mod, sign, w }
+  }
+
+  it('257 workspaces: the first is opened again; the ones still kept open nothing', async () => {
+    const { mod, sign, w } = await setUpMany(257)
+    expect(mod.OPENED_KEYS_MAX).toBe(256)
+    for (let i = 1; i <= 257; i++) expect((await sign(i)).decrypts, `ws ${i}`).toBe(1)
+    expect(await sign(2)).toEqual({ kid: 'k2', decrypts: 0, pkcs8: 0 })
+    expect(await sign(257)).toEqual({ kid: 'k257', decrypts: 0, pkcs8: 0 })
+    expect(await sign(1)).toEqual({ kid: 'k1', decrypts: 1, pkcs8: 1 })
+    // The database was asked on every call, kept or not.
+    expect(w.count((c) => c.name === 'gateway_signing_key_current')).toBe(257 + 3)
+  }, 60_000)
+
+  it('using a key keeps it: touched before the 257th, the first stays and the second leaves', async () => {
+    const { sign } = await setUpMany(257)
+    for (let i = 1; i <= 256; i++) await sign(i)
+    expect((await sign(1)).decrypts).toBe(0)
+    await sign(257)
+    expect(await sign(1)).toEqual({ kid: 'k1', decrypts: 0, pkcs8: 0 })
+    expect(await sign(2)).toEqual({ kid: 'k2', decrypts: 1, pkcs8: 1 })
+  }, 60_000)
 })

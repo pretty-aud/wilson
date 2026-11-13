@@ -46,7 +46,7 @@ import {
   encryptStorageSecret, storageKeyHint,
   storageSecretCryptoConfigured, storageSecretCurrentVersion,
 } from '../_shared/storageSecretCrypto.ts'
-import { presignS3Request, s3HostAndPath } from '../_shared/s3Presign.ts'
+import { makeS3Presigner, s3HostAndPath } from '../_shared/s3Presign.ts'
 // P8 (TPN-NET-016): every request to the bucket goes to a VETTED public
 // address, over one TLS connection to that literal, no redirect followed.
 import { vetS3Host, s3Request, s3ReachDeps } from '../_shared/s3Reach.ts'
@@ -192,11 +192,12 @@ Deno.serve(async (req: Request) => {
     }
 
     const { target, secret } = cfg
+    // F8 (C5): one presigner for this probe's six URLs, made from this one
+    // loaded bucket and dropped with the request: the signing key is derived
+    // once, not six times. Each URL keeps its own clock.
+    const presigner = makeS3Presigner({ target, accessKeyId: cfg.accessKeyId, secretAccessKey: secret })
     const sign = (method: 'PUT' | 'GET' | 'DELETE', key: string) =>
-      presignS3Request({
-        target, accessKeyId: cfg.accessKeyId, secretAccessKey: secret,
-        method, key, expiresSeconds: 120, now: new Date(),
-      })
+      presigner.presign({ method, key, expiresSeconds: 120, now: new Date() })
 
     // P8 (TPN-NET-016): the host the signer puts in every URL (the bucket's
     // own, when virtual-hosted) is vetted ONCE — a public literal, or a

@@ -30,6 +30,17 @@
 //   path-style (the shape every MinIO quickstart assumes and every major
 //   S3-compatible accepts); bare AWS defaults to virtual-host (AWS has
 //   deprecated path-style for new buckets). The config can force either.
+//
+// F8 (wave 2, 2026-11-13), the review's C5: makeS3Presigner(bucket) signs
+// many URLs for ONE bucket and secret, deriving the SigV4 signing key once a
+// UTC day stamp and region instead of once a URL (a batch of 100 read URLs:
+// 500 HMACs to 104). presignS3Request keeps its name, signature and every
+// byte (storage-gc, F7's, calls it; s3Presign.test.js pins it against AWS's
+// published example), and both go through one presignWith. A presigner is
+// made inside one request from one loaded bucket and dropped with it: nothing
+// is kept between requests or companies. The key is cached by DAY as well as
+// region on purpose: each URL keeps its own `now`, and a batch that crosses
+// midnight UTC must sign the later URLs under the next day's key.
 // =============================================================================
 
 export type S3Target = {
@@ -133,6 +144,31 @@ function amzTimestamp(now: Date): { amzDate: string; dateStamp: string } {
   return { amzDate: iso, dateStamp: iso.slice(0, 8) }
 }
 
+/** Import a key for HMAC-SHA256 once, to sign with it many times. */
+async function hmacKey(keyBytes: ArrayBuffer | Uint8Array): Promise<CryptoKey> {
+  return await crypto.subtle.importKey(
+    'raw',
+    keyBytes instanceof Uint8Array ? (keyBytes.buffer as ArrayBuffer).slice(keyBytes.byteOffset, keyBytes.byteOffset + keyBytes.byteLength) : keyBytes,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  )
+}
+
+/**
+ * The SigV4 signing key for one secret, one UTC day and one region: the chain
+ * AWS4+secret → date → region → service → "aws4_request", imported for
+ * signing. Four HMACs; the same bytes whoever asks, so deriving it once for a
+ * batch changes no signature.
+ */
+async function deriveSigningKey(secretAccessKey: string, dateStamp: string, region: string): Promise<CryptoKey> {
+  const kDate = await hmac(new TextEncoder().encode(`AWS4${secretAccessKey}`), dateStamp)
+  const kRegion = await hmac(kDate, region)
+  const kService = await hmac(kRegion, 's3')
+  const kSigning = await hmac(kService, 'aws4_request')
+  return await hmacKey(kSigning)
+}
+
 /**
  * Produce a presigned URL for one request against one object key.
  *
@@ -144,7 +180,47 @@ function amzTimestamp(now: Date): { amzDate: string; dateStamp: string } {
  * STARTS, so an upload may keep streaming past the expiry.
  */
 export async function presignS3Request(input: PresignInput): Promise<string> {
-  const { target, accessKeyId, secretAccessKey, method, key, expiresSeconds, now } = input
+  return await presignWith(input, (dateStamp, region) => deriveSigningKey(input.secretAccessKey, dateStamp, region))
+}
+
+export type S3Presigner = {
+  /** One URL. `now` is still this URL's own clock: X-Amz-Date is never shared across a batch. */
+  presign(one: Pick<PresignInput, 'method' | 'key' | 'expiresSeconds' | 'now'>): Promise<string>
+}
+
+/**
+ * F8 (C5): a signer for ONE bucket and ONE secret that derives the signing
+ * key once per UTC day stamp and region. Every URL is byte for byte what
+ * presignS3Request gives for the same input. A derivation that failed is
+ * not kept. Make it inside one request and let it go with that request.
+ */
+export function makeS3Presigner(bucket: Pick<PresignInput, 'target' | 'accessKeyId' | 'secretAccessKey'>): S3Presigner {
+  const keys = new Map<string, Promise<CryptoKey>>()
+  const signingKeyFor = (dateStamp: string, region: string): Promise<CryptoKey> => {
+    // The DAY is part of the key on purpose: a batch across midnight UTC.
+    const id = `${dateStamp}/${region}`
+    let k = keys.get(id)
+    if (!k) {
+      k = deriveSigningKey(bucket.secretAccessKey, dateStamp, region)
+      keys.set(id, k)
+      k.catch(() => { if (keys.get(id) === k) keys.delete(id) }) // a derivation that failed is not kept
+    }
+    return k
+  }
+  return {
+    presign: (one) => presignWith({
+      target: bucket.target, accessKeyId: bucket.accessKeyId, secretAccessKey: bucket.secretAccessKey,
+      method: one.method, key: one.key, expiresSeconds: one.expiresSeconds, now: one.now,
+    }, signingKeyFor),
+  }
+}
+
+/** The whole presign, given where the signing key comes from (derived each time, or the presigner's). */
+async function presignWith(
+  input: PresignInput,
+  signingKeyFor: (dateStamp: string, region: string) => Promise<CryptoKey>,
+): Promise<string> {
+  const { target, accessKeyId, method, key, expiresSeconds, now } = input
   // 🚨 SEGMENT-WISE, not a substring test — and the difference is a real
   // outage. A doubled dot INSIDE a segment is an ordinary S3 key character
   // sequence, and `uploadFile`'s sanitiser preserves dots, so a file called
@@ -196,13 +272,10 @@ export async function presignS3Request(input: PresignInput): Promise<string> {
     await sha256Hex(canonicalRequest),
   ].join('\n')
 
-  // The HMAC key derivation chain: AWS4+secret → date → region → service →
-  // "aws4_request".
-  const kDate = await hmac(new TextEncoder().encode(`AWS4${secretAccessKey}`), dateStamp)
-  const kRegion = await hmac(kDate, target.region)
-  const kService = await hmac(kRegion, 's3')
-  const kSigning = await hmac(kService, 'aws4_request')
-  const signature = hexOf(await hmac(kSigning, stringToSign))
+  // The HMAC key derivation chain (AWS4+secret → date → region → service →
+  // "aws4_request") is deriveSigningKey's, done here or kept by a presigner.
+  const signingKey = await signingKeyFor(dateStamp, target.region)
+  const signature = hexOf(await crypto.subtle.sign('HMAC', signingKey, new TextEncoder().encode(stringToSign)))
 
   return `https://${host}${path}?${canonicalQuery}&X-Amz-Signature=${signature}`
 }

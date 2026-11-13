@@ -139,7 +139,10 @@ const FUNCTIONS = [
       body: { model: 'harness-model', max_tokens: 5, messages: [{ role: 'user', content: 'x'.repeat(300000) }] },
       answer: r(400, { error: 'upstream_error', anthropic: UPSTREAM_400 }), fetch: 'error400',
     },
-    before: [...MEMBER_GUARD, LIMITER], limited: r(429, { error: 'rate_limited' }),
+    // F8 (f), DESIGN.md §8.3: the company's key row is now read STARTING
+    // before the limiter is awaited (was [...MEMBER_GUARD, LIMITER]); the
+    // limiter still answers first, and no answer moved.
+    before: [...MEMBER_GUARD, 'table:workspace_ai_keys', LIMITER], limited: r(429, { error: 'rate_limited' }),
   },
   {
     name: 'invite-member', seat: 'admin',
