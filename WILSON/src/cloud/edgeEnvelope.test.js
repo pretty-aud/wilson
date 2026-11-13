@@ -371,6 +371,16 @@ describe('the master key is imported once per secret, version and value (C5)', (
     const sealed = await sealSigningKey('pkcs8', ws, 'k1', master)
     expect(await openSigningKey(sealed, ws, 'k1', master)).toBe('pkcs8')
     expect(spy).toHaveBeenCalledTimes(2)
+    // Review round 1, T2: counting the handed-in calls alone would pass even if the
+    // key were STORED (a handed-in call skips the lookup too). So the environment
+    // now holds the very same value: a seal and an open WITHOUT a master must
+    // import it once, never find it already there.
+    denoEnv({ [GW]: master })
+    spy.mockClear()
+    const again = await sealSigningKey('pkcs8-env', ws, 'k2')
+    expect(await openSigningKey(again, ws, 'k2')).toBe('pkcs8-env')
+    expect(await openSigningKey(sealed, ws, 'k1')).toBe('pkcs8')
+    expect(spy).toHaveBeenCalledTimes(1)
   })
   it('each version is its own key: two versions in use are two imports, however many calls', async () => {
     process.env[AI] = fresh()

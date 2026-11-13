@@ -202,9 +202,14 @@ export async function reachProof(reachKey: string, nonce: string): Promise<strin
  * let go. A streaming decoder gives exactly the text decoding the whole would
  * (the Encoding Standard's rule): a character split across two chunks, a
  * byte-order mark split or alone (stripped, so a lone one is "nothing sent"),
- * bytes that are not UTF-8 (U+FFFD), all the same; edgeBodies.test.js holds
- * that against the old reader, chunking by chunking. Every return value is
- * the old one.
+ * bytes that are not UTF-8 (U+FFFD), all the same; edgeBodyReader.test.js
+ * holds that against the old reader, chunking by chunking. Every return value
+ * is the old one.
+ *
+ * The decoder is flushed exactly once on EVERY path (review round 1, R3): at
+ * the end of the body, where its text is the body's last; and, its text
+ * discarded, past the cap or when the stream fails mid-read, so it never
+ * keeps the first bytes of a character after the reader has returned.
  */
 export async function readJsonLimited(req: Request, maxBytes: number): Promise<{ value: unknown; length: number } | null> {
   const declared = Number(req.headers.get('content-length') ?? '')
@@ -214,18 +219,25 @@ export async function readJsonLimited(req: Request, maxBytes: number): Promise<{
   const decoder = new TextDecoder()
   let text = ''
   let total = 0
-  for (;;) {
-    const { value, done } = await reader.read()
-    if (done) break
-    if (!value) continue
-    total += value.length
-    if (total > maxBytes) {
-      try { await reader.cancel() } catch { /* already done */ }
-      return { value: undefined, length: total }
+  let flushed = false
+  try {
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) break
+      if (!value) continue
+      total += value.length
+      if (total > maxBytes) {
+        try { await reader.cancel() } catch { /* already done */ }
+        return { value: undefined, length: total }
+      }
+      text += decoder.decode(value, { stream: true })
     }
-    text += decoder.decode(value, { stream: true })
+    text += decoder.decode()
+    flushed = true
+  } finally {
+    // Past the cap, or a read that threw: flushed too, and what it gives is not kept.
+    if (!flushed) decoder.decode()
   }
-  text += decoder.decode()
   if (!text) return { value: undefined, length: 0 }
   try {
     return { value: JSON.parse(text), length: total }

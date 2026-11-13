@@ -542,3 +542,63 @@ describe('resolve-login: a bad body is a counted, logged miss', () => {
     expect(Date.now() - t0).toBeGreaterThanOrEqual(170)
   })
 })
+
+// ── The reader's streaming decoder is let go on every path (review round 1, R3) ──
+//
+// readJsonLimited decodes as it reads, through one streaming TextDecoder. Past the
+// cap, and when the stream fails mid-read, it used to leave that decoder holding
+// whatever it had (the first bytes of a character). It is now flushed on those
+// paths too, its text discarded, exactly once on every path. Nothing it returns
+// moved: edgeBodyReader.test.js holds every return value against the old reader.
+describe('readJsonLimited flushes its decoder once, whichever way it returns (R3)', () => {
+  /** Every TextDecoder made while this is stubbed, and what was asked of each. */
+  function countDecoders() {
+    const made = []
+    const Real = globalThis.TextDecoder
+    vi.stubGlobal('TextDecoder', class extends Real {
+      constructor(...a) { super(...a); this.asked = []; made.push(this) }
+      decode(input, options) {
+        this.asked.push(input === undefined ? 'flush' : (options?.stream ? 'chunk' : 'whole'))
+        return super.decode(input, options)
+      }
+    })
+    return made
+  }
+  /** A request as the reader reads one: its headers and a body of these chunks, then `end`. */
+  function requestOf(chunks, end = 'close') {
+    let i = 0
+    const body = new ReadableStream({
+      pull(c) {
+        if (i < chunks.length) c.enqueue(chunks[i++])
+        else if (end === 'close') c.close()
+        else c.error(new Error(end))
+      },
+    }, { highWaterMark: 0 })
+    return { headers: new Headers(), body }
+  }
+  const bytes = (s) => new TextEncoder().encode(s)
+  const EURO_HEAD = new Uint8Array([0xe2, 0x82]) // the first two of '€''s three bytes
+
+  it.each([
+    ['past the cap, a character half read', [bytes('{"a":"'), EURO_HEAD, bytes('x'.repeat(64))], 'close', 16, { value: undefined, length: 72 }],
+    ['past the cap on the first chunk', [bytes('x'.repeat(64))], 'close', 16, { value: undefined, length: 64 }],
+    ['read to its end, JSON', [bytes('{"a":'), bytes('1}')], 'close', 64, { value: { a: 1 }, length: 7 }],
+    ['read to its end, not JSON', [bytes('{nope')], 'close', 64, null],
+    ['read to its end, nothing', [], 'close', 64, { value: undefined, length: 0 }],
+  ])('%s: the same answer, the decoder flushed once, last', async (_name, chunks, end, cap, expected) => {
+    const { readJsonLimited } = await import('../../supabase/functions/_shared/gatewayWire.ts')
+    const made = countDecoders()
+    expect(await readJsonLimited(requestOf(chunks, end), cap)).toEqual(expected)
+    expect(made).toHaveLength(1)
+    expect(made[0].asked.filter((a) => a === 'flush')).toEqual(['flush'])
+    expect(made[0].asked.at(-1)).toBe('flush')
+  })
+
+  it('a stream that fails mid-read: the same throw, the decoder flushed once, last', async () => {
+    const { readJsonLimited } = await import('../../supabase/functions/_shared/gatewayWire.ts')
+    const made = countDecoders()
+    await expect(readJsonLimited(requestOf([bytes('{"a":"'), EURO_HEAD], 'the socket closed'), 64)).rejects.toThrow('the socket closed')
+    expect(made).toHaveLength(1)
+    expect(made[0].asked).toEqual(['chunk', 'chunk', 'flush'])
+  })
+})

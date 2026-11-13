@@ -41,7 +41,10 @@
 // F8 (wave 2, 2026-11-13): steps 1 and 2 (the bearer, GoTrue) are
 // adminGuard.authenticate and the factor read is adminGuard.hasVerifiedTotp,
 // shared with the other two guards. The three differences above stay here,
-// unshared: no workspace in the context (the claims are not asked at all);
+// unshared: no workspace in the context (of the token's claims only `aal` is
+// read, at the step-up, once the platform_operators row and a verified factor
+// have been found: the token is decoded there and nowhere earlier, and its
+// app_metadata never; review round 1, G1);
 // the platform_operators read is this file's own and a failure of it is 503
 // (liveMembership hands its error back unjudged, which is right for the other
 // two guards and wrong here); and MFA is hard both ways, enrolment asked

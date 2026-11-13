@@ -167,7 +167,7 @@ describe('loadWorkspaceBucket: what it reads, and how', () => {
   })
 })
 
-describe('loadWorkspaceBucket: a read that throws is met where it was met before (allSettled, not all)', () => {
+describe('loadWorkspaceBucket: a read that throws is met where it was met before (the configuration first, the secret\'s caught)', () => {
   it('the secret read throws beside no S3 configuration: not_s3, and no unhandled rejection', async () => {
     const unhandled = []
     const on = (e) => unhandled.push(e)
@@ -195,6 +195,57 @@ describe('loadWorkspaceBucket: a read that throws is met where it was met before
     const { w, admin } = scene()
     w.table('workspace_storage', () => { throw new Error('the pool is gone') })
     await expect(loadWorkspaceBucket(admin, WS, { requireByos: false })).rejects.toThrow('the pool is gone')
+  })
+})
+
+// Review round 1, S1: the refusals the configuration alone decides were answered
+// before the secret table was asked at a71cd144. Both reads are still STARTED at
+// once (the statement order above), but those four refusals must not wait for the
+// secret's answer, and a secret read that fails after one was given must not be
+// left unhandled.
+describe('loadWorkspaceBucket: what the configuration alone refuses is answered without waiting for the secret (S1)', () => {
+  const CONFIG_ONLY = [
+    ['storage_read_failed', { wsError: { message: 'connection reset' } }, { requireByos: false }, { ok: false, code: 'storage_read_failed', message: 'connection reset' }],
+    ['not_s3', { ws: null }, { requireByos: true }, { ok: false, code: 'not_s3' }],
+    ['not_active', { ws: row('cloud') }, { requireByos: true }, { ok: false, code: 'not_active' }],
+    ['crypto_unavailable', {}, { requireByos: false }, { ok: false, code: 'crypto_unavailable' }],
+  ]
+  const within = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(() => r('still waiting'), ms))])
+
+  it.each(CONFIG_ONLY)('%s, beside a secret read that never answers', async (_code, world, opts, expected) => {
+    delete process.env[ST]
+    const { w, admin } = scene(world)
+    w.table('workspace_storage_secrets', () => new Promise(() => {}))
+    expect(await within(loadWorkspaceBucket(admin, WS, opts), 200)).toEqual(expected)
+    // The secret read was still started, after the configuration's.
+    expect(statements(w).map((s) => s.name)).toEqual(['workspace_storage', 'workspace_storage_secrets'])
+  })
+
+  it.each(CONFIG_ONLY)('%s, beside a secret read that fails after the answer: nothing left unhandled', async (_code, world, opts, expected) => {
+    delete process.env[ST]
+    const unhandled = []
+    const on = (e) => unhandled.push(e)
+    process.on('unhandledRejection', on)
+    try {
+      const { w, admin } = scene(world)
+      let failNow
+      w.table('workspace_storage_secrets', () => new Promise((_, reject) => { failNow = () => reject(new Error('the socket closed late')) }))
+      const out = loadWorkspaceBucket(admin, WS, opts)
+      expect(await within(out, 200)).toEqual(expected)
+      failNow()
+      await new Promise((r) => setTimeout(r, 25))
+    } finally {
+      process.off('unhandledRejection', on)
+    }
+    expect(unhandled).toEqual([])
+  })
+
+  it('once the configuration has passed, the secret IS waited for (a slow secret read is still read)', async () => {
+    const sec = await sealed('the-slow-secret')
+    const { w, admin } = scene()
+    w.table('workspace_storage_secrets', () => new Promise((r) => setTimeout(() => r({ data: sec, error: null }), 30)))
+    const out = await loadWorkspaceBucket(admin, WS, { requireByos: false })
+    expect(out).toMatchObject({ ok: true, secret: 'the-slow-secret' })
   })
 })
 

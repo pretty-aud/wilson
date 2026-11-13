@@ -6,9 +6,11 @@
 // user-detail panel's Security block. Never returns secrets.
 //
 // F8 (wave 2, 2026-11-13): the TARGET's factor read is adminGuard's
-// hasVerifiedTotp, the block the guards share. Here a read that fails (its
-// error channel or a throw) is reported as unenrolled, as it always was: this
-// is a READ of a posture, never a gate, so it must not refuse as the guards do.
+// hasVerifiedTotp, the block the guards share. Here its `count` is the answer
+// whatever `ok` says, exactly as before (review round 1, G2): the verified
+// TOTP factors in `data` are counted even when the error channel is set, and a
+// throw is 0 (unenrolled). This is a READ of a posture, never a gate, so it
+// must not refuse as the guards do.
 // =============================================================================
 
 import { corsHeaders, hasVerifiedTotp, reply, requireWorkspaceAdmin } from '../_shared/adminGuard.ts'
@@ -45,9 +47,9 @@ Deno.serve(async (req: Request) => {
   const { data: userData, error: userErr } = await admin.auth.admin.getUserById(userId)
   if (userErr || !userData.user) return reply({ error: 'lookup_failed' }, 502)
 
-  // MFA API unavailable → report unenrolled.
+  // Counted from `data` whatever the error channel says; MFA API throwing → report unenrolled.
   const totp = await hasVerifiedTotp(admin, userId)
-  const factorCount = totp.ok ? totp.count : 0
+  const factorCount = totp.count
 
   const u: { email?: unknown; last_sign_in_at?: unknown; banned_until?: unknown } = userData.user
   return reply({

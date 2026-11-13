@@ -27,8 +27,9 @@
 // F8 (wave 2, 2026-11-13): also home to the caller checks the three guards
 // (and issue-session, resolve-login, admin-user-security, the gateway and
 // storage functions) used to write out each for themselves, now once:
-// authenticate (the bearer, sliced and never trimmed, then GoTrue, then the
-// token's claims), liveMembership (the live workspace_members row, its error
+// authenticate (the bearer, sliced and never trimmed, then GoTrue, and the
+// token's claims, decoded only when a caller first reads one: review round 1,
+// G1), liveMembership (the live workspace_members row, its error
 // handed back unjudged), hasVerifiedTotp (the factor read), serviceClient and
 // callerClient (with `quiet` only where a function always passed those
 // options), and jsonResponse under reply. Each guard still decides its own
@@ -132,15 +133,53 @@ export type Caller = {
   token: string
   /** GoTrue's record of the token's user. */
   user: User
-  /** From the TOKEN's payload (the hook mints them there); workspace_id falls back to the user record. */
-  claims: { workspaceId: string | null; appRole: string | null; aal: unknown }
+  /**
+   * From the TOKEN's payload (the hook mints them there); workspace_id falls
+   * back to the user record. LAZY (review round 1, G1): the payload is decoded
+   * when a field is first read, never before, so each caller decodes it where
+   * it always did. Reading workspaceId or appRole reads the payload's
+   * app_metadata (the admin and member guards, at once after GoTrue); reading
+   * aal reads only the payload's aal (the operator guard, once its row and an
+   * enrolled factor are found); issue-session reads none. A payload that is
+   * JSON null throws a TypeError on that first read, at that point, as it did.
+   */
+  readonly claims: { readonly workspaceId: string | null; readonly appRole: string | null; readonly aal: unknown }
+}
+
+/** The claims of a GoTrue-verified token, each decoded on its first read (see Caller.claims). */
+function lazyClaims(token: string, user: User): Caller['claims'] {
+  let payload: Record<string, unknown> | undefined
+  let decoded = false
+  const payloadOf = (): Record<string, unknown> => {
+    if (!decoded) { payload = decodeJwtPayload(token); decoded = true }
+    return payload as Record<string, unknown>
+  }
+  let fromMetadata: { workspaceId: string | null; appRole: string | null } | undefined
+  const metadata = () => {
+    if (fromMetadata) return fromMetadata
+    // The token's workspace FIRST, the user record's only when the token has
+    // none; the role from the token ONLY.
+    const pmd = (payloadOf().app_metadata ?? {}) as Record<string, unknown>
+    const md = user.app_metadata ?? {}
+    const workspaceId =
+      typeof pmd.workspace_id === 'string' ? pmd.workspace_id :
+      typeof md.workspace_id === 'string' ? md.workspace_id : null
+    const appRole = typeof pmd.app_role === 'string' ? pmd.app_role : null
+    fromMetadata = { workspaceId, appRole }
+    return fromMetadata
+  }
+  return {
+    get workspaceId() { return metadata().workspaceId },
+    get appRole() { return metadata().appRole },
+    get aal() { return payloadOf().aal },
+  }
 }
 
 /**
- * Steps 1 and 2 of every guard and of issue-session: the bearer, then GoTrue,
- * then the claims. It answers a REASON, never a Response: each caller words
- * its own 401. It reads headers only, never the body (ai-files calls two
- * guards on one request).
+ * Steps 1 and 2 of every guard and of issue-session: the bearer, then GoTrue;
+ * the claims are handed back undecoded (Caller.claims). It answers a REASON,
+ * never a Response: each caller words its own 401. It reads headers only,
+ * never the body (ai-files calls two guards on one request).
  */
 export async function authenticate(
   req: Request,
@@ -164,16 +203,8 @@ export async function authenticate(
   // app_role/workspace_id are minted by custom_access_token_hook into the
   // JWT and never persisted to raw_app_meta_data (only workspace_id gets
   // seeded there, best-effort). The token is already validated above, so
-  // decoding its payload is safe. The token's workspace FIRST, the user
-  // record's only when the token has none; the role from the token ONLY.
-  const payload = decodeJwtPayload(token)
-  const pmd = (payload.app_metadata ?? {}) as Record<string, unknown>
-  const md = data.user.app_metadata ?? {}
-  const workspaceId =
-    typeof pmd.workspace_id === 'string' ? pmd.workspace_id :
-    typeof md.workspace_id === 'string' ? md.workspace_id : null
-  const appRole = typeof pmd.app_role === 'string' ? pmd.app_role : null
-  return { ok: true, caller: { admin, token, user: data.user, claims: { workspaceId, appRole, aal: payload.aal } } }
+  // decoding its payload is safe. Decoded when first read, not here.
+  return { ok: true, caller: { admin, token, user: data.user, claims: lazyClaims(token, data.user) } }
 }
 
 /**
@@ -201,23 +232,28 @@ export async function liveMembership(
  * How many verified TOTP factors a user holds. `ok: false` when GoTrue could
  * not say: its `error` channel or a throw (supabase-js reports most failures
  * on the channel, so an unchecked `error` would be a quiet fail-open). The
- * guards refuse on it (503); admin-user-security reads it as none (a READ of
- * a posture, never a gate). It takes a user id, not "the caller":
+ * guards refuse on it (503). It takes a user id, not "the caller":
  * admin-user-security asks about its TARGET.
+ *
+ * `count` is there on BOTH answers (review round 1, G2), for
+ * admin-user-security, which reads a posture and is never a gate: as at
+ * a71cd144 it counts the verified TOTP factors in `data` WHATEVER the error
+ * channel says, and is 0 only when the read throws (or `data` cannot be
+ * counted). The guards never read `count` when `ok` is false.
  */
 export async function hasVerifiedTotp(
   admin: ServiceClient, userId: string,
-): Promise<{ ok: true; verified: boolean; count: number } | { ok: false }> {
+): Promise<{ ok: true; verified: boolean; count: number } | { ok: false; count: number }> {
   try {
     const { data, error } = await admin.auth.admin.mfa.listFactors({ userId })
-    if (error) throw error
     const count = (data?.factors ?? []).filter(
       (f: { factor_type?: string; status?: string }) =>
         f.factor_type === 'totp' && f.status === 'verified',
     ).length
+    if (error) return { ok: false, count }
     return { ok: true, verified: count > 0, count }
   } catch {
-    return { ok: false }
+    return { ok: false, count: 0 }
   }
 }
 

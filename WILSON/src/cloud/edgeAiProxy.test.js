@@ -149,6 +149,57 @@ describe('ai-proxy: the answers around the key, the key read started beside the 
     expect(names.filter((n) => n === 'table:workspace_ai_keys')).toHaveLength(1)
   })
 
+  // Review round 1, R1: `Deno.env.get('ANTHROPIC_API_KEY')` sits outside
+  // resolveAnthropicKey's try, so if it ever threw, the read started beside the
+  // limiter would reject. Deno ends the isolate on an unhandled rejection: on an
+  // early answer nothing may be left unhandled. Where the read IS awaited, the
+  // throw comes out of the handler, exactly as it did at a71cd144 (there the
+  // read was awaited after validation, and the handler rejected with it).
+  describe('the platform key\'s read throwing (review round 1, R1)', () => {
+    async function watching(run) {
+      const unhandled = []
+      const on = (e) => unhandled.push(e)
+      process.on('unhandledRejection', on)
+      try {
+        const out = await run()
+        await new Promise((r) => setTimeout(r, 25))
+        return { out, unhandled }
+      } finally {
+        process.off('unhandledRejection', on)
+      }
+    }
+    function refuseKeyRead() {
+      const base = globalThis.Deno.env.get
+      globalThis.Deno.env.get = (n) => {
+        if (n === 'ANTHROPIC_API_KEY') throw new Error('the environment refused the read')
+        return base(n)
+      }
+    }
+    it('limited: 429 at once, and nothing left unhandled', async () => {
+      const { call } = await setUp({ limited: true })
+      refuseKeyRead()
+      const { out, unhandled } = await watching(() => call())
+      expect(out).toEqual({ status: 429, json: { error: 'rate_limited' } })
+      expect(unhandled).toEqual([])
+    })
+    it('a body that is not JSON: 400 bad_json, and nothing left unhandled', async () => {
+      const { call } = await setUp()
+      refuseKeyRead()
+      const { out, unhandled } = await watching(() => call(undefined, { raw: '{nope' }))
+      expect(out).toEqual({ status: 400, json: { error: 'bad_json' } })
+      expect(unhandled).toEqual([])
+    })
+    it('a valid body and no company key: the handler rejects with the read\'s own error, as at a71cd144, and nothing else is left unhandled', async () => {
+      const { handler, token } = await setUp()
+      refuseKeyRead()
+      const { out, unhandled } = await watching(() => handler(post(VALID, { token })).then(
+        (res) => ({ answered: res.status }), (e) => ({ rejected: e?.message })))
+      expect(out).toEqual({ rejected: 'the environment refused the read' })
+      expect(unhandled).toEqual([])
+      expect(fetchCalls).toEqual([])
+    })
+  })
+
   it('the one named difference (DESIGN.md §8.3): a call then refused has also read the key row, and written nothing', async () => {
     const limited = await setUp({ limited: true })
     await limited.call()

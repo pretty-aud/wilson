@@ -190,12 +190,20 @@ Deno.serve(async (req: Request) => {
 
   // F8 (f), the review's C5: the key read is STARTED here, before the limiter
   // is awaited, and awaited where it always was (below, after validation). It
-  // never rejects and writes nothing. NOT Promise.all with the limiter: a
-  // limited call must be answered the moment the limiter says so, without
-  // waiting for the key and without reading the body. The one difference,
-  // named in DESIGN.md §8.3: a call then refused (429, 413, 400) has also
-  // read the company's key row and, when there is one, opened it.
+  // writes nothing. Its row read and the decrypt are inside its try, so they
+  // never make it reject; the platform key's read (Deno.env.get) is not, and
+  // if that ever threw the promise would reject (review round 1, R1). So it is
+  // given a no-op catch at once: on every early answer (429, 413, 400, the
+  // JSON-null TypeError) nothing is left unhandled, which Deno would end the
+  // isolate for; and the `await keyRead` below still meets the rejection, and
+  // the handler rejects with it, exactly where the old code's await did. NOT
+  // Promise.all with the limiter: a limited call must be answered the moment
+  // the limiter says so, without waiting for the key and without reading the
+  // body. The one difference, named in DESIGN.md §8.3: a call then refused
+  // (429, 413, 400) has also read the company's key row and, when there is
+  // one, opened it.
   const keyRead = resolveAnthropicKey(admin, workspaceId)
+  keyRead.catch(() => {})
 
   if (await isRateLimited(admin, 'ai-proxy', workspaceId, RPM, 60)) {
     return reply({ error: 'rate_limited' }, 429)

@@ -707,6 +707,32 @@ describe('admin-user-security', () => {
     expect(a.json).toMatchObject({ mfa_enrolled: false, factor_count: 0 })
   })
 
+  // Review round 1, G2: at a71cd144 this read destructured `data` alone and counted the
+  // verified TOTP factors in it, whatever the error channel said; only a throw was 0.
+  it.each([
+    ['a verified factor in data, the error channel set too: counted', { data: { factors: VERIFIED_TOTP }, error: { message: 'x' } }, true, 1],
+    ['no data, the error channel set: 0', { data: null, error: { message: 'x' } }, false, 0],
+    ['a throw: 0', 'throw', false, 0],
+  ])("the target's factor read: %s", async (_name, answer, enrolled, count) => {
+    const { w, token } = securityWorld()
+    w.auth.admin.listFactors = (userId) => {
+      if (userId !== 'user-2') return { data: { factors: [] }, error: null }
+      if (answer === 'throw') throw new Error('gotrue threw')
+      return answer
+    }
+    const a = await ask(token)
+    expect(a.status).toBe(200)
+    expect(a.json).toMatchObject({ mfa_enrolled: enrolled, factor_count: count })
+    expect(trips(w)).toEqual([GET_USER, MEMBERS, FACTORS, MEMBERS, 'auth:getUserById', FACTORS])
+  })
+
+  it("the CALLER's factor read with a verified factor in data and the error channel set: the guard's 503, as before", async () => {
+    const { w, token } = securityWorld()
+    w.auth.admin.listFactors = () => ({ data: { factors: VERIFIED_TOTP }, error: { message: 'x' } })
+    expect(await ask(token)).toEqual({ status: 503, json: { error: 'mfa_check_failed' }, headers: JSON_H })
+    expect(trips(w)).toEqual([GET_USER, MEMBERS, FACTORS])
+  })
+
   it('no target row is a 404 not_found, before the user lookup', async () => {
     const { w, token } = securityWorld({ target: null })
     expect(await ask(token)).toEqual({ status: 404, json: { error: 'not_found' }, headers: JSON_H })
@@ -855,5 +881,80 @@ describe('OPTIONS and GET, every function', () => {
     // Neither asked the database anything, nor made a client.
     expect(w.calls).toEqual([])
     expect(w.clients).toEqual([])
+  })
+})
+
+// ── 7. A token whose payload is JSON null (review round 1, G1) ──────────────
+//
+// GoTrue accepts it here (the harness's users map knows it); a real GoTrue would
+// not mint one, so this is about WHEN each caller decodes the token, which is
+// where the old code would throw. At a71cd144 the admin and member guards decoded
+// it right after GoTrue and read `.app_metadata` of null; the operator guard
+// decoded it only for `aal`, after its platform_operators read and its factor
+// read; issue-session never decoded it at all. Each must still do exactly that.
+
+describe('a token GoTrue accepts whose payload is JSON null: each caller decodes it where it always did', () => {
+  const b64url = (s) => Buffer.from(s).toString('base64url')
+  const NULL_TOKEN = `${b64url('{"alg":"ES256"}')}.${b64url('null')}.sig`
+  const NULL_META = "Cannot read properties of null (reading 'app_metadata')"
+  const NULL_AAL = "Cannot read properties of null (reading 'aal')"
+  const thrown = (p) => p.then((v) => ({ resolved: v }), (e) => ({ name: e?.constructor?.name, message: e?.message }))
+
+  it('adminGuard: the TypeError on app_metadata right after GoTrue, as before', async () => {
+    const w = newWorld()
+    w.auth.users.set(NULL_TOKEN, { id: 'user-1', app_metadata: { workspace_id: 'ws-1' } })
+    membersAnswer(w, { app_role: 'admin', is_active: true })
+    denoEnv()
+    expect(await thrown(requireWorkspaceAdmin(signed(`Bearer ${NULL_TOKEN}`)))).toEqual({ name: 'TypeError', message: NULL_META })
+    expect(trips(w)).toEqual([GET_USER])
+  })
+
+  it('memberGuard: the same TypeError at the same point', async () => {
+    const w = newWorld()
+    w.auth.users.set(NULL_TOKEN, { id: 'user-1', app_metadata: { workspace_id: 'ws-1' } })
+    membersAnswer(w, { is_active: true })
+    denoEnv()
+    expect(await thrown(requireActiveMember(signed(`Bearer ${NULL_TOKEN}`)))).toEqual({ name: 'TypeError', message: NULL_META })
+    expect(trips(w)).toEqual([GET_USER])
+  })
+
+  describe('operatorGuard: the operator row and the factors first, the token decoded only for aal', () => {
+    function seatNull(w, { operator = true, factors = VERIFIED_TOTP } = {}) {
+      w.auth.users.set(NULL_TOKEN, { id: 'op-1', email: 'op@example.test' })
+      w.auth.factors.set('op-1', factors)
+      w.table('platform_operators', () => ({ data: operator ? { user_id: 'op-1' } : null, error: null }))
+      w.table('workspace_members', () => ({ data: null, error: null }))
+    }
+    it.each([
+      ['no operator row: 403 forbidden', { operator: false }, { status: 403, error: 'forbidden' }, [GET_USER, OPERATORS]],
+      ['the factor read failing: 503 mfa_check_failed', { factors: new Error('gotrue unavailable') }, { status: 503, error: 'mfa_check_failed' }, [GET_USER, OPERATORS, FACTORS]],
+      ['no verified factor: 403 mfa_enrollment_required', { factors: [] }, { status: 403, error: 'mfa_enrollment_required' }, [GET_USER, OPERATORS, FACTORS]],
+    ])('%s', async (_name, seat, { status, error }, expectedTrips) => {
+      const w = newWorld()
+      seatNull(w, seat)
+      denoEnv()
+      const g = await requirePlatformOperator(signed(`Bearer ${NULL_TOKEN}`))
+      expect(g.ok).toBe(false)
+      expect(await shown(g.res)).toEqual({ status, json: { error }, headers: JSON_H })
+      expect(trips(w)).toEqual(expectedTrips)
+    })
+    it('a verified factor: the TypeError on aal, where aal is read (and never the label read after it)', async () => {
+      const w = newWorld()
+      seatNull(w)
+      denoEnv()
+      expect(await thrown(requirePlatformOperator(signed(`Bearer ${NULL_TOKEN}`)))).toEqual({ name: 'TypeError', message: NULL_AAL })
+      expect(trips(w)).toEqual([GET_USER, OPERATORS, FACTORS])
+    })
+  })
+
+  it('issue-session never decodes it: 200 with the workspaces, through the real handler', async () => {
+    const w = newWorld()
+    w.auth.users.set(NULL_TOKEN, { id: 'user-1', app_metadata: { workspace_id: 'ws-a' } })
+    w.table('workspace_members', () => ({ data: [{ workspace_id: 'ws-a' }, { workspace_id: 'ws-b' }], error: null }))
+    const { handler } = await loadFunction(vi, 'issue-session')
+    const res = await handler(post({ workspace_id: 'ws-b' }, { token: NULL_TOKEN }))
+    expect(await shown(res)).toEqual({ status: 200, json: { workspace_id: 'ws-b', workspace_ids: ['ws-a', 'ws-b'] }, headers: JSON_H })
+    expect(trips(w)).toEqual([GET_USER, MEMBERS, 'auth:updateUserById'])
+    expect(w.calls.at(-1).args).toEqual(['user-1', { app_metadata: { workspace_id: 'ws-b' } }])
   })
 })

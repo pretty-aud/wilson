@@ -23,13 +23,20 @@
 //     Petal cloud right now", and an empty-string ciphertext is still "no
 //     bucket secret", never "cannot be decrypted".
 //
-// THE TWO READS RUN AT ONCE (Promise.allSettled), and are judged afterwards in
+// THE TWO READS ARE STARTED AT ONCE, the configuration's first, and judged in
 // the order above. Before, when the configuration refused, the secret row was
 // never read; now it is read and not looked at (its ciphertext is never opened
-// and never answered). allSettled, NOT all: a read that THROWS is met where it
-// was met before — the configuration's at once, the secret's only after the
-// configuration has passed — so a throwing secret read beside a company with
-// no S3 configuration is still the 409, never an unhandled rejection.
+// and never answered). The configuration is AWAITED FIRST and refuses at once
+// (review round 1, S1): its four refusals (the read failing, not S3, not
+// active, no master key) never wait for the secret's answer, as they never did.
+// The secret's promise is given a no-op catch the moment it is made, so a
+// secret read that fails after one of those was answered (or while the
+// configuration is still awaited) is never an unhandled rejection; it is
+// awaited, and a throw from it passed on, only once the configuration has
+// passed. So a throwing secret read beside a company with no S3 configuration
+// is still the 409. Not Promise.all, and not allSettled: all would meet the
+// secret's throw before the configuration's refusal, allSettled would make
+// every refusal wait for the secret.
 //
 // ONE QUERY IS POSSIBLE AND IS NOT USED: the two tables have no foreign key
 // between them, so one statement would go through `workspaces` and embed both
@@ -134,20 +141,19 @@ export async function loadWorkspaceBucket(
   admin: SupabaseClient, workspaceId: string, opts: LoadBucketOptions,
 ): Promise<({ ok: true } & WorkspaceBucket) | BucketRefusal> {
   const withMode = opts.withMode === true || opts.requireByos
-  // At once. allSettled, so a read that THROWS is met where it was met before:
-  // the configuration's first; the secret's only once the configuration has passed.
-  const [cfgRead, secRead] = await Promise.allSettled([
-    configQuery(admin, workspaceId, withMode),
-    secretQuery(admin, workspaceId),
-  ])
-  if (cfgRead.status === 'rejected') throw cfgRead.reason
-  const cfg = configOf(cfgRead.value)
+  // Both started at once, the configuration's first (the statement order).
+  const cfgRead = configQuery(admin, workspaceId, withMode)
+  const secRead = secretQuery(admin, workspaceId)
+  // Never unhandled: met below once the configuration has passed, or never looked at.
+  secRead.catch(() => {})
+  // The configuration alone decides these four, at once (a throw: passed on at once).
+  const cfg = configOf(await cfgRead)
   if (!cfg.ok) return cfg
   if (!cfg.s3) return { ok: false, code: 'not_s3' }
   if (opts.requireByos && cfg.mode !== 'byos') return { ok: false, code: 'not_active' }
   if (opts.preflightCrypto !== false && !storageSecretCryptoConfigured()) return { ok: false, code: 'crypto_unavailable' }
-  if (secRead.status === 'rejected') throw secRead.reason
-  const { data: sec, error: secErr } = secRead.value
+  // Only now the secret: its throw, if it threw, is passed on here.
+  const { data: sec, error: secErr } = await secRead
   if (secErr) return { ok: false, code: 'secret_read_failed', message: secErr.message }
   const ciphertext = (sec as { secret_ciphertext?: unknown } | null)?.secret_ciphertext
   if (!ciphertext) return { ok: false, code: 'no_secret' }
