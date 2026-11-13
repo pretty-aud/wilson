@@ -331,9 +331,9 @@ END;
 $f$;
 SELECT public.t139_swap('t139_le', $s$o.name COLLATE "C" <  ($s$, $s$o.name COLLATE "C" <= ($s$);
 SELECT public.t139_swap('t139_ff', $s$p.id::text || '0')$s$, $s$p.id::text || '/' || chr(255))$s$);
-SELECT public.t139_swap('t139_1b_files', $s$WHERE o.bucket_id IN ('rabbit-files', 'rabbit-thumbnails')
-         AND split_part$s$, $s$WHERE o.bucket_id IN ('rabbit-files')
-         AND split_part$s$);
+-- (one line each, with \n: the house's hosted runner writes CRLF, and a literal across lines would not match the body)
+SELECT public.t139_swap('t139_1b_files', E'WHERE o.bucket_id IN (\'rabbit-files\', \'rabbit-thumbnails\')\n         AND split_part',
+                        E'WHERE o.bucket_id IN (\'rabbit-files\')\n         AND split_part');
 
 -- P1 and P2 are company A's, Q is B's; PURGED names no project any more.
 INSERT INTO public.projects (id, workspace_id, title, created_by) VALUES

@@ -721,6 +721,25 @@ AND public.current_app_role() IN ('admin', 'manager')
 The third clause is specific to `projects` (matrix parity: creating a project
 is an admin/manager action). Child tables keep the two-clause form.
 
+**Since 0137 (F7, 2026-11-13) the membership check is asked once per statement.**
+`has_active_membership` is a SECURITY DEFINER, so the planner never inlines it, and
+written as above it ran once for every row a policy looked at (a 42-task UPDATE on
+dev made about 140 calls). 186 of the 189 policies that call it now read
+`... AND workspace_id = public.current_workspace_id() AND (SELECT
+public.has_active_membership(public.current_workspace_id())) ...`, an InitPlan run
+once per statement. It is the same policy because the column is pinned to the claim
+beside it: where the pin is TRUE the two calls are one value, and where it is not,
+the AND holding it is not TRUE either way; no NOT, CASE, COALESCE or IS sits on any
+call's path (0137's header has the argument). **Three keep the call per row:**
+`auth_events_insert` (no pin), and `ws_members_select` and `ws_members_admin_write`:
+`ws_members_self_update`'s WITH CHECK reads `workspace_members` by a sub-query, and
+the rewriter refuses ("infinite recursion detected in policy", 42P17) to expand a
+table's policies a second time on one path once any of them holds a sub-query.
+**A new policy follows the new form** where its column is pinned to the claim, and
+no table may then reach itself through its policies' sub-queries: 0137's own probe,
+and suite 139's, prepare every kind of statement on every table as a client and
+refuse on 42P17.
+
 Child tables that carry no `workspace_id` of their own inherit it through a
 live-parent `EXISTS` join — the "0014 pattern". Hiding a parent transitively
 hides its children with **zero propagation writes**, which is why trashing a
@@ -883,7 +902,7 @@ must not reimplement their logic.
 | `custom_access_token_hook(jsonb)` | DEFINER | Mints the four JWT claims |
 | `current_workspace_id()` | INVOKER | Active workspace from the claim |
 | `current_app_role()` | INVOKER | App role from the claim (deliberately claim-based, to avoid RLS recursion) |
-| `has_active_membership(uuid)` | DEFINER | The live membership gate used by nearly every policy |
+| `has_active_membership(uuid)` | DEFINER | The live membership gate used by nearly every policy; since 0137 asked once per statement, `(SELECT has_active_membership(current_workspace_id()))`, in 186 of the 189 (§4.4) |
 | `project_role_for` / `project_is_staffed` / `can_write_project` / `can_comment_project` / `can_manage_project_roster` | DEFINER | Project-level authority (0013); mirrored client-side by `projectRoleMatrix.js` |
 | `has_rate_card_grant(text)` | DEFINER | Live per-user rate-card view/edit grant (0020) |
 | `soft_delete_row` / `restore_soft_deleted` / `fn_trash_authz` | DEFINER | The only client path into and out of the trash |
@@ -2263,6 +2282,22 @@ walk found a file that was already there. An add through the desktop's route, un
 
 **MO1.** The drain takes `pending` and `failed` rows, in that order, because 0115 keeps a failed row's key claimed until it is
 really gone. A company's bucket that has stopped answering is asked once in a run, so what follows the drain still runs.
+
+**F7 (wave 2, 2026-11-13): the drain's guard is asked per slice, not per row.** The page of up to 500 queue rows is taken
+in slices of 50; for each slice the guard reads `files` once per column (`storage_path` for a body, `thumbnail_url` for a
+picture, both for a company bucket's row), chunked by what the request carries, and the slice is acted on before the next
+is read, so "nothing names this" is at most one slice old (0115's claim holds a queued key against a new row meanwhile).
+The read has **no provider filter**: both indexes on those columns are partial on the provider, and no filter is proved for
+every provider (nothing stops a `google_drive` row from naming a bucket key: OUTSTANDING F7-09), so each read is a scan of
+`files`, about 7 for a full page where it was 500. **A list of keys is sent quoted and escaped** (`.filter(col, 'in',
+…)`): postgrest-js's `.in()` escapes neither `"` nor `\`, and PostgREST reads a list only to its first closing `)`, so one
+key holding `")` once blinded every key after it in its chunk, which then read "nothing names this" and was deleted (round
+1's security finding; the orphan scan's `referencedPaths` had the same encoding and takes the same fix). Only a plain key
+(`[A-Za-z0-9._/-]`) is listed; any other is asked alone by `.eq()`, as the drain asked every key before. A failed read,
+whatever its error's shape, or an answer that is not a list, fails each of its rows `failed`; pages go by id until one comes
+back empty, whatever `max_rows` is. The stamps, `remove()` with `certify()`, and the orphan scan's per-folder reads stay one
+per row (OUTSTANDING F7-04). `src/cloud/edgeSweeps.test.js` drives the handler against an in-memory supabase-js that
+builds and parses lists as the two really do.
 
 `trg_files_gc_enqueue` fires `AFTER DELETE ON files WHEN storage_provider =
 'supabase'` and inserts a `storage_gc_queue` row. The `storage-gc` Edge
@@ -3679,6 +3714,20 @@ reads `no_folder` for its own project and stops nobody else.
 
 ### 12.10 The quota exemption is bounded by size (Track C, migration 0078)
 
+**F7 (0137, 2026-11-13): how the meter finds a company's objects.** `workspace_petal_committed_bytes(ws)` (0073, restated by
+0115 and 0137) counts the same bytes as before, in three arms. **1a**, for each of the company's projects, every object of
+`rabbit-files` and `rabbit-thumbnails` whose key starts `projects/<id>/`, read as a byte range in collation "C"
+(`>= 'projects/<id>/'`, `< 'projects/<id>0'`: '/' is 0x2F, '0' 0x30), which storage's `(bucket_id, name COLLATE "C")` index
+serves; no function runs per object. **1b**, 0115's first arm verbatim behind a cheap test that keeps out exactly what 1a
+counts: a key whose second segment is spelled another way (upper case, braces, missing or extra hyphens all name the
+project through `fn_try_uuid`, and the storage INSERT policies admit them, so a prefix alone would be a quota bypass). It
+still reads both buckets of every company, but a regular expression per object where 0115 ran `fn_try_uuid`'s
+sub-transaction (about 0.2 ms) on every object: OUTSTANDING F7-05. **2**, 0115's moved copies, unchanged.
+`rabbit_object_incoming_bytes(metadata)` stays the only size source. 0137 installs the body under a candidate's name,
+compares old and new for every company in one statement and refuses on any difference, then replaces the function and pins
+its md5 (`67bd041258c73fecae5b4031357e42d2`), definer, owner and grants; suite 139 plants every spelling and a moved copy
+against 0115's body, with controls cut from the live body (no 1b, no 2, `<=`, a `chr(255)` bound, one bucket).
+
 Audrey's ruling, 2026-09-09, on the consequence §12.9 describes: **bound the
 exemption by size**, rather than cap `BudgetView`'s picker. Migration **0078**
 is that bound. Migration number taken with her explicit permission the same day
@@ -3958,7 +4007,17 @@ deleted the id and the caller's row is the earliest naming it (otherwise
 `absent` row) and never asked about again; a lookup batch the store refuses (it
 refuses an id it cannot parse, measured) is split down to that id. The new
 routes spend their own rate buckets (`ai-files-manage` per caller,
-`ai-files-list` per workspace), never the upload's. Uploads reach the store
+`ai-files-list` per workspace), never the upload's. **F7 (0137):** a sweep, the
+workspace's or the operator's, lists the store and reads the rows ONCE: what is
+left after it is that listing less the ids whose delete answered `deleted` (2xx)
+or `gone` (404), the two outcomes a delete certificate makes the next list skip
+(`pooled` answers in the order of its items, which this rests on). The rows these
+reads look for have two indexes of their own: `app_events_file_id_idx` on
+`context->>'file_id'` (every row: partial, the planner took it for its predicate
+alone) and `app_events_ai_files_ws_id_idx` on `(workspace_id, id)` for the upload
+rows, with statistics on `context->>'tool'`; PostgREST binds the JSON key itself
+as a parameter, so both serve its custom plans (the generic plan cannot match the
+expression), which is what a parameter's plan is while one is cheaper. Uploads reach the store
 under a neutral name (`neutralFileName`: `document.pdf`), never the file's own. 🚨 Attribution lives only
 as long as app_events' 90-day purge keeps the upload row: a file older than
 that, never deleted, is nobody's to WILSON (pre-FX12 uploads from 2026-08-11
@@ -5476,7 +5535,7 @@ else.
 
 ## 15. Testing and verification
 
-**As of MO4 with 0136 (2026-11-12):** 132 pgTAP suites, 7,243 checks (suite 134's plan from 43 to 64, suite 137's from 42 to 45), the whole set read once on wilson-dev on the applied schema at 0136: 7,243 planned = collected, 7,241 passed, the two reds suite 74's #34 and #35 (dev's own old sign-in rows, red before this session). **As of MO4 (2026-11-12):** 132 pgTAP suites, 7,219 checks with 0130 to 0135 (by count of the suites' plans; the whole set last read on wilson-dev on the applied schema after 0133, 7,205 of 7,209, before 0134 and suite 136's last ten probes; after 0134 and 0135 suites 110 and 134 to 138 read 325 of 325 there). **As of MO3 (2026-11-08):** 127 pgTAP suites, 6,950 checks with 0128 and 0129 (by count, after both whole-session review rounds; the whole set read on wilson-dev, rolled back, with the two prepended before they were applied and on the applied schema at the session's end: 6,948 passed, the rest suite 74's two checks on dev's own old sign-in rows, red before this session). **As of MO2 (2026-11-07):** 120 pgTAP suites, 6,511 checks with 0122 and 0123 (by count, after both review rounds) (the whole set read 6,493 on wilson-dev, rolled back, before the 15 probes the planted breakages asked for; the four suites they went into were read again). **As of MO1 (2026-11-07):** 117 pgTAP suites, 6,252 checks with 0120 and 0121, read by running them on wilson-dev, rolled back. The counts just below are dated history.
+**As of F7 with 0137 (2026-11-13):** 133 pgTAP suites, 7,303 checks (suite 139, 60; suites 01, 90, 95, 99, 101 and 115 pin the sub-select's text), the whole set read once on wilson-dev on the applied schema at 0137 (`node scripts/tap-all.mjs`, 04:17 to 04:22 UTC; suite 139 again alone after a one-line fix for the runner's CRLF): 7,303 planned = collected, 7,300 passed, the three reds suite 25's #13 and suite 74's #34 and #35 (dev's own rows older than 90 days, red before this session). **As of MO4 with 0136 (2026-11-12):** 132 pgTAP suites, 7,243 checks (suite 134's plan from 43 to 64, suite 137's from 42 to 45), the whole set read once on wilson-dev on the applied schema at 0136: 7,243 planned = collected, 7,241 passed, the two reds suite 74's #34 and #35 (dev's own old sign-in rows, red before this session). **As of MO4 (2026-11-12):** 132 pgTAP suites, 7,219 checks with 0130 to 0135 (by count of the suites' plans; the whole set last read on wilson-dev on the applied schema after 0133, 7,205 of 7,209, before 0134 and suite 136's last ten probes; after 0134 and 0135 suites 110 and 134 to 138 read 325 of 325 there). **As of MO3 (2026-11-08):** 127 pgTAP suites, 6,950 checks with 0128 and 0129 (by count, after both whole-session review rounds; the whole set read on wilson-dev, rolled back, with the two prepended before they were applied and on the applied schema at the session's end: 6,948 passed, the rest suite 74's two checks on dev's own old sign-in rows, red before this session). **As of MO2 (2026-11-07):** 120 pgTAP suites, 6,511 checks with 0122 and 0123 (by count, after both review rounds) (the whole set read 6,493 on wilson-dev, rolled back, before the 15 probes the planted breakages asked for; the four suites they went into were read again). **As of MO1 (2026-11-07):** 117 pgTAP suites, 6,252 checks with 0120 and 0121, read by running them on wilson-dev, rolled back. The counts just below are dated history.
 
 **pgTAP** — 55 suites under `supabase/tests/rls/` (Session 20 added 39–42, one
 per model control-plane table; **Session 24 added 43–47, one per money table;
@@ -5773,6 +5832,21 @@ Everything below is *known*, not discovered by a reader. The live list is
 human actions live in `docs/OWED_AUDREY.md`; **everything currently broken and
 unfixed is `docs/OUTSTANDING.md`** (S19), which is the one to read at the start
 of a session — this section is limits by design, that file is faults.
+
+**The database's per-row work (F7, 0137; counts measured on wilson-dev, 2026-11-13)**
+
+- **Three policies still ask has_active_membership per row** of the 189 that call it (283 policies in all, 65 tables):
+  `auth_events_insert`, which pins no company, and `workspace_members`' two read-side policies, which a sub-select would
+  make recurse (§4.4). OUTSTANDING F7-01, F7-02.
+- **Other helpers run per row**: `can_write_project` in 70 policies on 21 tables, `can_access_project_money` in 34,
+  `current_app_role` in 32, `can_edit_shot_lists` in 22, `can_access_project_legal` in 14, `is_live_workspace_admin`
+  in 12, `is_platform_operator` in 5. Most take the row's project. OUTSTANDING F7-03.
+- **The quota meter still reads both buckets of every company** once per upload for a key spelled other than
+  `projects/<id>/` (cheap per object since 0137; only an index on a storage table would make it one company's). F7-05.
+- **storage-gc's guard is a scan of `files` per chunk**, about 7 for a full page: no provider filter is proved, so no
+  index can serve it. F7-09.
+- **An event naming a file id over about 2.7 kB cannot be inserted** (the file-id index's entry limit); no writer of the
+  product names one over 101 characters. F7-10.
 
 **The office server (MO1, 0117)**
 

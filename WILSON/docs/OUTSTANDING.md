@@ -4913,3 +4913,64 @@ no fix in the product.
   the line (the 04:43 UTC job had succeeded on each of the last four nights and takes them at its next run). The
   purge is right and the test's count is not its own. `docs/PRODUCTION_RUNBOOK.md` now names it with suite 74's #34
   and #35 and suite 25's #13 as a healthy red. Fix shape: have the test count only the row it backdated.
+
+## F7 (2026-11-13, wave 2's database per-row work on `po/f7-database-per-row-work`; 0137, suite 139) — left open
+
+What 0137 and the three functions left, each with its measurement. Round 1 (nine reviewers) found two blockers and
+one security finding, all fixed before anything reached dev; what they recorded is here.
+
+- **F7-01 · auth_events_insert still asks has_active_membership per row.** MEASURED on dev's live text: its WITH CHECK
+  is `... AND ((workspace_id IS NULL) OR has_active_membership(workspace_id))`, with no pin to the claim anywhere, so
+  the sub-select would change which company a member may name. One call per inserted sign-in event: negligible.
+  Left by design (0137's header).
+- **F7-02 · workspace_members' two read policies still ask it per row.** MEASURED (CI on `11256e74`: suites 14, 16, 24,
+  38 and 67 red with 42P17): `ws_members_self_update`'s WITH CHECK reads workspace_members by a sub-query, and the
+  row-security rewriter refuses to expand a table's policies a second time on one path once any of them holds a
+  sub-query; with the sub-select in `ws_members_select` and `ws_members_admin_write` every client UPDATE of a member
+  row recursed. A company's members are few rows. Fix shape: express self_update's "a member's row keeps its company"
+  without a sub-query (a trigger, or a definer helper), then restate the two with the next migration and its probe.
+- **F7-03 · Other helpers still run per row.** MEASURED on dev's 283 live policies: `can_write_project` in 70 policies
+  on 21 tables, `can_access_project_money` 34 on 9, `current_app_role` 32 on 15, `can_edit_shot_lists` 22 on 8,
+  `can_access_project_legal` 14 on 4, `is_live_workspace_admin` 12 on 8, `moth_can_read_target` 9 on 6,
+  `is_platform_operator` 5 on 4, `two_factor_satisfied` 5 on 3; all definers but `current_app_role`. Most take the
+  row's project and cannot be lifted out of the row. `is_platform_operator()` (no argument) and
+  `is_live_workspace_admin(workspace_id)` beside the workspace pin could take the same once-per-statement form, under
+  0137's proof and its recursion probe. Not measured hot: dev is too small to show their cost.
+- **F7-04 · storage-gc's round trips that stay one per row.** INFERRED by the design round and round 1: the queue's
+  status stamps (grouped, a run killed by the 150 s clock between a removal and its stamp would leave a disposal with
+  no certificate, then stamped `missing`), `remove()` with `certify()` per orphan (a batch answers one error, and a
+  kill would lose up to a batch of certificates), the projects and file_events reads per folder of the orphan scan
+  (groupable only with an exact per-folder fallback), and the twin question per old shot object. Measurement owed: the
+  stamps' share of a real run's time.
+- **F7-05 · The meter's arm 1b still reads both buckets of every company on every upload.** MEASURED by reading the
+  plan's shape (dev has 111 objects, none spelled otherwise): 0137 cut the cost per object from fn_try_uuid's
+  sub-transaction (about 0.2 ms) to a regular expression (microseconds), but arm 1b is still a scan of every object
+  in rabbit-files and rabbit-thumbnails. Making it this company's alone needs a partial index on `storage.objects`
+  (an index on a table of the storage schema): her decision. Measurement that settles whether to ask: the meter's
+  EXPLAIN on staging's object count.
+- **F7-06 · 0137's own meter check runs the old meter for every company.** INFERRED: about 0.2 ms per object of both
+  buckets, times the number of companies, before any lock is taken. Read the rehearsal's time on staging and
+  production before the apply (the runbook's row says so).
+- **F7-07 · rekey_file_body's picture-only phase sets a thumbnail_url without asking 0115's claim.** INFERRED by
+  round 1 (r1-gc, finding 4) from 0133: every other writer of a key consults `file_key_admissible`'s step 5, which
+  holds a queued key against a new row. storage-gc now reads and acts on 50 queue rows at a time, so the window is one
+  slice. Fix shape: the same step 5 for `p_to_thumb` in a later migration.
+- **F7-08 · A bin poster's path may hold any character but `//`, `..` and a backslash.** MEASURED by reading 0091's
+  `bin_files_poster_path_shape_chk`. It is how a key holding `")` could reach storage-gc's queue (round 1's security
+  finding, fixed in the drain: lists are quoted and escaped, and any key that is not plain is asked alone). Fix shape:
+  give the poster column `file_key_shape_ok`'s segment rule.
+- **F7-09 · No provider filter is proved for storage-gc's guard, so its read is a scan of `files`.** MEASURED on dev
+  (both indexes on the columns are partial on the provider; with seq scans off the unfiltered read still scans): a
+  network_share row can never name a bucket key (0117's CHECKs), but nothing in the schema stops a google_drive row
+  from naming one. The read is batched (about 7 scans for a page of 500 rows, was 500). Fix shape, hers: a CHECK
+  retiring google_drive (`storage_provider <> 'google_drive'`, after counting the rows on each environment: 0 on dev),
+  which would make the filter provable and the partial indexes usable.
+- **F7-10 · An event row naming a file id over about 2.7 kB can no longer be inserted.** INFERRED: 0137's
+  `app_events_file_id_idx` indexes `context->>'file_id'` of every row, and a btree entry has a size limit. No writer
+  of this product names an id over 101 characters (dev's longest); only a member's own forged row could, and its
+  insert now fails. 0137's pre-flight refuses to build over such a row (over 1,000 bytes) rather than fail midway.
+- **F7-11 · CI's storage schema was never listed.** INFERRED by round 1 (r1-meter): whether arm 1a's range is served
+  by an index on CI's local stack is not known (correct either way; dev's `(bucket_id, name COLLATE "C")` serves it).
+- **F7-12 · Two pgTAP pins prove less than their words since the sub-select also names `current_workspace_id()`.**
+  Fixed in suites 99 (test 4) and 101 (test 5), which now look for the pin itself; recorded because other suites that
+  probe `LIKE '%current_workspace_id()%'` may have the same blind spot, unchecked.
