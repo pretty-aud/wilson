@@ -136,7 +136,7 @@ import { revertOwnChange } from './revertOwnChange';
 // docs/sessions/handoffs/po-vw1m-2026-10-16.md is the contract).
 import {
   LINK_FIELDS, FIELD_KIND, KIND_FIELD, ITEM_KINDS, isItemKind,
-  itemsOfTask, indexItemsByTask, copyFieldsFromItems, tasksAbout, nextPosition,
+  itemsOfTask, indexItemsByTask, copyFieldsFromItems, tasksAbout, tasksAboutByEntity, nextPosition,
   planLegacyFieldWrite, planSetKind, linkFieldsIn, withoutLinkFields, itemShapeProblem,
 } from './taskItemsModel';
 
@@ -8847,11 +8847,24 @@ export function RabbitProvider({ children }) {
   // is gone, with the raw selectors that read tasks.asset_id.
   const memoSelectors = useMemo(() => {
     const aboutAsset = (assetId) => tasksAbout(tasksView, bundle.taskItems, 'asset', assetId, taskItemsOn);
+    // F4 (2026-11-13; the review's rabbit C5): the warning is asked once per
+    // ROW of the Assets tab (and per asset on the Summary), and each answer
+    // was one tasksAbout: a walk of every item and a filter of every task.
+    // Every asset's tasks are indexed in one pass instead, the first time a
+    // warning is asked for after the tasks or the items change, and each row
+    // reads its list. The same list tasksAbout returns (assetWarnings.test.js).
+    // The lists are the index's own: read here, handed to nobody.
+    let tasksByAsset = null;
+    const warningTasksOf = (assetId) => {
+      if (assetId == null) return [];
+      tasksByAsset ??= tasksAboutByEntity(tasksView, bundle.taskItems, 'asset', taskItemsOn);
+      return tasksByAsset.get(String(assetId)) || [];
+    };
     return {
       selectAssetsByPhase:        (phaseId) => selectAssetsByPhase(bundle.assets, phaseId),
       selectTasksByAsset:         (assetId) => aboutAsset(assetId),
       selectAssetDerivedStatus:   (assetId) => assetStatusOfTasks(aboutAsset(assetId)),
-      selectAssetStatusWarning:   (asset)   => assetWarningOfTasks(asset, asset ? aboutAsset(asset.id) : []),
+      selectAssetStatusWarning:   (asset)   => assetWarningOfTasks(asset, asset ? warningTasksOf(asset.id) : []),
       selectCriticalPath:         ()        => selectCriticalPath(tasksView, bundle.dependencies),
       selectVarianceForProject:   ()        => selectVarianceForProject(tasksView),
       selectProjectBudgetRollup:  (opts = {}) => selectProjectBudgetRollup({
