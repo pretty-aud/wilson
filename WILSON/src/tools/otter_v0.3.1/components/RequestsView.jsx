@@ -51,6 +51,7 @@
 // =============================================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useMinuteClock } from '../../../lib/minuteClock'
 import {
   RefreshCw, GitPullRequestArrow, Check, X, AlertCircle, Lock, ChevronRight,
   Eye, EyeOff, Archive, ExternalLink, MessageSquareWarning, ShieldCheck, Link2,
@@ -83,6 +84,7 @@ export default function RequestsView({
   // re-read the course list and open the host course.
   shares = [], onSharesChanged, onSharesAccepted,
 }) {
+  useMinuteClock()   // the requests' "5m ago" move while the view is open (lib/minuteClock.js says why)
   const [rows, setRows]       = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState(null)

@@ -18,6 +18,7 @@
 // =============================================================================
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useMinuteClock } from '../../lib/minuteClock'
 import {
   Users, Search, X, UserPlus, KeyRound, Power, ChevronDown,
 } from 'lucide-react'
@@ -457,6 +458,7 @@ export default function UsersSection({ wm }) {
 
 // ─── Detail panel (Miller/Chunking: four labeled groups) ───
 function UserDetailPanel({ member, isSelf, wm, escapeDisabled, onClose, onCredentials }) {
+  useMinuteClock()   // "5m ago" below moves while the panel is open (lib/minuteClock.js says why)
   const [entered, setEntered] = useState(false)
   const [modal, setModal] = useState(null)      // { kind: 'grant'|'reset'|'active', ... } | null
   const [grantBusy, setGrantBusy] = useState(null) // 'view' | 'edit' | null
