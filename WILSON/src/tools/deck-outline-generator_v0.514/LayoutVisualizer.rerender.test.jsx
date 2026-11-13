@@ -207,6 +207,33 @@ describe('the preview drawn again for a change of its own', () => {
   })
 })
 
+// ── A placed video (review round 1) ─────────────────────────────────────────
+// A frame is kept across renders now, and the video thumbnail in it keeps the
+// first frame it read: handed another video it showed the first one's picture
+// under the second one's name. It is keyed by its video: another video is
+// another thumbnail, the same video across a redraw is the one it was.
+const videoSlide = (file) => SLIDE.replace('[Image | 16:9] - Hero shot of the lamp room <<lamp-room.png>>', `[Video | 16:9] - The lamp turning <<${file}>>`)
+const video = (name) => ({ file: { name }, type: 'video', mediaType: 'video/mp4', content: btoa(`the bytes of ${name}`) })
+
+describe('a placed video (review round 1)', () => {
+  it('another video in the same frame is another thumbnail; the same video across a redraw is kept', () => {
+    quiet()
+    const assets = [video('a.mp4'), video('b.mp4')]
+    const view = render(<LayoutVisualizer content={videoSlide('a.mp4')} placementAssets={assets} overrideColors={THEME_A} />)
+    expect(renderSpy.mounts('VideoThumbnail')).toBe(1)
+    expect(view.container.textContent).toContain('a.mp4')
+    let mark = renderSpy.mark()
+    view.rerender(<LayoutVisualizer content={videoSlide('a.mp4')} placementAssets={assets} overrideColors={THEME_B} />)
+    expect(renderSpy.renders('LayoutVisualizer', mark)).toBe(1)                // the preview did draw again
+    expect(renderSpy.mounts('VideoThumbnail', mark)).toBe(0)
+    mark = renderSpy.mark()
+    view.rerender(<LayoutVisualizer content={videoSlide('b.mp4')} placementAssets={assets} overrideColors={THEME_B} />)
+    expect(view.container.textContent).toContain('b.mp4')
+    expect(renderSpy.mounts('ImagePlaceholder', mark)).toBe(0)                 // the frame is the frame it was
+    expect(renderSpy.mounts('VideoThumbnail', mark)).toBe(1)                   // and its thumbnail is b's own
+  })
+})
+
 // ── A placed picture's URL ───────────────────────────────────────────────────
 describe('a placed picture: one object URL, for as long as a frame shows it', () => {
   it('the frame is given an object URL of the picture\'s bytes and type, not its base64 text', () => {

@@ -156,6 +156,21 @@ function usePlacedPictureUrl(asset) {
   return shown && shown.asset === asset ? shown.url : null;
 }
 
+// ── A placed video's thumbnail, one per video (F4, review round 1) ──────────
+// VideoThumbnail keeps the first frame it read in state and cannot drop a read
+// in flight, so a frame handed ANOTHER video kept showing the first one's
+// picture under the second one's name, and a late read could put it back.
+// Before F4 every render of the preview remounted every frame, which hid that;
+// a frame is kept now, so its thumbnail is keyed by the video object it shows:
+// another video is another mount, the same video across a redraw is kept.
+const videoKeys = new WeakMap();
+let lastVideoKey = 0;
+function keyOfVideo(asset) {
+  let key = videoKeys.get(asset);
+  if (!key) { key = `video-${++lastVideoKey}`; videoKeys.set(asset, key); }
+  return key;
+}
+
 // Image/Video placeholder component - visible frame with icon, label, and ratio
 // Uses CSS aspect-ratio to match the ratio declared in the markdown
 // When placedAsset is provided, renders the actual image/video thumbnail instead of placeholder
@@ -205,7 +220,7 @@ function ImagePlaceholder({ label, assetType = 'image', className = "", fillCont
         style={placedStyle}
       >
         {isPlacedVideo ? (
-          <VideoThumbnail asset={placedAsset} />
+          <VideoThumbnail key={keyOfVideo(placedAsset)} asset={placedAsset} />
         ) : (
           <img
             src={pictureUrl || undefined}
