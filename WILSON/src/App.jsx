@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, lazy, Suspense } from 'react'
+import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, lazy, Suspense, createContext, useContext, useImperativeHandle } from 'react'
 import { Menu } from 'lucide-react'
 import TitleBar from './components/TitleBar'
 import DevFixturesBadge from './dev/DevFixturesBadge'
@@ -97,12 +97,29 @@ import { pushModal, isTopModal, focusableWithin } from './ui/overlay'
 import LeaveEditDialog from './tools/rabbit_v0.1.0/views/scenes/LeaveEditDialog'
 import UndoToast from './tools/rabbit_v0.1.0/components/UndoToast'
 
-// Wrapper that bridges AgentProvider context to SettingsPage
+// F4 (2026-11-13): the pet lives in <PetHost> (below App in this file). Two
+// things of it are drawn elsewhere, and each reaches its place through a
+// context of its own, so a change in the pet draws those two places and
+// nothing between: the companion, which the host builds and
+// <PetCompanionSlot> draws where the companion always was (the last child of
+// the signed-in column); and Settings' pet card, which is handed the pet and
+// its four actions here, in the wrapper that already handed it the agent's.
+const PetCompanionContext = createContext(null)
+const PetSettingsContext = createContext(null)
+
+function PetCompanionSlot() {
+  return useContext(PetCompanionContext)
+}
+
+// Wrapper that bridges AgentProvider context to SettingsPage (and, since F4,
+// the pet's: petData, onPetModeToggle, onDifficultyChange, onPetReset, onNewPet)
 function SettingsPageWithAgent(props) {
   const agent = useAgent()
-  if (!agent) return <SettingsPage {...props} />
+  const pet = useContext(PetSettingsContext)
+  if (!agent) return <SettingsPage {...pet} {...props} />
   return (
     <SettingsPage
+      {...pet}
       {...props}
       agentEnabled={agent.agentEnabled}
       onAgentEnabledChange={agent.setAgentEnabled}
@@ -925,7 +942,23 @@ export default function App() {
   // ═══════════════════════════════════════════════════════════════════
   //  PET STATE — lifted from O.T.T.E.R. to be app-wide
   // ═══════════════════════════════════════════════════════════════════
-  const [petData, setPetData] = useState(null);
+  //
+  // F4 (2026-11-13): THE PET ITSELF IS NOT HELD HERE ANY MORE. `petData`, its
+  // 30-second tick, its sleep, its dreams, its jump and its chat lived in this
+  // component, so each of them rendered App, and App renders every page: 14
+  // renders of everything in an idle minute, 36 while the pet slept, one for
+  // each character typed to it (App.rerender.test.jsx holds the counts). They
+  // are <PetHost>'s now, below this component in the file and round the
+  // signed-in column in the tree, and a tick draws the pet and nothing else.
+  //
+  // What stays here is what changes rarely and what the sign-out reads: who
+  // the pet belongs to, how it is loaded and saved, and the channels that say
+  // so. The loads, the stale-copy refresh and the sign-out below still SET the
+  // pet, each with the line it had; `setPetData` hands it to the host's own
+  // setter. The host is mounted in App's first commit and never unmounted, so
+  // the setter is there before any effect here can call it.
+  const petHostRef = useRef(null);
+  const setPetData = useCallback((next) => { petHostRef.current?.setPetData(next); }, []);
   // S30: refs, not state. `petSaving` was only ever the in-flight guard, and
   // having it in savePet's dependency list changed savePet's identity on every
   // save — which tore down and rebuilt the 30-second save interval each time.
@@ -1002,8 +1035,6 @@ export default function App() {
   // S31: the last material signature actually written. Primed by both load
   // paths so that LOADING a pet never counts as a change to persist.
   const petPersistedSigRef = useRef(null);
-  const petTimerRef = useRef(null);
-  // (S31: petSaveTimerRef is gone with the 30-second auto-save it armed.)
 
   // ── Phase 3: the Create Egg action, reported on the page that hosts it ─────
   //
@@ -1046,32 +1077,14 @@ export default function App() {
   const petSyncToastRef = useRef(false);
   // What the async catch below needs to know about NOW, not about the render
   // that started the read: is a pet on screen, and is the session held offline?
+  // (F4: <PetHost> writes `petDataRef` as it renders, where the pet now is.)
   const petDataRef = useRef(null);
-  petDataRef.current = petData;
   const permsOfflineRef = useRef(false);
   permsOfflineRef.current = perms.offline;
 
-  // Companion state
+  // Companion state (F4: whether the chat is open stays here, because a change
+  // of page closes it; what is in the chat is <PetHost>'s).
   const [companionOpen, setCompanionOpen] = useState(false);
-  const [chatMessages, setChatMessages] = useState([]);
-  const [chatInput, setChatInput] = useState('');
-  const chatInputRef = useRef('');
-  const handleChatInputChange = useCallback((val) => {
-    chatInputRef.current = val;
-    setChatInput(val);
-  }, []);
-  const [chatLoading, setChatLoading] = useState(false);
-  const [chatThinking, setChatThinking] = useState(false);
-  const [feedbackJustRated, setFeedbackJustRated] = useState(false);
-  const [thumbFlash, setThumbFlash] = useState(null);
-  const [flashFeed, setFlashFeed] = useState(false);
-  const [flashPet, setFlashPet] = useState(false);
-  const [attentionJump, setAttentionJump] = useState(false);
-  const [eggWobble, setEggWobble] = useState(false);
-  const [sleepZCycle, setSleepZCycle] = useState(0);
-  const [cloudVisible, setCloudVisible] = useState(false);
-  const [showHatchModal, setShowHatchModal] = useState(false);
-  const [hatchNameInput, setHatchNameInput] = useState('');
 
   // Save pet — local Express in Electron, localStorage on the web (localData).
   //
@@ -1607,6 +1620,1089 @@ export default function App() {
     if (!bridge?.setSignedInUser) return;
     bridge.setSignedInUser({ userId: perms.ready ? (perms.userId || null) : null }).catch(() => {});
   }, [perms.ready, perms.userId]);
+
+  // Transition: fade-out(250ms) → compress(600ms) → title-hold(400ms) → [swap] → expand(600ms) → fade-in(250ms) → idle
+  // fromHistory: true when the browser back/forward button initiated the
+  // navigation — the URL is already right, so don't push a new entry.
+  const navigateTo = useCallback((targetPage, fromHistory = false, asked = false) => {
+    if (transitionRef.current || targetPage === currentPage) return;
+    // Post-overhaul S3c, step 7 (D12): leaving R.A.B.B.I.T. with an unsaved
+    // edit asks first — BEFORE the transition, which is untouchable (C2).
+    // Keep editing stays; after a back/forward press the address goes back
+    // to this page, so the two never disagree.
+    if (!asked && currentPage === 'rabbit' && hasUnsavedWork('page')) {
+      confirmLeave('page').then((go) => {
+        if (go) { navigateToRef.current(targetPage, fromHistory, true); return; }
+        if (fromHistory && URL_ROUTING_ENABLED) {
+          try { window.history.pushState({ page: currentPage }, '', urlForPage(currentPage)); } catch { /* keep the page */ }
+        }
+      });
+      return;
+    }
+    transitionRef.current = true;
+    // Phase 3: the Create Egg result describes one press, not a lasting state.
+    // Without this it survived every later visit to Settings, so a success
+    // banner outlived the egg it described — and after the egg hatched it was
+    // describing a pet that no longer existed.
+    setNewPetStatus(null);
+
+    if (URL_ROUTING_ENABLED && !fromHistory) {
+      try {
+        window.history.pushState({ page: targetPage }, '', urlForPage(targetPage));
+      } catch { /* history API unavailable — keep navigating anyway */ }
+    }
+
+    setTransitionTitle(PAGE_TITLES[targetPage] || targetPage);
+
+    // Hide pet sprite immediately
+    setPetVisible(false);
+    // Close companion chat during transition
+    setCompanionOpen(false);
+
+    // Step 0: Fade out content first (before bars move)
+    setTransitionState('fading-out');
+
+    setTimeout(() => {
+      // Step 1: Compress (bars squeeze toward center)
+      setTransitionState('compressing');
+
+      setTimeout(() => {
+        // Step 2: Title hold
+        setTransitionState('title-hold');
+
+        setTimeout(() => {
+          // Step 3: Swap page, expand
+          setCurrentPage(targetPage);
+          setTransitionState('expanding');
+
+          setTimeout(() => {
+            // Step 4: Fade in new content
+            setTransitionState('fading-in');
+
+            setTimeout(() => {
+              // Step 5: Done
+              setTransitionState('idle');
+              setTransitionTitle('');
+              setShowNavMenu(false);
+              transitionRef.current = false;
+              // Show pet sprite after transition completes
+              setPetVisible(true);
+            }, TRANSITION.fadeIn);
+          }, TRANSITION.expand);
+        }, TRANSITION.hold);
+      }, TRANSITION.compress);
+    }, TRANSITION.fadeOut);
+  }, [currentPage]);
+
+  // ── Post-sign-in welcome (Session 43; S6a) ────────────────────────────
+  // Audrey, 2026-08-10: "when the login is done, after the auth code, lets add
+  // a welcome animation. have it work like the transition animation from page
+  // to page. but instead of naming the upcoming page say 'Welcome'."
+  //
+  // Same chain, same durations, same overlay as navigateTo, minus the page
+  // swap, the fade-out and the compress:
+  //
+  //  - No page swap. The user is already arriving at Home; this transition
+  //    announces an arrival rather than covering one.
+  //  - No fade-out and NO COMPRESS. The sign-in's own reveal has already
+  //    closed the bars to COMPRESSED (AuthShell's `revealTo="welcome"`, the
+  //    welcome seam in src/layout/pages.js), so the app's bars are put there
+  //    in the hand-over's commit WITHOUT a tween (`welcomeCut`) and the
+  //    WELCOME title fades into the 40px the reveal left.
+  //
+  // 🚨 Post-overhaul S6a (Audrey, 2026-10-09): "instead of expanding and then
+  // collapsing to the size to fit the welcome title, it should just collapse
+  // to size it is when the welcome title appears". This used to START the
+  // compress here, from Home's resting bars, which is where the reveal had
+  // just landed: two tweens with a 130–300ms still between them, Home's
+  // page list painted for 50–100ms in that still, and — wherever Home's bar is
+  // thinner than the split bar (windows over ~1117px tall) — a first tween
+  // that GREW the band before this one shrank it. Measured frame by frame in
+  // the S6a hand-off (scripts/signin-welcome-frames.mjs).
+  //
+  // ⚠️ Called from the hand-over's own handler, never from an effect: the
+  // 'compressing' state has to be in the SAME commit that removes the sign-in
+  // screen, or the bars paint once at their resting height and the jump is
+  // back. 'compressing' rather than 'title-hold' so the title's span mounts
+  // at opacity 0 and its 200ms fade runs (a node that mounts at 1 has nothing
+  // to fade from); two frames later it is title-hold, and from there the
+  // chain is unchanged.
+  //
+  // ⚠️ `welcomeCut` and not the mount is what makes the first state a cut.
+  // The chrome is usually mounted in this same commit (nothing to tween
+  // from), but it can already be up under the sign-in screen at its resting
+  // bars — a session resumed at boot on a recovery or invite link keeps the
+  // overlay, and the reset wizard signs out without unmounting the app. Its
+  // bars' own 600ms transition then ran them 540 → 40 after the reveal had
+  // landed on 40: the expand, back (review round 1, R1-01, measured with
+  // `signin-welcome-frames.mjs --resumed`).
+  //
+  // The title-hold step races two frames against a timer, run once: a hidden
+  // window (a background tab, a minimised app) runs no animation frames, and
+  // the chain used to run on timers alone — without this it would park at
+  // 'compressing' with navigation refused and the pet hidden until the window
+  // was shown (R1-03). At normal speed the frames win; on a slow machine the
+  // timer can (see WELCOME_FRAMES_FALLBACK_MS).
+  //
+  // 🚨 holdTitle FLUSHES STYLE before it lifts the cut (review round 2). A
+  // transition starts from the last style the browser COMPUTED, not the last
+  // one React committed: if the timer wins before any frame — a hidden
+  // window, a throttled one — the bars' compressed height with no transition
+  // has never been computed, and lifting the cut would let the mounted bars
+  // tween 540 → 40 when the window is next shown. Reading layout computes it
+  // first, so the lift changes nothing that can move.
+  const playWelcome = useCallback(() => {
+    if (transitionRef.current || welcomePlayedRef.current) return;
+    welcomePlayedRef.current = true;
+    transitionRef.current = true;
+    setTransitionTitle('Welcome');
+    setPetVisible(false);
+    setCompanionOpen(false);
+    setWelcomeCut(true);
+    setTransitionState('compressing');
+    let held = false;
+    const holdTitle = () => {
+      if (held) return;
+      held = true;
+      void document.documentElement.getBoundingClientRect();
+      setWelcomeCut(false);
+      setTransitionState('title-hold');
+      setTimeout(() => {
+        setTransitionState('expanding');
+        setTimeout(() => {
+          setTransitionState('fading-in');
+          setTimeout(() => {
+            setTransitionState('idle');
+            setTransitionTitle('');
+            transitionRef.current = false;
+            setPetVisible(true);
+          }, TRANSITION.fadeIn);
+        }, TRANSITION.expand);
+      }, TRANSITION.hold);
+    };
+    requestAnimationFrame(() => requestAnimationFrame(holdTitle));
+    setTimeout(holdTitle, WELCOME_FRAMES_FALLBACK_MS);
+  }, []);
+
+  // Back/forward buttons re-enter through navigateTo (with the animation).
+  // The ref keeps the listener stable across navigateTo's re-creation.
+  const navigateToRef = useRef(navigateTo);
+  useEffect(() => { navigateToRef.current = navigateTo; }, [navigateTo]);
+
+  // Session 13: the Admin Terminal's "Open their course" (change-request
+  // review) navigates the shell to O.T.T.E.R.; Otter.jsx listens for the same
+  // event and selects the course. An event, not a prop, because
+  // AdminTerminalPage deliberately takes none and this is the one cross-tool
+  // jump in the app.
+  useEffect(() => {
+    const onOpenOtterCourse = () => { navigateToRef.current('otter'); };
+    window.addEventListener('wilson:open-otter-course', onOpenOtterCourse);
+    return () => window.removeEventListener('wilson:open-otter-course', onOpenOtterCourse);
+  }, []);
+  // MO2: M.O.T.H.'s "Open in R.A.B.B.I.T." and "Open in Files", after its own question (tools/moth_v0.1.0/state/
+  // mothJumps.js). The shell goes to R.A.B.B.I.T.; Rabbit.jsx, always mounted, opens the project and the item.
+  useEffect(() => {
+    const toRabbit = () => { navigateToRef.current('rabbit'); };
+    window.addEventListener('wilson:open-rabbit-item', toRabbit);
+    window.addEventListener('wilson:open-project-file', toRabbit);
+    return () => {
+      window.removeEventListener('wilson:open-rabbit-item', toRabbit);
+      window.removeEventListener('wilson:open-project-file', toRabbit);
+    };
+  }, []);
+  // MO3: a note asked for from a typed link or M.O.T.H. (wilson:open-dashboard-note; rabbit_v0.1.0/state/
+  // linkedThings.js). The shell goes to the Dashboard, which opens on its Notes tab; NotesView finds the note.
+  useEffect(() => {
+    const toDashboard = () => { navigateToRef.current('dashboard'); };
+    window.addEventListener('wilson:open-dashboard-note', toDashboard);
+    return () => window.removeEventListener('wilson:open-dashboard-note', toDashboard);
+  }, []);
+  useEffect(() => {
+    if (!URL_ROUTING_ENABLED) return;
+    // Deep links land with no history state — stamp the entry so the first
+    // back/forward hop has a page to return to.
+    try {
+      window.history.replaceState({ page: pageFromLocation() }, '', window.location.href);
+    } catch { /* fine — popstate falls back to pathname parsing */ }
+    const onPop = () => {
+      if (transitionRef.current) {
+        // A transition is mid-flight (fixed 2.1s chain) and navigateTo drops
+        // re-entrant calls. Retry once the lock releases so the page catches
+        // up with the URL instead of desyncing.
+        const poll = setInterval(() => {
+          if (!transitionRef.current) {
+            clearInterval(poll);
+            navigateToRef.current(pageFromLocation(), true);
+          }
+        }, 200);
+        setTimeout(() => clearInterval(poll), 4000);
+        return;
+      }
+      navigateToRef.current(pageFromLocation(), true);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  // Page flags. `isDarkPage` and the header's shape are the registry's answer
+  // now, not a hand-kept list: Team Members is the first page on the Q1 dark
+  // ground that is NOT a tool, and the two used to be the same condition.
+  const page = getPage(currentPage) || getPage('home');
+  const isHome = currentPage === 'home';
+  const isToolPage = page.chrome === 'tool';
+  const isDarkPage = page.surface === 'dark';
+  const hasNavMenu = !isHome; // All non-home pages get a hamburger + nav strip
+
+  // Bottom offset for pet sprite — positions it above the bottom bar.
+  //
+  // 🚨 DERIVED FROM PAGE_BARS, never re-typed. This was a private
+  // `BOTTOM_BAR_PX` table — a second, silent copy of every bottom-bar height,
+  // 150px of it duplicated six times. Phase 4 made the bars viewport-relative
+  // and that copy would have gone on insisting Home's bar was 268px, standing
+  // the pet ~76px above the bar it is drawn sitting on, on exactly the screen
+  // this phase set out to fix. Nothing tests where the pet sits.
+  const petBottomOffset =
+    `calc(${(PAGE_BARS[currentPage] || PAGE_BARS.home).bottom} + 16px)`;
+
+  // Close the resources sub-column when the nav menu closes or page changes
+  useEffect(() => {
+    if (!showNavMenu) { setNavResourcesOpen(false); setNavHovered(null); }
+  }, [showNavMenu]);
+  useEffect(() => {
+    setNavResourcesOpen(false);
+    setNavHovered(null);
+  }, [currentPage]);
+
+  // ── Nav strip opacity (Session 43 §A8) ────────────────────────────────
+  // 🚨 `hover:opacity-70` was on BOTH columns and only worked on one. The
+  // main strip also carries an inline `opacity`, and an inline style beats a
+  // class selector — so the main strip was pinned at its inline value on
+  // every render and the hover never applied. The resources sub-column has no
+  // inline opacity, which is the entire reason its hover worked. That
+  // asymmetry is what Audrey saw: not a missing animation, a specificity
+  // collision.
+  //
+  // The fix cannot simply drop the inline value: `dimmed` is load-bearing —
+  // it fades the main strip to 0.35 while the resources column is open, which
+  // is what tells you which column is live. Hover and dimmed have to resolve
+  // in ONE place, so they do, here, and `hover:opacity-70` is gone from both
+  // columns so there is no second source of truth.
+  //
+  // 0.7 matches what the resources column was already doing, per Audrey: "it
+  // should work the same" (Law of Similarity — same control, same response).
+  //
+  // ✅ This grey is NOT the banned grey. It is white at reduced opacity on
+  // dark orange, as an interactive state on large bold type — not content
+  // text on an orange surface. Do not remove it while enforcing the colour
+  // rule.
+  //
+  // ── UI overhaul F2, the state extraction (plan §5) ──────────────────────
+  // The resolution above is right and stays; what changed is WHERE it lands.
+  // It used to be an inline `opacity` computed from `navHovered`, and an
+  // inline value beats any class — which is the whole defect this comment
+  // documents, one step removed. The state is now a single data attribute
+  // and the two values live in `.wilson-nav-item[data-state]` in index.css,
+  // so hover and dimmed STILL resolve in exactly one place (the property
+  // that mattered) and a later restyle can reach them from a stylesheet.
+  const navState = (key, dimmed) => (dimmed ? 'dimmed' : (navHovered === key ? 'hover' : 'rest'));
+  // `hover:` is mouse-only and this nav is keyboard-reachable, so focus feeds
+  // the same state rather than leaving a keyboard user with no feedback.
+  const navStateProps = (key) => ({
+    onMouseEnter: () => setNavHovered(key),
+    onMouseLeave: () => setNavHovered((h) => (h === key ? null : h)),
+    onFocus:      () => setNavHovered(key),
+    onBlur:       () => setNavHovered((h) => (h === key ? null : h)),
+  });
+
+  const closeNavAndGo = (page) => { setShowNavMenu(false); setNavResourcesOpen(false); navigateTo(page); };
+
+  // ── The nav strip, from the registry (F2) ────────────────────────────────
+  // Both columns' PAGES come from `src/layout/pages.js` — one list, in its own
+  // order, filtered for the page you are on and for the admin-only surface
+  // (filtered from the ARRAY, not hidden per button, so keyboard and mouse
+  // share one list — Session 9). The one item that is NOT a page is
+  // assembled beside them here: the RESOURCES toggle.
+  //
+  // Q7, ruled: the tool's item and the app's both read "SETTINGS", side by
+  // side in the same column; they became "Tool settings" and "App settings".
+  // Post-overhaul S2a (Audrey's C6, 2026-09-29): the tool half left the
+  // strip for all three tools. Each tool's gear is at the right end of its
+  // OWN strip, Help beside it (C7) — the three counters that opened a
+  // tool's settings from here, their props and the tools' effects are gone
+  // with it. "App settings" stays: it is a page.
+  //
+  // The strip is GROUPED: destinations above the hairline, the resources
+  // toggle and App settings below. A separator is not a control (C1); it is
+  // Proximity doing the work eleven equal-weight peers were asking the reader
+  // to do (Hick's law — the strip is the app's whole navigation).
+  const getNavStripItems = () => {
+    const primary = navPages('primary', { currentPage });
+    const appSettings = primary.find(p => p.id === 'settings');
+    const items = primary
+      .filter(p => p.id !== 'settings')
+      .map(p => ({ label: p.navLabel, action: () => closeNavAndGo(p.id) }));
+
+    const tail = [];
+    // RESOURCES trigger (toggles the sub-column; no direct navigation)
+    tail.push({ label: 'Resources', isResourcesTrigger: true });
+    if (appSettings) {
+      tail.push({ label: appSettings.navLabel, action: () => closeNavAndGo(appSettings.id) });
+    }
+
+    return [...items, { separator: true }, ...tail];
+  };
+
+  // Sub-column items shown when RESOURCES is expanded
+  const getResourcesNavItems = () => navPages('resources', {
+    currentPage,
+    isAdmin: perms.role === 'admin',
+  }).map(p => ({ label: p.navLabel, action: () => closeNavAndGo(p.id) }));
+
+  // 🚨 The 24 here was an ASSUMED line box for 16px type (review, nav finding)
+  // and would have been wrong the moment the size changed — which is this
+  // commit. It is now the H1 step's own box: 20px x 1.2 = 24px, named, beside
+  // the value it is derived from. Each column is measured separately and the
+  // taller one sets the strip, rather than one count standing for both.
+  const NAV_ITEM_PX = 24;   // --text-h1 (20px) x --text-h1--line-height (1.2)
+  const NAV_GAP_PX = 16;
+  const NAV_PAD_PX = 24;    // the one page gutter, top and bottom
+  const columnHeight = (rows) => {
+    if (rows.length === 0) return 0;
+    const content = rows.reduce((h, r) => h + (r.separator ? 1 : NAV_ITEM_PX), 0);
+    return content + (rows.length - 1) * NAV_GAP_PX + 2 * NAV_PAD_PX;
+  };
+  const getNavStripHeight = () => Math.max(
+    columnHeight(getNavStripItems()),
+    columnHeight(getResourcesNavItems()),
+  );
+
+  // Determine bar heights based on transition state
+  const isCompressed = transitionState === 'compressing' || transitionState === 'title-hold';
+  const isAnimating = transitionState !== 'idle';
+  const contentFaded = transitionState !== 'idle' && transitionState !== 'fading-in';
+  const isNavMenuVisible = hasNavMenu && showNavMenu && !isCompressed && transitionState !== 'expanding';
+
+  const pageBars = PAGE_BARS[currentPage] || PAGE_BARS.home;
+  const topHeight = isCompressed ? COMPRESSED.top : pageBars.top;
+  const bottomHeight = isCompressed ? COMPRESSED.bottom : pageBars.bottom;
+
+  // Render ALL pages simultaneously — hide inactive ones to preserve state
+  const renderAllPages = () => (
+    <>
+      <PageSurface id="home" currentPage={currentPage}>
+        <Home onNavigate={navigateTo} currentPage={currentPage} />
+      </PageSurface>
+      <PageSurface id="dog" currentPage={currentPage} overflow="hidden">
+        <DeckOutlineGenerator
+          onNavigate={navigateTo}
+          currentPage={currentPage}
+          zoomLevel={zoomLevel}
+        />
+      </PageSurface>
+      <PageSurface id="otter" currentPage={currentPage} overflow="hidden">
+        <Otter
+          onNavigate={navigateTo}
+          currentPage={currentPage}
+          onContextChange={setOtterContext}
+        />
+      </PageSurface>
+      <PageSurface id="rabbit" currentPage={currentPage} overflow="hidden">
+        <Rabbit
+          onNavigate={navigateTo}
+          isActive={currentPage === 'rabbit'}
+          currentPage={currentPage}
+        />
+      </PageSurface>
+      <PageSurface id="moth" currentPage={currentPage} overflow="hidden">
+        {mothEntered && <MothSurface isActive={currentPage === 'moth'} />}
+      </PageSurface>
+      <PageSurface id="settings" currentPage={currentPage}>
+        <SettingsPageWithAgent
+          // F4: the pet and its four actions (petData, onPetModeToggle,
+          // onDifficultyChange, onPetReset, onNewPet) reach the page from
+          // <PetHost>, through the wrapper; the three below are still App's.
+          // Phase 3: pressing Create Egg used to set an error into state whose
+          // ONLY renderer is the companion chat panel — which is closed on
+          // every page change. The page that hosts the button now reports its
+          // own outcome, success as well as failure.
+          newPetStatus={newPetStatus}
+          newPetPending={newPetPending}
+          // A3: the pet's cross-device notice on the page that describes the
+          // pet. R1: this is the STICKY copy, not the toast's — they were one
+          // state, so dismissing the toast erased the durable surface at the
+          // same instant and the claim below it was false.
+          petNotice={petNoticeSticky}
+        />
+      </PageSurface>
+      <PageSurface id="project-manager" currentPage={currentPage}>
+        <Projects onNavigate={navigateTo} />
+      </PageSurface>
+      <PageSurface id="rate-card" currentPage={currentPage}>
+        <RateCardPage />
+      </PageSurface>
+      <PageSurface id="team-members" currentPage={currentPage}>
+        <TeamMembersPage />
+      </PageSurface>
+      <PageSurface id="project-files" currentPage={currentPage} overflow="hidden">
+        {currentPage === 'project-files' && <ProjectFilesExplorer />}
+      </PageSurface>
+      <PageSurface id="dashboard" currentPage={currentPage}>
+        <DashboardPage />
+      </PageSurface>
+      <PageSurface id="admin-terminal" currentPage={currentPage}>
+        <AdminTerminalPage />
+      </PageSurface>
+      <PageSurface id="help" currentPage={currentPage}>
+        <HelpPage />
+      </PageSurface>
+    </>
+  );
+
+  // ── The one page header (F2; plan §4, review F32) ────────────────────────
+  // This was FOUR blocks: three byte-identical tool headers differing only in
+  // two strings, and an eight-way OR chain listing the pages that get the
+  // plain header — a list a new page had to be added to by hand, and the
+  // third of the three lists 'project-files' had to appear in. Both are the
+  // registry's `chrome` field now.
+  const renderTopBarContent = () => {
+    if (page.chrome === 'none') return null; // Home — no bar content
+
+    return (
+      <PageHeader
+        title={page.title}
+        subtitle={page.subtitle}
+        measure={page.measure}
+        leading={page.chrome === 'tool' ? (
+          <img
+            src={`${import.meta.env.BASE_URL}logo.png`}
+            alt=""
+            className="h-[43.1px] w-auto brightness-0 invert"
+          />
+        ) : null}
+        actions={(
+          <IconButton
+            icon={Menu}
+            title="Navigation"
+            surface="chrome"
+            aria-expanded={showNavMenu}
+            onClick={() => setShowNavMenu(prev => !prev)}
+          />
+        )}
+      />
+    );
+  };
+
+  return (
+    <AgentProvider>
+    <RabbitProvider>
+    {/* ONE toast stack for the whole app (plan §4: one anchor, one stack
+        manager, replacing five systems in five screen positions). It lives
+        here so a page never mounts a second one; F2's worked example is its
+        first caller and the four tool systems fold in with their lanes.
+
+        `bar` is the current page’s bottom-bar height, so the stack sits 24px
+        above the BAR rather than 24px off the window (F4, D1b §7: two toasts
+        straddled the light pages’ 80px bar). Same `PAGE_BARS` read the pet’s
+        `petBottomOffset` takes, and the RESTING value rather than the
+        compressed one, for the same reason the pet uses it — a toast must not
+        slide during the page transition.
+
+        `pinned` is R.A.B.B.I.T.'s UndoToast, the stack's LAST row (merge
+        review round 2, A-R2-02): as a second fixed surface at bottom-centre
+        it shared the stack's anchor — on the tool pages (8px bar) the first
+        toast spanned 32–73px over its 24–74px — and a sticky pet notice
+        painted over the Undo button and took its clicks. In the stack it sits
+        below whatever push() has put up, with the stack's own gap, on the
+        stack's layer. It still reads useRabbit() and stays the one instance;
+        the note at the old mount point (bottom of this tree) says why it is
+        mounted at app level at all. */}
+    <ToastProvider bar={pageBars.bottom} pinned={<UndoToast />}>
+    <div className="wilson-dark-scroll" style={{ height: '100vh', backgroundColor: '#ea580c', overflow: 'hidden' }}>
+      <TitleBar />
+      {/* Dev fixtures (2026-09-11): the DEV · fixtures badge, dev builds only —
+          `import.meta.env.DEV` is a build-time constant, so `vite build` drops
+          the element and the import with it. */}
+      {import.meta.env.DEV && <DevFixturesBadge />}
+      {/* B2 part 2: "Connection lost — reload to continue", fed by
+          connectionWatchdog through the Supabase client's fetch. Above every
+          overlay (`.connection-banner`, index.css); under the title bar in
+          Electron through the kit's `--titlebar-offset`, so the window
+          controls stay reachable. Rendered signed in or out — a hung sign-in
+          is the same hang. */}
+      <ConnectionLostBanner />
+      {/* F4: the pet's host. It draws nothing itself: it holds the pet and its
+          clocks, and hands the companion to <PetCompanionSlot> (the last child
+          of the column below) and the pet to Settings' card. It is OUTSIDE
+          the signed-in gate because the pet is: the cached pet is read before
+          the session is known, and a sign-out empties the pet without
+          unmounting what holds it. The column is its `children`, the same
+          element across a tick of the pet, so a tick does not draw it. */}
+      <PetHost
+        ref={petHostRef}
+        authed={authed}
+        currentPage={currentPage}
+        showOverlay={showOverlay}
+        perms={perms}
+        isDarkPage={isDarkPage}
+        petBottomOffset={petBottomOffset}
+        petVisible={petVisible}
+        companionOpen={companionOpen}
+        setCompanionOpen={setCompanionOpen}
+        navigateTo={navigateTo}
+        petSaveError={petSaveError}
+        savePet={savePet}
+        petDataRef={petDataRef}
+        petPersistedSigRef={petPersistedSigRef}
+        petEpochRef={petEpochRef}
+        newPetPendingRef={newPetPendingRef}
+        setNewPetStatus={setNewPetStatus}
+        setNewPetPending={setNewPetPending}
+      >
+      {authed && (
+        <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+
+          {/* Decision D6: a substituted model degrades loudly. Sits above the
+              chrome so it is impossible to miss and does not time out. */}
+          <ModelWarningBanner />
+
+          {/* ===== TOP ORANGE BAR ===== */}
+          <div className="wilson-chrome" style={{
+            backgroundColor: '#ea580c',
+            height: topHeight,
+            flexShrink: 0,
+            position: 'relative',
+            display: 'flex',
+            alignItems: 'flex-end',
+            // S6a: a cut at the sign-in's hand-over (see welcomeCut).
+            transition: welcomeCut ? 'none' : `height 600ms ${EASE}`,
+            overflow: 'hidden',
+            zIndex: 10,
+          }}>
+            <div style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'flex-end',
+              opacity: contentFaded ? 0 : 1,
+              // S6a (review round 2, R2-03): the page header goes with the
+              // bars' cut at the sign-in's hand-over — on an app already
+              // mounted under the sign-in screen it would otherwise fade for
+              // 250ms over the WELCOME band.
+              transition: welcomeCut ? 'none' : 'opacity 250ms ease',
+              // Same 250ms hole as the content area below — the hamburger was
+              // live during 'fading-in' while navigateTo would still drop it.
+              pointerEvents: isAnimating ? 'none' : 'auto',
+            }}>
+              {renderTopBarContent()}
+            </div>
+          </div>
+
+          {/* ===== NAV STRIP — same orange, bottom edge = header edge ===== */}
+          <div className="wilson-chrome" style={{
+            backgroundColor: '#ea580c',
+            overflow: 'hidden',
+            height: isNavMenuVisible ? `${getNavStripHeight()}px` : '0px',
+            transition: welcomeCut ? 'none' : `height ${isAnimating ? '600ms' : '400ms'} ${EASE}`,
+            flexShrink: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-end',
+            gap: '48px',
+            // ONE page gutter (plan §3.3). The strip was right-aligned at 48px
+            // while the hamburger that opens it sits at 24px, so every item
+            // slid out 24px short of the control that summoned it — the two
+            // never lined up on any page.
+            paddingRight: 'var(--spacing-gutter)',
+            zIndex: 9,
+          }}>
+            {/* Resources sub-column — slides in from the left of the main strip */}
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'flex-end',
+              gap: '16px',
+              maxWidth: navResourcesOpen ? '320px' : '0',
+              opacity: navResourcesOpen ? 1 : 0,
+              transform: navResourcesOpen ? 'translateX(0)' : 'translateX(-24px)',
+              transition: 'max-width 300ms ease, opacity 250ms ease, transform 300ms ease',
+              pointerEvents: navResourcesOpen ? 'auto' : 'none',
+              overflow: 'hidden',
+            }}>
+              {getResourcesNavItems().map((item) => (
+                <button
+                  key={item.label}
+                  onClick={item.action}
+                  className="wilson-nav-item"
+                  data-state={navState(`res:${item.label}`, false)}
+                  style={{ whiteSpace: 'nowrap' }}
+                  {...navStateProps(`res:${item.label}`)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Main nav strip column */}
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'flex-end',
+              gap: '16px',
+            }}>
+              {getNavStripItems().map((item, i) => {
+                // The group break: a hairline in the frame's own ink, not a
+                // control and not a heading — see getNavStripItems.
+                if (item.separator) {
+                  return (
+                    <div
+                      key={`sep-${i}`}
+                      aria-hidden="true"
+                      style={{ height: '1px', width: '96px', backgroundColor: 'rgba(28,25,23,0.35)' }}
+                    />
+                  );
+                }
+                const isTrigger = item.isResourcesTrigger;
+                const dimmed = navResourcesOpen && !isTrigger;
+                return (
+                  <button
+                    key={item.label}
+                    onClick={() => {
+                      if (isTrigger) {
+                        setNavResourcesOpen(prev => !prev);
+                        return;
+                      }
+                      if (navResourcesOpen) {
+                        // First click just dismisses the resources column
+                        setNavResourcesOpen(false);
+                        return;
+                      }
+                      item.action();
+                    }}
+                    className="wilson-nav-item"
+                    data-state={navState(`main:${item.label}`, dimmed)}
+                    style={{ whiteSpace: 'nowrap' }}
+                    {...navStateProps(`main:${item.label}`)}
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* ===== Tool page border — the band under the bars, tools only ===== */}
+          {isToolPage && !isAnimating && (
+            <div style={{ height: '4px', backgroundColor: '#44403c', flexShrink: 0 }} />
+          )}
+
+          {/* ===== CONTENT AREA — the interface zone between the bars ===== */}
+          <div style={{
+            flex: 1,
+            backgroundColor: isDarkPage ? '#1c1917' : '#f4a261',
+            overflow: 'hidden',
+            position: 'relative',
+            display: 'flex',
+            flexDirection: 'column',
+            transition: `background-color 0ms linear ${isCompressed ? '0ms' : '300ms'}`,
+          }}>
+            {/* Transition title overlay — visible when bars are compressed */}
+            {isAnimating && (
+              <div style={{
+                position: 'absolute',
+                inset: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: '#f4a261',
+                zIndex: 5,
+                opacity: isCompressed ? 1 : 0,
+                transition: `opacity 200ms ease`,
+                pointerEvents: 'none',
+              }}>
+                <span style={{
+                  // Session 43: was '#fff'. This overlay's own background is
+                  // #f4a261, so the title has been white-on-light-orange at
+                  // 2.06:1 on EVERY page transition in the app — the same
+                  // defect the auth surfaces had, hiding in the one component
+                  // that flashes past too quickly to read. #1c1917 is 8.49:1.
+                  color: '#1c1917',
+                  fontWeight: 'bold',
+                  fontSize: '16.8px',
+                  letterSpacing: '0.3em',
+                  textTransform: 'uppercase',
+                  opacity: transitionState === 'title-hold' ? 1 : 0,
+                  transition: 'opacity 200ms ease',
+                }}>
+                  {transitionTitle}
+                </span>
+              </div>
+            )}
+
+            {/* Page content — fades during transitions, all pages rendered to preserve state */}
+            <div style={{
+              flex: 1,
+              overflow: 'hidden',
+              opacity: contentFaded ? 0 : 1,
+              transition: 'opacity 250ms ease',
+              // 🚨 `isAnimating`, not `contentFaded`. They differ for the
+              // 250ms 'fading-in' step, and in that gap the content was
+              // clickable while navigateTo still early-returns on
+              // transitionRef — so a click was ACCEPTED AND SILENTLY DROPPED.
+              // Pre-existing for page transitions; Session 43's welcome made
+              // it reachable immediately after sign-in, which is how CI found
+              // it (Playwright clicks the instant a target is actionable, and
+              // that instant is precisely this window).
+              // A blocked click retries; a swallowed one is just lost.
+              pointerEvents: isAnimating ? 'none' : 'auto',
+              // Plan §3.3: nothing in `vh`. This was `3vh 0` — 27px at 900px
+              // tall and 21px at 700 — so the app's one vertical rhythm
+              // changed with the window. A tool owns its whole field (0), and
+              // Help paints its own two-column shell; every other page takes
+              // the one 24px gutter.
+              padding: (isToolPage || currentPage === 'help') ? 0 : 'var(--spacing-gutter) 0',
+              display: 'flex',
+              flexDirection: 'column',
+            }}>
+              {renderAllPages()}
+            </div>
+          </div>
+
+          {/* ===== BOTTOM ORANGE BAR — constant container element ===== */}
+          <div className="wilson-chrome" style={{
+            backgroundColor: '#ea580c',
+            height: bottomHeight,
+            flexShrink: 0,
+            transition: welcomeCut ? 'none' : `height 600ms ${EASE}`,
+            zIndex: 10,
+          }} />
+
+          {/* Click-away overlay to close nav menu */}
+          {isNavMenuVisible && (
+            <div
+              onClick={() => setShowNavMenu(false)}
+              style={{
+                position: 'fixed',
+                inset: 0,
+                zIndex: 8,
+                cursor: 'default',
+              }}
+            />
+          )}
+
+          {/* ===== PET COMPANION OVERLAY — visible on ALL pages ===== */}
+          <PetCompanionSlot />
+        </div>
+      )}
+      </PetHost>
+
+      {/* Auth overlay — company → username → password. Wait for the initial
+          session check so returning users don't briefly see the login form. */}
+      {showOverlay && sessionChecked && authMode === 'login' && (
+        <LoginScreen
+          notice={signedOutNotice}
+          onForgotPassword={() => setAuthMode('forgot-password')}
+          onAuthenticated={(session) => {
+            handleAuth(session);
+            handleAnimationComplete();
+            // S6a: in this commit, not an effect's — see playWelcome.
+            playWelcome();
+          }}
+        />
+      )}
+      {showOverlay && sessionChecked && authMode === 'forgot-password' && (
+        <ForgotPasswordWizard
+          onBackToLogin={() => setAuthMode('login')}
+        />
+      )}
+      {showOverlay && sessionChecked && authMode === 'recovery' && (
+        <ResetPasswordWizard
+          onDone={() => {
+            // Clear the whole recovery URL so a reload won't re-enter the
+            // wizard, then return to the login form. Session 18: `search` is
+            // dropped too, not just the fragment — a token_hash link can carry
+            // its token in the real query string, and keeping it would bounce
+            // a reloading user into the wizard holding a spent token.
+            try {
+              window.history.replaceState(null, '', window.location.pathname)
+            } catch { /* non-critical */ }
+            setAuthMode('login')
+          }}
+        />
+      )}
+
+      {/* First-login profile capture. Shown on top of the authenticated app
+          so the user sees the chrome animate in once (from LoginScreen) and
+          then slides straight into the welcome wizard without blanking the
+          screen. */}
+      {authed && pendingOnboarding && (
+        <NewUserWelcome
+          membership={pendingOnboarding}
+          onComplete={() => setPendingOnboarding(null)}
+        />
+      )}
+
+      {/* Session 9: admin MFA enrollment gate (after onboarding clears).
+          Deferral is per sign-in — it re-fires every login until enrolled. */}
+      {authed && !pendingOnboarding && pendingMfaEnroll && (
+        <MfaEnrollGate
+          onComplete={() => setPendingMfaEnroll(false)}
+          onDefer={() => setPendingMfaEnroll(false)}
+        />
+      )}
+
+      {/* Session 9: login-time update prompt (never stacked on the gates). */}
+      {authed && !pendingOnboarding && !pendingMfaEnroll && updateOffer && (
+        <UpdatePrompt
+          version={updateOffer.version}
+          onDismiss={() => setUpdateOffer(null)}
+        />
+      )}
+
+      {/* B2 part 2: "Still there?" at 25 idle minutes, "Session ending" five
+          minutes before the 4-hour cap. Above the gates (a person mid-wizard
+          is still a person about to be signed out), below the banner. The
+          idle dialog is the kit Dialog lifted to 210 — above the quit dialog
+          at 200 — and the cap notice rides the toast stack the ToastProvider
+          above anchors over `pageBars.bottom` (merge review round 1,
+          B-R1-02 / B-R1-03). */}
+      {authed && (
+        <SessionWarning
+          phase={sessionTimeouts.phase}
+          deadline={sessionTimeouts.deadline}
+          onStay={sessionTimeouts.stay}
+        />
+      )}
+
+      {/* Close confirmation dialog */}
+      {showCloseDialog && (
+        // S3c review round 2 (R2-05): not a kit Dialog, so the pages' undo
+        // keys did not see it (binUi counts `.ui-dialog-backdrop`): Ctrl+Z
+        // took back an edit under "Close WILSON". The marker is what they
+        // count it by (binUi's APP_QUESTION).
+        <div data-app-question="close" style={{
+          position: 'fixed', inset: 0, zIndex: 200,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          backgroundColor: BACKDROP,
+        }}>
+          {/* ROUND ONE, FINDING 3: "take the whole object or take none of
+              it". The first pass converted ONE hex here — the Close button's
+              fill — and left seven, including a `color: '#ea580c'` three
+              lines above a `SIGNAL_FILL`, in a commit whose thesis was C8.
+              Every value on this surface is a token now. Where a hex had an
+              exact token it kept its value; the two that moved are named
+              where they moved.
+
+              The surface stays hand-rolled rather than becoming the kit's
+              `Dialog` (the light shell's own box). Its controls are the
+              kit's `Button`, which is a pure swap and is what fixes the
+              contrast and the hovers below. S3c review round 1 (R1-11): C1
+              is lifted for these sessions, so it is now a dialog to a screen
+              reader (named by its heading, described by its words) and to
+              the keyboard (the effect above: the overlay stack, Escape, Tab
+              kept inside). */}
+          <div
+            ref={closeDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="wilson-close-title"
+            aria-describedby="wilson-close-words"
+            style={{
+            backgroundColor: PAPER,
+            // §3.3: one 1px hairline. The frame keeps the signal — §3.2 gives
+            // `signal` "the frame" as one of its four jobs — and loses the
+            // second pixel, which is the only thing §3.3 objects to.
+            border: `1px solid ${SIGNAL}`,
+            borderRadius: `${RADIUS_FLOAT}px`,
+            boxShadow: SHADOW_FLOAT,
+            padding: '32px 36px 28px',
+            // S3c step 7: three answers do not fit the confirm width (they
+            // overflowed its frame); folded, the question takes the form's.
+            maxWidth: `${closeUnsaved.length ? DIALOG.form : DIALOG.confirm}px`,
+            width: '90%',
+            textAlign: 'center',
+          }}>
+            {/* The dialog title is the H2 step (§3.1): 16 / 1.3 / 600 /
+                sentence / no tracking, in the app's sans. It was 16px BOLD
+                UPPERCASE at +0.15em in `monospace` — four emphasis mechanisms
+                on one four-word heading, and the only `monospace` left in
+                this file. The SIZE is unchanged; the leading is not, because
+                it was unset and inheriting Tailwind preflight's 1.5. */}
+            <h2 id="wilson-close-title" style={{
+              color: SIGNAL,
+              fontSize: `${TYPE.h2}px`,
+              lineHeight: LEADING.h2,
+              fontWeight: WEIGHT.h2,
+              marginBottom: '12px',
+            }}>Close WILSON</h2>
+            {/* `#a8a29e` was one of the four inks §3.2 retires across 1,277
+                uses; `ink-2` is its replacement and reads 8.49:1 here. */}
+            <p id="wilson-close-words" style={{
+              color: INK_2,
+              fontSize: `${TYPE.dense}px`,
+              lineHeight: LEADING.dense,
+              marginBottom: '24px',
+            }}>
+              {/* Post-overhaul S3c, step 7: an unsaved edit says so here, in
+                  this one question (D12) — what it is, of which list; of
+                  several, "them" (review round 1, R1-12). FX4: what is
+                  discarded is what is not saved, never a saved edit. */}
+              {closeUnsaved.length
+                ? `${closeUnsaved.map((g) => g.describe()).join(' ')} ${closeCount > 1 ? 'Save them before closing, or discard what is not saved.' : 'Save it before closing, or discard what is not saved.'}`
+                : 'Make sure you have exported your work before closing.'}
+            </p>
+            {closeError && (
+              <p role="alert" style={{
+                color: DANGER,
+                fontSize: `${TYPE.dense}px`,
+                lineHeight: LEADING.dense,
+                marginBottom: '16px',
+              }}>
+                {closeError}
+              </p>
+            )}
+            {/* 🚨 ROUND ONE, FINDING 1, AND IT IS THE ONE THAT MATTERED. The
+                first pass fixed the Close button's 3.56:1 white-on-`#ea580c`
+                and left CANCEL beside it at `#a8a29e` on `#44403c` — 4.07:1
+                resting and **3.03:1 on hover**, both under the 4.5 §3.2 says
+                "does not ship", and both WORSE than the defect that was
+                fixed. It then reported the surface as clean. The hover half
+                is precisely D2's kit request K8, which the kit had already
+                fixed for light ghost buttons ("a light ghost button turned
+                2.10:1 at the exact moment the pointer reached it").
+
+                Both controls are the kit's `Button` now, which is why this is
+                a deletion rather than a repair: the secondary variant is
+                transparent with a hairline and the full ink (15.45:1, and
+                its hover is `--color-hover`, an overlay that cannot drop the
+                ink), the primary is `signal-fill` with white (5.18:1). The
+                type, the 3px control radius and BOTH hover states come from
+                `.ui-btn[data-variant]` in CSS.
+
+                That also settles the protocol's state-extraction step, which
+                round one correctly called a violation: the four
+                `onMouseEnter`/`onMouseLeave` handlers that wrote
+                `e.currentTarget.style.backgroundColor` are gone, and an
+                inline style can no longer beat a hover rule because there is
+                no inline style left to do it. */}
+            {/* With an unsaved edit, D12's three answers, Keep editing first
+                and focused — and Escape (R1-11). Without one, Cancel first and
+                focused, as every question's staying answer is. */}
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+              <Button
+                variant="secondary"
+                autoFocus
+                disabled={closeBusy}
+                onClick={() => setShowCloseDialog(false)}
+                style={{ flex: 1 }}
+              >
+                {closeUnsaved.length ? 'Keep editing' : 'Cancel'}
+              </Button>
+              {closeUnsaved.length > 0 && (
+                <Button
+                  variant="danger"
+                  disabled={closeBusy}
+                  onClick={() => closeAfter('discard')}
+                  style={{ flex: 1 }}
+                >
+                  Discard and close
+                </Button>
+              )}
+              <Button
+                variant="primary"
+                loading={closeBusy}
+                onClick={() => (closeUnsaved.length ? closeAfter('save') : closeNow())}
+                style={{ flex: 1 }}
+              >
+                {closeUnsaved.length ? 'Save edit and close' : 'Close'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+    {/* ── Undo toast (soft-delete forgiveness window) ──
+        Mounted at app level, not inside the RABBIT shell, because
+        deletes can fire from pages (e.g. ProjectsPage) where the
+        Rabbit page div is display:none; reads useRabbit() — must stay
+        the single instance. Since merge review round 2 (A-R2-02) it is
+        the toast stack's PINNED row — the `pinned` prop of the ToastProvider
+        at the top of this tree — rather than a second fixed surface here. */}
+    {/* ── A3: the pet's notices, mounted OUTSIDE `{petData && …}` ──
+        The stale-copy refresh from migration 0068, and a failed pet LOAD —
+        which had nowhere to show itself at all, because the failure unmounts
+        the only thing that rendered it. */}
+    <PetNotice notice={petNotice} onDismiss={dismissPetNotice} />
+    </ToastProvider>
+    {/* Post-overhaul S3c, step 7 (D12): the one question every exit asks
+        while an edit is unsaved — any page can ask it (navigateTo). */}
+    <LeaveEditDialog />
+    </RabbitProvider>
+    </AgentProvider>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  THE PET'S HOST (F4, 2026-11-13)
+// ═══════════════════════════════════════════════════════════════════
+//
+// Everything of the pet that changes on its own clock or with a keystroke:
+// the pet itself (`petData`, which the 30-second decay tick rewrites), the
+// sleep "Z" every 2 s, the dream cloud, the attention jump, the flashes, the
+// hatch dialog, and the chat with its text. All of it was App's state, and
+// App renders every page, so each of those changes rendered every page. It is
+// here LINE FOR LINE as it was there, and in this file, because the tests
+// that hold the pet's rules read this file's text (userStateWiring.test.js,
+// petKnowledgeWiring.test.js, companionHotkey.test.jsx, legalSurfaces.test.js).
+// A change in any of it now renders this component, the companion and, while
+// Settings is the page on screen, Settings' pet card. It does not render App.
+//
+// 🚨 IT WRAPS THE SIGNED-IN COLUMN; IT DOES NOT SIT AFTER IT. Two reasons,
+// both from the code. The pet outlives the column: the cached pet is read
+// before the session is known, and a sign-out sets the pet to null without
+// unmounting what holds it, so the host is mounted with App and stays. And
+// Settings reads the pet, which a context can only hand DOWN. The column is
+// not drawn for a tick of the pet all the same: `children` is the element
+// App made at ITS last render, and React does not draw again an element it
+// has been handed before.
+//
+// What it does not hold stays App's and arrives as props: whose pet this is
+// and how it is loaded and saved (`savePet` and the refs), and the state a
+// change of page or a sign-out writes (whether the chat is open, whether the
+// pet is on screen, the Create Egg result). App sets the pet through the
+// handle (its `setPetData`).
+function PetHost({
+  ref, children,
+  authed, currentPage, showOverlay, perms, isDarkPage, petBottomOffset, petVisible,
+  companionOpen, setCompanionOpen, navigateTo,
+  petSaveError, savePet, petDataRef, petPersistedSigRef, petEpochRef, newPetPendingRef,
+  setNewPetStatus, setNewPetPending,
+}) {
+  const [petData, setPetData] = useState(null);
+  // App's loads, its stale-copy refresh and its sign-out set the pet through this.
+  useImperativeHandle(ref, () => ({ setPetData }), []);
+  const petTimerRef = useRef(null);
+  // (S31: petSaveTimerRef is gone with the 30-second auto-save it armed.)
+  petDataRef.current = petData;
+
+  // Companion state
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const chatInputRef = useRef('');
+  const handleChatInputChange = useCallback((val) => {
+    chatInputRef.current = val;
+    setChatInput(val);
+  }, []);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatThinking, setChatThinking] = useState(false);
+  const [feedbackJustRated, setFeedbackJustRated] = useState(false);
+  const [thumbFlash, setThumbFlash] = useState(null);
+  const [flashFeed, setFlashFeed] = useState(false);
+  const [flashPet, setFlashPet] = useState(false);
+  const [attentionJump, setAttentionJump] = useState(false);
+  const [eggWobble, setEggWobble] = useState(false);
+  const [sleepZCycle, setSleepZCycle] = useState(0);
+  const [cloudVisible, setCloudVisible] = useState(false);
+  const [showHatchModal, setShowHatchModal] = useState(false);
+  const [hatchNameInput, setHatchNameInput] = useState('');
 
   // Decay timer — runs every 30 seconds
   useEffect(() => {
@@ -2272,1035 +3368,79 @@ export default function App() {
     }
   }, [savePet, petData]);
 
-  // Transition: fade-out(250ms) → compress(600ms) → title-hold(400ms) → [swap] → expand(600ms) → fade-in(250ms) → idle
-  // fromHistory: true when the browser back/forward button initiated the
-  // navigation — the URL is already right, so don't push a new entry.
-  const navigateTo = useCallback((targetPage, fromHistory = false, asked = false) => {
-    if (transitionRef.current || targetPage === currentPage) return;
-    // Post-overhaul S3c, step 7 (D12): leaving R.A.B.B.I.T. with an unsaved
-    // edit asks first — BEFORE the transition, which is untouchable (C2).
-    // Keep editing stays; after a back/forward press the address goes back
-    // to this page, so the two never disagree.
-    if (!asked && currentPage === 'rabbit' && hasUnsavedWork('page')) {
-      confirmLeave('page').then((go) => {
-        if (go) { navigateToRef.current(targetPage, fromHistory, true); return; }
-        if (fromHistory && URL_ROUTING_ENABLED) {
-          try { window.history.pushState({ page: currentPage }, '', urlForPage(currentPage)); } catch { /* keep the page */ }
-        }
-      });
-      return;
-    }
-    transitionRef.current = true;
-    // Phase 3: the Create Egg result describes one press, not a lasting state.
-    // Without this it survived every later visit to Settings, so a success
-    // banner outlived the egg it described — and after the egg hatched it was
-    // describing a pet that no longer existed.
-    setNewPetStatus(null);
+  // ── What Settings' pet card is handed (F4) ──
+  // The pet WHILE SETTINGS IS THE PAGE ON SCREEN, and otherwise the pet as the
+  // card last drew it: a page off screen is not drawn again for a tick of the
+  // pet, and it is handed the pet as it is in the very render that brings it
+  // back (`currentPage` is a prop, so that render runs this). No pet at all (a
+  // sign-out, a change of account) is handed on at once, whatever the page, so
+  // no page keeps the last person's.
+  const settingsPetRef = useRef(null);
+  if (currentPage === 'settings' || !petData) settingsPetRef.current = petData;
+  const settingsPet = settingsPetRef.current;
+  // handleNewPet is made again with every change of the pet (it reads it).
+  // Settings is handed ONE function for the life of the app, which calls the
+  // newest: the same shape as performPetSaveRef in App.
+  const handleNewPetRef = useRef(handleNewPet);
+  handleNewPetRef.current = handleNewPet;
+  const onNewPet = useCallback(() => handleNewPetRef.current(), []);
+  const petSettings = useMemo(() => ({
+    petData: settingsPet,
+    onPetModeToggle: handlePetModeToggle,
+    onDifficultyChange: handleDifficultyChange,
+    onPetReset: handlePetReset,
+    onNewPet,
+  }), [settingsPet, handlePetModeToggle, handleDifficultyChange, handlePetReset, onNewPet]);
 
-    if (URL_ROUTING_ENABLED && !fromHistory) {
-      try {
-        window.history.pushState({ page: targetPage }, '', urlForPage(targetPage));
-      } catch { /* history API unavailable — keep navigating anyway */ }
-    }
-
-    setTransitionTitle(PAGE_TITLES[targetPage] || targetPage);
-
-    // Hide pet sprite immediately
-    setPetVisible(false);
-    // Close companion chat during transition
-    setCompanionOpen(false);
-
-    // Step 0: Fade out content first (before bars move)
-    setTransitionState('fading-out');
-
-    setTimeout(() => {
-      // Step 1: Compress (bars squeeze toward center)
-      setTransitionState('compressing');
-
-      setTimeout(() => {
-        // Step 2: Title hold
-        setTransitionState('title-hold');
-
-        setTimeout(() => {
-          // Step 3: Swap page, expand
-          setCurrentPage(targetPage);
-          setTransitionState('expanding');
-
-          setTimeout(() => {
-            // Step 4: Fade in new content
-            setTransitionState('fading-in');
-
-            setTimeout(() => {
-              // Step 5: Done
-              setTransitionState('idle');
-              setTransitionTitle('');
-              setShowNavMenu(false);
-              transitionRef.current = false;
-              // Show pet sprite after transition completes
-              setPetVisible(true);
-            }, TRANSITION.fadeIn);
-          }, TRANSITION.expand);
-        }, TRANSITION.hold);
-      }, TRANSITION.compress);
-    }, TRANSITION.fadeOut);
-  }, [currentPage]);
-
-  // ── Post-sign-in welcome (Session 43; S6a) ────────────────────────────
-  // Audrey, 2026-08-10: "when the login is done, after the auth code, lets add
-  // a welcome animation. have it work like the transition animation from page
-  // to page. but instead of naming the upcoming page say 'Welcome'."
-  //
-  // Same chain, same durations, same overlay as navigateTo, minus the page
-  // swap, the fade-out and the compress:
-  //
-  //  - No page swap. The user is already arriving at Home; this transition
-  //    announces an arrival rather than covering one.
-  //  - No fade-out and NO COMPRESS. The sign-in's own reveal has already
-  //    closed the bars to COMPRESSED (AuthShell's `revealTo="welcome"`, the
-  //    welcome seam in src/layout/pages.js), so the app's bars are put there
-  //    in the hand-over's commit WITHOUT a tween (`welcomeCut`) and the
-  //    WELCOME title fades into the 40px the reveal left.
-  //
-  // 🚨 Post-overhaul S6a (Audrey, 2026-10-09): "instead of expanding and then
-  // collapsing to the size to fit the welcome title, it should just collapse
-  // to size it is when the welcome title appears". This used to START the
-  // compress here, from Home's resting bars, which is where the reveal had
-  // just landed: two tweens with a 130–300ms still between them, Home's
-  // page list painted for 50–100ms in that still, and — wherever Home's bar is
-  // thinner than the split bar (windows over ~1117px tall) — a first tween
-  // that GREW the band before this one shrank it. Measured frame by frame in
-  // the S6a hand-off (scripts/signin-welcome-frames.mjs).
-  //
-  // ⚠️ Called from the hand-over's own handler, never from an effect: the
-  // 'compressing' state has to be in the SAME commit that removes the sign-in
-  // screen, or the bars paint once at their resting height and the jump is
-  // back. 'compressing' rather than 'title-hold' so the title's span mounts
-  // at opacity 0 and its 200ms fade runs (a node that mounts at 1 has nothing
-  // to fade from); two frames later it is title-hold, and from there the
-  // chain is unchanged.
-  //
-  // ⚠️ `welcomeCut` and not the mount is what makes the first state a cut.
-  // The chrome is usually mounted in this same commit (nothing to tween
-  // from), but it can already be up under the sign-in screen at its resting
-  // bars — a session resumed at boot on a recovery or invite link keeps the
-  // overlay, and the reset wizard signs out without unmounting the app. Its
-  // bars' own 600ms transition then ran them 540 → 40 after the reveal had
-  // landed on 40: the expand, back (review round 1, R1-01, measured with
-  // `signin-welcome-frames.mjs --resumed`).
-  //
-  // The title-hold step races two frames against a timer, run once: a hidden
-  // window (a background tab, a minimised app) runs no animation frames, and
-  // the chain used to run on timers alone — without this it would park at
-  // 'compressing' with navigation refused and the pet hidden until the window
-  // was shown (R1-03). At normal speed the frames win; on a slow machine the
-  // timer can (see WELCOME_FRAMES_FALLBACK_MS).
-  //
-  // 🚨 holdTitle FLUSHES STYLE before it lifts the cut (review round 2). A
-  // transition starts from the last style the browser COMPUTED, not the last
-  // one React committed: if the timer wins before any frame — a hidden
-  // window, a throttled one — the bars' compressed height with no transition
-  // has never been computed, and lifting the cut would let the mounted bars
-  // tween 540 → 40 when the window is next shown. Reading layout computes it
-  // first, so the lift changes nothing that can move.
-  const playWelcome = useCallback(() => {
-    if (transitionRef.current || welcomePlayedRef.current) return;
-    welcomePlayedRef.current = true;
-    transitionRef.current = true;
-    setTransitionTitle('Welcome');
-    setPetVisible(false);
-    setCompanionOpen(false);
-    setWelcomeCut(true);
-    setTransitionState('compressing');
-    let held = false;
-    const holdTitle = () => {
-      if (held) return;
-      held = true;
-      void document.documentElement.getBoundingClientRect();
-      setWelcomeCut(false);
-      setTransitionState('title-hold');
-      setTimeout(() => {
-        setTransitionState('expanding');
-        setTimeout(() => {
-          setTransitionState('fading-in');
-          setTimeout(() => {
-            setTransitionState('idle');
-            setTransitionTitle('');
-            transitionRef.current = false;
-            setPetVisible(true);
-          }, TRANSITION.fadeIn);
-        }, TRANSITION.expand);
-      }, TRANSITION.hold);
-    };
-    requestAnimationFrame(() => requestAnimationFrame(holdTitle));
-    setTimeout(holdTitle, WELCOME_FRAMES_FALLBACK_MS);
-  }, []);
-
-  // Back/forward buttons re-enter through navigateTo (with the animation).
-  // The ref keeps the listener stable across navigateTo's re-creation.
-  const navigateToRef = useRef(navigateTo);
-  useEffect(() => { navigateToRef.current = navigateTo; }, [navigateTo]);
-
-  // Session 13: the Admin Terminal's "Open their course" (change-request
-  // review) navigates the shell to O.T.T.E.R.; Otter.jsx listens for the same
-  // event and selects the course. An event, not a prop, because
-  // AdminTerminalPage deliberately takes none and this is the one cross-tool
-  // jump in the app.
-  useEffect(() => {
-    const onOpenOtterCourse = () => { navigateToRef.current('otter'); };
-    window.addEventListener('wilson:open-otter-course', onOpenOtterCourse);
-    return () => window.removeEventListener('wilson:open-otter-course', onOpenOtterCourse);
-  }, []);
-  // MO2: M.O.T.H.'s "Open in R.A.B.B.I.T." and "Open in Files", after its own question (tools/moth_v0.1.0/state/
-  // mothJumps.js). The shell goes to R.A.B.B.I.T.; Rabbit.jsx, always mounted, opens the project and the item.
-  useEffect(() => {
-    const toRabbit = () => { navigateToRef.current('rabbit'); };
-    window.addEventListener('wilson:open-rabbit-item', toRabbit);
-    window.addEventListener('wilson:open-project-file', toRabbit);
-    return () => {
-      window.removeEventListener('wilson:open-rabbit-item', toRabbit);
-      window.removeEventListener('wilson:open-project-file', toRabbit);
-    };
-  }, []);
-  // MO3: a note asked for from a typed link or M.O.T.H. (wilson:open-dashboard-note; rabbit_v0.1.0/state/
-  // linkedThings.js). The shell goes to the Dashboard, which opens on its Notes tab; NotesView finds the note.
-  useEffect(() => {
-    const toDashboard = () => { navigateToRef.current('dashboard'); };
-    window.addEventListener('wilson:open-dashboard-note', toDashboard);
-    return () => window.removeEventListener('wilson:open-dashboard-note', toDashboard);
-  }, []);
-  useEffect(() => {
-    if (!URL_ROUTING_ENABLED) return;
-    // Deep links land with no history state — stamp the entry so the first
-    // back/forward hop has a page to return to.
-    try {
-      window.history.replaceState({ page: pageFromLocation() }, '', window.location.href);
-    } catch { /* fine — popstate falls back to pathname parsing */ }
-    const onPop = () => {
-      if (transitionRef.current) {
-        // A transition is mid-flight (fixed 2.1s chain) and navigateTo drops
-        // re-entrant calls. Retry once the lock releases so the page catches
-        // up with the URL instead of desyncing.
-        const poll = setInterval(() => {
-          if (!transitionRef.current) {
-            clearInterval(poll);
-            navigateToRef.current(pageFromLocation(), true);
-          }
-        }, 200);
-        setTimeout(() => clearInterval(poll), 4000);
-        return;
-      }
-      navigateToRef.current(pageFromLocation(), true);
-    };
-    window.addEventListener('popstate', onPop);
-    return () => window.removeEventListener('popstate', onPop);
-  }, []);
-
-  // Page flags. `isDarkPage` and the header's shape are the registry's answer
-  // now, not a hand-kept list: Team Members is the first page on the Q1 dark
-  // ground that is NOT a tool, and the two used to be the same condition.
-  const page = getPage(currentPage) || getPage('home');
-  const isHome = currentPage === 'home';
-  const isToolPage = page.chrome === 'tool';
-  const isDarkPage = page.surface === 'dark';
-  const hasNavMenu = !isHome; // All non-home pages get a hamburger + nav strip
-
-  // Bottom offset for pet sprite — positions it above the bottom bar.
-  //
-  // 🚨 DERIVED FROM PAGE_BARS, never re-typed. This was a private
-  // `BOTTOM_BAR_PX` table — a second, silent copy of every bottom-bar height,
-  // 150px of it duplicated six times. Phase 4 made the bars viewport-relative
-  // and that copy would have gone on insisting Home's bar was 268px, standing
-  // the pet ~76px above the bar it is drawn sitting on, on exactly the screen
-  // this phase set out to fix. Nothing tests where the pet sits.
-  const petBottomOffset =
-    `calc(${(PAGE_BARS[currentPage] || PAGE_BARS.home).bottom} + 16px)`;
-
-  // Close the resources sub-column when the nav menu closes or page changes
-  useEffect(() => {
-    if (!showNavMenu) { setNavResourcesOpen(false); setNavHovered(null); }
-  }, [showNavMenu]);
-  useEffect(() => {
-    setNavResourcesOpen(false);
-    setNavHovered(null);
-  }, [currentPage]);
-
-  // ── Nav strip opacity (Session 43 §A8) ────────────────────────────────
-  // 🚨 `hover:opacity-70` was on BOTH columns and only worked on one. The
-  // main strip also carries an inline `opacity`, and an inline style beats a
-  // class selector — so the main strip was pinned at its inline value on
-  // every render and the hover never applied. The resources sub-column has no
-  // inline opacity, which is the entire reason its hover worked. That
-  // asymmetry is what Audrey saw: not a missing animation, a specificity
-  // collision.
-  //
-  // The fix cannot simply drop the inline value: `dimmed` is load-bearing —
-  // it fades the main strip to 0.35 while the resources column is open, which
-  // is what tells you which column is live. Hover and dimmed have to resolve
-  // in ONE place, so they do, here, and `hover:opacity-70` is gone from both
-  // columns so there is no second source of truth.
-  //
-  // 0.7 matches what the resources column was already doing, per Audrey: "it
-  // should work the same" (Law of Similarity — same control, same response).
-  //
-  // ✅ This grey is NOT the banned grey. It is white at reduced opacity on
-  // dark orange, as an interactive state on large bold type — not content
-  // text on an orange surface. Do not remove it while enforcing the colour
-  // rule.
-  //
-  // ── UI overhaul F2, the state extraction (plan §5) ──────────────────────
-  // The resolution above is right and stays; what changed is WHERE it lands.
-  // It used to be an inline `opacity` computed from `navHovered`, and an
-  // inline value beats any class — which is the whole defect this comment
-  // documents, one step removed. The state is now a single data attribute
-  // and the two values live in `.wilson-nav-item[data-state]` in index.css,
-  // so hover and dimmed STILL resolve in exactly one place (the property
-  // that mattered) and a later restyle can reach them from a stylesheet.
-  const navState = (key, dimmed) => (dimmed ? 'dimmed' : (navHovered === key ? 'hover' : 'rest'));
-  // `hover:` is mouse-only and this nav is keyboard-reachable, so focus feeds
-  // the same state rather than leaving a keyboard user with no feedback.
-  const navStateProps = (key) => ({
-    onMouseEnter: () => setNavHovered(key),
-    onMouseLeave: () => setNavHovered((h) => (h === key ? null : h)),
-    onFocus:      () => setNavHovered(key),
-    onBlur:       () => setNavHovered((h) => (h === key ? null : h)),
-  });
-
-  const closeNavAndGo = (page) => { setShowNavMenu(false); setNavResourcesOpen(false); navigateTo(page); };
-
-  // ── The nav strip, from the registry (F2) ────────────────────────────────
-  // Both columns' PAGES come from `src/layout/pages.js` — one list, in its own
-  // order, filtered for the page you are on and for the admin-only surface
-  // (filtered from the ARRAY, not hidden per button, so keyboard and mouse
-  // share one list — Session 9). The one item that is NOT a page is
-  // assembled beside them here: the RESOURCES toggle.
-  //
-  // Q7, ruled: the tool's item and the app's both read "SETTINGS", side by
-  // side in the same column; they became "Tool settings" and "App settings".
-  // Post-overhaul S2a (Audrey's C6, 2026-09-29): the tool half left the
-  // strip for all three tools. Each tool's gear is at the right end of its
-  // OWN strip, Help beside it (C7) — the three counters that opened a
-  // tool's settings from here, their props and the tools' effects are gone
-  // with it. "App settings" stays: it is a page.
-  //
-  // The strip is GROUPED: destinations above the hairline, the resources
-  // toggle and App settings below. A separator is not a control (C1); it is
-  // Proximity doing the work eleven equal-weight peers were asking the reader
-  // to do (Hick's law — the strip is the app's whole navigation).
-  const getNavStripItems = () => {
-    const primary = navPages('primary', { currentPage });
-    const appSettings = primary.find(p => p.id === 'settings');
-    const items = primary
-      .filter(p => p.id !== 'settings')
-      .map(p => ({ label: p.navLabel, action: () => closeNavAndGo(p.id) }));
-
-    const tail = [];
-    // RESOURCES trigger (toggles the sub-column; no direct navigation)
-    tail.push({ label: 'Resources', isResourcesTrigger: true });
-    if (appSettings) {
-      tail.push({ label: appSettings.navLabel, action: () => closeNavAndGo(appSettings.id) });
-    }
-
-    return [...items, { separator: true }, ...tail];
-  };
-
-  // Sub-column items shown when RESOURCES is expanded
-  const getResourcesNavItems = () => navPages('resources', {
-    currentPage,
-    isAdmin: perms.role === 'admin',
-  }).map(p => ({ label: p.navLabel, action: () => closeNavAndGo(p.id) }));
-
-  // 🚨 The 24 here was an ASSUMED line box for 16px type (review, nav finding)
-  // and would have been wrong the moment the size changed — which is this
-  // commit. It is now the H1 step's own box: 20px x 1.2 = 24px, named, beside
-  // the value it is derived from. Each column is measured separately and the
-  // taller one sets the strip, rather than one count standing for both.
-  const NAV_ITEM_PX = 24;   // --text-h1 (20px) x --text-h1--line-height (1.2)
-  const NAV_GAP_PX = 16;
-  const NAV_PAD_PX = 24;    // the one page gutter, top and bottom
-  const columnHeight = (rows) => {
-    if (rows.length === 0) return 0;
-    const content = rows.reduce((h, r) => h + (r.separator ? 1 : NAV_ITEM_PX), 0);
-    return content + (rows.length - 1) * NAV_GAP_PX + 2 * NAV_PAD_PX;
-  };
-  const getNavStripHeight = () => Math.max(
-    columnHeight(getNavStripItems()),
-    columnHeight(getResourcesNavItems()),
-  );
-
-  // Determine bar heights based on transition state
-  const isCompressed = transitionState === 'compressing' || transitionState === 'title-hold';
-  const isAnimating = transitionState !== 'idle';
-  const contentFaded = transitionState !== 'idle' && transitionState !== 'fading-in';
-  const isNavMenuVisible = hasNavMenu && showNavMenu && !isCompressed && transitionState !== 'expanding';
-
-  const pageBars = PAGE_BARS[currentPage] || PAGE_BARS.home;
-  const topHeight = isCompressed ? COMPRESSED.top : pageBars.top;
-  const bottomHeight = isCompressed ? COMPRESSED.bottom : pageBars.bottom;
-
-  // Render ALL pages simultaneously — hide inactive ones to preserve state
-  const renderAllPages = () => (
-    <>
-      <PageSurface id="home" currentPage={currentPage}>
-        <Home onNavigate={navigateTo} currentPage={currentPage} />
-      </PageSurface>
-      <PageSurface id="dog" currentPage={currentPage} overflow="hidden">
-        <DeckOutlineGenerator
-          onNavigate={navigateTo}
-          currentPage={currentPage}
-          zoomLevel={zoomLevel}
-        />
-      </PageSurface>
-      <PageSurface id="otter" currentPage={currentPage} overflow="hidden">
-        <Otter
-          onNavigate={navigateTo}
-          currentPage={currentPage}
-          onContextChange={setOtterContext}
-        />
-      </PageSurface>
-      <PageSurface id="rabbit" currentPage={currentPage} overflow="hidden">
-        <Rabbit
-          onNavigate={navigateTo}
-          isActive={currentPage === 'rabbit'}
-          currentPage={currentPage}
-        />
-      </PageSurface>
-      <PageSurface id="moth" currentPage={currentPage} overflow="hidden">
-        {mothEntered && <MothSurface isActive={currentPage === 'moth'} />}
-      </PageSurface>
-      <PageSurface id="settings" currentPage={currentPage}>
-        <SettingsPageWithAgent
-          petData={petData}
-          onPetModeToggle={handlePetModeToggle}
-          onDifficultyChange={handleDifficultyChange}
-          onPetReset={handlePetReset}
-          onNewPet={handleNewPet}
-          // Phase 3: pressing Create Egg used to set an error into state whose
-          // ONLY renderer is the companion chat panel — which is closed on
-          // every page change. The page that hosts the button now reports its
-          // own outcome, success as well as failure.
-          newPetStatus={newPetStatus}
-          newPetPending={newPetPending}
-          // A3: the pet's cross-device notice on the page that describes the
-          // pet. R1: this is the STICKY copy, not the toast's — they were one
-          // state, so dismissing the toast erased the durable surface at the
-          // same instant and the claim below it was false.
-          petNotice={petNoticeSticky}
-        />
-      </PageSurface>
-      <PageSurface id="project-manager" currentPage={currentPage}>
-        <Projects onNavigate={navigateTo} />
-      </PageSurface>
-      <PageSurface id="rate-card" currentPage={currentPage}>
-        <RateCardPage />
-      </PageSurface>
-      <PageSurface id="team-members" currentPage={currentPage}>
-        <TeamMembersPage />
-      </PageSurface>
-      <PageSurface id="project-files" currentPage={currentPage} overflow="hidden">
-        {currentPage === 'project-files' && <ProjectFilesExplorer />}
-      </PageSurface>
-      <PageSurface id="dashboard" currentPage={currentPage}>
-        <DashboardPage />
-      </PageSurface>
-      <PageSurface id="admin-terminal" currentPage={currentPage}>
-        <AdminTerminalPage />
-      </PageSurface>
-      <PageSurface id="help" currentPage={currentPage}>
-        <HelpPage />
-      </PageSurface>
-    </>
-  );
-
-  // ── The one page header (F2; plan §4, review F32) ────────────────────────
-  // This was FOUR blocks: three byte-identical tool headers differing only in
-  // two strings, and an eight-way OR chain listing the pages that get the
-  // plain header — a list a new page had to be added to by hand, and the
-  // third of the three lists 'project-files' had to appear in. Both are the
-  // registry's `chrome` field now.
-  const renderTopBarContent = () => {
-    if (page.chrome === 'none') return null; // Home — no bar content
-
-    return (
-      <PageHeader
-        title={page.title}
-        subtitle={page.subtitle}
-        measure={page.measure}
-        leading={page.chrome === 'tool' ? (
-          <img
-            src={`${import.meta.env.BASE_URL}logo.png`}
-            alt=""
-            className="h-[43.1px] w-auto brightness-0 invert"
-          />
-        ) : null}
-        actions={(
-          <IconButton
-            icon={Menu}
-            title="Navigation"
-            surface="chrome"
-            aria-expanded={showNavMenu}
-            onClick={() => setShowNavMenu(prev => !prev)}
-          />
-        )}
+  // ── The companion, built here and drawn by <PetCompanionSlot> (F4) ──
+  const petCompanion = petData && (
+      <PetCompanionWithAgent
+        currentPage={currentPage}
+        petData={petData}
+        petSaveError={petSaveError}
+        // R1 of A3: the cloud-only sentence is only TRUE for a save made
+        // by a signed-in person. petSaveError multiplexes load, sync,
+        // save and egg failures, so on a failed SYNC it said "this
+        // change is not stored" when there was no change, and signed out
+        // the pet genuinely is local.
+        petIsCloudBacked={!!perms.userId}
+        companionOpen={companionOpen}
+        onCompanionToggle={setCompanionOpen}
+        chatMessages={chatMessages}
+        chatInput={chatInput}
+        onChatInputChange={handleChatInputChange}
+        onSendChat={sendChat}
+        onClearChat={() => setChatMessages([])}
+        chatLoading={chatLoading}
+        chatThinking={chatThinking}
+        feedbackJustRated={feedbackJustRated}
+        thumbFlash={thumbFlash}
+        onThumbRating={handleThumbRating}
+        onFeed={handleFeed}
+        onPetAction={handlePetAction}
+        flashFeed={flashFeed}
+        flashPet={flashPet}
+        eggWobble={eggWobble}
+        sleepZCycle={sleepZCycle}
+        cloudVisible={cloudVisible}
+        attentionJump={attentionJump}
+        showHatchModal={showHatchModal}
+        hatchNameInput={hatchNameInput}
+        onHatchNameChange={setHatchNameInput}
+        onHatchConfirm={handleHatchConfirm}
+        isDarkPage={isDarkPage}
+        onNavigateLink={handleCompanionNavLink}
+        bottomOffset={petBottomOffset}
+        petVisible={petVisible}
+        aiUnavailable={!authed}
       />
-    );
-  };
+  );
 
   return (
-    <AgentProvider>
-    <RabbitProvider>
-    {/* ONE toast stack for the whole app (plan §4: one anchor, one stack
-        manager, replacing five systems in five screen positions). It lives
-        here so a page never mounts a second one; F2's worked example is its
-        first caller and the four tool systems fold in with their lanes.
-
-        `bar` is the current page’s bottom-bar height, so the stack sits 24px
-        above the BAR rather than 24px off the window (F4, D1b §7: two toasts
-        straddled the light pages’ 80px bar). Same `PAGE_BARS` read the pet’s
-        `petBottomOffset` takes, and the RESTING value rather than the
-        compressed one, for the same reason the pet uses it — a toast must not
-        slide during the page transition.
-
-        `pinned` is R.A.B.B.I.T.'s UndoToast, the stack's LAST row (merge
-        review round 2, A-R2-02): as a second fixed surface at bottom-centre
-        it shared the stack's anchor — on the tool pages (8px bar) the first
-        toast spanned 32–73px over its 24–74px — and a sticky pet notice
-        painted over the Undo button and took its clicks. In the stack it sits
-        below whatever push() has put up, with the stack's own gap, on the
-        stack's layer. It still reads useRabbit() and stays the one instance;
-        the note at the old mount point (bottom of this tree) says why it is
-        mounted at app level at all. */}
-    <ToastProvider bar={pageBars.bottom} pinned={<UndoToast />}>
-    <div className="wilson-dark-scroll" style={{ height: '100vh', backgroundColor: '#ea580c', overflow: 'hidden' }}>
-      <TitleBar />
-      {/* Dev fixtures (2026-09-11): the DEV · fixtures badge, dev builds only —
-          `import.meta.env.DEV` is a build-time constant, so `vite build` drops
-          the element and the import with it. */}
-      {import.meta.env.DEV && <DevFixturesBadge />}
-      {/* B2 part 2: "Connection lost — reload to continue", fed by
-          connectionWatchdog through the Supabase client's fetch. Above every
-          overlay (`.connection-banner`, index.css); under the title bar in
-          Electron through the kit's `--titlebar-offset`, so the window
-          controls stay reachable. Rendered signed in or out — a hung sign-in
-          is the same hang. */}
-      <ConnectionLostBanner />
-      {authed && (
-        <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-
-          {/* Decision D6: a substituted model degrades loudly. Sits above the
-              chrome so it is impossible to miss and does not time out. */}
-          <ModelWarningBanner />
-
-          {/* ===== TOP ORANGE BAR ===== */}
-          <div className="wilson-chrome" style={{
-            backgroundColor: '#ea580c',
-            height: topHeight,
-            flexShrink: 0,
-            position: 'relative',
-            display: 'flex',
-            alignItems: 'flex-end',
-            // S6a: a cut at the sign-in's hand-over (see welcomeCut).
-            transition: welcomeCut ? 'none' : `height 600ms ${EASE}`,
-            overflow: 'hidden',
-            zIndex: 10,
-          }}>
-            <div style={{
-              width: '100%',
-              display: 'flex',
-              alignItems: 'flex-end',
-              opacity: contentFaded ? 0 : 1,
-              // S6a (review round 2, R2-03): the page header goes with the
-              // bars' cut at the sign-in's hand-over — on an app already
-              // mounted under the sign-in screen it would otherwise fade for
-              // 250ms over the WELCOME band.
-              transition: welcomeCut ? 'none' : 'opacity 250ms ease',
-              // Same 250ms hole as the content area below — the hamburger was
-              // live during 'fading-in' while navigateTo would still drop it.
-              pointerEvents: isAnimating ? 'none' : 'auto',
-            }}>
-              {renderTopBarContent()}
-            </div>
-          </div>
-
-          {/* ===== NAV STRIP — same orange, bottom edge = header edge ===== */}
-          <div className="wilson-chrome" style={{
-            backgroundColor: '#ea580c',
-            overflow: 'hidden',
-            height: isNavMenuVisible ? `${getNavStripHeight()}px` : '0px',
-            transition: welcomeCut ? 'none' : `height ${isAnimating ? '600ms' : '400ms'} ${EASE}`,
-            flexShrink: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'flex-end',
-            gap: '48px',
-            // ONE page gutter (plan §3.3). The strip was right-aligned at 48px
-            // while the hamburger that opens it sits at 24px, so every item
-            // slid out 24px short of the control that summoned it — the two
-            // never lined up on any page.
-            paddingRight: 'var(--spacing-gutter)',
-            zIndex: 9,
-          }}>
-            {/* Resources sub-column — slides in from the left of the main strip */}
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'flex-end',
-              gap: '16px',
-              maxWidth: navResourcesOpen ? '320px' : '0',
-              opacity: navResourcesOpen ? 1 : 0,
-              transform: navResourcesOpen ? 'translateX(0)' : 'translateX(-24px)',
-              transition: 'max-width 300ms ease, opacity 250ms ease, transform 300ms ease',
-              pointerEvents: navResourcesOpen ? 'auto' : 'none',
-              overflow: 'hidden',
-            }}>
-              {getResourcesNavItems().map((item) => (
-                <button
-                  key={item.label}
-                  onClick={item.action}
-                  className="wilson-nav-item"
-                  data-state={navState(`res:${item.label}`, false)}
-                  style={{ whiteSpace: 'nowrap' }}
-                  {...navStateProps(`res:${item.label}`)}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Main nav strip column */}
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'flex-end',
-              gap: '16px',
-            }}>
-              {getNavStripItems().map((item, i) => {
-                // The group break: a hairline in the frame's own ink, not a
-                // control and not a heading — see getNavStripItems.
-                if (item.separator) {
-                  return (
-                    <div
-                      key={`sep-${i}`}
-                      aria-hidden="true"
-                      style={{ height: '1px', width: '96px', backgroundColor: 'rgba(28,25,23,0.35)' }}
-                    />
-                  );
-                }
-                const isTrigger = item.isResourcesTrigger;
-                const dimmed = navResourcesOpen && !isTrigger;
-                return (
-                  <button
-                    key={item.label}
-                    onClick={() => {
-                      if (isTrigger) {
-                        setNavResourcesOpen(prev => !prev);
-                        return;
-                      }
-                      if (navResourcesOpen) {
-                        // First click just dismisses the resources column
-                        setNavResourcesOpen(false);
-                        return;
-                      }
-                      item.action();
-                    }}
-                    className="wilson-nav-item"
-                    data-state={navState(`main:${item.label}`, dimmed)}
-                    style={{ whiteSpace: 'nowrap' }}
-                    {...navStateProps(`main:${item.label}`)}
-                  >
-                    {item.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* ===== Tool page border — the band under the bars, tools only ===== */}
-          {isToolPage && !isAnimating && (
-            <div style={{ height: '4px', backgroundColor: '#44403c', flexShrink: 0 }} />
-          )}
-
-          {/* ===== CONTENT AREA — the interface zone between the bars ===== */}
-          <div style={{
-            flex: 1,
-            backgroundColor: isDarkPage ? '#1c1917' : '#f4a261',
-            overflow: 'hidden',
-            position: 'relative',
-            display: 'flex',
-            flexDirection: 'column',
-            transition: `background-color 0ms linear ${isCompressed ? '0ms' : '300ms'}`,
-          }}>
-            {/* Transition title overlay — visible when bars are compressed */}
-            {isAnimating && (
-              <div style={{
-                position: 'absolute',
-                inset: 0,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: '#f4a261',
-                zIndex: 5,
-                opacity: isCompressed ? 1 : 0,
-                transition: `opacity 200ms ease`,
-                pointerEvents: 'none',
-              }}>
-                <span style={{
-                  // Session 43: was '#fff'. This overlay's own background is
-                  // #f4a261, so the title has been white-on-light-orange at
-                  // 2.06:1 on EVERY page transition in the app — the same
-                  // defect the auth surfaces had, hiding in the one component
-                  // that flashes past too quickly to read. #1c1917 is 8.49:1.
-                  color: '#1c1917',
-                  fontWeight: 'bold',
-                  fontSize: '16.8px',
-                  letterSpacing: '0.3em',
-                  textTransform: 'uppercase',
-                  opacity: transitionState === 'title-hold' ? 1 : 0,
-                  transition: 'opacity 200ms ease',
-                }}>
-                  {transitionTitle}
-                </span>
-              </div>
-            )}
-
-            {/* Page content — fades during transitions, all pages rendered to preserve state */}
-            <div style={{
-              flex: 1,
-              overflow: 'hidden',
-              opacity: contentFaded ? 0 : 1,
-              transition: 'opacity 250ms ease',
-              // 🚨 `isAnimating`, not `contentFaded`. They differ for the
-              // 250ms 'fading-in' step, and in that gap the content was
-              // clickable while navigateTo still early-returns on
-              // transitionRef — so a click was ACCEPTED AND SILENTLY DROPPED.
-              // Pre-existing for page transitions; Session 43's welcome made
-              // it reachable immediately after sign-in, which is how CI found
-              // it (Playwright clicks the instant a target is actionable, and
-              // that instant is precisely this window).
-              // A blocked click retries; a swallowed one is just lost.
-              pointerEvents: isAnimating ? 'none' : 'auto',
-              // Plan §3.3: nothing in `vh`. This was `3vh 0` — 27px at 900px
-              // tall and 21px at 700 — so the app's one vertical rhythm
-              // changed with the window. A tool owns its whole field (0), and
-              // Help paints its own two-column shell; every other page takes
-              // the one 24px gutter.
-              padding: (isToolPage || currentPage === 'help') ? 0 : 'var(--spacing-gutter) 0',
-              display: 'flex',
-              flexDirection: 'column',
-            }}>
-              {renderAllPages()}
-            </div>
-          </div>
-
-          {/* ===== BOTTOM ORANGE BAR — constant container element ===== */}
-          <div className="wilson-chrome" style={{
-            backgroundColor: '#ea580c',
-            height: bottomHeight,
-            flexShrink: 0,
-            transition: welcomeCut ? 'none' : `height 600ms ${EASE}`,
-            zIndex: 10,
-          }} />
-
-          {/* Click-away overlay to close nav menu */}
-          {isNavMenuVisible && (
-            <div
-              onClick={() => setShowNavMenu(false)}
-              style={{
-                position: 'fixed',
-                inset: 0,
-                zIndex: 8,
-                cursor: 'default',
-              }}
-            />
-          )}
-
-          {/* ===== PET COMPANION OVERLAY — visible on ALL pages ===== */}
-          {petData && (
-            <PetCompanionWithAgent
-              currentPage={currentPage}
-              petData={petData}
-              petSaveError={petSaveError}
-              // R1 of A3: the cloud-only sentence is only TRUE for a save made
-              // by a signed-in person. petSaveError multiplexes load, sync,
-              // save and egg failures, so on a failed SYNC it said "this
-              // change is not stored" when there was no change, and signed out
-              // the pet genuinely is local.
-              petIsCloudBacked={!!perms.userId}
-              companionOpen={companionOpen}
-              onCompanionToggle={setCompanionOpen}
-              chatMessages={chatMessages}
-              chatInput={chatInput}
-              onChatInputChange={handleChatInputChange}
-              onSendChat={sendChat}
-              onClearChat={() => setChatMessages([])}
-              chatLoading={chatLoading}
-              chatThinking={chatThinking}
-              feedbackJustRated={feedbackJustRated}
-              thumbFlash={thumbFlash}
-              onThumbRating={handleThumbRating}
-              onFeed={handleFeed}
-              onPetAction={handlePetAction}
-              flashFeed={flashFeed}
-              flashPet={flashPet}
-              eggWobble={eggWobble}
-              sleepZCycle={sleepZCycle}
-              cloudVisible={cloudVisible}
-              attentionJump={attentionJump}
-              showHatchModal={showHatchModal}
-              hatchNameInput={hatchNameInput}
-              onHatchNameChange={setHatchNameInput}
-              onHatchConfirm={handleHatchConfirm}
-              isDarkPage={isDarkPage}
-              onNavigateLink={handleCompanionNavLink}
-              bottomOffset={petBottomOffset}
-              petVisible={petVisible}
-              aiUnavailable={!authed}
-            />
-          )}
-        </div>
-      )}
-
-      {/* Auth overlay — company → username → password. Wait for the initial
-          session check so returning users don't briefly see the login form. */}
-      {showOverlay && sessionChecked && authMode === 'login' && (
-        <LoginScreen
-          notice={signedOutNotice}
-          onForgotPassword={() => setAuthMode('forgot-password')}
-          onAuthenticated={(session) => {
-            handleAuth(session);
-            handleAnimationComplete();
-            // S6a: in this commit, not an effect's — see playWelcome.
-            playWelcome();
-          }}
-        />
-      )}
-      {showOverlay && sessionChecked && authMode === 'forgot-password' && (
-        <ForgotPasswordWizard
-          onBackToLogin={() => setAuthMode('login')}
-        />
-      )}
-      {showOverlay && sessionChecked && authMode === 'recovery' && (
-        <ResetPasswordWizard
-          onDone={() => {
-            // Clear the whole recovery URL so a reload won't re-enter the
-            // wizard, then return to the login form. Session 18: `search` is
-            // dropped too, not just the fragment — a token_hash link can carry
-            // its token in the real query string, and keeping it would bounce
-            // a reloading user into the wizard holding a spent token.
-            try {
-              window.history.replaceState(null, '', window.location.pathname)
-            } catch { /* non-critical */ }
-            setAuthMode('login')
-          }}
-        />
-      )}
-
-      {/* First-login profile capture. Shown on top of the authenticated app
-          so the user sees the chrome animate in once (from LoginScreen) and
-          then slides straight into the welcome wizard without blanking the
-          screen. */}
-      {authed && pendingOnboarding && (
-        <NewUserWelcome
-          membership={pendingOnboarding}
-          onComplete={() => setPendingOnboarding(null)}
-        />
-      )}
-
-      {/* Session 9: admin MFA enrollment gate (after onboarding clears).
-          Deferral is per sign-in — it re-fires every login until enrolled. */}
-      {authed && !pendingOnboarding && pendingMfaEnroll && (
-        <MfaEnrollGate
-          onComplete={() => setPendingMfaEnroll(false)}
-          onDefer={() => setPendingMfaEnroll(false)}
-        />
-      )}
-
-      {/* Session 9: login-time update prompt (never stacked on the gates). */}
-      {authed && !pendingOnboarding && !pendingMfaEnroll && updateOffer && (
-        <UpdatePrompt
-          version={updateOffer.version}
-          onDismiss={() => setUpdateOffer(null)}
-        />
-      )}
-
-      {/* B2 part 2: "Still there?" at 25 idle minutes, "Session ending" five
-          minutes before the 4-hour cap. Above the gates (a person mid-wizard
-          is still a person about to be signed out), below the banner. The
-          idle dialog is the kit Dialog lifted to 210 — above the quit dialog
-          at 200 — and the cap notice rides the toast stack the ToastProvider
-          above anchors over `pageBars.bottom` (merge review round 1,
-          B-R1-02 / B-R1-03). */}
-      {authed && (
-        <SessionWarning
-          phase={sessionTimeouts.phase}
-          deadline={sessionTimeouts.deadline}
-          onStay={sessionTimeouts.stay}
-        />
-      )}
-
-      {/* Close confirmation dialog */}
-      {showCloseDialog && (
-        // S3c review round 2 (R2-05): not a kit Dialog, so the pages' undo
-        // keys did not see it (binUi counts `.ui-dialog-backdrop`): Ctrl+Z
-        // took back an edit under "Close WILSON". The marker is what they
-        // count it by (binUi's APP_QUESTION).
-        <div data-app-question="close" style={{
-          position: 'fixed', inset: 0, zIndex: 200,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          backgroundColor: BACKDROP,
-        }}>
-          {/* ROUND ONE, FINDING 3: "take the whole object or take none of
-              it". The first pass converted ONE hex here — the Close button's
-              fill — and left seven, including a `color: '#ea580c'` three
-              lines above a `SIGNAL_FILL`, in a commit whose thesis was C8.
-              Every value on this surface is a token now. Where a hex had an
-              exact token it kept its value; the two that moved are named
-              where they moved.
-
-              The surface stays hand-rolled rather than becoming the kit's
-              `Dialog` (the light shell's own box). Its controls are the
-              kit's `Button`, which is a pure swap and is what fixes the
-              contrast and the hovers below. S3c review round 1 (R1-11): C1
-              is lifted for these sessions, so it is now a dialog to a screen
-              reader (named by its heading, described by its words) and to
-              the keyboard (the effect above: the overlay stack, Escape, Tab
-              kept inside). */}
-          <div
-            ref={closeDialogRef}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="wilson-close-title"
-            aria-describedby="wilson-close-words"
-            style={{
-            backgroundColor: PAPER,
-            // §3.3: one 1px hairline. The frame keeps the signal — §3.2 gives
-            // `signal` "the frame" as one of its four jobs — and loses the
-            // second pixel, which is the only thing §3.3 objects to.
-            border: `1px solid ${SIGNAL}`,
-            borderRadius: `${RADIUS_FLOAT}px`,
-            boxShadow: SHADOW_FLOAT,
-            padding: '32px 36px 28px',
-            // S3c step 7: three answers do not fit the confirm width (they
-            // overflowed its frame); folded, the question takes the form's.
-            maxWidth: `${closeUnsaved.length ? DIALOG.form : DIALOG.confirm}px`,
-            width: '90%',
-            textAlign: 'center',
-          }}>
-            {/* The dialog title is the H2 step (§3.1): 16 / 1.3 / 600 /
-                sentence / no tracking, in the app's sans. It was 16px BOLD
-                UPPERCASE at +0.15em in `monospace` — four emphasis mechanisms
-                on one four-word heading, and the only `monospace` left in
-                this file. The SIZE is unchanged; the leading is not, because
-                it was unset and inheriting Tailwind preflight's 1.5. */}
-            <h2 id="wilson-close-title" style={{
-              color: SIGNAL,
-              fontSize: `${TYPE.h2}px`,
-              lineHeight: LEADING.h2,
-              fontWeight: WEIGHT.h2,
-              marginBottom: '12px',
-            }}>Close WILSON</h2>
-            {/* `#a8a29e` was one of the four inks §3.2 retires across 1,277
-                uses; `ink-2` is its replacement and reads 8.49:1 here. */}
-            <p id="wilson-close-words" style={{
-              color: INK_2,
-              fontSize: `${TYPE.dense}px`,
-              lineHeight: LEADING.dense,
-              marginBottom: '24px',
-            }}>
-              {/* Post-overhaul S3c, step 7: an unsaved edit says so here, in
-                  this one question (D12) — what it is, of which list; of
-                  several, "them" (review round 1, R1-12). FX4: what is
-                  discarded is what is not saved, never a saved edit. */}
-              {closeUnsaved.length
-                ? `${closeUnsaved.map((g) => g.describe()).join(' ')} ${closeCount > 1 ? 'Save them before closing, or discard what is not saved.' : 'Save it before closing, or discard what is not saved.'}`
-                : 'Make sure you have exported your work before closing.'}
-            </p>
-            {closeError && (
-              <p role="alert" style={{
-                color: DANGER,
-                fontSize: `${TYPE.dense}px`,
-                lineHeight: LEADING.dense,
-                marginBottom: '16px',
-              }}>
-                {closeError}
-              </p>
-            )}
-            {/* 🚨 ROUND ONE, FINDING 1, AND IT IS THE ONE THAT MATTERED. The
-                first pass fixed the Close button's 3.56:1 white-on-`#ea580c`
-                and left CANCEL beside it at `#a8a29e` on `#44403c` — 4.07:1
-                resting and **3.03:1 on hover**, both under the 4.5 §3.2 says
-                "does not ship", and both WORSE than the defect that was
-                fixed. It then reported the surface as clean. The hover half
-                is precisely D2's kit request K8, which the kit had already
-                fixed for light ghost buttons ("a light ghost button turned
-                2.10:1 at the exact moment the pointer reached it").
-
-                Both controls are the kit's `Button` now, which is why this is
-                a deletion rather than a repair: the secondary variant is
-                transparent with a hairline and the full ink (15.45:1, and
-                its hover is `--color-hover`, an overlay that cannot drop the
-                ink), the primary is `signal-fill` with white (5.18:1). The
-                type, the 3px control radius and BOTH hover states come from
-                `.ui-btn[data-variant]` in CSS.
-
-                That also settles the protocol's state-extraction step, which
-                round one correctly called a violation: the four
-                `onMouseEnter`/`onMouseLeave` handlers that wrote
-                `e.currentTarget.style.backgroundColor` are gone, and an
-                inline style can no longer beat a hover rule because there is
-                no inline style left to do it. */}
-            {/* With an unsaved edit, D12's three answers, Keep editing first
-                and focused — and Escape (R1-11). Without one, Cancel first and
-                focused, as every question's staying answer is. */}
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
-              <Button
-                variant="secondary"
-                autoFocus
-                disabled={closeBusy}
-                onClick={() => setShowCloseDialog(false)}
-                style={{ flex: 1 }}
-              >
-                {closeUnsaved.length ? 'Keep editing' : 'Cancel'}
-              </Button>
-              {closeUnsaved.length > 0 && (
-                <Button
-                  variant="danger"
-                  disabled={closeBusy}
-                  onClick={() => closeAfter('discard')}
-                  style={{ flex: 1 }}
-                >
-                  Discard and close
-                </Button>
-              )}
-              <Button
-                variant="primary"
-                loading={closeBusy}
-                onClick={() => (closeUnsaved.length ? closeAfter('save') : closeNow())}
-                style={{ flex: 1 }}
-              >
-                {closeUnsaved.length ? 'Save edit and close' : 'Close'}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-    {/* ── Undo toast (soft-delete forgiveness window) ──
-        Mounted at app level, not inside the RABBIT shell, because
-        deletes can fire from pages (e.g. ProjectsPage) where the
-        Rabbit page div is display:none; reads useRabbit() — must stay
-        the single instance. Since merge review round 2 (A-R2-02) it is
-        the toast stack's PINNED row — the `pinned` prop of the ToastProvider
-        at the top of this tree — rather than a second fixed surface here. */}
-    {/* ── A3: the pet's notices, mounted OUTSIDE `{petData && …}` ──
-        The stale-copy refresh from migration 0068, and a failed pet LOAD —
-        which had nowhere to show itself at all, because the failure unmounts
-        the only thing that rendered it. */}
-    <PetNotice notice={petNotice} onDismiss={dismissPetNotice} />
-    </ToastProvider>
-    {/* Post-overhaul S3c, step 7 (D12): the one question every exit asks
-        while an edit is unsaved — any page can ask it (navigateTo). */}
-    <LeaveEditDialog />
-    </RabbitProvider>
-    </AgentProvider>
+    <PetSettingsContext.Provider value={petSettings}>
+      <PetCompanionContext.Provider value={petCompanion}>
+        {children}
+      </PetCompanionContext.Provider>
+    </PetSettingsContext.Provider>
   );
 }
