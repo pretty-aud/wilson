@@ -219,10 +219,10 @@ export async function handleReadUrls<Ctx>(req: Request, deps: ReadUrlsDeps<Ctx>)
   }
 
   // Bounded AS IT IS READ, by the house reader the gateway's functions use
-  // (review round 2, finding 3): a declared length over the cap is refused
-  // unread, and a body without one is streamed and cut at the cap — never
-  // read whole first, and never refused merely for not declaring a length
-  // (a relay may re-frame it).
+  // (review round 2, finding 3): never held past the cap, never read whole
+  // first, and never refused merely for not declaring a length (a relay may
+  // re-frame it). Past the cap the rest is read through and thrown away, up to
+  // DRAIN_MAX_BYTES, so the hosted platform delivers the 413 (F8).
   const read = await readJsonLimited(req, READ_URLS_MAX_BODY_BYTES)
   if (read === null) return refuse(400, 'bad_request', 'the request body is not JSON')
   if (read.length > READ_URLS_MAX_BODY_BYTES) return refuse(413, 'too_large', 'the request is too large')

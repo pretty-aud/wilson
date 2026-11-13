@@ -465,9 +465,11 @@ export const SMALL_BODY_MAX = 2048
  * ai-files' one invariant is about the UPLOAD: its multipart stream is never
  * materialised. The delete route's body is a few dozen bytes of JSON, so
  * reading it does not touch that invariant — but a member could still send a
- * large body to a JSON route, so it is read in chunks and abandoned at the
- * cap rather than handed to `req.json()` whole. A declared length past the
- * cap is refused before a byte is read.
+ * large body to a JSON route, so it is read in chunks and never held past the
+ * cap rather than handed to `req.json()` whole. Past the cap (declared or
+ * counted) the rest is read through and thrown away, up to
+ * gatewayWire.DRAIN_MAX_BYTES, so the hosted platform delivers the refusal
+ * (F8: it does not answer a request whose body was left unread).
  */
 export async function readSmallJson(req: Request, max = SMALL_BODY_MAX): Promise<Record<string, unknown> | null> {
   const read = await readJsonLimited(req, max)
