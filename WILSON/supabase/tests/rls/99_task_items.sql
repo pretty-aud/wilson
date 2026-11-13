@@ -212,7 +212,8 @@ SELECT is(
   (SELECT count(*)::int FROM pg_policies WHERE schemaname = 'public' AND tablename = 'task_items'
       AND (COALESCE(qual, '') || ' ' || COALESCE(with_check, '')) ~ 'FROM projects p\s+WHERE \(p\.id = task_items\.project_id\)'
       AND (COALESCE(qual, '') || ' ' || COALESCE(with_check, '')) ~ 'FROM tasks t\s+WHERE \(t\.id = task_items\.task_id\)'
-      AND (COALESCE(qual, '') || ' ' || COALESCE(with_check, '')) LIKE '%current_workspace_id()%'),
+      -- F7: the pin itself, now the sub-select also names current_workspace_id().
+      AND (COALESCE(qual, '') || ' ' || COALESCE(with_check, '')) LIKE '%(workspace_id = current_workspace_id())%'),
   4,
   'every policy carries the workspace arm and hops to the project AND the task (§4: privacy, trash)');
 

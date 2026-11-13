@@ -1,8 +1,10 @@
 -- =============================================================================
 -- 139_per_row_work.sql — F7 (wave 2): the database's per-row work (0137).
 --
--- A. The restatement: 188 policies ask has_active_membership once per statement, one is left per row on purpose
---    (auth_events_insert, which pins no company), and nothing else about them moved.
+-- A. The restatement: 186 policies ask has_active_membership once per statement, three are left per row on purpose
+--    (auth_events_insert, which pins no company; workspace_members' two read-side policies, which a sub-select would
+--    make recurse under ws_members_self_update's own sub-query), and nothing else about them moved. No table's
+--    policies recurse for a client's statement of any kind; CONTROL: one of the two put in the new form does.
 -- B. The plans: an InitPlan where there was a call per row, on a top-level policy, an EXISTS one, a write and
 --    storage.objects. CONTROL: one policy put back to the per-row form shows up in both A's count and B's plan.
 -- C. The answers did not change, shape by shape: another company, a person in two companies, a membership taken
@@ -16,7 +18,7 @@
 -- =============================================================================
 
 BEGIN;
-SELECT plan(50);
+SELECT plan(55);
 
 SELECT * FROM tests.rls_setup();
 
@@ -78,18 +80,52 @@ BEGIN
   RETURN n;
 END;
 $f$;
-GRANT EXECUTE ON FUNCTION public.t139_as(uuid, uuid, text), public.t139_plan(text), public.t139_updated(uuid) TO authenticated;
+-- Every table with row security, every kind of statement, prepared (parsed and rewritten, never planned or run) as the
+-- caller: the tables and kinds the rewriter refuses with 42P17, "infinite recursion detected in policy".
+CREATE FUNCTION public.t139_recursion() RETURNS text LANGUAGE plpgsql AS $f$
+DECLARE
+  r     record;
+  v_col text;
+  v_bad text := '';
+  q     text;
+BEGIN
+  FOR r IN
+    SELECT n.nspname, c.relname, c.oid FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE c.relkind IN ('r', 'p') AND c.relrowsecurity AND n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname !~ '^pg_'
+     ORDER BY 1, 2
+  LOOP
+    SELECT quote_ident(a.attname) INTO v_col FROM pg_attribute a
+     WHERE a.attrelid = r.oid AND a.attnum > 0 AND NOT a.attisdropped AND a.attgenerated = '' AND a.attidentity = ''
+     ORDER BY a.attnum LIMIT 1;
+    FOREACH q IN ARRAY ARRAY[format('SELECT 1 FROM %I.%I', r.nspname, r.relname),
+                             format('UPDATE %I.%I SET %s = %s', r.nspname, r.relname, v_col, v_col),
+                             format('DELETE FROM %I.%I', r.nspname, r.relname),
+                             format('INSERT INTO %I.%I DEFAULT VALUES', r.nspname, r.relname)]
+    LOOP
+      BEGIN
+        EXECUTE 'PREPARE t139_probe AS ' || q;
+        EXECUTE 'DEALLOCATE t139_probe';
+      EXCEPTION
+        WHEN SQLSTATE '42P17' THEN v_bad := v_bad || r.nspname || '.' || r.relname || ' (' || split_part(q, ' ', 1) || ') ';
+        WHEN OTHERS THEN NULL;
+      END;
+    END LOOP;
+  END LOOP;
+  RETURN btrim(v_bad);
+END;
+$f$;
+GRANT EXECUTE ON FUNCTION public.t139_as(uuid, uuid, text), public.t139_plan(text), public.t139_updated(uuid), public.t139_recursion() TO authenticated;
 
 -- ── A. The restatement ─────────────────────────────────────────────────────────
 -- 1
 SELECT is(
   (SELECT count(*)::int FROM pg_policies
     WHERE COALESCE(qual, '') || COALESCE(with_check, '') LIKE '%SELECT %has_active_membership(%current_workspace_id()) AS has_active_membership)%'),
-  188,
-  '188 policies ask has_active_membership once per statement, inside a sub-select');
+  186,
+  '186 policies ask has_active_membership once per statement, inside a sub-select');
 -- 2
-SELECT is(public.t139_per_row(), 'public.auth_events.auth_events_insert',
-  'exactly one still asks per row: auth_events_insert');
+SELECT is(public.t139_per_row(), 'public.auth_events.auth_events_insert, public.workspace_members.ws_members_admin_write, public.workspace_members.ws_members_select',
+  'exactly three still ask per row: auth_events_insert, and workspace_members'' two read-side policies');
 -- 3
 SELECT ok(
   (SELECT with_check LIKE '%(workspace_id IS NULL) OR %has_active_membership(workspace_id))%'
@@ -153,7 +189,7 @@ RESET ROLE;
 ALTER POLICY projects_select ON public.projects
   USING (((deleted_at IS NULL) AND (workspace_id = public.current_workspace_id()) AND public.has_active_membership(workspace_id) AND ((NOT is_private) OR (created_by = auth.uid()) OR (public.current_app_role() = 'admin'::text))));
 -- 12
-SELECT is(public.t139_per_row(), 'public.auth_events.auth_events_insert, public.projects.projects_select',
+SELECT is(public.t139_per_row(), 'public.auth_events.auth_events_insert, public.projects.projects_select, public.workspace_members.ws_members_admin_write, public.workspace_members.ws_members_select',
   'CONTROL: the per-row form put back is counted');
 SET LOCAL ROLE authenticated;
 -- 13
@@ -163,43 +199,71 @@ RESET ROLE;
 ALTER POLICY projects_select ON public.projects
   USING (((deleted_at IS NULL) AND (workspace_id = public.current_workspace_id()) AND (SELECT public.has_active_membership(public.current_workspace_id())) AND ((NOT is_private) OR (created_by = auth.uid()) OR (public.current_app_role() = 'admin'::text))));
 -- 14
-SELECT is(public.t139_per_row(), 'public.auth_events.auth_events_insert', 'restored');
+SELECT is(public.t139_per_row(), 'public.auth_events.auth_events_insert, public.workspace_members.ws_members_admin_write, public.workspace_members.ws_members_select', 'restored');
+
+-- No recursion anywhere, as a client.
+SET LOCAL ROLE authenticated;
+-- 15
+SELECT is(public.t139_recursion(), '', 'no table''s policies recurse for a client''s read, update, delete or insert');
+RESET ROLE;
+-- CONTROL: ws_members_select in the new form: every update of a member row recurses (CI on 11256e74).
+ALTER POLICY ws_members_select ON public.workspace_members
+  USING (((user_id = auth.uid()) OR ((workspace_id = public.current_workspace_id()) AND (SELECT public.has_active_membership(public.current_workspace_id())))));
+SET LOCAL ROLE authenticated;
+-- 16
+SELECT is(public.t139_recursion(), 'public.workspace_members (UPDATE)',
+  'CONTROL: with workspace_members'' read policy holding a sub-select, an UPDATE of a member row recurses');
+RESET ROLE;
+ALTER POLICY ws_members_select ON public.workspace_members
+  USING (((user_id = auth.uid()) OR ((workspace_id = public.current_workspace_id()) AND public.has_active_membership(workspace_id))));
+SET LOCAL ROLE authenticated;
+-- 17
+SELECT is(public.t139_recursion(), '', 'restored: none');
+SELECT public.t139_as('cccccccc-cccc-cccc-cccc-cccccccccccc', '11111111-1111-1111-1111-111111111111');
+-- 18
+SELECT lives_ok($q$UPDATE public.workspace_members SET display_name = 'User C' WHERE user_id = auth.uid()$q$,
+  'a member updates their own row (ws_members_self_update''s sub-query) without recursion');
+SELECT public.t139_as('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '11111111-1111-1111-1111-111111111111', 'admin');
+-- 19
+SELECT lives_ok($q$UPDATE public.workspace_members SET display_name = 'User C' WHERE user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'$q$,
+  'and an admin updates a member''s row');
+RESET ROLE;
 
 -- ── C. The answers ────────────────────────────────────────────────────────────
 SET LOCAL ROLE authenticated;
--- 15
+-- 20
 SELECT is((SELECT count(*)::int FROM public.projects WHERE id = 'aaaa1111-0000-0000-0000-000000000001'), 1,
   'a member reads their company''s project');
 SELECT public.t139_as('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '22222222-2222-2222-2222-222222222222', 'admin');
--- 16
+-- 21
 SELECT is((SELECT count(*)::int FROM public.projects), 0,
   'signed into a company they are not in, nothing');
 SELECT public.t139_as('cccccccc-cccc-cccc-cccc-cccccccccccc', '22222222-2222-2222-2222-222222222222');
--- 17
+-- 22
 SELECT is((SELECT string_agg(id::text, ',') FROM public.projects WHERE id IN ('aaaa1111-0000-0000-0000-000000000001', 'bbbb2222-0000-0000-0000-000000000001')),
   'bbbb2222-0000-0000-0000-000000000001',
   'a person in two companies reads the one they are signed into, not the other');
--- 18
+-- 23
 SELECT is((SELECT count(*)::int FROM public.rate_card_entries), 0,
   'nor the other company''s rate card entries (the EXISTS shape)');
 SELECT public.t139_as('dddddddd-dddd-dddd-dddd-dddddddddddd', '11111111-1111-1111-1111-111111111111');
--- 19
+-- 24
 SELECT is((SELECT count(*)::int FROM public.projects), 0, 'a membership taken away reads no project');
--- 20
+-- 25
 SELECT is((SELECT count(*)::int FROM public.rate_card_entries), 0, '...no rate card entry');
--- 21
+-- 26
 SELECT is(public.t139_updated('aaaa1391-0000-4000-8000-000000000001'), 0, '...and changes no task');
--- 22
+-- 27
 SELECT is((SELECT string_agg(title, ',' ORDER BY title) FROM public.notes), 'D''s own',
   '...but still reads their own personal note (the owner arm of notes_select), and not the shared one');
 SELECT public.t139_as('cccccccc-cccc-cccc-cccc-cccccccccccc', '11111111-1111-1111-1111-111111111111');
--- 23
+-- 28
 SELECT is((SELECT string_agg(title, ',' ORDER BY title) FROM public.notes), 'Shared',
   'an active member reads the shared note and not another person''s personal one');
 SELECT public.t139_as('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '11111111-1111-1111-1111-111111111111', 'admin');
--- 24
+-- 29
 SELECT is((SELECT count(*)::int FROM public.rate_card_entries), 1, 'the admin reads the entry through its card');
--- 25
+-- 30
 SELECT is(public.t139_updated('aaaa1391-0000-4000-8000-000000000001'), 1, 'and changes the task');
 RESET ROLE;
 SELECT set_config('request.jwt.claims', '', true);
@@ -279,77 +343,79 @@ INSERT INTO public.files (project_id, workspace_id, name, storage_provider, stor
   ('aaaa1390-0000-4000-8000-000000000002', '11111111-1111-1111-1111-111111111111', 'm.bin', 'supabase',
    'projects/dddd1390-0000-4000-8000-0000000000ff/m.bin', 'projects/dddd1390-0000-4000-8000-0000000000ff/m.bin.jpg');
 
--- 26
+-- 31
 SELECT is(public.workspace_petal_committed_bytes('11111111-1111-1111-1111-111111111111'), 14463::bigint,
   'A: canonical 1 + picture 2 + upper 4 + braces 8 + no hyphens 16 + extra hyphen 32 + empty third segment 64 + moved 2048 + its picture 4096 + contentLength 8192; not the two-segment key, B''s, other/ or P1.x');
--- 27
+-- 32
 SELECT is(public.workspace_petal_committed_bytes('11111111-1111-1111-1111-111111111111'),
           public.t139_old_meter('11111111-1111-1111-1111-111111111111'),
   'A: the new meter equals 0115''s');
--- 28
+-- 33
 SELECT ok(public.workspace_petal_committed_bytes('22222222-2222-2222-2222-222222222222') = 256
           AND public.t139_old_meter('22222222-2222-2222-2222-222222222222') = 256,
   'B: 256 by both');
--- 29
+-- 34
 SELECT ok(public.workspace_petal_committed_bytes('33333333-3333-4333-8333-333333333333') = 0
           AND public.t139_old_meter('33333333-3333-4333-8333-333333333333') = 0
           AND public.workspace_petal_committed_bytes(NULL) = 0,
   'a company with nothing, and NULL: 0 by both');
--- 30
+-- 35
 SELECT isnt(public.t139_no_1b('11111111-1111-1111-1111-111111111111'),
             public.t139_old_meter('11111111-1111-1111-1111-111111111111'),
   'CONTROL: without arm 1b the four other spellings of P1''s id are not counted, a quota bypass');
--- 31
+-- 36
 SELECT isnt(public.t139_no_2('11111111-1111-1111-1111-111111111111'),
             public.t139_old_meter('11111111-1111-1111-1111-111111111111'),
   'CONTROL: without arm 2 the moved copy and its picture are not counted');
--- 32
+-- 37
 SELECT is((SELECT md5(replace(prosrc, chr(13), '')) FROM pg_proc WHERE oid = 'public.workspace_petal_committed_bytes(uuid)'::regprocedure),
   '67bd041258c73fecae5b4031357e42d2', 'the meter is 0137''s body');
--- 33
+-- 38
 SELECT ok((SELECT p.prosecdef AND p.provolatile = 's' AND r.rolbypassrls FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner
             WHERE p.oid = 'public.workspace_petal_committed_bytes(uuid)'::regprocedure),
   'a STABLE definer whose owner bypasses row security');
--- 34
+-- 39
 SELECT ok(NOT has_function_privilege('anon', 'public.workspace_petal_committed_bytes(uuid)', 'EXECUTE')
           AND NOT has_function_privilege('authenticated', 'public.workspace_petal_committed_bytes(uuid)', 'EXECUTE')
           AND has_function_privilege('service_role', 'public.workspace_petal_committed_bytes(uuid)', 'EXECUTE'),
   'service_role only');
--- 35
+-- 40
 SELECT is((SELECT count(*)::int FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects'
              AND policyname = 'petal_storage_quota_insert' AND permissive = 'RESTRICTIVE' AND cmd = 'INSERT'), 1,
   'the quota''s RESTRICTIVE policy is still there, as it was');
 
 -- ── E. The indexes ────────────────────────────────────────────────────────────
--- 36
+-- 41
 SELECT is((SELECT count(*)::int FROM unnest(ARRAY['bin_files_location_idx', 'budget_lines_project_idx', 'folders_project_idx',
                                                   'scenes_project_idx', 'tasks_project_idx', 'otter_courses_ws_owner_idx']) n
             WHERE to_regclass('public.' || n) IS NOT NULL), 0,
   'the six narrow indexes are gone');
--- 37
+-- 42
 SELECT is((SELECT count(*)::int FROM pg_index i
             WHERE i.indexrelid IN ('public.bin_files_location_path_idx'::regclass, 'public.budget_lines_project_sheet_idx'::regclass,
                                    'public.folders_project_path_uniq'::regclass, 'public.scenes_project_number_idx'::regclass,
                                    'public.tasks_project_phase_idx'::regclass, 'public.otter_courses_owner_slug_uidx'::regclass)
               AND i.indisvalid AND i.indisready), 6,
   'the six wider ones with the same leading columns are here and valid');
--- 38
+-- 43
 SELECT is(pg_get_indexdef('public.app_events_ai_files_file_id_idx'::regclass),
   'CREATE INDEX app_events_ai_files_file_id_idx ON public.app_events USING btree (((context ->> ''file_id''::text))) WHERE ((context ->> ''tool''::text) = ''ai-files''::text)',
   'the file-id index, partial on the ai-files rows');
--- 39
+-- 44
 SELECT is(pg_get_indexdef('public.app_events_ai_files_ws_id_idx'::regclass),
   'CREATE INDEX app_events_ai_files_ws_id_idx ON public.app_events USING btree (workspace_id, id) WHERE ((code = ''WIL-6001''::text) AND ((context ->> ''tool''::text) = ''ai-files''::text))',
   'the workspace-and-id index, partial on the upload rows');
--- 40
+-- 45
 SELECT is((SELECT count(*)::int FROM pg_index WHERE indexrelid IN ('public.app_events_ai_files_file_id_idx'::regclass, 'public.app_events_ai_files_ws_id_idx'::regclass)
              AND indisvalid AND indisready), 2, 'both valid');
 
--- The reads exactly as PostgREST sends them: every value and the JSON key bound as parameters.
+-- The reads exactly as PostgREST sends them: every value and the JSON key bound as parameters. Enough AI file rows
+-- that a look-up of two ids by the file-id index is plainly cheaper than walking the workspace's rows (on CI's empty
+-- database, at 40 rows the planner took the other partial index: 11256e74's run).
 INSERT INTO public.app_events (workspace_id, actor_user_id, event_type, code, message, context)
 SELECT '11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'system', 'WIL-6001', 'AI file upload completed',
        jsonb_build_object('tool', 'ai-files', 'file_id', 'file_t139' || lpad(g::text, 8, '0'), 'size_bytes', g, 'mime_type', 'application/pdf')
-  FROM generate_series(1, 40) g;
+  FROM generate_series(1, 3000) g;
 INSERT INTO public.app_events (workspace_id, event_type, code, message, context)
 SELECT '11111111-1111-1111-1111-111111111111', 'system', 'WIL-6001', 'A generation', jsonb_build_object('tool', 'ai-proxy', 'n', g)
   FROM generate_series(1, 200) g;
@@ -364,50 +430,51 @@ PREPARE t139_naming(text, text, text, text, text[]) AS
    ORDER BY "public"."app_events"."id" ASC LIMIT 1000 OFFSET 0;
 SET LOCAL enable_seqscan = off;
 SET LOCAL plan_cache_mode = force_custom_plan;
--- 41
+-- 46
 SELECT ok(strpos(public.t139_plan($q$EXECUTE t139_rows('WIL-6001', 'tool', 'ai-files', '11111111-1111-1111-1111-111111111111')$q$),
                  'app_events_ai_files_ws_id_idx') > 0,
   'readUploadRows(ws) as sent, a custom plan: the workspace-and-id index');
--- 42
+-- 47
 SELECT ok(strpos(public.t139_plan($q$EXECUTE t139_naming('WIL-6001', 'tool', 'ai-files', 'file_id', ARRAY['file_t13900000001', 'file_t13900000002'])$q$),
                  'app_events_ai_files_file_id_idx') > 0,
   'readUploadRowsNaming(ids) as sent, a custom plan: the file-id index');
 SET LOCAL plan_cache_mode = force_generic_plan;
--- 43
+-- 48
 SELECT ok(strpos(public.t139_plan($q$EXECUTE t139_rows('WIL-6001', 'tool', 'ai-files', '11111111-1111-1111-1111-111111111111')$q$),
                  'app_events_ai_files_') = 0,
   'CONTROL, the caveat as a test: a generic plan cannot prove the predicate, so it does not use either');
--- 44
+-- 49
 SELECT ok(strpos(public.t139_plan($q$EXECUTE t139_naming('WIL-6001', 'tool', 'ai-files', 'file_id', ARRAY['file_t13900000001'])$q$),
                  'app_events_ai_files_') = 0,
   'CONTROL: nor for the file ids (the JSON key itself is a parameter)');
 SET LOCAL plan_cache_mode = auto;
 SET LOCAL enable_seqscan = on;
--- 45
+-- 50
 SELECT is((SELECT count(*)::int FROM public.app_events
-            WHERE code = 'WIL-6001' AND context->>'tool' = 'ai-files' AND workspace_id = '11111111-1111-1111-1111-111111111111'), 40,
+            WHERE code = 'WIL-6001' AND context->>'tool' = 'ai-files' AND workspace_id = '11111111-1111-1111-1111-111111111111'), 3000,
   'the index answers the same rows as the table');
--- 46
+-- 51
 SELECT is((SELECT count(*)::int FROM public.app_events
-            WHERE context->>'tool' = 'ai-files' AND context->>'file_id' = ANY (ARRAY['file_t13900000001', 'file_t13900000040', 'file_nope'])), 2,
+            WHERE context->>'tool' = 'ai-files' AND context->>'file_id' = ANY (ARRAY['file_t13900000001', 'file_t13900003000', 'file_nope'])), 2,
   'and by file id');
 
 -- ── A, again, as the end of the file ───────────────────────────────────────────
--- 47
+-- 52
 SELECT is((SELECT count(*)::int FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects'
              AND COALESCE(qual, '') || COALESCE(with_check, '') LIKE '%SELECT %has_active_membership(%current_workspace_id()) AS has_active_membership)%'), 9,
   'the nine storage.objects policies that called it ask once');
--- 48
+-- 53
 SELECT is((SELECT count(*)::int FROM pg_policies WHERE schemaname = 'public' AND tablename = 'workspaces' AND policyname = 'workspaces_admin_update'
              AND qual LIKE '((id = %current_workspace_id()) AND %( SELECT %has_active_membership(%current_workspace_id()) AS has_active_membership))'
              AND with_check = qual), 1,
   'workspaces_admin_update (its column is id, pinned to the claim) restated in both clauses');
--- 49
+-- 54
 SELECT is((SELECT count(*)::int FROM pg_policies WHERE schemaname = 'public' AND tablename = 'asset_versions'
              AND COALESCE(qual, '') || COALESCE(with_check, '') LIKE '%(a.workspace_id = %current_workspace_id()) AND ( SELECT %has_active_membership(%current_workspace_id()) AS has_active_membership)%'), 3,
   'the EXISTS shape keeps its alias pin beside the sub-select (asset_versions'' three)');
--- 50
-SELECT is(public.t139_per_row(), 'public.auth_events.auth_events_insert', 'and still only the one left per row');
+-- 55
+SELECT is(public.t139_per_row(), 'public.auth_events.auth_events_insert, public.workspace_members.ws_members_admin_write, public.workspace_members.ws_members_select',
+  'and still only the three left per row');
 
 SELECT * FROM finish();
 ROLLBACK;

@@ -6,7 +6,7 @@
 --
 -- WHAT THIS CHANGES
 -- -----------------
---   §4  188 of the 189 policies that call has_active_membership (0008) restated by ONE substitution: the call
+--   §4  186 of the 189 policies that call has_active_membership (0008) restated by ONE substitution: the call
 --       becomes `(SELECT public.has_active_membership(public.current_workspace_id()))`. The function is a SECURITY
 --       DEFINER (never inlined), so a bare call runs once per row the policy looks at; inside `(SELECT ...)` the
 --       planner runs it once per statement (an InitPlan). It is made for the bare form, has_active_membership(
@@ -18,10 +18,16 @@
 --       refuses one). Where the pin is TRUE, X and current_workspace_id() are equal and not null, so the two calls are
 --       the same value. Where the pin is not TRUE, the AND holding it is not TRUE either way. AND, OR and EXISTS are
 --       TRUE exactly when their inputs say so, so the policy's answer is unchanged. (has_active_membership is not
---       strict: of NULL it answers FALSE, so the old form can be FALSE where the new one is NULL; no NOT, CASE,
---       COALESCE, IS or comparison sits on any call's path, so that never shows.) The one policy left, auth_events_
---       insert, has no pin at all (`workspace_id IS NULL OR has_active_membership(workspace_id)`): substituting would
---       change which company a member may name, so it is kept as it is and its text is pinned here.
+--       strict: of NULL it answers FALSE, so the AND holding the pin can be FALSE in one form and NULL in the other; no
+--       NOT, CASE, COALESCE, IS or comparison sits on any call's path, so that never shows.)
+--       THREE ARE LEFT, each clause's text pinned here. auth_events_insert has no pin at all (`workspace_id IS NULL OR
+--       has_active_membership(workspace_id)`): substituting would change which company a member may name.
+--       ws_members_select and ws_members_admin_write, workspace_members' read-side policies: ws_members_self_update
+--       checks a member's own row by a sub-query over workspace_members, and the row-security rewriter refuses to
+--       expand a table's policies a second time on one path once any of them holds a sub-query ("infinite recursion
+--       detected in policy"); a sub-select in these two would make every update of a member row fail. A company's
+--       members are few rows; they keep the call per row. §7 proves, on whatever database this runs, that no table's
+--       policies recurse for a client's statement of any kind.
 --       ALTER POLICY, not drop-and-create: the name, the command, the roles and permissive-or-restrictive cannot
 --       change, the policy keeps its oid, and a clause the file does not name keeps its live text.
 --   §2  The proof that nothing else changed, carried by this file on whatever database it runs on: every policy is
@@ -150,7 +156,7 @@ CREATE TEMP TABLE _f7_sub ON COMMIT DROP AS
 DROP TABLE pg_temp._f7_probe;
 
 -- §2 The list this file restates, and the one exception ------------------------------
--- (schema, table, policy, clause, the call's argument as deparsed). 188 policies, 221 clauses, one call each.
+-- (schema, table, policy, clause, the call's argument as deparsed). 186 policies, 218 clauses, one call each.
 CREATE TEMP TABLE _f7_list (sch text, tbl text, pol text, clause text, arg text) ON COMMIT DROP;
 INSERT INTO _f7_list (sch, tbl, pol, clause, arg) VALUES
   ('public', 'app_events', 'app_events_insert', 'with_check', 'workspace_id'),
@@ -346,9 +352,6 @@ INSERT INTO _f7_list (sch, tbl, pol, clause, arg) VALUES
   ('public', 'user_model_overrides', 'user_model_overrides_update', 'qual', 'workspace_id'),
   ('public', 'user_model_overrides', 'user_model_overrides_update', 'with_check', 'workspace_id'),
   ('public', 'workspace_audit', 'workspace_audit_select', 'qual', 'workspace_id'),
-  ('public', 'workspace_members', 'ws_members_admin_write', 'qual', 'workspace_id'),
-  ('public', 'workspace_members', 'ws_members_admin_write', 'with_check', 'workspace_id'),
-  ('public', 'workspace_members', 'ws_members_select', 'qual', 'workspace_id'),
   ('public', 'workspace_model_overrides', 'workspace_model_overrides_admin_delete', 'qual', 'workspace_id'),
   ('public', 'workspace_model_overrides', 'workspace_model_overrides_admin_insert', 'with_check', 'workspace_id'),
   ('public', 'workspace_model_overrides', 'workspace_model_overrides_admin_update', 'qual', 'workspace_id'),
@@ -376,9 +379,11 @@ INSERT INTO _f7_list (sch, tbl, pol, clause, arg) VALUES
   ('storage', 'objects', 'rabbit_thumbnails_update', 'with_check', 'public.current_workspace_id()');
 
 CREATE TEMP TABLE _f7_exception (sch text, tbl text, pol text, clause text, txt text) ON COMMIT DROP;
-INSERT INTO _f7_exception VALUES
-  ('public', 'auth_events', 'auth_events_insert', 'with_check',
-   '((source = ''client''::text) AND (user_id = auth.uid()) AND (kind = ANY (ARRAY[''sign_in''::text, ''sign_out''::text, ''idle_timeout''::text, ''session_cap''::text])) AND (outcome = ''success''::text) AND ((workspace_id IS NULL) OR public.has_active_membership(workspace_id)))');
+INSERT INTO _f7_exception (sch, tbl, pol, clause, txt) VALUES
+  ('public', 'auth_events', 'auth_events_insert', 'with_check', '((source = ''client''::text) AND (user_id = auth.uid()) AND (kind = ANY (ARRAY[''sign_in''::text, ''sign_out''::text, ''idle_timeout''::text, ''session_cap''::text])) AND (outcome = ''success''::text) AND ((workspace_id IS NULL) OR public.has_active_membership(workspace_id)))'),
+  ('public', 'workspace_members', 'ws_members_admin_write', 'qual', '((workspace_id = public.current_workspace_id()) AND (public.current_app_role() = ''admin''::text) AND public.has_active_membership(workspace_id))'),
+  ('public', 'workspace_members', 'ws_members_admin_write', 'with_check', '((workspace_id = public.current_workspace_id()) AND (public.current_app_role() = ''admin''::text) AND public.has_active_membership(workspace_id))'),
+  ('public', 'workspace_members', 'ws_members_select', 'qual', '((user_id = auth.uid()) OR ((workspace_id = public.current_workspace_id()) AND public.has_active_membership(workspace_id)))');
 
 DO $$
 DECLARE
@@ -391,8 +396,9 @@ BEGIN
   IF v_sub IS NULL OR pg_catalog.strpos(v_sub, 'public.has_active_membership(public.current_workspace_id())') = 0 THEN
     RAISE EXCEPTION '0137 refused: the probe did not deparse the sub-select (%)', v_sub;
   END IF;
-  IF (SELECT count(*) FROM _f7_list) <> 221 OR (SELECT count(DISTINCT (sch, tbl, pol)) FROM _f7_list) <> 188 THEN
-    RAISE EXCEPTION '0137 refused: the list is not 188 policies and 221 clauses';
+  IF (SELECT count(*) FROM _f7_list) <> 218 OR (SELECT count(DISTINCT (sch, tbl, pol)) FROM _f7_list) <> 186
+     OR (SELECT count(*) FROM _f7_exception) <> 4 THEN
+    RAISE EXCEPTION '0137 refused: the list is not 186 policies and 218 clauses, with four clauses left';
   END IF;
   -- Every clause that calls the function is listed or is the exception.
   FOR r IN
@@ -421,12 +427,12 @@ BEGIN
         r.sch, r.tbl, r.pol, r.clause, r.arg;
     END IF;
   END LOOP;
-  -- The exception is exactly dev's.
+  -- Each clause left alone is exactly dev's.
   FOR r IN SELECT e.*, CASE e.clause WHEN 'qual' THEN b.qual ELSE b.with_check END AS live
              FROM _f7_exception e LEFT JOIN _f7_pol_before b ON (b.sch, b.tbl, b.pol) = (e.sch, e.tbl, e.pol)
   LOOP
     IF r.live IS DISTINCT FROM r.txt THEN
-      RAISE EXCEPTION '0137 refused: %.%.% is not the text this file leaves alone', r.sch, r.tbl, r.pol;
+      RAISE EXCEPTION '0137 refused: %.%.% (%) is not the text this file leaves alone', r.sch, r.tbl, r.pol, r.clause;
     END IF;
   END LOOP;
 END
@@ -1349,13 +1355,6 @@ ALTER POLICY user_model_overrides_update ON public.user_model_overrides
 ALTER POLICY workspace_audit_select ON public.workspace_audit
   USING (((workspace_id = public.current_workspace_id()) AND (SELECT public.has_active_membership(public.current_workspace_id())) AND public.is_live_workspace_admin(workspace_id)));
 
-ALTER POLICY ws_members_admin_write ON public.workspace_members
-  USING (((workspace_id = public.current_workspace_id()) AND (public.current_app_role() = 'admin'::text) AND (SELECT public.has_active_membership(public.current_workspace_id()))))
-  WITH CHECK (((workspace_id = public.current_workspace_id()) AND (public.current_app_role() = 'admin'::text) AND (SELECT public.has_active_membership(public.current_workspace_id()))));
-
-ALTER POLICY ws_members_select ON public.workspace_members
-  USING (((user_id = auth.uid()) OR ((workspace_id = public.current_workspace_id()) AND (SELECT public.has_active_membership(public.current_workspace_id())))));
-
 ALTER POLICY workspace_model_overrides_admin_delete ON public.workspace_model_overrides
   USING (((workspace_id = public.current_workspace_id()) AND (public.current_app_role() = 'admin'::text) AND (SELECT public.has_active_membership(public.current_workspace_id()))));
 
@@ -1580,13 +1579,16 @@ BEGIN
     END IF;
   END LOOP;
   IF (SELECT count(*) FROM _f7_pol_after a
-       WHERE pg_catalog.strpos(COALESCE(a.qual, '') || COALESCE(a.with_check, ''), v_sub) > 0) <> 188 THEN
-    RAISE EXCEPTION '0137 post-condition: the sub-select is not in exactly 188 policies';
+       WHERE pg_catalog.strpos(COALESCE(a.qual, '') || COALESCE(a.with_check, ''), v_sub) > 0) <> 186 THEN
+    RAISE EXCEPTION '0137 post-condition: the sub-select is not in exactly 186 policies';
   END IF;
-  IF (SELECT a.with_check FROM _f7_pol_after a WHERE (a.sch, a.tbl, a.pol) = ('public', 'auth_events', 'auth_events_insert'))
-     IS DISTINCT FROM (SELECT e.txt FROM _f7_exception e) THEN
-    RAISE EXCEPTION '0137 post-condition: auth_events_insert is not the text this file leaves alone';
-  END IF;
+  FOR r IN SELECT e.*, CASE e.clause WHEN 'qual' THEN a.qual ELSE a.with_check END AS live
+             FROM _f7_exception e LEFT JOIN _f7_pol_after a ON (a.sch, a.tbl, a.pol) = (e.sch, e.tbl, e.pol)
+  LOOP
+    IF r.live IS DISTINCT FROM r.txt THEN
+      RAISE EXCEPTION '0137 post-condition: %.%.% (%) is not the text this file leaves alone', r.sch, r.tbl, r.pol, r.clause;
+    END IF;
+  END LOOP;
 
   -- The meter: this file's body, a definer whose owner bypasses row security, its search_path, its grants.
   IF (SELECT pg_catalog.md5(pg_catalog.replace(prosrc, chr(13), '')) FROM pg_catalog.pg_proc
@@ -1626,6 +1628,66 @@ BEGIN
           WHERE i.indexrelid IN (pg_catalog.to_regclass('public.app_events_ai_files_file_id_idx'), pg_catalog.to_regclass('public.app_events_ai_files_ws_id_idx'))
             AND i.indisvalid AND i.indisready) <> 2 THEN
     RAISE EXCEPTION '0137 post-condition: the ai-files indexes are not this file''s';
+  END IF;
+END
+$$;
+
+-- No table's policies recurse, for a client's statement of any kind. The rewriter refuses with 42P17 ("infinite
+-- recursion detected in policy") when it meets a table's policies a second time on one path and any of them holds a
+-- sub-query; a sub-select added where a policy's own sub-query leads back to its table would fail every such statement.
+-- PREPARE parses and rewrites without planning or running anything. It runs as authenticated (this file's own role
+-- bypasses row security, so it would expand no policy at all), and the caller's role is set back after.
+DO $$
+DECLARE
+  r      RECORD;
+  v_role text := current_user;
+  v_col  text;
+  v_bad  text := '';
+  v_ok   int := 0;
+  q      text;
+BEGIN
+  BEGIN
+    EXECUTE 'DEALLOCATE f7_rls_probe';
+  EXCEPTION WHEN OTHERS THEN
+    NULL;
+  END;
+  PERFORM pg_catalog.set_config('role', 'authenticated', true);
+  FOR r IN
+    SELECT n.nspname, c.relname, c.oid
+      FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+     WHERE c.relkind IN ('r', 'p') AND c.relrowsecurity
+       AND n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname !~ '^pg_'
+     ORDER BY 1, 2
+  LOOP
+    SELECT pg_catalog.quote_ident(a.attname) INTO v_col FROM pg_catalog.pg_attribute a
+     WHERE a.attrelid = r.oid AND a.attnum > 0 AND NOT a.attisdropped AND a.attgenerated = '' AND a.attidentity = ''
+     ORDER BY a.attnum LIMIT 1;
+    FOREACH q IN ARRAY ARRAY[
+      pg_catalog.format('SELECT 1 FROM %I.%I', r.nspname, r.relname),
+      pg_catalog.format('UPDATE %I.%I SET %s = %s', r.nspname, r.relname, v_col, v_col),
+      pg_catalog.format('DELETE FROM %I.%I', r.nspname, r.relname),
+      pg_catalog.format('INSERT INTO %I.%I DEFAULT VALUES', r.nspname, r.relname)]
+    LOOP
+      BEGIN
+        EXECUTE 'PREPARE f7_rls_probe AS ' || q;
+        EXECUTE 'DEALLOCATE f7_rls_probe';
+        v_ok := v_ok + 1;
+      EXCEPTION
+        WHEN SQLSTATE '42P17' THEN
+          v_bad := v_bad || r.nspname || '.' || r.relname || ' (' || pg_catalog.split_part(q, ' ', 1) || ') ';
+        WHEN OTHERS THEN
+          NULL; -- a statement this role may not even name (a schema it cannot use) cannot recurse for it either
+      END;
+    END LOOP;
+  END LOOP;
+  EXECUTE pg_catalog.format('SET LOCAL ROLE %I', v_role);
+  -- The probe ran: at least a read of every protected table in public was rewritten.
+  IF v_ok < (SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+              WHERE c.relkind IN ('r', 'p') AND c.relrowsecurity AND n.nspname = 'public') THEN
+    RAISE EXCEPTION '0137 post-condition: the row-security probe rewrote only % statements', v_ok;
+  END IF;
+  IF v_bad <> '' THEN
+    RAISE EXCEPTION '0137 post-condition: a client''s statement would recurse in row security on %', v_bad;
   END IF;
 END
 $$;
