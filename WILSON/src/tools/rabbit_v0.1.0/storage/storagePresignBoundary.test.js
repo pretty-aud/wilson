@@ -241,7 +241,12 @@ describe('the wiring is real — every link in the presign chain has a caller', 
   it('storage-gc drains s3 queue rows by signed DELETE, config resolved at drain time', () => {
     const fn = read('supabase', 'functions', 'storage-gc', 'index.ts')
     expect(fn).toContain(".provider === 's3'")
-    expect(fn).toContain('presignS3Request')
+    // F8-02 (the second merger): no longer presignS3Request by name, which a
+    // comment there still says: the run's one presigner, made from the loaded
+    // bucket, signs every DELETE (src/cloud/edgeGcBucket.test.js compares the
+    // URLs with presignS3Request's, byte for byte).
+    expect(fn).toContain('presigner: makeS3Presigner({ target: bucket.target, accessKeyId: bucket.accessKeyId, secretAccessKey: bucket.secret })')
+    expect(fn).toContain("const url = await s3.presigner.presign({ method: 'DELETE', key, expiresSeconds: 60, now: new Date() })")
     expect(fn).toContain('queue_s3_drained')
     // The queue read must actually SELECT the columns the branches read.
     // S44 added `kind`: it picks the restorability column, and omitted it every

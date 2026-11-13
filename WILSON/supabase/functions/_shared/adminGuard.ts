@@ -68,16 +68,15 @@ export function reply(body: Record<string, unknown>, status = 200) {
 /** The client as createClient(url, key) really returns it: SupabaseClient<any, 'public', any>. */
 export type ServiceClient = SupabaseClient
 /**
- * The guards' `admin`. The true client FIRST (its signatures answer a call:
- * rows are `any`, as they really are), and the alias `ReturnType<typeof
- * createClient>` second (which is NOT the type createClient returns: it is
- * SupabaseClient<unknown, never, GenericSchema>), because F7's
- * _shared/aiFilesUpstream.ts still names the alias and ai-files hands it the
- * guards' client. The ORDER matters: the alias first breaks calls. When that
- * file names ServiceClient (the second merger), this becomes ServiceClient
- * and the cast in serviceClient() goes (OUTSTANDING F8-01).
+ * The guards' `admin`: the true client. Until the second merger it was
+ * `SupabaseClient & ReturnType<typeof createClient>` (the alias is NOT the
+ * type createClient returns: it is SupabaseClient<unknown, never,
+ * GenericSchema>), only because F7's _shared/aiFilesUpstream.ts named the
+ * alias and ai-files hands it the guards' client. That file names
+ * ServiceClient now, so this is ServiceClient and serviceClient() needs no
+ * cast (OUTSTANDING F8-01). The name stays: memberGuard and the functions use it.
  */
-export type GuardClient = SupabaseClient & ReturnType<typeof createClient>
+export type GuardClient = ServiceClient
 
 // The option set the gateway functions have always passed (no stored session,
 // no refresh timer). NOT added where a function never passed it: that is an
@@ -91,7 +90,7 @@ const QUIET = { auth: { persistSession: false, autoRefreshToken: false } }
 export function serviceClient(opts: { quiet?: boolean } = {}): GuardClient {
   const url = Deno.env.get('SUPABASE_URL')!
   const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-  return (opts.quiet ? createClient(url, key, QUIET) : createClient(url, key)) as GuardClient
+  return opts.quiet ? createClient(url, key, QUIET) : createClient(url, key)
 }
 
 /**
@@ -291,10 +290,30 @@ type GuardResult =
   | { ok: true; ctx: AdminContext }
   | { ok: false; res: Response }
 
-export async function requireWorkspaceAdmin(req: Request): Promise<GuardResult> {
-  const who = await authenticate(req)
-  if (!who.ok) return { ok: false, res: reply({ error: 'unauthorized' }, 401) }
-  const { admin, user, claims } = who.caller
+/**
+ * What the member guard has already learnt of THIS request: the caller
+ * (GoTrue asked once) and the live row as `liveMembership(…, { withRole: true })`
+ * read it, for the token's workspace and user. requireActiveMember(req,
+ * { withRole: true }) hands it back; requireWorkspaceAdmin(req, it) takes it in
+ * place of a second authentication and a second read of the same row
+ * (ai-files' sweep: OUTSTANDING F8-03, the second merger). Pass it only with
+ * the request it came from.
+ */
+export type Authenticated = {
+  caller: Caller
+  live: Awaited<ReturnType<typeof liveMembership>>
+}
+
+export async function requireWorkspaceAdmin(req: Request, already?: Authenticated): Promise<GuardResult> {
+  let caller: Caller
+  if (already) {
+    caller = already.caller
+  } else {
+    const who = await authenticate(req)
+    if (!who.ok) return { ok: false, res: reply({ error: 'unauthorized' }, 401) }
+    caller = who.caller
+  }
+  const { admin, user, claims } = caller
 
   // The role on the claim AND (below) on the live row.
   if (!claims.workspaceId || claims.appRole !== 'admin') {
@@ -303,7 +322,11 @@ export async function requireWorkspaceAdmin(req: Request): Promise<GuardResult> 
 
   // Live-row check: claims can outlive a demotion/deactivation by the token
   // TTL; the membership row cannot. Its error is ignored: no row is a 403.
-  const { row: liveRow } = await liveMembership(admin, claims.workspaceId, user.id, { withRole: true })
+  // The row the member guard read for this request, when it is handed over
+  // (the same table, workspace, user and columns): never read twice.
+  const { row: liveRow } = already
+    ? already.live
+    : await liveMembership(admin, claims.workspaceId, user.id, { withRole: true })
   if (!liveRow || !liveRow.is_active || liveRow.app_role !== 'admin') {
     return { ok: false, res: reply({ error: 'forbidden' }, 403) }
   }

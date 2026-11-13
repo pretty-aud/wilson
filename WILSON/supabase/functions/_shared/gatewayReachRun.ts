@@ -21,8 +21,9 @@
 // for the inside door's own signature, a close at once.
 //
 // F8 (wave 2, 2026-11-13): the client is typed adminGuard.ServiceClient (a
-// type only); supabaseHost() below is now also what storage-presign and
-// storage-secret hand their S3 vet.
+// type only); supabaseHost() below is now also what storage-presign,
+// storage-secret and (since the second merger, F8-02) storage-gc hand their
+// S3 vet.
 // =============================================================================
 
 import type { ServiceClient } from './adminGuard.ts'

@@ -17,9 +17,16 @@
 // authenticate (the bearer, GoTrue, the claims) and liveMembership WITHOUT
 // withRole (the select stays `is_active` alone). What stays its own: no role
 // is asked, no MFA, and the refusals and their order below.
+//
+// The second merger (OUTSTANDING F8-03): `{ withRole: true }` reads the row
+// with its role (`app_role, is_active`), decides exactly as without it, and
+// hands back what it learnt (`authenticated`), so a caller that asks the admin
+// guard of the same request, or the caller's live role, asks neither GoTrue
+// nor the row again. Only ai-files asks for it; every other caller's read is
+// unchanged.
 // =============================================================================
 
-import { authenticate, liveMembership, reply, type GuardClient } from './adminGuard.ts'
+import { authenticate, liveMembership, reply, type Authenticated, type GuardClient } from './adminGuard.ts'
 
 export type MemberContext = {
   admin: GuardClient
@@ -28,10 +35,10 @@ export type MemberContext = {
 }
 
 type GuardResult =
-  | { ok: true; ctx: MemberContext }
+  | { ok: true; ctx: MemberContext; authenticated?: Authenticated }
   | { ok: false; res: Response }
 
-export async function requireActiveMember(req: Request): Promise<GuardResult> {
+export async function requireActiveMember(req: Request, opts: { withRole?: boolean } = {}): Promise<GuardResult> {
   const who = await authenticate(req)
   if (!who.ok) return { ok: false, res: reply({ error: 'unauthorized' }, 401) }
   const { admin, user, claims } = who.caller
@@ -43,11 +50,16 @@ export async function requireActiveMember(req: Request): Promise<GuardResult> {
     return { ok: false, res: reply({ error: 'forbidden' }, 403) }
   }
 
-  // Only is_active is read. A failed read is "no row": 403.
-  const { row: liveRow } = await liveMembership(admin, claims.workspaceId, user.id)
+  // Only is_active is read (with withRole, app_role beside it, never judged
+  // here). A failed read is "no row": 403.
+  const live = await liveMembership(admin, claims.workspaceId, user.id, { withRole: opts.withRole === true })
+  const liveRow = live.row
   if (!liveRow || !liveRow.is_active) {
     return { ok: false, res: reply({ error: 'forbidden' }, 403) }
   }
 
-  return { ok: true, ctx: { admin, callerId: user.id, workspaceId: claims.workspaceId } }
+  const ctx = { admin, callerId: user.id, workspaceId: claims.workspaceId }
+  return opts.withRole === true
+    ? { ok: true, ctx, authenticated: { caller: who.caller, live } }
+    : { ok: true, ctx }
 }

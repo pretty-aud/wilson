@@ -61,7 +61,7 @@
 // The operator's sweep across workspaces is operator-ai-files.
 // =============================================================================
 
-import { corsHeaders, reply, requireWorkspaceAdmin } from '../_shared/adminGuard.ts'
+import { corsHeaders, reply, requireWorkspaceAdmin, type Authenticated } from '../_shared/adminGuard.ts'
 import { requireActiveMember, type MemberContext } from '../_shared/memberGuard.ts'
 import { isRateLimited, envInt } from '../_shared/rateLimit.ts'
 import { decryptAiKey, aiKeyCryptoConfigured } from '../_shared/aiKeyCrypto.ts'
@@ -337,15 +337,15 @@ async function deleteOwn(
   return { results, certify_failed: certifyFailed }
 }
 
-/** The caller's role from the LIVE row (the token's claim can be stale). */
-async function isLiveAdmin(admin: MemberCtxAdmin, workspaceId: string, userId: string): Promise<boolean> {
-  const { data, error } = await admin
-    .from('workspace_members')
-    .select('app_role, is_active')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', userId)
-    .maybeSingle()
-  return !error && !!data?.is_active && data.app_role === 'admin'
+/**
+ * The caller's role from the LIVE row (the token's claim can be stale): the
+ * row the member guard read for this request, its role included (F8-03, the
+ * second merger: it used to read the same row again). A read that failed is
+ * not an admin, as before.
+ */
+async function isLiveAdmin(authenticated: Authenticated | undefined): Promise<boolean> {
+  const live = authenticated?.live
+  return !!live && !live.error && !!live.row?.is_active && live.row.app_role === 'admin'
 }
 
 /**
@@ -404,7 +404,9 @@ async function storedForWorkspace(
 }
 
 async function handleDelete(req: Request): Promise<Response> {
-  const guard = await requireActiveMember(req)
+  // With the row's role (F8-03): a sweep's admin guard below takes this
+  // request's one authentication and one read of the row.
+  const guard = await requireActiveMember(req, { withRole: true })
   if (!guard.ok) return guard.res
   const { admin, workspaceId, callerId } = guard.ctx
 
@@ -425,8 +427,11 @@ async function handleDelete(req: Request): Promise<Response> {
       return reply({ error: 'validation_failed', errors: [{ field: 'body', error: 'a sweep takes no other field' }] }, 400)
     }
     // Destruction across the workspace: the admin guard, MFA step-up and all,
-    // on top of the member guard above (which only got us here cheaply).
-    const adminGuard = await requireWorkspaceAdmin(req)
+    // on top of the member guard above (which only got us here cheaply). It is
+    // handed what the member guard learnt (F8-03): the role on the claim and
+    // on the row, the factors and the step-up are its own, in its order; the
+    // caller is not authenticated again and the row is not read again.
+    const adminGuard = await requireWorkspaceAdmin(req, guard.authenticated)
     if (!adminGuard.ok) return adminGuard.res
     if (adminGuard.ctx.workspaceId !== workspaceId || adminGuard.ctx.callerId !== callerId) {
       return reply({ error: 'forbidden' }, 403)
@@ -522,7 +527,8 @@ async function sweep(admin: MemberCtxAdmin, workspaceId: string, callerId: strin
 }
 
 async function handleList(req: Request): Promise<Response> {
-  const guard = await requireActiveMember(req)
+  // With the row's role (F8-03): the scope below is read from this one read.
+  const guard = await requireActiveMember(req, { withRole: true })
   if (!guard.ok) return guard.res
   const { admin, workspaceId, callerId } = guard.ctx
 
@@ -539,7 +545,7 @@ async function handleList(req: Request): Promise<Response> {
   }
 
   try {
-    const isAdmin = await isLiveAdmin(admin, workspaceId, callerId)
+    const isAdmin = await isLiveAdmin(guard.authenticated)
     const now = Date.now()
     const stored = await storedForWorkspace(admin, workspaceId, isAdmin ? null : callerId)
     const files = stored.files.map(f => f.file)

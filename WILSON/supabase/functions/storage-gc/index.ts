@@ -46,8 +46,12 @@ import {
 } from '../_shared/adminGuard.ts'
 import { isReservedProjectObject } from '../_shared/reservedObjects.ts'
 import { shotKeyTwinPattern } from '../_shared/shotKeys.ts'
-import { decryptStorageSecret } from '../_shared/storageSecretCrypto.ts'
-import { presignS3Request, s3HostAndPath, type S3Target } from '../_shared/s3Presign.ts'
+// F8, the second merger (OUTSTANDING F8-02): the drain's bucket is loaded by
+// the shared loader, the project's own host is the shared rule's, and every
+// DELETE of a run is signed by one presigner.
+import { loadWorkspaceBucket } from '../_shared/workspaceBucket.ts'
+import { supabaseHost } from '../_shared/gatewayReachRun.ts'
+import { makeS3Presigner, s3HostAndPath, type S3Presigner } from '../_shared/s3Presign.ts'
 // P8 (TPN-NET-016): the drain's DELETEs go to a VETTED public address, over
 // one TLS connection to that literal, no redirect followed (s3Reach.ts).
 import { vetS3Host, s3Request, s3ReachDeps, type VettedS3Host } from '../_shared/s3Reach.ts'
@@ -356,63 +360,54 @@ Deno.serve(async (req) => {
   // the trigger cannot see the config, and a bucket renamed between purge
   // and drain should be hit at its new name. One resolution per run.
   type S3Drain =
-    | { ok: true; target: S3Target; accessKeyId: string; secret: string; prefix?: string; vetted: VettedS3Host & { ok: true } }
+    | { ok: true; presigner: S3Presigner; prefix?: string; vetted: VettedS3Host & { ok: true } }
     | { ok: false; detail: string }
   let s3DrainMemo: S3Drain | null = null
   const s3Deps = s3ReachDeps()
   async function s3Drain(): Promise<S3Drain> {
     if (s3DrainMemo) return s3DrainMemo
     const fail = (detail: string): S3Drain => (s3DrainMemo = { ok: false, detail })
-    const { data: ws, error: wsErr } = await ctx.admin
-      .from('workspace_storage')
-      .select('provider, provider_config')
-      .eq('workspace_id', ctx.workspaceId)
-      .maybeSingle()
-    if (wsErr) return fail(`workspace storage read failed: ${wsErr.message}`)
-    if (ws?.provider !== 's3' || !ws.provider_config) {
-      return fail('this workspace no longer has S3-compatible storage configured — its queued bucket deletions cannot be drained')
-    }
-    const cfg = ws.provider_config as {
-      endpoint?: string; region: string; bucket: string; prefix?: string
-      accessKeyId: string; forcePathStyle?: boolean
-    }
-    const { data: sec, error: secErr } = await ctx.admin
-      .from('workspace_storage_secrets')
-      .select('secret_ciphertext')
-      .eq('workspace_id', ctx.workspaceId)
-      .maybeSingle()
-    if (secErr) return fail(`secret read failed: ${secErr.message}`)
-    if (!sec?.secret_ciphertext) {
-      return fail('no bucket secret is stored for this workspace — save it in Admin Terminal → Storage, then run cleanup again')
-    }
-    let secret: string
-    try {
-      secret = await decryptStorageSecret(sec.secret_ciphertext as string)
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      return fail(`the stored bucket secret cannot be decrypted (${message}) — re-enter it, then run cleanup again`)
-    }
-    const target: S3Target = {
-      endpoint: cfg.endpoint, region: cfg.region, bucket: cfg.bucket,
-      forcePathStyle: cfg.forcePathStyle,
+    // F8-02: the shared loader (_shared/workspaceBucket.ts), the service
+    // role's two reads on the guard's workspace, judged in the order this
+    // function always judged them. It asks neither the active choice (a queued
+    // body is drained however the company stores now) nor whether the master
+    // key is set (an unset key is the decrypt's refusal, below), as before.
+    // Every refusal is still worded here, in this function's own sentences.
+    const bucket = await loadWorkspaceBucket(ctx.admin, ctx.workspaceId, { requireByos: false, preflightCrypto: false })
+    if (!bucket.ok) {
+      switch (bucket.code) {
+        case 'storage_read_failed':
+          return fail(`workspace storage read failed: ${bucket.message}`)
+        case 'not_s3':
+          return fail('this workspace no longer has S3-compatible storage configured — its queued bucket deletions cannot be drained')
+        case 'secret_read_failed':
+          return fail(`secret read failed: ${bucket.message}`)
+        case 'no_secret':
+          return fail('no bucket secret is stored for this workspace — save it in Admin Terminal → Storage, then run cleanup again')
+        case 'secret_unusable':
+          return fail(`the stored bucket secret cannot be decrypted (${bucket.message}) — re-enter it, then run cleanup again`)
+        default:
+          // not_active and crypto_unavailable are never answered: neither is asked for above. Closed anyway.
+          return fail(`the workspace bucket could not be loaded (${bucket.code}) — nothing was deleted`)
+      }
     }
     // P8 (TPN-NET-016): the host every signed DELETE will name, vetted once
     // per run — a public literal, or a public name whose every answer is
     // public — and every delete below goes to that one address.
     let host: string
     try {
-      host = s3HostAndPath(target, 'probe').host
+      host = s3HostAndPath(bucket.target, 'probe').host
     } catch (err) {
       return fail(err instanceof Error ? err.message : String(err))
     }
-    const vetted = await vetS3Host(host, s3Deps, { supabaseHost: new URL(Deno.env.get('SUPABASE_URL') ?? 'https://invalid').hostname })
+    const vetted = await vetS3Host(host, s3Deps, { supabaseHost: supabaseHost() })
     if (!vetted.ok) return fail(`${vetted.detail} — nothing was deleted`)
     return (s3DrainMemo = {
       ok: true,
-      target,
-      accessKeyId: cfg.accessKeyId,
-      secret,
-      prefix: cfg.prefix,
+      // One signer for the run's DELETEs: the signing key derived once a UTC
+      // day, every URL byte for byte what presignS3Request gives.
+      presigner: makeS3Presigner({ target: bucket.target, accessKeyId: bucket.accessKeyId, secretAccessKey: bucket.secret }),
+      prefix: bucket.prefix,
       vetted,
     })
   }
@@ -553,10 +548,7 @@ Deno.serve(async (req) => {
         }
         const key = s3.prefix ? `${s3.prefix}/${row.object_path}` : row.object_path
         try {
-          const url = await presignS3Request({
-            target: s3.target, accessKeyId: s3.accessKeyId, secretAccessKey: s3.secret,
-            method: 'DELETE', key, expiresSeconds: 60, now: new Date(),
-          })
+          const url = await s3.presigner.presign({ method: 'DELETE', key, expiresSeconds: 60, now: new Date() })
           const res = await s3Request({ url, method: 'DELETE', vetted: s3.vetted, deps: s3Deps })
           // S3 DELETE is idempotent-success: 204 whether or not the KEY
           // existed, so a 2xx means "certifiably absent now" — weaker than

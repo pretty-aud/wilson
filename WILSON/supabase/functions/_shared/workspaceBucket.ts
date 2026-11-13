@@ -5,9 +5,9 @@
 // storage-presign, storage-read-urls and storage-secret's probe each read the
 // workspace's bucket configuration (workspace_storage), then its sealed secret
 // (workspace_storage_secrets), opened it, and refused in the same order with
-// their own sentences: four copies of the same twenty lines (storage-gc holds
-// the fourth; it moves onto this file with the second merger, F8-02). This is
-// those lines once. What it keeps, and must keep:
+// their own sentences: four copies of the same twenty lines (storage-gc held
+// the fourth, its queue drain's; the second merger moved it onto this file,
+// F8-02). This is those lines once. What it keeps, and must keep:
 //
 //   * BOTH READS ARE THE SERVICE ROLE'S, keyed by the workspace id the caller's
 //     GUARD verified (ctx.workspaceId), never by anything a request body says:
@@ -45,8 +45,9 @@
 //
 // The column list of the configuration read is each caller's own, as it was:
 // `mode, provider, provider_config` for storage-presign (it asks the active
-// choice of a put or a look), `provider, provider_config` for storage-read-urls
-// and storage-secret. `withMode` says which; asking `requireByos` reads it too.
+// choice of a put or a look), `provider, provider_config` for storage-read-urls,
+// storage-secret and storage-gc. `withMode` says which; asking `requireByos`
+// reads it too.
 //
 // WHY A NEW FILE. It joins two tables' reads, the bucket secret's crypto and
 // the signer's target type. storageSecretCrypto.ts is pure crypto that vitest
@@ -128,9 +129,10 @@ export type LoadBucketOptions = {
   /**
    * Ask whether the master key is set BEFORE the secret row is judged (default
    * true: storage-presign and storage-read-urls answer 503 crypto_unavailable
-   * there). storage-secret's probe never asked: an unset key surfaces from the
-   * decrypt, as secret_unusable naming the secret, or not at all when no
-   * secret is stored. It passes false. Do not "tidy" the two into one.
+   * there). storage-secret's probe and storage-gc's drain never asked: an
+   * unset key surfaces from the decrypt, as secret_unusable naming the secret,
+   * or not at all when no secret is stored. They pass false. Do not "tidy" the
+   * two into one.
    */
   preflightCrypto?: boolean
   /** Select `mode` with the configuration (storage-presign's column list). Implied by requireByos. */
