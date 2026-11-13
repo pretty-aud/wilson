@@ -167,7 +167,9 @@ describe('the source: nobody reads one of the eight off the value', () => {
   describe('CONTROL: each way a read hid from a scan of the text, planted in a copy of a real file, is found', () => {
     /** What the scan finds in a real file's source, changed by `edit`. */
     const planted = (path, edit) => {
-      const text = readFileSync(join(SRC, path), 'utf8')
+      // Line endings as the repository holds them: a checkout with autocrlf (the owner's own) has CRLF on disk, and
+      // an edit that plants after a '\n' would find nothing there (review round 2, C-1).
+      const text = readFileSync(join(SRC, path), 'utf8').replace(/\r\n/g, '\n')
       const changed = edit(text)
       expect(changed, `${path}: the place to plant was found`).not.toBe(text)
       expect(FILES.find((f) => f.path === path).eight, `${path} names none of the eight as it is`).toEqual([])
