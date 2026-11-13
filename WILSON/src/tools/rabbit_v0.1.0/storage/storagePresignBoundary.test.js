@@ -276,11 +276,16 @@ describe('the wiring is real — every link in the presign chain has a caller', 
 
   it('🚨 the drain asks both columns of a key in a company\'s bucket, and a failed second read deletes nothing (0120)', () => {
     const fn = read('supabase', 'functions', 'storage-gc', 'index.ts')
-    expect(fn).toContain("(row as { provider?: string }).provider === 's3'\n        ? ['storage_path', 'thumbnail_url']\n        : [refColumn]")
-    expect(fn).toContain('.eq(column, row.object_path)')
-    // The first read that fails or finds something ends the asking, and a failure deletes nothing.
-    expect(fn).toContain('if (refErr || stillRef?.length) break')
-    expect(fn.indexOf('if (refErr || stillRef?.length) break')).toBeLessThan(fn.indexOf('if (refErr) {'))
+    expect(fn).toContain("row.provider === 's3'\n        ? ['storage_path', 'thumbnail_url']\n        : [refColumn]")
+    // F7: the guard's reads are batched per chunk (namedQueuePaths), both columns for an s3 row.
+    expect(fn).toContain('.in(column, chunk)')
+    expect(fn).toContain("unreserved.filter(r => r.provider === 's3' || r.kind !== 'thumbnail')")
+    // The first column that failed or names it ends the asking, and a failure deletes nothing.
+    const failedFirst = 'if (failedWith !== undefined) { refErr = { message: failedWith }; break }'
+    const namedNext = 'if (asked[column].named.has(row.object_path)) { stillRef = true; break }'
+    expect(fn).toContain(failedFirst)
+    expect(fn.indexOf(failedFirst)).toBeLessThan(fn.indexOf(namedNext))
+    expect(fn.indexOf(namedNext)).toBeLessThan(fn.indexOf('if (refErr) {'))
   })
 
   it('0051 widens the enqueue trigger by TEXT comparison (the same-transaction enum rule)', () => {

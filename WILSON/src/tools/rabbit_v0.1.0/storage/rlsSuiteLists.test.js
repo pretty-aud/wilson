@@ -92,8 +92,8 @@ describe('rls.yml\'s failure-replay list', () => {
     // 0126: suites 127 to 130, the four tag tables; 0127: suites 131 and 132, moth_relationships and
     // moth_mention_reservations; each table in RLS_TABLES. 0128 and 0129: suite 133, the record of the four, no table.
     // MO4's 0130: suites 134 and 135, boards and board_elements, both in RLS_TABLES. 0131: suite 136, no table. 0132: suite 137, no table. 0133: suite 138,
-    // sticky_locks, in RLS_TABLES.
-    expect(listed.slice(-14)).toEqual(['125_moth_views.sql', '126_moth_layout_positions.sql', '127_moth_tag_types.sql', '128_moth_tags.sql', '129_moth_tag_assignments.sql', '130_moth_tag_nominations.sql', '131_moth_relationships.sql', '132_moth_mention_reservations.sql', '133_moth_history_s3.sql', '134_boards.sql', '135_board_elements.sql', '136_folder_trash_and_moves.sql', '137_board_channels.sql', '138_sticky_locks.sql'])
+    // sticky_locks, in RLS_TABLES. F7's 0137: suite 139, no table.
+    expect(listed.slice(-14)).toEqual(['126_moth_layout_positions.sql', '127_moth_tag_types.sql', '128_moth_tags.sql', '129_moth_tag_assignments.sql', '130_moth_tag_nominations.sql', '131_moth_relationships.sql', '132_moth_mention_reservations.sql', '133_moth_history_s3.sql', '134_boards.sql', '135_board_elements.sql', '136_folder_trash_and_moves.sql', '137_board_channels.sql', '138_sticky_locks.sql', '139_per_row_work.sql'])
   })
 })
 
@@ -136,12 +136,13 @@ describe('scripts/tap-all.mjs picks suites by number', () => {
   // 114_file_moves.sql (0113) was;
   // 115_stable_file_bodies.sql (0114) was;
   // 116_network_share_checks.sql, 117_network_share_ops.sql and
-  // 118_network_share_catalogue.sql (0117) are.
+  // 118_network_share_catalogue.sql (0117) are; F7 (2026-11-13):
+  // 139_per_row_work.sql (0137) is.
   it('over the real directory, every suite once, 115, 116, 117, 118, 119 then 120 last', () => {
     const files = readdirSync(SUITE_DIR)
     const picked = pickSuites(files)
     expect(picked).toHaveLength(files.filter((f) => f.endsWith('.sql')).length)
-    expect(picked.slice(-15)).toEqual(['124_moth_graph_reads.sql', '125_moth_views.sql', '126_moth_layout_positions.sql', '127_moth_tag_types.sql', '128_moth_tags.sql', '129_moth_tag_assignments.sql', '130_moth_tag_nominations.sql', '131_moth_relationships.sql', '132_moth_mention_reservations.sql', '133_moth_history_s3.sql', '134_boards.sql', '135_board_elements.sql', '136_folder_trash_and_moves.sql', '137_board_channels.sql', '138_sticky_locks.sql'])
+    expect(picked.slice(-15)).toEqual(['125_moth_views.sql', '126_moth_layout_positions.sql', '127_moth_tag_types.sql', '128_moth_tags.sql', '129_moth_tag_assignments.sql', '130_moth_tag_nominations.sql', '131_moth_relationships.sql', '132_moth_mention_reservations.sql', '133_moth_history_s3.sql', '134_boards.sql', '135_board_elements.sql', '136_folder_trash_and_moves.sql', '137_board_channels.sql', '138_sticky_locks.sql', '139_per_row_work.sql'])
     expect(picked.indexOf('10_task_dependencies.sql')).toBeLessThan(picked.indexOf('11_task_links.sql'))
   })
 })
