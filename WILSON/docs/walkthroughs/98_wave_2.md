@@ -112,9 +112,14 @@ server, and fourteen places that read a request with no size limit.
   three of the four bucket copies and the "who is asking?" checks in the
   programs this session owns: a fix to one is a fix to all, and those copies
   can no longer drift apart. The rest, the storage clean-up's own bucket
-  copy and the AI files program's second "who is asking?" check, sits in
-  programs another session was changing at the same time; it moves onto the
-  shared copy at the next merge.
+  copy and the AI files program's second "who is asking?" check, sat in
+  programs another session was changing at the same time; both were moved
+  onto the shared copy at this merge, after the other session's work came
+  in. Every answer stayed the same, and each was checked first with tests
+  that run the real programs. The storage clean-up now signs its deletions
+  with less work (three files took 15 signing steps, now 7), and the AI
+  files program asks who you are once: a clean-up of the AI's files makes 4
+  calls before it starts where it made 6, and its list 4 where it made 5.
 - The server does less work per request. It used to unlock a secret's master
   key from scratch every time: ten locks and ten unlocks now take one step
   where they took twenty. A panel of 100 file previews now takes 104
