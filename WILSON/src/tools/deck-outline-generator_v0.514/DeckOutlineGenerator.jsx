@@ -2540,6 +2540,16 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${srcFiles.some(f => 
     setUndoRedoCounts({ undo: textUndoStack.current.length, redo: 0 });
   }, [flushPendingUndo]);
 
+  // F4 (2026-11-13): the preview's onContentChange, as ONE function for as
+  // long as the open tab and its text are the same. It was written in the
+  // preview's own tag, a new function at every render of D.O.G., and the
+  // preview is under React.memo now: with a new prop each time it would be
+  // drawn each time, every letter typed in the deck context box included.
+  const handleVisualizerContentChange = useCallback((newContent) => {
+    pushTextUndo(activeTab?.content || '');
+    updateTabContent(newContent);
+  }, [pushTextUndo, activeTab, updateTabContent]);
+
   // Text undo
   const handleTextUndo = useCallback(() => {
     if (!activeTab) return;
@@ -4762,7 +4772,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       themeIndex={Math.min(themeIndex, allThemes.length - 1)}
                       themeCount={allThemes.length}
                       isGeneratingTheme={isGeneratingTheme}
-                      onContentChange={(newContent) => { pushTextUndo(activeTab?.content || ''); updateTabContent(newContent); }}
+                      onContentChange={handleVisualizerContentChange}
                       onTextContextMenu={handleVisualizerContextMenu}
                       placementAssets={placementAssets}
                       zoomLevel={zoomLevel}
