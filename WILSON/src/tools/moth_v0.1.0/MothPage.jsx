@@ -16,7 +16,7 @@
 // React.lazy, and its canvas through another). "New board" is in a folder's menu, and the trash lists folders and
 // boards to bring back. On this computer alone there are no boards, and the menu says why.
 import { Component, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { HelpCircle, Settings as SettingsIcon, SquarePlus, Tags as TagsIcon } from 'lucide-react'
+import { HelpCircle, Magnet, Settings as SettingsIcon, SquarePlus, Tags as TagsIcon } from 'lucide-react'
 import { Banner, Button, Dialog, Drawer, IconButton, Menu } from '../../ui'
 import { usePermissions } from '../../permissions/usePermissions'
 import GatedAction from '../../permissions/GatedAction'
@@ -727,9 +727,11 @@ export default function MothPage({ isActive = true, worldFactory }) {
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(flushPlaces, SAVE_PLACES_MS)
   }, [views, flushPlaces])
-  const onArranged = useCallback(({ id, x, y }) => {
+  const onArranged = useCallback(({ id, x, y, carried }) => {
     if (!views || scrubAt != null) return
     views.notePlace(id, { x, y, pinned: true })
+    // MO5 (her item 6): what the drag carried is kept where it was let go, each with its own pin (or none).
+    for (const c of carried || []) views.notePlace(c.id, { x: c.x, y: c.y, pinned: !!c.pinned })
     queueFlush()
   }, [views, scrubAt, queueFlush])
   const onSettled = useCallback((how) => {
@@ -1069,6 +1071,7 @@ export default function MothPage({ isActive = true, worldFactory }) {
           selection={selected}
           rules={rules}
           flyTo={flyTo}
+          carry={!!local.carry}
           worldRef={worldRef}
           createWorld={worldFactory}
           onPick={(id, how) => {
@@ -1148,6 +1151,14 @@ export default function MothPage({ isActive = true, worldFactory }) {
             onRelayout={() => worldRef.current?.relayout()}
             onError={setError}
             onViewDeleted={(undo, name) => setViewUndo({ undo, name })}
+            extra={(
+              <>
+                <span className="moth-bar-rule" aria-hidden="true" />
+                {/* MO5 (her item 6): on, a drag on the map carries what is joined to the dot; kept for this person. */}
+                <IconButton size="sm" Icon={Magnet} title="Move what is joined along" active={!!local.carry} aria-pressed={!!local.carry}
+                  onClick={() => setLocal({ carry: !local.carry })} data-moth-carry />
+              </>
+            )}
           />
           <MothListWidget
             adapter={adapter}

@@ -54,6 +54,7 @@ function fakeWorld() {
     setGraph(g, o) { w.graphs.push({ g, o }) }, relayout() {}, positions: () => ({}),
     setAppearance(a) { if (a && 'colourOf' in a) w.colourOf = a.colourOf },
     setReducedMotion() {}, setRules(r) { w.rules = r }, setActive(v) { w.active = v }, resize() {}, setSelection(s) { w.selection = s },
+    setCarry(v) { w.carry = v },
     flyTo(id) { w.flown.push(id); return true }, on(event, fn) { w.handlers[event] = fn },
     renderer: {
       hitTest: () => null,
@@ -650,5 +651,31 @@ describe('🚨 MO5 4.5: the map works round a board in its frame', () => {
     expect(press().defaultPrevented).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: 'Fill the test board' }))
     expect(press().defaultPrevented).toBe(false)
+  })
+})
+
+describe('🚨 MO5 6: the bar\'s switch that carries what is joined', () => {
+  it('is off at first, turns on with a press, tells the map, and is kept for this person', async () => {
+    localStorage.removeItem('wilson.moth.local.v1')
+    render(<MothPage worldFactory={fakeWorld} />)
+    const w = await world()
+    const sw = await screen.findByRole('button', { name: 'Move what is joined along' })
+    expect(sw.getAttribute('aria-pressed')).toBe('false')
+    expect(w.carry).toBe(false)
+    fireEvent.click(sw)
+    expect(sw.getAttribute('aria-pressed')).toBe('true')
+    expect(w.carry).toBe(true)
+    cleanup()
+    render(<MothPage worldFactory={fakeWorld} />)
+    const w2 = await world()
+    expect((await screen.findByRole('button', { name: 'Move what is joined along' })).getAttribute('aria-pressed')).toBe('true')
+    expect(w2.carry).toBe(true)
+    // Someone else on this computer has their own.
+    cleanup()
+    state.perms = { ...state.perms, userId: 'u2' }
+    render(<MothPage worldFactory={fakeWorld} />)
+    await world()
+    expect((await screen.findByRole('button', { name: 'Move what is joined along' })).getAttribute('aria-pressed')).toBe('false')
+    localStorage.removeItem('wilson.moth.local.v1')
   })
 })

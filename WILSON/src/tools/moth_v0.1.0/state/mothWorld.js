@@ -16,6 +16,10 @@
 // (the target opens wider, "move into"). Escape cancels and the dot goes back. Released in empty space, only the
 // picture changes. Rest the mouse half a second on a dot and the page is asked to bloom a preview; a press or a
 // move away ends it at once. A press off any dot pans; two fingers pinch.
+//
+// MO5 (her item 6): with "Move what is joined along" on (setCarry), a drag carries what is joined to the dot it moves
+// (carriedBy below): it all moves by the same step, the dot under the pointer cannot land on any of it, Escape puts it
+// all back, and a drop in empty space keeps it all where it was let go.
 import { createRenderer } from '../engine/renderer.js'
 import { createLayoutClient } from '../engine/layoutClient.js'
 import { bindNavigation } from '../engine/navigation.js'
@@ -31,6 +35,43 @@ export const BLOOM_REST_MS = 500
 export const PICK_ZOOM = 0.9
 
 const CONTAINERS = new Set(['project', 'folder', 'phase', 'scene'])
+const HUBS = new Set(['tag', 'mtag'])
+
+/**
+ * MO5 (her item 6): what a drag carries along — everything drawn inside the dot (a folder's, a project's, a phase's or
+ * a scene's contents, however deep), and each dot a drawn line joins to it one step out. Never what it lives in (its
+ * own folders stay where they are), and never a tag's hub when anything but a tag is dragged: a hub joins many dots,
+ * so it stays where they are. A dragged tag carries what it tags. Ids, in no promised order; the dot itself is not one.
+ */
+export function carriedBy(graph, id) {
+  const nodes = graph?.nodes || []
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  const me = byId.get(id)
+  if (!me) return []
+  const kids = new Map()
+  for (const n of nodes) {
+    if (n.parent == null) continue
+    if (!kids.has(n.parent)) kids.set(n.parent, [])
+    kids.get(n.parent).push(n.id)
+  }
+  const out = new Set()
+  const stack = [...(kids.get(id) || [])]
+  while (stack.length) {
+    const k = stack.pop()
+    if (k === id || out.has(k)) continue
+    out.add(k)
+    for (const c of kids.get(k) || []) stack.push(c)
+  }
+  const above = new Set()
+  for (let p = me.parent; p != null && !above.has(p); p = byId.get(p)?.parent ?? null) above.add(p)
+  for (const e of graph?.edges || []) {
+    const other = e.source === id ? e.target : e.target === id ? e.source : null
+    if (other == null || other === id || above.has(other) || !byId.has(other)) continue
+    if (HUBS.has(byId.get(other).kind) && !HUBS.has(me.kind)) continue
+    out.add(other)
+  }
+  return [...out]
+}
 
 export function createMothWorld({
   canvas,
@@ -75,14 +116,20 @@ export function createMothWorld({
   const pinned = new Set()
   let rules = { canMove: () => ({ allowed: false }), canLink: () => ({ allowed: false }), canDrag: () => true }
   let inputIndex = new Map() // dot id -> its index in the layout's input
-  let press = null // { id, pointerId, sx, sy, start, at, dragging, target, additive, wasPinned, allowed }
+  let press = null // { id, pointerId, sx, sy, start, at, dragging, target, additive, wasPinned, allowed, carried, skip }
   let emptyPress = null // a press off any dot: a click there clears the selection, a pan does not
+  let carry = false // MO5: a drag carries what is joined to the dot (carriedBy)
   const down = new Set() // pointers down on the canvas now
-  // A dot being dragged is where the pointer is, whatever a layout tick computed before the pointer got there.
+  // A dot being dragged is where the pointer is, whatever a layout tick computed before the pointer got there; so is
+  // what it carries, by the same step.
   const holdDragged = (xy) => {
     if (!press?.dragging || !press.at || !(xy instanceof Float32Array)) return
-    const i = inputIndex.get(press.id)
-    if (i != null && 2 * i + 1 < xy.length) { xy[2 * i] = press.at.x; xy[2 * i + 1] = press.at.y }
+    const put = (id, p) => {
+      const i = inputIndex.get(id)
+      if (i != null && 2 * i + 1 < xy.length) { xy[2 * i] = p.x; xy[2 * i + 1] = p.y }
+    }
+    put(press.id, press.at)
+    for (const c of press.carried) if (c.at) put(c.id, c.at)
   }
 
   const client = createLayoutClient({
@@ -183,7 +230,7 @@ export function createMothWorld({
   function targetFor(s) {
     if (!press) return null
     const from = byId.get(press.id)
-    const hit = renderer.hitTest(s.x, s.y, LINK_REACH_PX, press.id)
+    const hit = renderer.hitTest(s.x, s.y, LINK_REACH_PX, press.skip ?? press.id)
     if (!hit || hit.type !== 'dot') return null
     const to = byId.get(hit.id)
     if (!from || !to) return null
@@ -204,12 +251,18 @@ export function createMothWorld({
     listeners.drag?.(null)
     if (!p.dragging) return
     // Back where it was: through the layout itself, so its next tick agrees, then free again unless it was pinned.
+    // What it carried goes back too; the layout never moved it (only the picture did), so it already agrees.
     const putBack = () => {
       if (layoutKind === 'force') {
         client.pin(p.id, p.start.x, p.start.y)
         if (!p.wasPinned) client.unpin(p.id)
       }
-      renderer.setPositions({ [p.id]: p.start })
+      const batch = { [p.id]: p.start }
+      for (const c of p.carried) {
+        batch[c.id] = c.start
+        if (layoutKind === 'force') places.set(c.id, c.start)
+      }
+      renderer.setPositions(batch)
       if (layoutKind === 'force') places.set(p.id, p.start)
       if (!p.wasPinned) pinned.delete(p.id)
     }
@@ -223,7 +276,28 @@ export function createMothWorld({
     const at = p.at || places.get(p.id) || p.start
     pinned.add(p.id)
     handPlaced.set(p.id, { x: at.x, y: at.y })
-    listeners.arranged?.({ id: p.id, x: at.x, y: at.y })
+    // What it carried stays where it was let go. A radial layout computes every place, so there each is kept by hand
+    // like the dot itself; in a free layout each keeps its own pin (or none), and the layout starts again from the
+    // places on show, so nothing moves on the drop.
+    const carried = []
+    for (const c of p.carried) {
+      const q = c.at || c.start
+      const xy = { x: q.x, y: q.y }
+      if (layoutKind === 'radial') { pinned.add(c.id); handPlaced.set(c.id, xy) } else {
+        places.set(c.id, { x: q.x, y: q.y })
+        if (handPlaced.has(c.id)) handPlaced.set(c.id, xy)
+      }
+      carried.push({ id: c.id, x: q.x, y: q.y, pinned: pinned.has(c.id) })
+    }
+    if (carried.length && layoutKind === 'force' && input.nodes.length) {
+      const known = {}
+      for (const n of input.nodes) {
+        const q = handPlaced.get(n.id) || places.get(n.id)
+        if (q) known[n.id] = { x: q.x, y: q.y, ...(pinned.has(n.id) ? { pinned: true } : {}) }
+      }
+      client.run({ layout: 'force', nodes: input.nodes, links: input.links, positions: known })
+    }
+    listeners.arranged?.({ id: p.id, x: at.x, y: at.y, ...(carried.length ? { carried } : {}) })
   }
 
   const onPointerDown = (e) => {
@@ -252,7 +326,7 @@ export function createMothWorld({
     press = {
       id: hit.id, pointerId: e.pointerId, sx: s.x, sy: s.y, start: { x: w.x, y: w.y },
       dragging: false, target: null, additive: !!(e.shiftKey || e.ctrlKey || e.metaKey), wasPinned: pinned.has(hit.id),
-      allowed: rules.canDrag(byId.get(hit.id)) !== false,
+      allowed: rules.canDrag(byId.get(hit.id)) !== false, carried: [], skip: null,
     }
     canvas.setPointerCapture?.(e.pointerId)
   }
@@ -264,12 +338,28 @@ export function createMothWorld({
         if (Math.hypot(s.x - press.sx, s.y - press.sy) < DRAG_SLOP_PX || !press.allowed) return
         press.dragging = true
         stopBloom()
+        // What the drag carries is read once, as it starts, from where each dot is then (one not yet placed stays).
+        if (carry) {
+          for (const cid of carriedBy(graph, press.id)) {
+            const q = whereIs(cid)
+            if (q && q.placed !== false && Number.isFinite(q.x) && Number.isFinite(q.y)) press.carried.push({ id: cid, start: { x: q.x, y: q.y }, at: null })
+          }
+          if (press.carried.length) press.skip = new Set([press.id, ...press.carried.map((c) => c.id)])
+        }
       }
       const w = screenToWorld(renderer.camera(), renderer.viewport(), s.x, s.y)
       press.at = w
       if (layoutKind === 'force') places.set(press.id, { x: w.x, y: w.y })
       if (layoutKind === 'force') client.pin(press.id, w.x, w.y)
-      renderer.setPositions({ [press.id]: w })
+      const batch = { [press.id]: w }
+      const dx = w.x - press.start.x
+      const dy = w.y - press.start.y
+      for (const c of press.carried) {
+        c.at = { x: c.start.x + dx, y: c.start.y + dy }
+        batch[c.id] = c.at
+        if (layoutKind === 'force') places.set(c.id, { x: c.at.x, y: c.at.y })
+      }
+      renderer.setPositions(batch)
       const t = targetFor(s)
       press.target = t
       renderer.setTarget(t && t.allowed ? { id: t.id, mode: t.mode } : null)
@@ -373,6 +463,8 @@ export function createMothWorld({
     setReducedMotion(v) { calm = !!v; renderer.setReducedMotion(calm); paintGlow() },
     /** What a drag may do: canDrag(node), canMove(dragNode, targetNode), canLink(dragNode, targetNode) → { allowed, reason }. */
     setRules(next) { rules = { ...rules, ...next } },
+    /** MO5: whether a drag carries what is joined to the dot (carriedBy). A drag already under way keeps what it had. */
+    setCarry(on) { carry = !!on },
     /** Hidden, the world asks no frame and the light's animations stop; shown, it draws once. */
     setActive(v) {
       active = !!v

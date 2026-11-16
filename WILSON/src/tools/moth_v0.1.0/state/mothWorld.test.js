@@ -5,7 +5,7 @@
 // take it goes back until the page's change lands; Escape puts it back and says nothing; half a second at rest asks
 // for a preview and a press ends it; a double click opens a container; hidden, the world stops.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { createMothWorld, DRAG_SLOP_PX, BLOOM_REST_MS, PICK_ZOOM } from './mothWorld.js'
+import { createMothWorld, carriedBy, DRAG_SLOP_PX, BLOOM_REST_MS, PICK_ZOOM } from './mothWorld.js'
 import { buildGraph } from '../engine/model.js'
 
 const METHODS = ['setTransform', 'clearRect', 'beginPath', 'moveTo', 'lineTo', 'arc', 'stroke', 'fill', 'fillText', 'strokeText', 'drawImage', 'fillRect', 'save', 'restore', 'closePath', 'rect', 'clip', 'setLineDash']
@@ -56,9 +56,10 @@ beforeEach(() => {
   let next = 1
   let t = 0
   const canvas = fakeCanvas()
+  const posted = []
   const world = createMothWorld({
     canvas,
-    createWorker: () => ({ postMessage() {}, terminate() {}, onmessage: null, onerror: null }),
+    createWorker: () => ({ postMessage(m) { posted.push(m) }, terminate() {}, onmessage: null, onerror: null }),
     requestFrame: (fn) => { frames.push(fn); return frames.length },
     cancelFrame: () => {},
     now: () => t,
@@ -74,7 +75,7 @@ beforeEach(() => {
   world.setGraph(GRAPH, { saved: SAVED })
   flush()
   const at = (id) => world.renderer.screenOf(id)
-  env = { world, canvas, flush, advance, events, at, frames }
+  env = { world, canvas, flush, advance, events, at, frames, posted }
 })
 afterEach(() => { env.world.destroy(); vi.restoreAllMocks() })
 
@@ -288,5 +289,104 @@ describe('MO5 8: a right-click on a dot asks for its menu', () => {
     env.canvas.fire('contextmenu', { clientX: 3, clientY: 3, preventDefault() { stoppedOff = true } })
     expect(menus).toHaveLength(1)
     expect(stoppedOff).toBe(false)
+  })
+})
+
+// MO5 item 6: with the bar's switch on, a drag carries what is joined to the dot: a folder's contents, and what a
+// drawn line joins to it one step out; never its own folders, never a tag's hub (unless the tag is what moves).
+describe('MO5 6: what a drag carries', () => {
+  const n = (id, kind, parent = null) => ({ id, kind, parent })
+  const e = (kind, source, target) => ({ id: `${kind}:${source}:${target}`, kind, source, target })
+  const G = {
+    nodes: [n('P', 'project'), n('D', 'folder', 'P'), n('A', 'file', 'D'), n('B', 'file', 'P'), n('T', 'tag'), n('N', 'note')],
+    edges: [e('lives_in', 'D', 'P'), e('lives_in', 'A', 'D'), e('lives_in', 'B', 'P'), e('tagged_with', 'A', 'T'), e('tagged_with', 'B', 'T'), e('related_to', 'A', 'N')],
+  }
+  const sorted = (a) => [...a].sort()
+  it('a folder carries everything inside it; a project all of it; never what it lives in', () => {
+    expect(sorted(carriedBy(G, 'D'))).toEqual(['A'])
+    expect(sorted(carriedBy(G, 'P'))).toEqual(['A', 'B', 'D'])
+  })
+  it('a file carries what a line joins to it one step out, but not its folders or a tag\'s hub; a tag carries what it tags', () => {
+    expect(carriedBy(G, 'A')).toEqual(['N'])
+    expect(sorted(carriedBy(G, 'T'))).toEqual(['A', 'B'])
+    expect(carriedBy(G, 'N')).toEqual(['A'])
+    expect(carriedBy(G, 'nobody')).toEqual([])
+  })
+
+  const dragFolder = (dx = 40, dy = 30) => {
+    const s = press('folder:d1')
+    env.canvas.fire('pointermove', { clientX: s.x + 10, clientY: s.y })
+    env.canvas.fire('pointermove', { clientX: s.x + dx, clientY: s.y + dy })
+    return s
+  }
+  it('🚨 on: the folder\'s file moves by the same step and stays where it was let go; off, it stays put (the control)', () => {
+    dragFolder()
+    env.canvas.fire('pointerup', {})
+    let p = env.world.positions()
+    expect(p['file:f1']).toEqual({ x: -150, y: 0, pinned: false })
+    expect(env.events.arranged.at(-1)[0].carried).toBeUndefined()
+
+    env.flush() // the frame on screen, which a press reads, shows where the folder is now
+    env.world.setCarry(true)
+    const before = env.world.positions()
+    dragFolder(80, -20)
+    env.canvas.fire('pointerup', {})
+    p = env.world.positions()
+    const step = { x: p['folder:d1'].x - before['folder:d1'].x, y: p['folder:d1'].y - before['folder:d1'].y }
+    expect(Math.hypot(step.x, step.y)).toBeGreaterThan(10)
+    expect(p['file:f1'].x).toBeCloseTo(before['file:f1'].x + step.x, 0)
+    expect(p['file:f1'].y).toBeCloseTo(before['file:f1'].y + step.y, 0)
+    expect(p['file:f1'].pinned).toBe(false)
+    // Not carried: the project it lives in, and the file beside it.
+    expect(p['project:p1']).toEqual(before['project:p1'])
+    expect(p['file:f2']).toEqual(before['file:f2'])
+    const said = env.events.arranged.at(-1)[0]
+    expect(said.id).toBe('folder:d1')
+    expect(said.carried).toEqual([{ id: 'file:f1', x: expect.any(Number), y: expect.any(Number), pinned: false }])
+  })
+  it('🚨 the layout starts again from the places on show, so nothing moves on the drop', () => {
+    env.world.setCarry(true)
+    const runs = () => env.posted.filter((m) => m.type === 'init').length
+    const was = runs()
+    dragFolder()
+    env.canvas.fire('pointerup', {})
+    expect(runs()).toBe(was + 1)
+    const init = env.posted.filter((m) => m.type === 'init').at(-1)
+    const p = env.world.positions()
+    expect(init.positions['file:f1'].pinned).toBeUndefined()
+    expect(init.positions['file:f1'].x).toBeCloseTo(p['file:f1'].x, 0)
+    expect(init.positions['file:f1'].y).toBeCloseTo(p['file:f1'].y, 0)
+    expect(p['file:f1'].x).not.toBe(-150)
+    expect(init.positions['folder:d1']).toMatchObject({ pinned: true })
+  })
+  it('a carried dot that was pinned keeps its pin, at its new place', () => {
+    env.world.setGraph(GRAPH, { saved: { ...SAVED, 'file:f1': { x: -150, y: 0, pinned: true } } })
+    env.flush()
+    env.world.setCarry(true)
+    dragFolder()
+    env.canvas.fire('pointerup', {})
+    const p = env.world.positions()['file:f1']
+    expect(p.pinned).toBe(true)
+    expect(p.x).not.toBe(-150)
+    expect(env.events.arranged.at(-1)[0].carried).toEqual([expect.objectContaining({ id: 'file:f1', pinned: true })])
+  })
+  it('🚨 Escape puts the folder and all it carried back, and says nothing', () => {
+    env.world.setCarry(true)
+    const before = env.world.positions()
+    dragFolder()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    expect(env.world.positions()).toEqual(before)
+    expect(env.events.arranged).toEqual([])
+  })
+  it('what is carried is never a target: the drag looks past it', () => {
+    env.world.setCarry(true)
+    const seen = []
+    const real = env.world.renderer.hitTest
+    env.world.renderer.hitTest = (...a) => { seen.push(a[3]); return real(...a) }
+    dragFolder()
+    env.world.renderer.hitTest = real
+    const skip = seen.at(-1)
+    expect(skip).toBeInstanceOf(Set)
+    expect([...skip].sort()).toEqual(['file:f1', 'folder:d1'])
   })
 })

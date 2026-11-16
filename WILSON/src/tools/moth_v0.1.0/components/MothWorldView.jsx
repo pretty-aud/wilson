@@ -6,7 +6,7 @@ import { useEffect, useRef } from 'react'
 import { createMothWorld } from '../state/mothWorld.js'
 
 export default function MothWorldView({
-  graph, layout, saved, savedKey, active, appearance, reducedMotion, selection, rules, flyTo,
+  graph, layout, saved, savedKey, active, appearance, reducedMotion, selection, rules, flyTo, carry = false,
   onPick, onOpen, onHover, onBloom, onDrop, onArranged, onDrag, onSettled, onFrame, onDropFile, onMenu, worldRef,
   createWorld = createMothWorld,
 }) {
@@ -68,6 +68,7 @@ export default function MothWorldView({
   useEffect(() => { world.current?.setSelection(selection) }, [selection])
   useEffect(() => { if (rules) world.current?.setRules(rules) }, [rules])
   useEffect(() => { if (flyTo?.id) world.current?.flyTo(flyTo.id) }, [flyTo])
+  useEffect(() => { world.current?.setCarry?.(carry) }, [carry])
 
   // A file dragged from a card onto a dot of the graph.
   const FILE_DRAG = 'application/x-wilson-moth-file'
