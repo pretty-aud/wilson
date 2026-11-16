@@ -76,7 +76,12 @@ function Grip({ edge, size, drawn, room, onSize }) {
   const value = vertical ? drawn.w : drawn.h
   // Only the side dragged changes what is kept; the other stays as it was kept, never as the room cut it (round 1:
   // a touch, Escape or a key saved the size drawn in a small window, smaller than the size kept).
-  const kept = (next, was = size) => (edge === 'top' ? { w: was.w, h: next.h } : edge === 'right' ? { w: next.w, h: was.h } : next)
+  // A drag's result, side by side: smaller than drawn is what it shows; larger than drawn never below the size kept
+  // (the room may hold the cards smaller); a side not changed keeps the size kept (round 2).
+  const dragged = (next, start, before) => {
+    const side = (k) => (next[k] < start[k] ? next[k] : next[k] > start[k] ? Math.max(next[k], before[k]) : before[k])
+    return { w: side('w'), h: side('h') }
+  }
   const end = (cancel) => {
     const d = drag.current
     if (!d) return
@@ -85,7 +90,7 @@ function Grip({ edge, size, drawn, room, onSize }) {
     window.removeEventListener('pointerup', d.up, true)
     window.removeEventListener('pointercancel', d.lost, true)
     window.removeEventListener('keydown', d.key, true)
-    onSize(cancel || !d.moved ? d.before : kept(d.last, d.before), { done: true })
+    onSize(cancel || !d.moved ? d.before : dragged(d.last, d.start, d.before), { done: true })
   }
   const onPointerDown = (e) => {
     if (e.button !== undefined && e.button !== 0 && e.pointerType === 'mouse') return
@@ -96,9 +101,11 @@ function Grip({ edge, size, drawn, room, onSize }) {
       start, last: start, before: { w: size.w, h: size.h }, x: e.clientX, y: e.clientY, id: e.pointerId, moved: false,
       move: (ev) => {
         if (d.id !== undefined && ev.pointerId !== undefined && ev.pointerId !== d.id) return
+        // A finger's jitter is no drag (round 2): three pixels first.
+        if (!d.moved && Math.hypot(ev.clientX - d.x, ev.clientY - d.y) < 3) return
         d.moved = true
         d.last = resizedCard(start, edge, ev.clientX - d.x, ev.clientY - d.y, room)
-        onSize(kept(d.last, d.before), { done: false })
+        onSize(d.last, { done: false })
       },
       up: (ev) => { if (d.id === undefined || ev.pointerId === undefined || ev.pointerId === d.id) end(false) },
       lost: (ev) => { if (d.id === undefined || ev.pointerId === undefined || ev.pointerId === d.id) end(true) },

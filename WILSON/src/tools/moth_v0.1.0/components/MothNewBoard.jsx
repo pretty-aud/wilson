@@ -37,7 +37,8 @@ export function boardPlaces(folders, isBoard = () => false) {
     const x = steps(a)
     const y = steps(b)
     for (let i = 0; i < Math.min(x.length, y.length); i++) {
-      const c = x[i].localeCompare(y[i], undefined, { sensitivity: 'base' })
+      // Names alike but for case or accents ("Refs", "refs") are still two steps: never a tie (round 2).
+      const c = x[i].localeCompare(y[i], undefined, { sensitivity: 'base' }) || (x[i] < y[i] ? -1 : x[i] > y[i] ? 1 : 0)
       if (c) return c
     }
     return x.length - y.length

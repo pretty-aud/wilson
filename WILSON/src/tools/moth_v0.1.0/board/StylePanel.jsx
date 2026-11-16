@@ -161,7 +161,9 @@ export default function StylePanel({ elements = [], canWrite = false, inputMode 
       {/* First, so what acts on the selection (its order, a frame around it, Delete) is in view however long the
           rows of style below grow: on a small board the panel scrolls, and these were under its fold. */}
       <Row label="Arrange">
-        <div style={{ display: 'flex', gap: 2 }} data-style-arrange>
+        {/* Reached by the keyboard while words are typed, Arrange ends the words first, as a press on it does (round 2:
+            Shift+Tab to Delete or Frame selection acted under the open box, and a sticky lost its last words). */}
+        <div style={{ display: 'flex', gap: 2 }} data-style-arrange onFocus={() => { if (editing) onLeave?.() }}>
           <IconButton size={size} Icon={ArrowUp} title="Bring forward" onClick={() => onStack?.('forward')} />
           <IconButton size={size} Icon={ArrowDown} title="Send backward" onClick={() => onStack?.('backward')} />
           <IconButton size={size} Icon={BringToFront} title="Bring to front" onClick={() => onStack?.('front')} />

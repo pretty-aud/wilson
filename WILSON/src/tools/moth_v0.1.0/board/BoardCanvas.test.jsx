@@ -2044,6 +2044,23 @@ describe('🚨 MO5 4.3 and 4.4: lines from dots, lit sides, bends', () => {
     expect(named('connect-dot').every((d) => d.attrs.dotFor === 'big')).toBe(true)
     hover(toScreen({ x: 120, y: 120 }))
     expect(named('connect-dot').every((d) => d.attrs.dotFor === 'small')).toBe(true)
+    // Round 2: on the way out from its side to its dot (still over the larger one), the small one keeps its dots.
+    const right = named('connect-dot').find((d) => d.attrs.anchor === 'right')
+    hover(toScreen({ x: 140 + (right.x() - 140) * 0.4, y: 120 }))
+    expect(named('connect-dot').every((d) => d.attrs.dotFor === 'small')).toBe(true)
+    hover(toScreen({ x: right.x(), y: right.y() }))
+    expect(named('connect-dot').some((d) => d.attrs.dotFor === 'small' && d.attrs.anchor === 'right')).toBe(true)
+  })
+  it('🚨 round 2: Arrange reached by the keyboard while words are typed ends the words first', async () => {
+    await mount()
+    fireEvent.click(screen.getByTitle('Text (T)'))
+    press(stageNow(), toScreen({ x: 0, y: 300 }))
+    release(toScreen({ x: 0, y: 300 }))
+    await settle()
+    expect(screen.getByRole('textbox', { name: 'Text' })).toBeTruthy()
+    fireEvent.focus(document.querySelector('[data-moth-board-style] [data-style-arrange] button'))
+    await settle()
+    expect(screen.queryByRole('textbox', { name: 'Text' })).toBeNull()
   })
   it('🚨 round 1: an Arrange button pressed while words are typed ends the words first; a colour keeps them', async () => {
     await mount()

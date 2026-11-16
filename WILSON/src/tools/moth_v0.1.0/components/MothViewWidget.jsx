@@ -106,6 +106,7 @@ export default function MothViewWidget({
     ...(viewSnap?.available === false ? [{ header: 'This view lasts for this visit only.' }] : []),
   ]
   return (
+    <>
     <section ref={barRef} className="moth-hud-panel moth-view-bar" aria-label="View" data-moth-view-widget>
       <div className="moth-bar-group" role="group" aria-label="The view">
         <Select
@@ -158,7 +159,8 @@ export default function MothViewWidget({
       <div className="moth-bar-group moth-bar-anchor">
         {/* A button that opens a pop: expanded or not, never a toggle that is pressed (round 1). */}
         <IconButton ref={showButton} size="sm" Icon={SlidersHorizontal} title="What shows" aria-expanded={showing} active={showing}
-          aria-pressed={undefined} onClick={() => setShowing((v) => !v)} data-moth-view-show />
+          aria-pressed={undefined} onClick={() => setShowing((v) => !v)} data-moth-view-show
+          onKeyDown={(e) => { if (e.key === 'Escape' && showing) { e.preventDefault(); e.stopPropagation(); setShowing(false) } }} />
         <IconButton size="sm" Icon={Crosshair} title={focusOn ? 'Show everything' : 'Focus here'} aria-pressed={!!focusOn} active={!!focusOn}
           disabled={!selectedNode} onClick={() => views?.setFocus(focusOn ? null : selectedNode?.id)} data-moth-focus />
         <Select size="sm" aria-label="Focus reaches" value={String(config.focusDepth)} onChange={(v) => set({ focusDepth: Number(v) || 1 })}
@@ -215,7 +217,10 @@ export default function MothViewWidget({
         <IconButton size="sm" Icon={Redo2} title="Redo" onClick={onRedo} disabled={!canRedo} data-moth-redo />
       </div>
       {extra}
+    </section>
 
+      {/* The bar's questions are drawn beside it, never inside it: a dialog is placed in its nearest box with a backdrop
+          filter, and the bar is one row (round 2: Save as's name field was cut off above the map). */}
       {renaming && (
         <Dialog
           width="confirm"
@@ -279,6 +284,6 @@ export default function MothViewWidget({
           </Field>
         </Dialog>
       )}
-    </section>
+    </>
   )
 }

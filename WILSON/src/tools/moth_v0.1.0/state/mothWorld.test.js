@@ -407,6 +407,24 @@ describe('MO5 6: what a drag carries', () => {
     expect(again.positions['file:f1'].y).toBeCloseTo(dropped.y, 0)
     expect(again.positions['project:p1']).toEqual({ x: 0, y: 0 }) // the rest where the run put it
   })
+  it('round 2: a run that settles while another drag is in hand waits for it; that drag\'s end starts the layout again', () => {
+    env.world.setCarry(true)
+    const runs = () => env.posted.filter((m) => m.type === 'init').length
+    dragFolder()
+    env.canvas.fire('pointerup', {})
+    const was = runs() // waiting: the layout is still running
+    env.flush()
+    env.world.setCarry(false)
+    const s = press('file:f2')
+    env.canvas.fire('pointermove', { clientX: s.x + 20, clientY: s.y })
+    env.settleLayout()
+    expect(runs()).toBe(was) // not mid-drag
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    // Its put-back runs the layout once more (MO2's pin back): the restart waits for that run to settle.
+    expect(runs()).toBe(was)
+    env.settleLayout()
+    expect(runs()).toBe(was + 1)
+  })
   it('a carried dot that was pinned keeps its pin, at its new place', () => {
     env.world.setGraph(GRAPH, { saved: { ...SAVED, 'file:f1': { x: -150, y: 0, pinned: true } } })
     env.flush()

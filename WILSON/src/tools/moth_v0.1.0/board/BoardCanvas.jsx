@@ -814,7 +814,18 @@ export function mountBoard(host, init) {
   function hoverAt(p) {
     const reach = (dotGap() + dotRadius() + 2) / cam.scale
     const kept = hoverId ? geom(hoverId) : null
-    if (kept && connectionDots(kept, dotGap() / cam.scale).some((d) => Math.hypot(d.x - p.x, d.y - p.y) <= (dotRadius() + 4) / cam.scale)) return hoverId
+    // On the way from a side's middle out to its dot, or on the dot: the shown thing keeps its dots, whatever lies
+    // under (round 2: a band beside the side gave way to the larger thing below, and the dot could not be reached).
+    const lane = (dotRadius() + 4) / cam.scale
+    const onLane = (d) => {
+      const a = anchorPoint(kept, d.side)
+      const vx = d.x - a.x
+      const vy = d.y - a.y
+      const len2 = vx * vx + vy * vy || 1
+      const t = Math.max(0, Math.min(1, ((p.x - a.x) * vx + (p.y - a.y) * vy) / len2))
+      return Math.hypot(p.x - (a.x + vx * t), p.y - (a.y + vy * t)) <= lane
+    }
+    if (kept && connectionDots(kept, dotGap() / cam.scale).some(onLane)) return hoverId
     const kids = content.getChildren()
     for (let i = kids.length - 1; i >= 0; i -= 1) {
       const id = kids[i].attrs.elementId
@@ -1388,6 +1399,7 @@ export function mountBoard(host, init) {
       finish()
       const el = geom(a.id)
       if (!a.moved && a.dbl && el) { beginEdit(a.id); return }
+      if (a.moved) lastDown = null // a bend is no first press of a double press (round 2)
       if (!a.moved || !next || !el) { const rec = nodes.get(a.id); if (rec) build(rec); refreshSelection(); return }
       const ends = connectorEnds(el, geom)
       store.update(a.id, connectorRecord(ends.start, ends.end, next), { settled: true })

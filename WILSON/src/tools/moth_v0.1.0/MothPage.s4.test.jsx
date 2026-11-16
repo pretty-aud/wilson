@@ -27,7 +27,7 @@ vi.mock('./board/BoardPanel.jsx', async () => {
   return { BoardPanel, default: BoardPanel }
 })
 
-import MothPage, { BOARD_DOT_COLOUR } from './MothPage.jsx'
+import MothPage, { BOARD_DOT_COLOUR, BOARD_LOOKING_BACK_WORDS } from './MothPage.jsx'
 import { keepLeaving, leavingOf, whoKey } from './board/boardPanelState.js'
 import { MothHelp, GLIDE_WORDS } from './components/MothSettings.jsx'
 import { BOARD_NEEDS_CLOUD } from './board/boardPanelState.js'
@@ -381,6 +381,16 @@ describe('🚨 MO5 3: New board… in the strip, and where the board goes', () =
       { id: 'r1', kind: 'custom', label: 'Refs', path: 'refs', parent_id: null },
     ]
     expect(boardPlaces(rows).map((p) => p.id)).toEqual([null, 'r1', 'old', 'r2'])
+    // Round 2: names alike but for case are two folders, each with its own below it.
+    const cased = [
+      { id: 'lower', kind: 'custom', label: 'refs', path: 'refs', parent_id: null },
+      { id: 'upper-kid', kind: 'custom', label: 'Kid', path: 'Refs/kid', parent_id: 'upper' },
+      { id: 'upper', kind: 'custom', label: 'Refs', path: 'Refs', parent_id: null },
+      { id: 'lower-kid', kind: 'custom', label: 'Kid', path: 'refs/kid', parent_id: 'lower' },
+    ]
+    const order = boardPlaces(cased).map((p) => p.id)
+    expect(order.indexOf('upper-kid')).toBe(order.indexOf('upper') + 1)
+    expect(order.indexOf('lower-kid')).toBe(order.indexOf('lower') + 1)
   })
   it('it starts on the folder selected; a board\'s own folder (or one below it) starts on the folder that holds the board', () => {
     const islands = [island('p1'), island('p2')]
@@ -700,6 +710,19 @@ describe('🚨 MO5 4.5: the map works round a board in its frame', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Fill the test board' }))
     expect(press().defaultPrevented).toBe(false)
   })
+  it('round 2: looking back from the bar round a framed board closes it, and says why', async () => {
+    adapter.fetchMothHistoryWindow = vi.fn(async () => [{ recording_since: new Date(Date.now() - 30 * 86400000).toISOString() }])
+    adapter.fetchMothHistory = vi.fn(async () => [])
+    render(<MothPage worldFactory={fakeWorld} />)
+    const w = await world()
+    await boardsRead(w)
+    act(() => { w.handlers.pick('folder:bf', {}) })
+    await waitFor(() => expect(panel()).toBeTruthy())
+    const range = await screen.findByLabelText('Look back')
+    fireEvent.change(range, { target: { value: String(Date.now() - 5 * 86400000) } })
+    await waitFor(() => expect(panel()).toBeNull())
+    expect(await screen.findByText(BOARD_LOOKING_BACK_WORDS)).toBeTruthy()
+  })
 })
 
 describe('🚨 MO5 6: the bar\'s switch that carries what is joined', () => {
@@ -725,6 +748,28 @@ describe('🚨 MO5 6: the bar\'s switch that carries what is joined', () => {
     await world()
     expect((await screen.findByRole('button', { name: 'Move what is joined along' })).getAttribute('aria-pressed')).toBe('false')
     localStorage.removeItem('wilson.moth.local.v1')
+  })
+})
+
+describe('round 2: settings add up where nothing can be stored', () => {
+  it('the magnet then the glide: each change keeps the other', async () => {
+    const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => null)
+    const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked') })
+    try {
+      render(<MothPage worldFactory={fakeWorld} />)
+      const w = await world()
+      const magnet = await screen.findByRole('button', { name: 'Move what is joined along' })
+      fireEvent.click(magnet)
+      expect(w.carry).toBe(true)
+      fireEvent.click(await screen.findByRole('button', { name: 'M.O.T.H. settings' }))
+      fireEvent.click(await screen.findByRole('switch', { name: GLIDE_WORDS.label }))
+      expect(w.glide).toBe(false)
+      expect(w.carry).toBe(true)
+      expect(magnet.getAttribute('aria-pressed')).toBe('true')
+    } finally {
+      get.mockRestore()
+      set.mockRestore()
+    }
   })
 })
 

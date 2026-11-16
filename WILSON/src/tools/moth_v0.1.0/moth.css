@@ -38,10 +38,11 @@
 .moth-hud-banners {
   position: absolute;
   /* MO5: below the bar (her item 2), however many rows it has (the bar says where it ends), over the middle of the map,
-     and over the folder cards, so a tall card never hides a notice (round 1). */
+     and over the folder cards, so a tall card never hides a notice (round 1); under the bar, which comes after it and
+     so draws its own pops (What shows, Find's matches) over the notices (round 2). */
   top: calc(var(--moth-bar-bottom, 56px) + 16px);
   left: calc(50% - 166px);
-  z-index: 3;
+  z-index: 2;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -88,7 +89,7 @@
 .moth-bar-reach { width: 96px; }
 .moth-bar-find { display: flex; flex: 1 1 96px; align-items: center; gap: 4px; min-width: 96px; max-width: 220px; }
 .moth-bar-find-icon, .moth-bar-time-icon { flex: 0 0 auto; color: var(--color-ink-2); }
-.moth-bar-time { flex: 0 1 auto; min-width: 0; overflow: hidden; }
+.moth-bar-time { flex: 0 1 auto; min-width: 0; }
 .moth-time.moth-time-compact { flex-direction: row; align-items: center; gap: 6px; min-width: 0; }
 .moth-time-compact .moth-time-range { width: 96px; flex: 0 0 auto; }
 /* The sentence, there or alone (history absent): one line, cut with an ellipsis, all of it in its tooltip and read
@@ -234,9 +235,10 @@
   font-size: var(--text-dense);
 }
 
-/* The word by the pointer during a drag, and the hover bloom. */
+/* The word by the pointer during a drag, and the hover bloom: over the notices and the cards (round 2). */
 .moth-cursor-word {
   position: absolute;
+  z-index: 3;
   padding: 0 8px;
   border-radius: var(--radius-control);
   background-color: var(--color-paper-raised);
@@ -246,6 +248,7 @@
 }
 .moth-bloom {
   position: absolute;
+  z-index: 3;
   max-width: 260px;
   padding: 8px;
   border: 1px solid var(--color-rule);

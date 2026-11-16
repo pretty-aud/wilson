@@ -65,6 +65,7 @@ export const MANAGED_ROW_SENTENCE = 'This file belongs to an asset. Change it fr
 // MO4: a board's dot has a colour of its own, whatever Settings colours the rest by.
 export const BOARD_DOT_COLOUR = '#ff7a59'
 const LOOKING_BACK_WORDS = 'Looking back changes nothing. Come back to now to change things.'
+export const BOARD_LOOKING_BACK_WORDS = 'The board closed while you look back: a board is always as it is now.'
 
 // The board panel's chunk that could not be loaded says so, and the way back to the map stays.
 class BoardBoundary extends Component {
@@ -208,7 +209,8 @@ export default function MothPage({ isActive = true, worldFactory }) {
   const localScope = `${perms?.userId ?? ''}|${perms?.workspaceId ?? ''}`
   const [local, setLocalState] = useState(() => readLocalPrefs(localScope))
   useEffect(() => { setLocalState(readLocalPrefs(localScope)) }, [localScope])
-  const setLocal = useCallback((patch) => setLocalState(writeLocalPrefs(localScope, patch)), [localScope])
+  // Each change adds to what the page holds, so where nothing can be stored one change never puts another back (round 2).
+  const setLocal = useCallback((patch) => setLocalState((cur) => writeLocalPrefs(localScope, { ...cur, ...patch })), [localScope])
   const canUndo = useSyncExternalStore(history.subscribe, history.canUndo)
   const canRedo = useSyncExternalStore(history.subscribe, history.canRedo)
 
@@ -532,6 +534,11 @@ export default function MothPage({ isActive = true, worldFactory }) {
       Promise.resolve().then(() => store?.refresh([pid])).catch(() => {})
     }
   }, [closeBoard, notify, store])
+  // Looking back opens no board, and the map round a framed board can start it (MO5, item 4.5): the board closes, and
+  // says why (round 2: the map showed the past while the board could still be changed now).
+  useEffect(() => {
+    if (scrubAt != null && openBoardRef.current) boardClosed({ how: 'button', words: BOARD_LOOKING_BACK_WORDS })
+  }, [scrubAt, boardClosed])
 
   // ── Doing things (Session 1's, kept whole) ───────────────────────────────────────────────────────────────────
   const act = useCallback(async (fn) => {

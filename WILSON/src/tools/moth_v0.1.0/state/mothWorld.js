@@ -163,13 +163,17 @@ export function createMothWorld({
       renderer.setPositions(m.xy)
       if (layoutKind === 'radial' && handPlaced.size) renderer.setPositions(Object.fromEntries(handPlaced))
       // A carried drop waited for this: the layout starts again from what is on show, and that run's settle is told.
-      if (settleHold.size && layoutKind === 'force') { restartFromShown(); return }
+      // Not while a drag or a glide is in hand (round 2: places then hold where the dot is only passing through); its
+      // own drop or stop starts it again.
+      if (settleHold.size && layoutKind === 'force' && !press?.dragging && !glide) { restartFromShown(); return }
       listeners.settled?.()
     },
     // A refused pin (radial, or a dot the job no longer holds) leaves the job as it was; anything else ended it.
     onError: (m) => { if (m?.code !== 'refused') { settleHold.clear(); listeners.settled?.({ failed: true }) } },
   })
 
+  // A drag or a glide over, with a carried drop still waiting and the layout at rest: start again now.
+  const restartIfWaiting = () => { if (settleHold.size && layoutKind === 'force' && !client.busy()) restartFromShown() }
   // The free layout starts again from the places on show, every dot given its place: nothing moves, nothing ticks.
   function restartFromShown() {
     settleHold.clear()
@@ -306,10 +310,11 @@ export function createMothWorld({
       if (layoutKind === 'force') places.set(p.id, p.start)
       if (!p.wasPinned) pinned.delete(p.id)
     }
-    if (cancelled) { putBack(); return } // Escape: and nothing else said
+    if (cancelled) { putBack(); restartIfWaiting(); return } // Escape: and nothing else said
     if (p.target && p.target.allowed) {
       // The data change is the page's; until it lands the dot goes back.
       putBack()
+      restartIfWaiting()
       listeners.drop?.({ dragId: p.id, targetId: p.target.id, mode: p.target.mode })
       return
     }
@@ -407,8 +412,8 @@ export function createMothWorld({
     if (carried.length && layoutKind === 'force' && input.nodes.length) {
       settleHold.set(p.id, { x: at.x, y: at.y })
       for (const c of carried) settleHold.set(c.id, { x: c.x, y: c.y })
-      if (!client.busy()) restartFromShown()
     }
+    restartIfWaiting()
     listeners.arranged?.({ id: p.id, x: at.x, y: at.y, ...(carried.length ? { carried } : {}) })
   }
 

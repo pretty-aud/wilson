@@ -181,6 +181,15 @@ describe('MO5 1: the folder cards are never cut off, and their edges size them',
       expect(props.onSize).toHaveBeenLastCalledWith({ w: 280, h: 320 })
       fireEvent.keyDown(height, { key: 'ArrowUp' })
       expect(props.onSize).toHaveBeenLastCalledWith({ w: 280, h: 320 })
+      // Round 2: a finger's jitter is a tap; a drag taller in a room that holds the cards smaller keeps the size kept.
+      fireEvent.pointerDown(height, { clientX: 10, clientY: 100, pointerId: 3, button: 0 })
+      fireEvent.pointerMove(window, { clientX: 11, clientY: 101, pointerId: 3 })
+      fireEvent.pointerUp(window, { clientX: 11, clientY: 101, pointerId: 3 })
+      expect(props.onSize).toHaveBeenLastCalledWith({ w: 280, h: 320 })
+      fireEvent.pointerDown(height, { clientX: 10, clientY: 100, pointerId: 4, button: 0 })
+      fireEvent.pointerMove(window, { clientX: 10, clientY: 60, pointerId: 4 })
+      fireEvent.pointerUp(window, { clientX: 10, clientY: 60, pointerId: 4 })
+      expect(props.onSize).toHaveBeenLastCalledWith({ w: 280, h: 320 })
     } finally {
       rect.mockRestore()
     }
@@ -387,6 +396,20 @@ describe('MO5 2: the view is one bar of named icons', () => {
     expect(screen.queryByRole('group', { name: 'What shows' })).toBeNull()
     expect(document.activeElement).toBe(shows)
   })
+  it('round 2: the bar\'s questions are drawn beside it, never inside its one row; Escape on What shows\' own button closes it', async () => {
+    await mountBar()
+    fireEvent.click(screen.getByRole('button', { name: 'Save as…' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog.closest('[data-moth-view-widget]')).toBeNull()
+    cleanup()
+    await mountBar()
+    const shows = screen.getByRole('button', { name: 'What shows' })
+    fireEvent.click(shows)
+    const e = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    shows.dispatchEvent(e)
+    await vi.waitFor(() => expect(screen.queryByRole('group', { name: 'What shows' })).toBeNull())
+    expect(e.defaultPrevented).toBe(true)
+  })
   it('round 1: the focus ring of the cards\' edges and the board\'s title is the app\'s own', () => {
     const css = readFileSync(resolve(__dirname, '../moth.css'), 'utf8')
     for (const sel of ['.moth-card-grip:hover, .moth-card-grip:focus-visible', '.moth-board-title-button:hover, .moth-board-title-button:focus-visible']) {
@@ -406,6 +429,12 @@ describe('MO5 2: the view is one bar of named icons', () => {
     // What sits below it follows its real bottom, and the Look back sentence is cut shorter, never hidden.
     expect(css).toMatch(/\.moth-hud-banners \{[^}]*top: calc\(var\(--moth-bar-bottom, 56px\) \+ 16px\);/)
     expect(css).not.toMatch(/moth-time-says-short \{ display: none; \}/)
+    // Round 2: the notices under the bar (whose pops draw over them), over the cards; the bloom and the drag's word over
+    // the notices; the Look back group never clips the focus ring.
+    expect(css).toMatch(/\.moth-hud-banners \{[^}]*z-index: 2;/)
+    expect(css).toMatch(/\.moth-bloom \{[^}]*z-index: 3;/)
+    expect(css).toMatch(/\.moth-cursor-word \{[^}]*z-index: 3;/)
+    expect(css.match(/\.moth-bar-time \{[^}]*\}/)?.[0]).not.toMatch(/overflow: hidden/)
   })
   it('every button has a name a screen reader says and the same words as its tooltip; every field has a name', async () => {
     await mountBar()
