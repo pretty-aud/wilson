@@ -272,3 +272,21 @@ describe('createMothWorld', () => {
     env.world = { destroy() {} }
   })
 })
+
+// MO5 item 8: a right-click on a dot asks the page for that dot's menu, at the pointer; off any dot it asks nothing
+// and leaves the browser's own menu alone.
+describe('MO5 8: a right-click on a dot asks for its menu', () => {
+  it('on a dot: the page is asked, at the pointer, and the browser\'s own menu is stopped; off any dot, nothing', () => {
+    const menus = []
+    env.world.on('menu', (m) => menus.push(m))
+    const s = env.at('folder:d1')
+    let stopped = false
+    env.canvas.fire('contextmenu', { clientX: s.x, clientY: s.y, preventDefault() { stopped = true } })
+    expect(menus).toEqual([{ id: 'folder:d1', x: s.x, y: s.y }])
+    expect(stopped).toBe(true)
+    let stoppedOff = false
+    env.canvas.fire('contextmenu', { clientX: 3, clientY: 3, preventDefault() { stoppedOff = true } })
+    expect(menus).toHaveLength(1)
+    expect(stoppedOff).toBe(false)
+  })
+})

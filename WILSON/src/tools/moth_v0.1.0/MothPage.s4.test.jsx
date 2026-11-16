@@ -33,6 +33,7 @@ import { MothHelp } from './components/MothSettings.jsx'
 import { BOARD_NEEDS_CLOUD } from './board/boardPanelState.js'
 import { FOLDERS_FAILED_SENTENCE } from './components/MothTrashView.jsx'
 import { boardPlaces, startPlace, TOP_WORDS, NO_PLACE_WORDS } from './components/MothNewBoard.jsx'
+import { itemMenu, renameGate, RENAME_WORDS } from './components/MothItemMenu.jsx'
 
 const island = (id, extra = {}) => ({
   id, title: `Project ${id}`, is_personal: false, is_mine: false, is_private: false, my_project_role: 'member', is_staffed: true, can_write: true, ...extra,
@@ -417,6 +418,97 @@ describe('🚨 MO5 3: New board… in the strip, and where the board goes', () =
     await intoProject()
     expect(document.querySelector('[data-moth-new-board]').disabled).toBe(true)
     expect(screen.getByTitle(NO_PLACE_WORDS).contains(document.querySelector('[data-moth-new-board]'))).toBe(true)
+  })
+})
+
+// MO5 item 8: a right-click (or Shift+F10 on a row) opens a menu with what the list's menus offer there and Rename;
+// WILSON's own folders keep their names, greyed with why.
+describe('🚨 MO5 8: an item\'s menu, and Rename', () => {
+  const words = (items) => items.map((i) => (i.header ? `# ${i.header}` : `${i.disabled ? '[x] ' : ''}${i.label}`))
+  const folders = {
+    root: { id: 'root', kind: 'root', parent_id: null, path: '' },
+    assets: { id: 'assets', kind: 'category', parent_id: 'root', label: 'ASSETS' },
+    mira: { id: 'mira', kind: 'entity', entity_type: 'asset', parent_id: 'assets', label: 'Mira' },
+    mine: { id: 'mine', kind: 'custom', parent_id: 'root', label: 'Mine' },
+    bf: { id: 'bf', kind: 'custom', parent_id: 'root', label: 'Plans' },
+  }
+  const ctx = (extra = {}) => ({
+    index: { rows: new Map(Object.values(folders).filter((f) => f.kind !== 'root').map((f) => [`folder:${f.id}`, { id: `folder:${f.id}`, kind: 'folder', rowId: f.id, projectId: 'p1', label: f.label }])
+      .concat([['project:p1', { id: 'project:p1', kind: 'project', rowId: 'p1', projectId: 'p1', label: 'Salt Hours' }],
+        ['file:a', { id: 'file:a', kind: 'file', rowId: 'a', projectId: 'p1', label: 'a.mov' }],
+        ['asset:x', { id: 'asset:x', kind: 'asset', rowId: 'x', projectId: 'p1', label: 'Mira' }]])) },
+    boardOf: (fid) => (fid === 'bf' ? { id: 'b1', folder_id: 'bf', project_id: 'p1' } : null),
+    underBoard: () => false,
+    folderOf: (_pid, fid) => folders[fid] ?? null,
+    fileOf: () => ({ id: 'a', managed: false }),
+    boardGate: () => ({ allowed: true }),
+    writeGate: () => ({ allowed: true }),
+    cloud: true,
+    jumpFor: (id) => (id === 'asset:x' ? { label: 'Open in R.A.B.B.I.T.' } : null),
+    open: vi.fn(), show: vi.fn(), openBoard: vi.fn(), newBoard: vi.fn(), moveFile: vi.fn(), deleteFile: vi.fn(), rename: vi.fn(), jump: vi.fn(),
+    ...extra,
+  })
+  it('WILSON\'s own folders keep their names, greyed with why; a person\'s own folder and a board are renamed', () => {
+    expect(words(itemMenu('folder:assets', ctx()))).toEqual(['# ASSETS', 'Open', 'New board here…', '[x] Rename…', `# ${RENAME_WORDS.kept}`])
+    expect(words(itemMenu('folder:mira', ctx()))).toEqual(['# Mira', 'Open', 'New board here…', '[x] Rename…', `# ${RENAME_WORDS.thing('asset')}`])
+    const c = ctx()
+    const mine = itemMenu('folder:mine', c)
+    expect(words(mine)).toEqual(['# Mine', 'Open', 'New board here…', 'Rename…'])
+    mine.find((i) => i.label === 'Rename…').onClick()
+    expect(c.rename).toHaveBeenCalledWith({ id: 'folder:mine', projectId: 'p1', folderId: 'mine', name: 'Mine' })
+    expect(words(itemMenu('folder:bf', ctx()))).toEqual(['# Plans', 'Open board', 'Rename board…'])
+  })
+  it('a project, a file and a thing are renamed in R.A.B.B.I.T.; a file moves and goes as the view panel says; a thing opens in its tool', () => {
+    expect(words(itemMenu('project:p1', ctx()))).toEqual(['# Salt Hours', 'Open', 'New board here…', '[x] Rename…', `# ${RENAME_WORDS.project}`])
+    expect(words(itemMenu('file:a', ctx()))).toEqual(['# a.mov', 'Show in the list', 'Move to…', 'Delete…', '[x] Rename…', `# ${RENAME_WORDS.elsewhere}`])
+    expect(words(itemMenu('asset:x', ctx()))).toEqual(['# Mira', 'Show in the list', '[x] Rename…', `# ${RENAME_WORDS.elsewhere}`, 'Open in R.A.B.B.I.T.'])
+  })
+  it('what the person may not do is greyed with its reason: looking back, a project not theirs, this computer alone', () => {
+    const back = ctx({ boardGate: () => ({ allowed: false, reason: 'Looking back changes nothing.' }), writeGate: () => ({ allowed: false, reason: 'Looking back changes nothing.' }) })
+    expect(words(itemMenu('folder:mine', back))).toEqual(['# Mine', 'Open', '[x] New board here…', '# Looking back changes nothing.', '[x] Rename…', '# Looking back changes nothing.'])
+    expect(words(itemMenu('file:a', back))).toEqual(['# a.mov', 'Show in the list', '[x] Move to…', '[x] Delete…', '# Looking back changes nothing.', '[x] Rename…', `# ${RENAME_WORDS.elsewhere}`])
+    expect(renameGate(folders.mine, { cloud: false })).toEqual({ allowed: false, reason: RENAME_WORDS.local })
+  })
+  it('right-click on a row opens its menu; Rename… asks the name and renames through the adapter, and says so', async () => {
+    adapter.renameFolder = vi.fn(async (fid, name) => ({ folder_id: fid, label: name, changed: true }))
+    adapter.listMothFolders = vi.fn(async (pid) => (pid === 'p1' ? [{ id: 'f2', kind: 'custom', label: 'Refs', slug: 'refs', path: 'refs', parent_id: null }] : []))
+    render(<MothPage worldFactory={fakeWorld} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Project p1' }))
+    const row = await screen.findByRole('button', { name: /Refs/ })
+    fireEvent.contextMenu(row, { clientX: 40, clientY: 50 })
+    const menu = document.querySelector('[data-moth-item-menu]')
+    expect(menu.dataset.for).toBe('folder:f2')
+    fireEvent.click(within(menu).getByRole('button', { name: 'Rename…' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByLabelText('Name').value).toBe('Refs')
+    fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: 'References' } })
+    fireEvent.keyDown(within(dialog).getByLabelText('Name'), { key: 'Enter' })
+    await waitFor(() => expect(adapter.renameFolder).toHaveBeenCalledWith('f2', 'References'))
+    expect(await screen.findByText(RENAME_WORDS.done('References'))).toBeTruthy()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+  it('from the keyboard: Shift+F10 on a row opens it with its first entry focused; Escape gives the focus back to the row', async () => {
+    render(<MothPage worldFactory={fakeWorld} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Project p1' }))
+    const row = await screen.findByRole('button', { name: /Refs/ })
+    row.focus()
+    fireEvent.keyDown(row, { key: 'F10', shiftKey: true })
+    await waitFor(() => expect(document.activeElement?.textContent).toBe('Open'))
+    fireEvent.keyDown(document.activeElement, { key: 'Escape' })
+    await waitFor(() => expect(document.querySelector('[data-moth-item-menu]')).toBeNull())
+    await waitFor(() => expect(document.activeElement).toBe(row))
+  })
+  it('a refusal is said in the question, which stays', async () => {
+    adapter.renameFolder = vi.fn(async () => { throw Object.assign(new Error('folder not found or not writable'), { code: '42501' }) })
+    adapter.listMothFolders = vi.fn(async (pid) => (pid === 'p1' ? [{ id: 'f2', kind: 'custom', label: 'Refs', slug: 'refs', path: 'refs', parent_id: null }] : []))
+    render(<MothPage worldFactory={fakeWorld} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Project p1' }))
+    fireEvent.contextMenu(await screen.findByRole('button', { name: /Refs/ }), { clientX: 40, clientY: 50 })
+    fireEvent.click(within(document.querySelector('[data-moth-item-menu]')).getByRole('button', { name: 'Rename…' }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: 'Other' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Rename' }))
+    expect(await within(dialog).findByText(/^You cannot rename this folder\./)).toBeTruthy()
   })
 })
 

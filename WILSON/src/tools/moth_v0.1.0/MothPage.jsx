@@ -17,7 +17,7 @@
 // boards to bring back. On this computer alone there are no boards, and the menu says why.
 import { Component, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { HelpCircle, Settings as SettingsIcon, SquarePlus, Tags as TagsIcon } from 'lucide-react'
-import { Banner, Button, Dialog, Drawer, IconButton } from '../../ui'
+import { Banner, Button, Dialog, Drawer, IconButton, Menu } from '../../ui'
 import { usePermissions } from '../../permissions/usePermissions'
 import GatedAction from '../../permissions/GatedAction'
 import { useWorkspaceMembers } from '../../components/TeamMembers/useWorkspaceMembers'
@@ -53,6 +53,7 @@ import MothMoveTo from './components/MothMoveTo.jsx'
 import MothTrashView from './components/MothTrashView.jsx'
 import MothTagPanel from './components/MothTagPanel.jsx'
 import MothNewBoard, { NO_PLACE_WORDS } from './components/MothNewBoard.jsx'
+import { itemMenu, MothRenameDialog, RENAME_WORDS } from './components/MothItemMenu.jsx'
 import { BOARD_NEEDS_CLOUD, boardWords, dropLeaving, whoKey } from './board/boardPanelState.js'
 import './moth.css'
 
@@ -167,6 +168,18 @@ export default function MothPage({ isActive = true, worldFactory }) {
   const [openBoard, setOpenBoard] = useState(null)
   const [boardSize, setBoardSize] = useState('framed')
   const [newBoard, setNewBoard] = useState(null)
+  // MO5 (her item 8): the menu a right-click (or Shift+F10 on a row) opens, and the Rename it can ask.
+  const [itemMenuAt, setItemMenuAt] = useState(null) // { id, x, y, from }
+  const [renaming, setRenaming] = useState(null) // { id, projectId, folderId, name, isBoard }
+  const menuActed = useRef(false)
+  // Opened from the keyboard (from a row), the menu's first entry that may be used takes the focus.
+  useEffect(() => {
+    if (!itemMenuAt?.from || typeof document === 'undefined') return undefined
+    const t = setTimeout(() => {
+      try { document.querySelector('[data-moth-item-menu] .ui-menu-item:not([disabled])')?.focus({ preventScroll: true }) } catch { /* courtesy */ }
+    }, 0)
+    return () => clearTimeout(t)
+  }, [itemMenuAt])
   const openBoardRef = useRef(null)
   openBoardRef.current = openBoard
   const selectedRef = useRef(selected)
@@ -925,6 +938,76 @@ export default function MothPage({ isActive = true, worldFactory }) {
     const start = (selected.length === 1 ? placeOf(selected[0]) : null) || (inside ? placeOf(inside) : null)
     setNewBoard({ start })
   }
+  // ── MO5 (her item 8): an item's menu, and Rename ──────────────────────────────────────────────────────────────
+  const writeGate = (pid) => {
+    if (scrubAt != null) return { allowed: false, reason: LOOKING_BACK_WORDS }
+    const island = islandOf(pid)
+    const g = access(island)
+    if (!island || !g.allowed || !island.can_write) return { allowed: false, reason: g.reason || 'You may not change this project.' }
+    return { allowed: true, reason: null }
+  }
+  const folderOf = (pid, fid) => (catalogue.folders?.[pid] || []).find((f) => String(f?.id) === String(fid)) ?? null
+  const underBoard = (pid, fid) => {
+    for (let f = folderOf(pid, fid), n = 0; f && n < 64; f = f.parent_id != null ? folderOf(pid, f.parent_id) : null, n++) {
+      if (boardRows.has(String(f.id))) return true
+    }
+    return false
+  }
+  const jumpOf = (id) => {
+    const node = graph.nodes.find((n) => n.id === id) ?? index.rows.get(id) ?? null
+    if (!node) return null
+    if (node.kind === 'note') return mothJump(node)
+    const isle = islandOf(node.projectId)
+    return isle && !isle.is_personal ? mothJump(node) : null
+  }
+  const pickOne = (fid) => { setPicked(new Set([fid])); setSelected([nodeId('file', fid)]) }
+  // An entry chosen leaves the focus where it leads (a question, the list, a board); only a menu let go of (Escape, a
+  // press elsewhere) gives it back to the row it was opened from (menuActed, kept with the menu's state above).
+  const acting = (fn) => (...args) => { menuActed.current = true; return fn(...args) }
+  const menuItems = itemMenuAt ? itemMenu(itemMenuAt.id, {
+    index,
+    labelOf: (id) => (kindOf(id) === 'project' && islandOf(rowOf(id)) ? islandLabel(islandOf(rowOf(id)), { localOnly }) : null),
+    boardOf: (fid) => boardRows.get(String(fid)) ?? null,
+    underBoard,
+    folderOf,
+    fileOf: fileRow,
+    managedWords: MANAGED_ROW_SENTENCE,
+    boardGate,
+    writeGate,
+    cloud: !localOnly && typeof adapter.renameFolder === 'function',
+    jumpFor: jumpOf,
+    open: acting((id) => { setInside(id); select(id, { fly: true }) }),
+    show: acting((id) => select(id, { fly: true })),
+    openBoard: acting((b) => openBoardPanel(b)),
+    newBoard: acting((start) => setNewBoard({ start })),
+    moveFile: acting((fid) => { pickOne(fid); setMoving(true) }),
+    deleteFile: acting((fid) => { pickOne(fid); setConfirming(true) }),
+    rename: acting((r) => setRenaming({ ...r, isBoard: boardRows.has(String(r.folderId)) })),
+    jump: acting((j) => setJump(j)),
+  }) : []
+  const closeItemMenu = () => {
+    const from = itemMenuAt?.from
+    const acted = menuActed.current
+    menuActed.current = false
+    setItemMenuAt(null)
+    if (!acted && from && typeof from.focus === 'function') setTimeout(() => { try { from.focus({ preventScroll: true }) } catch { /* courtesy */ } }, 0)
+  }
+  const renameFolder = async (name) => {
+    const asked = renaming
+    if (!asked) return
+    let out
+    try {
+      out = await adapter.renameFolder(asked.folderId, name)
+    } catch (err) {
+      if (err?.code === '42501') throw new Error('You cannot rename this folder. It may have moved, or you may not change it.')
+      throw err
+    }
+    setRenaming(null)
+    setNote(RENAME_WORDS.done(out?.label || name))
+    notify([asked.projectId])
+    Promise.resolve().then(() => store.refresh([asked.projectId])).catch(() => {})
+  }
+
   const makeBoard = async ({ projectId, folderId, title }) => {
     if (makingBoard.current) return
     makingBoard.current = true
@@ -989,6 +1072,7 @@ export default function MothPage({ isActive = true, worldFactory }) {
           onSettled={onSettled}
           onFrame={recorder ? onFrame : undefined}
           onDropFile={dropFile}
+          onMenu={(m) => { setBloom(null); setItemMenuAt({ id: m.id, x: m.x, y: m.y, from: null }) }}
         />
         <div className="moth-hud" data-moth-hud>
           <div className="moth-hud-banners">
@@ -1083,6 +1167,7 @@ export default function MothPage({ isActive = true, worldFactory }) {
             isBoard={(fid) => boardRows.has(String(fid))}
             insideBoard={insideBoard}
             onOpenBoard={(row) => openBoardPanel(row)}
+            onMenu={(id, x, y, from) => setItemMenuAt({ id, x, y, from })}
           />
           <MothCards
             selectedId={selected.length === 1 ? selected[0] : null}
@@ -1119,6 +1204,23 @@ export default function MothPage({ isActive = true, worldFactory }) {
             />
           </Suspense>
         </BoardBoundary>
+      )}
+      {itemMenuAt && menuItems.length > 0 && (
+        <Menu x={itemMenuAt.x} y={itemMenuAt.y} items={menuItems} onClose={closeItemMenu} minWidth={240}
+          aria-label="Menu" data-moth-item-menu data-for={itemMenuAt.id}
+          onKeyDown={(e) => {
+            if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Home' && e.key !== 'End') return
+            const list = [...e.currentTarget.querySelectorAll('.ui-menu-item:not([disabled])')]
+            if (!list.length) return
+            e.preventDefault()
+            const at = list.indexOf(document.activeElement)
+            const next = e.key === 'Home' ? 0 : e.key === 'End' ? list.length - 1
+              : e.key === 'ArrowDown' ? (at + 1) % list.length : (at - 1 + list.length) % list.length
+            list[next].focus()
+          }} />
+      )}
+      {renaming && (
+        <MothRenameDialog name={renaming.name} isBoard={renaming.isBoard} onRename={renameFolder} onClose={() => setRenaming(null)} />
       )}
       {newBoard && (
         <MothNewBoard

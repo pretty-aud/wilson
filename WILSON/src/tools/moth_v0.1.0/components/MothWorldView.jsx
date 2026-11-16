@@ -7,7 +7,7 @@ import { createMothWorld } from '../state/mothWorld.js'
 
 export default function MothWorldView({
   graph, layout, saved, savedKey, active, appearance, reducedMotion, selection, rules, flyTo,
-  onPick, onOpen, onHover, onBloom, onDrop, onArranged, onDrag, onSettled, onFrame, onDropFile, worldRef,
+  onPick, onOpen, onHover, onBloom, onDrop, onArranged, onDrag, onSettled, onFrame, onDropFile, onMenu, worldRef,
   createWorld = createMothWorld,
 }) {
   const boxRef = useRef(null)
@@ -15,7 +15,7 @@ export default function MothWorldView({
   const glowRef = useRef(null)
   const world = useRef(null)
   const handlers = useRef({})
-  handlers.current = { onPick, onOpen, onHover, onBloom, onDrop, onArranged, onDrag, onSettled, onFrame, onDropFile }
+  handlers.current = { onPick, onOpen, onHover, onBloom, onDrop, onArranged, onDrag, onSettled, onFrame, onDropFile, onMenu }
 
   // The world, once. Its listeners read the newest handlers, so a re-render never rebinds the pointer.
   useEffect(() => {
@@ -31,6 +31,7 @@ export default function MothWorldView({
     w.on('drag', (d) => handlers.current.onDrag?.(d))
     w.on('settled', () => handlers.current.onSettled?.())
     w.on('frame', (f) => handlers.current.onFrame?.(f))
+    w.on('menu', (m) => handlers.current.onMenu?.(m))
     const box = boxRef.current
     const size = () => {
       const r = box.getBoundingClientRect()

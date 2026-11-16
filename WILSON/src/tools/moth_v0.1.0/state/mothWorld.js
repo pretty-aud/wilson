@@ -46,7 +46,7 @@ export function createMothWorld({
 } = {}) {
   const governor = createFrameGovernor()
   let radiusFn = defaultRadius // Settings' size by
-  const listeners = { pick: null, open: null, hover: null, bloom: null, drop: null, arranged: null, drag: null, settled: null, frame: onFrame }
+  const listeners = { pick: null, open: null, hover: null, bloom: null, drop: null, arranged: null, drag: null, settled: null, frame: onFrame, menu: null }
   const renderer = createRenderer({
     canvas,
     governor,
@@ -324,7 +324,19 @@ export function createMothWorld({
     if (hit && hit.type === 'dot' && CONTAINERS.has(byId.get(hit.id)?.kind)) listeners.open?.(hit.id)
   }
   const onKeyDown = (e) => { if (e.key === 'Escape' && press?.dragging) { e.preventDefault(); e.stopPropagation(); endDrag(true) } }
+  // MO5 (her item 8): a right-click (or a long press's context menu) on a dot asks the page for that dot's menu, at the
+  // pointer, in the window's own coordinates. Off any dot, and during a drag, nothing is asked and nothing is stopped.
+  const onContextMenu = (e) => {
+    if (press?.dragging) { e.preventDefault(); return }
+    const s = local(e)
+    const hit = renderer.hitTest(s.x, s.y, e.pointerType && e.pointerType !== 'mouse' ? 10 : 4)
+    if (!hit || hit.type !== 'dot' || !listeners.menu) return
+    e.preventDefault()
+    stopBloom()
+    listeners.menu({ id: hit.id, x: e.clientX, y: e.clientY })
+  }
 
+  canvas.addEventListener?.('contextmenu', onContextMenu)
   canvas.addEventListener?.('pointerdown', onPointerDown)
   canvas.addEventListener?.('pointermove', onPointerMove)
   canvas.addEventListener?.('pointerup', onPointerUp)
@@ -388,6 +400,7 @@ export function createMothWorld({
       endDrag(true)
       stopBloom()
       unbind()
+      canvas.removeEventListener?.('contextmenu', onContextMenu)
       canvas.removeEventListener?.('pointerdown', onPointerDown)
       canvas.removeEventListener?.('pointermove', onPointerMove)
       canvas.removeEventListener?.('pointerup', onPointerUp)

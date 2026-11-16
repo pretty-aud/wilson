@@ -25,8 +25,21 @@ export default function MothListWidget({
   onInside, onPickFile, onSelect, onRetry, onAdd, onTrash, pickedCount, onChanged, NetworkShareBanner, filesById, openFolder,
   search = '', onSearch = () => {},
   folderMenu = null, folderMenuTitle = 'More for this folder', isBoard = () => false, insideBoard = null, onOpenBoard = () => {},
+  onMenu = null,
 }) {
   const setSearch = onSearch
+  // MO5 (her item 8): a row's menu, by a right-click at the pointer, or from the keyboard (Shift+F10 or the menu key)
+  // under the row; the page decides what it holds.
+  const menuProps = (id) => (onMenu ? {
+    onContextMenu: (e) => { e.preventDefault(); onMenu(id, e.clientX, e.clientY, e.currentTarget) },
+    onKeyDown: (e) => {
+      if (!((e.key === 'F10' && e.shiftKey) || e.key === 'ContextMenu')) return
+      e.preventDefault()
+      const r = e.currentTarget.getBoundingClientRect()
+      onMenu(id, r.left + 8, r.bottom, e.currentTarget)
+    },
+    'aria-haspopup': 'menu',
+  } : {})
   const islands = snap.islands
   const projectId = inside ? index.rows.get(inside)?.projectId ?? (kindOf(inside) === 'project' ? rowOf(inside) : null) : null
   const island = islands?.find((r) => r.id === projectId) ?? null
@@ -94,7 +107,8 @@ export default function MothListWidget({
 
       {!inside && (
         <>
-          {islands && <MothIslands islands={islands} openId={null} localOnly={localOnly} onOpen={(id) => onInside(nodeId('project', id))} />}
+          {islands && <MothIslands islands={islands} openId={null} localOnly={localOnly} onOpen={(id) => onInside(nodeId('project', id))}
+            menuProps={(id) => menuProps(nodeId('project', id))} />}
           {snap.total > 0 && !snap.complete && <p className="moth-quiet" data-moth-reading>Reading {snap.ready + snap.failed} of {snap.total} projects…</p>}
           {tagsView && tagRows.length > 0 && (
             <ul className="moth-rows" data-moth-tags>
@@ -153,14 +167,14 @@ export default function MothListWidget({
                       <input type="checkbox" checked={picked.has(r.rowId)} onChange={() => onPickFile(r.rowId)}
                         disabled={Boolean(file?.managed)} title={file?.managed ? MANAGED_ROW_SENTENCE : undefined} />
                       {' '}
-                      <button type="button" className="moth-link" onClick={() => onSelect(r.id)}>{r.label}</button>
+                      <button type="button" className="moth-link" onClick={() => onSelect(r.id)} {...menuProps(r.id)}>{r.label}</button>
                     </label>
                   ) : CONTAINER.has(r.kind) ? (
-                    <button type="button" className="moth-link moth-row-name" onClick={() => { setSearch(''); onInside(r.id) }} data-board={r.kind === 'folder' && isBoard(r.rowId) ? 'true' : undefined}>
+                    <button type="button" className="moth-link moth-row-name" onClick={() => { setSearch(''); onInside(r.id) }} data-board={r.kind === 'folder' && isBoard(r.rowId) ? 'true' : undefined} {...menuProps(r.id)}>
                       <span className="moth-quiet">{r.kind === 'folder' && isBoard(r.rowId) ? 'Board' : KIND_WORD[r.kind]}</span> {r.label || '(no name)'}
                     </button>
                   ) : (
-                    <button type="button" className="moth-link moth-row-name" onClick={() => onSelect(r.id)}>
+                    <button type="button" className="moth-link moth-row-name" onClick={() => onSelect(r.id)} {...menuProps(r.id)}>
                       <span className="moth-quiet">{KIND_WORD[r.kind]}</span> {r.label || '(no name)'}
                     </button>
                   )}
