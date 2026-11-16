@@ -8,7 +8,7 @@
 // (onFrameOnly) when every selected thing is a frame.
 import { ArrowDown, ArrowUp, BringToFront, SendToBack, Trash2, AlignLeft, AlignCenter, AlignRight, Frame, Ungroup } from 'lucide-react'
 import { IconButton, Select } from '../../../ui'
-import { SHAPES, SHAPE_LABELS, styleKeysFor, resolveStyle } from './shapes.js'
+import { SHAPES, SHAPE_LABELS, styleKeysFor, resolveStyle, takesCorner, cornerDrawn } from './shapes.js'
 import { isTied } from './frames.js'
 
 export const SWATCHES = [
@@ -119,7 +119,11 @@ export default function StylePanel({ elements = [], canWrite = false, inputMode 
   const fillNone = !kinds.has('sticky')
   const lineNone = !kinds.has('pen') && !kinds.has('connector')
   const opacity = v('opacity')
-  const corner = v('corner')
+  // MO5 (her item 4.1): Corners only where every selected thing has corners to round (never an oval or a circle), at
+  // the corner each is drawn with (a rounded rectangle's natural one included); blank when they differ.
+  const cornered = elements.every(takesCorner)
+  const corners = elements.map(cornerDrawn)
+  const corner = corners.every((c) => c === corners[0]) ? corners[0] : undefined
 
   return (
     <aside
@@ -239,7 +243,7 @@ export default function StylePanel({ elements = [], canWrite = false, inputMode 
           />
         </Row>
       )}
-      {has('corner') && (
+      {has('corner') && cornered && (
         <Row label="Corners">
           <input type="range" aria-label="Corners" min="0" max="64" step="1" value={Math.min(64, corner ?? 0)} onChange={(e) => set('corner', Number(e.target.value))} />
         </Row>

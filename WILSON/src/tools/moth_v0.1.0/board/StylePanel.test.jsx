@@ -129,3 +129,28 @@ describe('StylePanel', () => {
     expect(swatch.style.width).toBe('30px')
   })
 })
+
+// MO5 item 4.1: "hide slider in things like oval, circle etc."
+describe('MO5 4.1: Corners only for what has corners', () => {
+  it('a triangle, a diamond and a rectangle offer Corners; an oval, a circle, or a selection holding one, do not', () => {
+    for (const s of ['triangle', 'diamond', 'rectangle', 'hexagon']) {
+      mount([shape({ shape: s })])
+      expect(screen.queryByRole('slider', { name: 'Corners' }), s).toBeTruthy()
+      cleanup()
+    }
+    for (const s of ['oval', 'circle', 'terminator']) {
+      mount([shape({ shape: s })])
+      expect(screen.queryByRole('slider', { name: 'Corners' }), s).toBeNull()
+      cleanup()
+    }
+    mount([shape({ id: 'a', shape: 'rectangle' }), shape({ id: 'b', shape: 'oval' })])
+    expect(screen.queryByRole('slider', { name: 'Corners' })).toBeNull()
+  })
+  it('the slider shows the corner drawn: a rounded rectangle\'s own rounding, not 0; a change is a corner patch', () => {
+    const all = mount([shape({ shape: 'rounded_rectangle', w: 200, h: 100 })])
+    const slider = screen.getByRole('slider', { name: 'Corners' })
+    expect(slider.value).toBe('18')
+    fireEvent.change(slider, { target: { value: '30' } })
+    expect(all.onStyle).toHaveBeenCalledWith({ corner: 30 })
+  })
+})

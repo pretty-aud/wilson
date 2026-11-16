@@ -4,6 +4,7 @@ import { describe, it, expect } from 'vitest'
 import {
   SHAPES, SHAPE_LABELS, KINDS, MISSING_WORDS, DEFAULT_STYLE, NEW_STYLE, shapePath, textBoxFor, keepsRatio, defaultSize,
   resolveStyle, sanitizeStyle, dashFor, fileTileKind, styleKeysFor, octagonPath, roundedRectPath, ellipsePath,
+  CORNER_SHAPES, takesCorner, cornerDrawn, roundedPolyPath,
 } from './shapes.js'
 
 // The endpoints a path visits (control points left out), and every number it holds.
@@ -229,5 +230,45 @@ describe('files', () => {
   })
   it('the stop-sign tile says what happened in plain words and names nothing', () => {
     expect(MISSING_WORDS).toBe('This file is missing — it may have been moved or deleted')
+  })
+})
+
+// MO5 item 4.1: the Corners slider rounds every shape that has corners, and only those offer it.
+describe('MO5 4.1: corners on every shape that has them', () => {
+  it('the polygons, the boxes and the speech bubble take corners; the round shapes, a document and a database do not', () => {
+    for (const s of ['rectangle', 'rounded_rectangle', 'process', 'predefined_process', 'triangle', 'diamond', 'decision', 'star', 'hexagon', 'arrow', 'double_arrow', 'speech_bubble', 'input_output']) {
+      expect(takesCorner({ kind: 'shape', shape: s }), s).toBe(true)
+    }
+    for (const s of ['circle', 'oval', 'connector_circle', 'terminator', 'document', 'database']) expect(takesCorner({ kind: 'shape', shape: s }), s).toBe(false)
+    for (const k of ['frame', 'sticky', 'media', 'embed']) expect(takesCorner({ kind: k }), k).toBe(true)
+    for (const k of ['pen', 'connector', 'text']) expect(takesCorner({ kind: k }), k).toBe(false)
+    expect([...CORNER_SHAPES].every((s) => SHAPES.includes(s))).toBe(true)
+  })
+  it('a corner changes every shape that takes one, and no round one', () => {
+    for (const s of SHAPES) {
+      const plain = shapePath(s, 160, 100)
+      const rounded = shapePath(s, 160, 100, { corner: 12 })
+      if (takesCorner({ kind: 'shape', shape: s }) && s !== 'rounded_rectangle' && s !== 'speech_bubble') expect(rounded, s).not.toBe(plain)
+      if (!takesCorner({ kind: 'shape', shape: s })) expect(rounded, s).toBe(plain)
+    }
+    expect(shapePath('speech_bubble', 160, 100, { corner: 4 })).not.toBe(shapePath('speech_bubble', 160, 100, { corner: 20 }))
+  })
+  it('a rounded polygon stays inside its box, its cuts never past half an edge, however large the corner', () => {
+    const d = roundedPolyPath([[50, 0], [100, 80], [0, 80]], 500)
+    const nums = d.match(/-?\d*\.?\d+/g).map(Number)
+    for (let i = 0; i + 1 < nums.length; i += 2) {
+      expect(nums[i]).toBeGreaterThanOrEqual(0); expect(nums[i]).toBeLessThanOrEqual(100)
+      expect(nums[i + 1]).toBeGreaterThanOrEqual(0); expect(nums[i + 1]).toBeLessThanOrEqual(80)
+    }
+    expect(d.startsWith('M')).toBe(true)
+    expect(d.endsWith('Z')).toBe(true)
+    expect(roundedPolyPath([[0, 0], [10, 0], [10, 10]], 0)).toBe('M0 0 L10 0 L10 10 Z')
+  })
+  it('a predefined process rounds no further than its inner lines; the slider shows a rounded rectangle\'s natural corner', () => {
+    const d = shapePath('predefined_process', 200, 100, { corner: 60 })
+    expect(d).toContain('A16 16 ')
+    expect(cornerDrawn({ kind: 'shape', shape: 'rounded_rectangle', w: 200, h: 100, style: {} })).toBe(18)
+    expect(cornerDrawn({ kind: 'shape', shape: 'rounded_rectangle', w: 200, h: 100, style: { corner: 5 } })).toBe(5)
+    expect(cornerDrawn({ kind: 'sticky', style: {} })).toBe(4)
   })
 })

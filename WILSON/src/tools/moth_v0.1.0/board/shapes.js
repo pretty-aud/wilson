@@ -92,6 +92,52 @@ function poly(points) {
   return `M${points.map(([x, y]) => pt(x, y)).join(' L')} Z`
 }
 
+/**
+ * MO5 (her item 4.1): a polygon with its corners rounded: each corner cut back along both its edges by `r` (never more
+ * than half of either edge, so two neighbours' cuts never cross) and joined by a curve through the corner.
+ */
+export function roundedPolyPath(points, r) {
+  const n = points.length
+  const rr = Math.max(0, finite(r))
+  if (n < 3 || rr <= 0.01) return poly(points)
+  const parts = []
+  for (let i = 0; i < n; i += 1) {
+    const [px, py] = points[(i - 1 + n) % n]
+    const [cx, cy] = points[i]
+    const [nx, ny] = points[(i + 1) % n]
+    const d1 = Math.hypot(px - cx, py - cy)
+    const d2 = Math.hypot(nx - cx, ny - cy)
+    const c = Math.min(rr, d1 / 2, d2 / 2)
+    const a = d1 > 0 ? [cx + ((px - cx) * c) / d1, cy + ((py - cy) * c) / d1] : [cx, cy]
+    const b = d2 > 0 ? [cx + ((nx - cx) * c) / d2, cy + ((ny - cy) * c) / d2] : [cx, cy]
+    parts.push(`${i === 0 ? 'M' : 'L'}${pt(a[0], a[1])}`, `Q${pt(cx, cy)} ${pt(b[0], b[1])}`)
+  }
+  return `${parts.join(' ')} Z`
+}
+
+/**
+ * The shapes whose corners round (MO5, her item 4.1: "hide slider in things like oval, circle etc."): the boxes and
+ * the polygons. A circle, an oval and a start-or-end are round already; a document's wave and a database's drum have
+ * no corner the slider could mean.
+ */
+export const CORNER_SHAPES = Object.freeze(new Set([
+  'rectangle', 'rounded_rectangle', 'process', 'predefined_process', 'triangle', 'diamond', 'decision', 'star', 'hexagon',
+  'arrow', 'double_arrow', 'speech_bubble', 'input_output',
+]))
+/** Whether an element has corners the Corners slider rounds (frames, stickies, pictures and embeds all do). */
+export function takesCorner(el) {
+  if (!el) return false
+  if (el.kind === 'shape') return CORNER_SHAPES.has(el.shape)
+  return el.kind === 'frame' || el.kind === 'sticky' || el.kind === 'media' || el.kind === 'embed'
+}
+/** The corner a shape is drawn with, which the slider shows: its own, or a rounded rectangle's natural one. */
+export function cornerDrawn(el) {
+  const own = el?.style?.corner
+  if (own != null && Number.isFinite(Number(own))) return Math.max(0, Number(own))
+  if (el?.kind === 'shape' && el.shape === 'rounded_rectangle') return Math.round(Math.min(finite(el.w), finite(el.h)) * 0.18)
+  return resolveStyle(el?.kind, el?.style).corner
+}
+
 /** A rectangle with round corners, radius held to half the shorter side. */
 export function roundedRectPath(w, h, r, x0 = 0, y0 = 0) {
   const rr = clamp(finite(r), 0, Math.min(w, h) / 2)
@@ -152,6 +198,8 @@ export function shapePath(shape, width, height, { corner } = {}) {
   const h = Math.max(0, finite(height))
   if (w < 0.5 || h < 0.5) return rect(w, h)
   const c = corner == null ? null : Math.max(0, finite(corner))
+  // MO5 (her item 4.1): every shape with corners rounds them by the slider, not the rectangle alone.
+  const shaped = (points) => (c ? roundedPolyPath(points, c) : poly(points))
   switch (shape) {
     case 'rectangle':
     case 'process':
@@ -166,30 +214,30 @@ export function shapePath(shape, width, height, { corner } = {}) {
     case 'oval':
       return ellipsePath(w / 2, h / 2, w / 2, h / 2)
     case 'triangle':
-      return poly([[w / 2, 0], [w, h], [0, h]])
+      return shaped([[w / 2, 0], [w, h], [0, h]])
     case 'diamond':
     case 'decision':
-      return poly([[w / 2, 0], [w, h / 2], [w / 2, h], [0, h / 2]])
+      return shaped([[w / 2, 0], [w, h / 2], [w / 2, h], [0, h / 2]])
     case 'star':
-      return poly(starPoints(w, h))
+      return shaped(starPoints(w, h))
     case 'hexagon':
-      return poly([[w * 0.25, 0], [w * 0.75, 0], [w, h / 2], [w * 0.75, h], [w * 0.25, h], [0, h / 2]])
+      return shaped([[w * 0.25, 0], [w * 0.75, 0], [w, h / 2], [w * 0.75, h], [w * 0.25, h], [0, h / 2]])
     case 'arrow': {
       const head = Math.min(w * 0.5, h)
       const t = h * 0.25
-      return poly([[0, h / 2 - t], [w - head, h / 2 - t], [w - head, 0], [w, h / 2], [w - head, h], [w - head, h / 2 + t], [0, h / 2 + t]])
+      return shaped([[0, h / 2 - t], [w - head, h / 2 - t], [w - head, 0], [w, h / 2], [w - head, h], [w - head, h / 2 + t], [0, h / 2 + t]])
     }
     case 'double_arrow': {
       const head = Math.min(w * 0.35, h)
       const t = h * 0.25
-      return poly([
+      return shaped([
         [0, h / 2], [head, 0], [head, h / 2 - t], [w - head, h / 2 - t], [w - head, 0], [w, h / 2],
         [w - head, h], [w - head, h / 2 + t], [head, h / 2 + t], [head, h],
       ])
     }
     case 'speech_bubble': {
       const bh = h * 0.78
-      const r = Math.min(w, bh) * 0.15
+      const r = Math.min(c ?? Math.min(w, bh) * 0.15, Math.min(w, bh) / 2)
       const a = `A${fmt(r)} ${fmt(r)} 0 0 1 `
       return [
         `M${pt(r, 0)}`, `H${fmt(w - r)}`, `${a}${pt(w, r)}`, `V${fmt(bh - r)}`, `${a}${pt(w - r, bh)}`,
@@ -213,11 +261,13 @@ export function shapePath(shape, width, height, { corner } = {}) {
       return roundedRectPath(w, h, Math.min(w, h) / 2)
     case 'input_output': {
       const s = Math.min(w * 0.2, h * 0.6)
-      return poly([[s, 0], [w, 0], [w - s, h], [0, h]])
+      return shaped([[s, 0], [w, 0], [w - s, h], [0, h]])
     }
     case 'predefined_process': {
       const inset = Math.min(w * 0.1, 16)
-      return `${rect(w, h)} M${pt(inset, 0)} V${fmt(h)} M${pt(w - inset, 0)} V${fmt(h)}`
+      // Its corners round no further than its inner lines, which would otherwise poke out of them.
+      const box = c ? roundedRectPath(w, h, Math.min(c, inset)) : rect(w, h)
+      return `${box} M${pt(inset, 0)} V${fmt(h)} M${pt(w - inset, 0)} V${fmt(h)}`
     }
     default:
       return rect(w, h)
