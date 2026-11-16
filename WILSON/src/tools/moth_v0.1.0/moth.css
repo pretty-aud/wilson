@@ -276,11 +276,17 @@
   overflow: hidden;
 }
 .moth-board-layer[data-size="maximised"] { top: 0; }
+/* MO5 (her item 4.5): in its frame the board leaves the map working round it: the layer takes no press (the map pans,
+   zooms and selects, and the list and the panels answer), only the frame and what stands in for it do; the map is
+   dimmed a little, never blurred. */
+.moth-board-layer[data-size="framed"] { pointer-events: none; }
+.moth-board-layer[data-size="framed"] > .moth-board,
+.moth-board-layer[data-size="framed"] .moth-board-wait { pointer-events: auto; }
 .moth-board-scrim {
   position: absolute;
   inset: 0;
-  background-color: color-mix(in srgb, var(--color-paper-recessed) 45%, transparent);
-  backdrop-filter: blur(2px);
+  background-color: color-mix(in srgb, var(--color-paper-recessed) 18%, transparent);
+  pointer-events: none;
 }
 .moth-board {
   position: absolute;

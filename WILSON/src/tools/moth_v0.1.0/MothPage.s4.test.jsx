@@ -610,3 +610,45 @@ describe('Help', () => {
     expect(screen.getByText(/choose New board from its menu\. Boards need the project in the cloud\./)).toBeTruthy()
   })
 })
+
+// MO5 item 4.5: "when the user makes the board window small they should be able to move around the file viewer/web".
+describe('?? MO5 4.5: the map works round a board in its frame', () => {
+  it('in its frame the board\'s layer takes no press: only the frame does, and the map is dimmed, never blurred', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { resolve } = await import('node:path')
+    const css = readFileSync(resolve(__dirname, 'moth.css'), 'utf8')
+    expect(css).toContain('.moth-board-layer[data-size="framed"] { pointer-events: none; }')
+    expect(css).toMatch(/\.moth-board-layer\[data-size="framed"\] > \.moth-board,\s*\.moth-board-layer\[data-size="framed"\] \.moth-board-wait \{ pointer-events: auto; \}/)
+    const scrim = css.match(/\.moth-board-scrim \{[^}]*\}/)?.[0] ?? ''
+    expect(scrim).toContain('pointer-events: none;')
+    expect(scrim).not.toContain('backdrop-filter')
+  })
+  it('a dot picked on the map while the board is open is kept when it closes; the camera too', async () => {
+    render(<MothPage worldFactory={fakeWorld} />)
+    const w = await world()
+    await boardsRead(w)
+    act(() => { w.handlers.pick('folder:bf', {}) })
+    await waitFor(() => expect(panel()).toBeTruthy())
+    act(() => { w.handlers.pick('folder:f2', {}) })
+    w.cam = { x: 40, y: 60, k: 1 }
+    fireEvent.click(screen.getByRole('button', { name: 'Close the test board' }))
+    await waitFor(() => expect(panel()).toBeNull())
+    expect(w.renderer.setCamera).not.toHaveBeenCalled()
+    await waitFor(() => expect(w.selection).toEqual(['folder:f2']))
+  })
+  it('Ctrl+Z is the map\'s while the focus is outside a board in its frame, and the board\'s when it fills the view', async () => {
+    render(<MothPage worldFactory={fakeWorld} />)
+    const w = await world()
+    await boardsRead(w)
+    act(() => { w.handlers.pick('folder:bf', {}) })
+    await waitFor(() => expect(panel()).toBeTruthy())
+    const press = () => { const e = new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }); act(() => { document.body.dispatchEvent(e) }); return e }
+    // Not yet used the map: the key is still the board's (MO4's rule).
+    expect(press().defaultPrevented).toBe(false)
+    // Worked on the map round it: the map's.
+    act(() => { w.handlers.pick('folder:f2', {}) })
+    expect(press().defaultPrevented).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Fill the test board' }))
+    expect(press().defaultPrevented).toBe(false)
+  })
+})

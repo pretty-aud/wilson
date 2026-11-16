@@ -182,6 +182,8 @@ export default function MothPage({ isActive = true, worldFactory }) {
   }, [itemMenuAt])
   const openBoardRef = useRef(null)
   openBoardRef.current = openBoard
+  const boardSizeRef = useRef(boardSize)
+  boardSizeRef.current = boardSize
   const selectedRef = useRef(selected)
   selectedRef.current = selected
   const makingBoard = useRef(false)
@@ -489,8 +491,13 @@ export default function MothPage({ isActive = true, worldFactory }) {
     setOpenBoard(null)
     setBoardSize('framed')
     const r = worldRef.current?.renderer
-    if (was.camera && typeof r?.setCamera === 'function') r.setCamera(was.camera)
-    setSelected(was.selected ?? [])
+    // MO5 (her item 4.5): the map works round a board in its frame. Someone who used it while the board was open (a
+    // press, a wheel or a key on the map, its list or its panels) keeps where they went; otherwise the map comes back
+    // as it was when the board opened, as before.
+    if (!was.touched) {
+      if (was.camera && typeof r?.setCamera === 'function') r.setCamera(was.camera)
+      setSelected(was.selected ?? [])
+    }
     if (result?.words) setNote(result.words)
   }, [])
   // Leaving the page, or another account, company or adapter: no board of the last one stays open.
@@ -803,8 +810,10 @@ export default function MothPage({ isActive = true, worldFactory }) {
       const undoing = key === 'z' && !event.shiftKey
       const redoing = key === 'y' || (key === 'z' && event.shiftKey)
       if (!undoing && !redoing) return
-      // MO4: an open board has its own undo, and the key is the board's.
-      if (openBoardRef.current) return
+      // MO4: an open board has its own undo, and the key is the board's. MO5 (her item 4.5): once the person works on the
+      // map round a board in its frame, the key is the map's while the focus is outside the board.
+      const ob = openBoardRef.current
+      if (ob && (boardSizeRef.current !== 'framed' || !ob.touched || event.target?.closest?.('[data-moth-board-layer]'))) return
       event.stopPropagation()
       if (typingIn(event.target)) return
       event.preventDefault()
@@ -1043,7 +1052,12 @@ export default function MothPage({ isActive = true, worldFactory }) {
           <IconButton size="sm" Icon={SettingsIcon} title="M.O.T.H. settings" onClick={() => setSettingsOpen(true)} />
         </div>
       </div>
-      <div className="moth-stage">
+      {/* MO5 (her item 4.5): a press, a wheel or a key on the map, its list or its panels while a board is open is the
+          person working on the map (the board's own layer is outside this stage). */}
+      <div className="moth-stage"
+        onPointerDownCapture={() => { if (openBoardRef.current) openBoardRef.current.touched = true }}
+        onWheelCapture={() => { if (openBoardRef.current) openBoardRef.current.touched = true }}
+        onKeyDownCapture={() => { if (openBoardRef.current) openBoardRef.current.touched = true }}>
         <MothWorldView
           graph={graph}
           layout={config.layout}
@@ -1062,6 +1076,8 @@ export default function MothPage({ isActive = true, worldFactory }) {
             // MO4: a click on a board's dot opens the board.
             const board = id && !how?.additive && kindOf(id) === 'folder' ? boardRows.get(rowOf(id)) : null
             if (board) { openBoardPanel(board); return }
+            // MO5 (her item 4.5): picking on the map round an open board is the person's own; the board's close keeps it.
+            if (openBoardRef.current) openBoardRef.current.touched = true
             select(id, how)
           }}
           onOpen={openContainer}

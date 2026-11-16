@@ -385,6 +385,11 @@ export function BoardPanel({
     const onKey = (e) => {
       if (e.key !== 'Escape' || e.defaultPrevented || closedRef.current) return
       if (layerAbove(panelRef.current)) return
+      // MO5 (her item 4.5): the map works round the board in its frame; an Escape typed in one of the map's own fields
+      // (the list's search, Find) is that field's, not the board's.
+      const t = e.target
+      if (t?.nodeType === 1 && t !== document.body && !panelRef.current?.contains(t)
+          && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName ?? ''))) return
       e.preventDefault()
       if (escape.handle(e)) return
       finish({ how: 'escape' })

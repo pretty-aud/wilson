@@ -832,3 +832,18 @@ describe('?? MO5 7: the title, renamed in the board window', () => {
     expect(await screen.findByRole('button', { name: /^Board name: Renamed elsewhere\./ })).toBeTruthy()
   })
 })
+
+// MO5 item 4.5: the map works round a board in its frame; an Escape typed in one of the map's own fields is that
+// field's, and the board stays.
+describe('?? MO5 4.5: Escape in a field of the map is not the board\'s', () => {
+  it('an Escape from the list\'s search leaves the board open; one from the page closes it', async () => {
+    const field = document.createElement('input')
+    document.body.appendChild(field)
+    const { onClose } = await open()
+    fireEvent.keyDown(field, { key: 'Escape' })
+    expect(onClose).not.toHaveBeenCalled()
+    escape(document.body)
+    expect(onClose).toHaveBeenCalledTimes(1)
+    field.remove()
+  })
+})
