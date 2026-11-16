@@ -28,9 +28,11 @@ export const CARD_KEY_STEP = 16
 export function cardsRoom(hud) {
   const w = Math.max(0, Number(hud?.w) || 0)
   const h = Math.max(0, Number(hud?.h) || 0)
+  // Below the bar as it is drawn (a narrow window wraps it onto a second row), never higher than one row allows.
+  const top = Number.isFinite(hud?.barBottom) ? Math.max(CARDS_ROOM.top, hud.barBottom + 32) : CARDS_ROOM.top
   return {
     w: Math.max(0, w - CARDS_ROOM.left - CARDS_ROOM.right - CARDS_ROOM.clock - CARDS_ROOM.pad),
-    h: Math.max(0, h - CARDS_ROOM.bottom - CARDS_ROOM.top - CARDS_ROOM.pad),
+    h: Math.max(0, h - CARDS_ROOM.bottom - top - CARDS_ROOM.pad),
   }
 }
 
@@ -72,6 +74,9 @@ function Grip({ edge, size, drawn, room, onSize }) {
   const drag = useRef(null)
   const vertical = edge === 'right'
   const value = vertical ? drawn.w : drawn.h
+  // Only the side dragged changes what is kept; the other stays as it was kept, never as the room cut it (round 1:
+  // a touch, Escape or a key saved the size drawn in a small window, smaller than the size kept).
+  const kept = (next, was = size) => (edge === 'top' ? { w: was.w, h: next.h } : edge === 'right' ? { w: next.w, h: was.h } : next)
   const end = (cancel) => {
     const d = drag.current
     if (!d) return
@@ -80,7 +85,7 @@ function Grip({ edge, size, drawn, room, onSize }) {
     window.removeEventListener('pointerup', d.up, true)
     window.removeEventListener('pointercancel', d.lost, true)
     window.removeEventListener('keydown', d.key, true)
-    onSize(cancel ? d.start : d.last, { done: true })
+    onSize(cancel || !d.moved ? d.before : kept(d.last, d.before), { done: true })
   }
   const onPointerDown = (e) => {
     if (e.button !== undefined && e.button !== 0 && e.pointerType === 'mouse') return
@@ -88,11 +93,12 @@ function Grip({ edge, size, drawn, room, onSize }) {
     e.stopPropagation()
     const start = { w: drawn.w, h: drawn.h }
     const d = {
-      start, last: start, x: e.clientX, y: e.clientY, id: e.pointerId,
+      start, last: start, before: { w: size.w, h: size.h }, x: e.clientX, y: e.clientY, id: e.pointerId, moved: false,
       move: (ev) => {
         if (d.id !== undefined && ev.pointerId !== undefined && ev.pointerId !== d.id) return
+        d.moved = true
         d.last = resizedCard(start, edge, ev.clientX - d.x, ev.clientY - d.y, room)
-        onSize(d.last, { done: false })
+        onSize(kept(d.last, d.before), { done: false })
       },
       up: (ev) => { if (d.id === undefined || ev.pointerId === undefined || ev.pointerId === d.id) end(false) },
       lost: (ev) => { if (d.id === undefined || ev.pointerId === undefined || ev.pointerId === d.id) end(true) },
@@ -111,8 +117,11 @@ function Grip({ edge, size, drawn, room, onSize }) {
     if (!(e.key in keys)) return
     e.preventDefault()
     const grow = keys[e.key]
-    const next = resizedCard(drawn, edge, vertical ? grow : 0, vertical ? 0 : -grow, room)
-    onSize(next, { done: true })
+    // Smaller goes from what is drawn (it shows at once); larger never below the size kept (round 1: where the room
+    // held the cards smaller, "taller" saved less than was kept).
+    const axis = vertical ? 'w' : 'h'
+    const n = resizedCard(drawn, edge, vertical ? grow : 0, vertical ? 0 : -grow, room)[axis]
+    onSize({ w: size.w, h: size.h, [axis]: grow > 0 ? Math.max(n, size[axis]) : n }, { done: true })
   }
   if (edge === 'corner') {
     return <span className="moth-card-grip" data-edge="corner" aria-hidden="true" onPointerDown={onPointerDown} data-moth-card-grip="corner" />
@@ -194,14 +203,18 @@ export default function MothCards({ selectedId, index, recent, onSelect, onOpenC
   useLayoutEffect(() => {
     const host = boxRef.current?.parentElement
     if (!host) return undefined
+    const bar = () => host.querySelector?.('[data-moth-view-widget]') ?? null
     const measure = () => {
       const r = host.getBoundingClientRect()
-      setHud((was) => (was && was.w === r.width && was.h === r.height ? was : { w: r.width, h: r.height }))
+      const b = bar()?.getBoundingClientRect?.()
+      const barBottom = b && b.height > 0 ? b.bottom - r.top : undefined
+      setHud((was) => (was && was.w === r.width && was.h === r.height && was.barBottom === barBottom ? was : { w: r.width, h: r.height, barBottom }))
     }
     measure()
     if (typeof ResizeObserver !== 'function') return undefined
     const ro = new ResizeObserver(measure)
     ro.observe(host)
+    if (bar()) ro.observe(bar())
     return () => ro.disconnect()
   }, [])
   // An unmeasured HUD (a test's DOM) gives no room to hold to: the card is drawn at its own size.

@@ -20,7 +20,7 @@
 -- =============================================================================
 
 BEGIN;
-SELECT plan(52);
+SELECT plan(53);
 
 SELECT * FROM tests.rls_setup();
 
@@ -225,6 +225,10 @@ GRANT SELECT ON t140_before TO authenticated;
 -- ── E. A scene deleted by a client ──────────────────────────────────────────
 SET LOCAL ROLE authenticated;
 SELECT public.t140_c();
+-- The guard (0130) meets a member's own delete of a thing's folder first, and refuses it while a board is below: it
+-- runs before the rescue because its name sorts first (MO5 review round 1 asked for this to be pinned).
+SELECT is(public.t140_words($$DELETE FROM public.folders WHERE id = '14000000-0000-0000-0000-0000000000d5'$$),
+  'A board goes to the trash; it is not deleted here.', 'a member''s own delete of a shot''s folder holding a board is still refused');
 SELECT is(public.t140_err($$DELETE FROM public.scenes WHERE id = '14000000-0000-0000-0000-0000000000d1'$$), 'no refusal',
   'a member deletes the scene Dawn, with its shots');
 SELECT is(COALESCE(current_setting('wilson.folder_op', true), ''), '', 'nothing is left set');

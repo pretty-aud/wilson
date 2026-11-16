@@ -57,9 +57,10 @@ beforeEach(() => {
   let t = 0
   const canvas = fakeCanvas()
   const posted = []
+  const workers = []
   const world = createMothWorld({
     canvas,
-    createWorker: () => ({ postMessage(m) { posted.push(m) }, terminate() {}, onmessage: null, onerror: null }),
+    createWorker: () => { const w = { postMessage(m) { posted.push(m) }, terminate() {}, onmessage: null, onerror: null }; workers.push(w); return w },
     requestFrame: (fn) => { frames.push(fn); return frames.length },
     cancelFrame: () => {},
     now: () => t,
@@ -75,7 +76,13 @@ beforeEach(() => {
   world.setGraph(GRAPH, { saved: SAVED })
   flush()
   const at = (id) => world.renderer.screenOf(id)
-  env = { world, canvas, flush, advance, events, at, frames, posted }
+  // The layout answering its latest run as settled, every dot where `xy` says (or where the run was given it).
+  const settleLayout = (xy) => {
+    const init = posted.filter((m) => m.type === 'init').at(-1)
+    const arr = xy ?? Float32Array.from(init.nodes.flatMap((n) => [init.positions?.[n.id]?.x ?? 0, init.positions?.[n.id]?.y ?? 0]))
+    workers.at(-1).onmessage({ data: { type: 'settled', job: init.job, seq: 1, xy: arr, ticks: 0, reason: 'settled' } })
+  }
+  env = { world, canvas, flush, advance, events, at, frames, posted, settleLayout }
 })
 afterEach(() => { env.world.destroy(); vi.restoreAllMocks() })
 
@@ -290,6 +297,13 @@ describe('MO5 8: a right-click on a dot asks for its menu', () => {
     expect(menus).toHaveLength(1)
     expect(stoppedOff).toBe(false)
   })
+  it('a long press that opens the menu is no click when it lifts (round 1)', () => {
+    env.world.on('menu', () => {})
+    const s = press('folder:d1', { pointerType: 'touch' })
+    env.canvas.fire('contextmenu', { clientX: s.x, clientY: s.y, pointerType: 'touch' })
+    env.canvas.fire('pointerup', { clientX: s.x, clientY: s.y, pointerType: 'touch' })
+    expect(env.events.pick).toEqual([])
+  })
 })
 
 // MO5 item 6: with the bar's switch on, a drag carries what is joined to the dot: a folder's contents, and what a
@@ -345,6 +359,7 @@ describe('MO5 6: what a drag carries', () => {
     expect(said.carried).toEqual([{ id: 'file:f1', x: expect.any(Number), y: expect.any(Number), pinned: false }])
   })
   it('🚨 the layout starts again from the places on show, so nothing moves on the drop', () => {
+    env.settleLayout() // at rest
     env.world.setCarry(true)
     const runs = () => env.posted.filter((m) => m.type === 'init').length
     const was = runs()
@@ -358,6 +373,39 @@ describe('MO5 6: what a drag carries', () => {
     expect(init.positions['file:f1'].y).toBeCloseTo(p['file:f1'].y, 0)
     expect(p['file:f1'].x).not.toBe(-150)
     expect(init.positions['folder:d1']).toMatchObject({ pinned: true })
+  })
+  it('🚨 a carried drag never tells the layout (round 1: a pin let it pull the project along); Escape needs nothing of it', () => {
+    env.settleLayout()
+    env.world.setCarry(true)
+    const said = () => env.posted.filter((m) => m.type === 'pin' || m.type === 'unpin').length
+    const was = said()
+    dragFolder()
+    expect(said()).toBe(was)
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    expect(said()).toBe(was)
+    // The control: without the switch, the drag pins as MO2's does.
+    env.world.setCarry(false)
+    env.flush()
+    dragFolder()
+    expect(said()).toBeGreaterThan(was)
+  })
+  it('🚨 a carried drop while the layout is still running waits for it to settle, holding what it dropped, then starts again from what is on show', () => {
+    // The layout of beforeEach has not settled yet (its worker has not answered): it is still running.
+    env.world.setCarry(true)
+    const runs = () => env.posted.filter((m) => m.type === 'init').length
+    const was = runs()
+    dragFolder()
+    env.canvas.fire('pointerup', {})
+    expect(runs()).toBe(was) // not frozen half-made
+    const dropped = env.world.positions()['file:f1']
+    // The run settles somewhere else for every dot: what was dropped is held where it was let go.
+    const init = env.posted.filter((m) => m.type === 'init').at(-1)
+    env.settleLayout(new Float32Array(init.nodes.length * 2))
+    expect(runs()).toBe(was + 1)
+    const again = env.posted.filter((m) => m.type === 'init').at(-1)
+    expect(again.positions['file:f1'].x).toBeCloseTo(dropped.x, 0)
+    expect(again.positions['file:f1'].y).toBeCloseTo(dropped.y, 0)
+    expect(again.positions['project:p1']).toEqual({ x: 0, y: 0 }) // the rest where the run put it
   })
   it('a carried dot that was pinned keeps its pin, at its new place', () => {
     env.world.setGraph(GRAPH, { saved: { ...SAVED, 'file:f1': { x: -150, y: 0, pinned: true } } })

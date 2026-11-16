@@ -3,7 +3,7 @@
 // and which lines join them, the layout, focus, search that flies to a match, the tags to keep, and the time
 // slider; and Move to and Delete on what is selected (her §12a.8), with Undo, Redo and opening it in its own tool.
 // Appearance is Settings' (the toolbar's right end), never here.
-import { useMemo, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   BookmarkPlus, Crosshair, ExternalLink, FolderInput, History as HistoryIcon, Redo2, Save, Search as SearchIcon,
   SlidersHorizontal, Trash2, Undo2,
@@ -20,6 +20,20 @@ export default function MothViewWidget({
 }) {
   const [query, setQuery] = useState('')
   const [showing, setShowing] = useState(false)
+  const showButton = useRef(null)
+  // Where the bar ends, for what sits below it (the notices): a narrow window wraps it onto a second row (round 1).
+  const barRef = useRef(null)
+  useLayoutEffect(() => {
+    const bar = barRef.current
+    const hud = bar?.parentElement
+    if (!bar || !hud?.style) return undefined
+    const tell = () => { if (bar.offsetHeight > 0) hud.style.setProperty('--moth-bar-bottom', `${bar.offsetTop + bar.offsetHeight}px`) }
+    tell()
+    if (typeof ResizeObserver !== 'function') return undefined
+    const ro = new ResizeObserver(tell)
+    ro.observe(bar)
+    return () => { ro.disconnect(); hud.style.removeProperty('--moth-bar-bottom') }
+  }, [])
   const [saving, setSaving] = useState(null) // { name, scope }
   const [renaming, setRenaming] = useState(null) // { name }
   const [deleting, setDeleting] = useState(false)
@@ -92,7 +106,7 @@ export default function MothViewWidget({
     ...(viewSnap?.available === false ? [{ header: 'This view lasts for this visit only.' }] : []),
   ]
   return (
-    <section className="moth-hud-panel moth-view-bar" aria-label="View" data-moth-view-widget>
+    <section ref={barRef} className="moth-hud-panel moth-view-bar" aria-label="View" data-moth-view-widget>
       <div className="moth-bar-group" role="group" aria-label="The view">
         <Select
           aria-label="View"
@@ -106,7 +120,9 @@ export default function MothViewWidget({
         {current.row && viewSnap?.unsaved && writableHere && (
           <IconButton size="sm" Icon={Save} title="Save this view" onClick={saveInPlace} disabled={busy} data-moth-view-save />
         )}
-        <IconButton size="sm" Icon={BookmarkPlus} title="Save as…"
+        {/* Greyed, it says why, as the card's Save as did (round 1): the name stays, the reason is its description. */}
+        <IconButton size="sm" Icon={BookmarkPlus} aria-label="Save as…"
+          title={viewSnap?.available === false ? 'Saved views are not on this database yet.' : 'Save as…'}
           onClick={() => setSaving({ name: '', scope: 'aggregate', positions: livePositions() })}
           disabled={viewSnap?.available === false} data-moth-view-save-as />
         <MenuButton title="More for this view" items={viewMenu} minWidth={200} />
@@ -140,15 +156,16 @@ export default function MothViewWidget({
         )}
       </div>
       <div className="moth-bar-group moth-bar-anchor">
-        <IconButton size="sm" Icon={SlidersHorizontal} title="What shows" aria-expanded={showing} active={showing}
-          onClick={() => setShowing((v) => !v)} data-moth-view-show />
+        {/* A button that opens a pop: expanded or not, never a toggle that is pressed (round 1). */}
+        <IconButton ref={showButton} size="sm" Icon={SlidersHorizontal} title="What shows" aria-expanded={showing} active={showing}
+          aria-pressed={undefined} onClick={() => setShowing((v) => !v)} data-moth-view-show />
         <IconButton size="sm" Icon={Crosshair} title={focusOn ? 'Show everything' : 'Focus here'} aria-pressed={!!focusOn} active={!!focusOn}
           disabled={!selectedNode} onClick={() => views?.setFocus(focusOn ? null : selectedNode?.id)} data-moth-focus />
         <Select size="sm" aria-label="Focus reaches" value={String(config.focusDepth)} onChange={(v) => set({ focusDepth: Number(v) || 1 })}
           options={[{ value: '1', label: 'One step' }, { value: '2', label: 'Two steps' }]} className="moth-bar-reach" />
         {showing && (
           <div className="moth-view-show moth-bar-pop" role="group" aria-label="What shows"
-            onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setShowing(false) } }}>
+            onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setShowing(false); showButton.current?.focus() } }}>
           <p className="moth-label">Dots</p>
           <div className="moth-chips">
             {DOT_CHOICES.map(([k, words]) => (

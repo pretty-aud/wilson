@@ -280,7 +280,14 @@ BEGIN
      OR NOT EXISTS (SELECT 1 FROM public.workspaces w WHERE w.id = OLD.workspace_id) THEN
     RETURN OLD;
   END IF;
-  -- No board at or below this folder: nothing to do (the cheap and common answer).
+  -- The company's folder lock (as moth_move_folders and the trash take it) and the project's board lock, taken BEFORE
+  -- the board is looked for: a board made (board_create) or moved (moth_move_folders) below this folder at the same
+  -- moment is either waited for and then seen and moved, or comes after and finds its folder gone. Looked for first,
+  -- a board committed just after the look was lost to the cascade (MO5 review round 1). Both are transaction locks,
+  -- taken again at no cost by the next thing's folder in the same statement.
+  PERFORM pg_advisory_xact_lock(hashtextextended('moth-folders:' || OLD.workspace_id::text, 0));
+  PERFORM pg_advisory_xact_lock(hashtextextended('moth-boards:' || OLD.project_id::text, 0));
+  -- No board at or below this folder: nothing to do (the common answer).
   IF NOT EXISTS (
        WITH RECURSIVE down (id, depth) AS (
          SELECT OLD.id, 1
@@ -290,10 +297,6 @@ BEGIN
        SELECT 1 FROM down JOIN public.boards b ON b.folder_id = down.id) THEN
     RETURN OLD;
   END IF;
-  -- The company's folder lock (as moth_move_folders and the trash take it) and the project's board lock (so a board
-  -- made below this folder at the same moment is waited for and then moved, not lost to the cascade).
-  PERFORM pg_advisory_xact_lock(hashtextextended('moth-folders:' || OLD.workspace_id::text, 0));
-  PERFORM pg_advisory_xact_lock(hashtextextended('moth-boards:' || OLD.project_id::text, 0));
   SELECT * INTO v_root FROM public.folders fo
    WHERE fo.project_id = OLD.project_id AND fo.kind = 'root' AND fo.parent_id IS NULL
    ORDER BY fo.id LIMIT 1 FOR UPDATE;

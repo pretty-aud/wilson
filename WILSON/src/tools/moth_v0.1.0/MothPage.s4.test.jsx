@@ -374,6 +374,14 @@ describe('🚨 MO5 3: New board… in the strip, and where the board goes', () =
     const places = boardPlaces(FOLDERS, (id) => id === 'bf')
     expect(places.map((p) => [p.id, p.depth, p.label])).toEqual([[null, 0, TOP_WORDS], ['assets', 1, 'ASSETS'], ['mira', 2, 'Mira']])
   })
+  it('round 1: two folders whose names differ by "-2" keep each one\'s own folders under it', () => {
+    const rows = [
+      { id: 'r2', kind: 'custom', label: 'Refs 2', path: 'refs-2', parent_id: null },
+      { id: 'old', kind: 'custom', label: 'Old', path: 'refs/old', parent_id: 'r1' },
+      { id: 'r1', kind: 'custom', label: 'Refs', path: 'refs', parent_id: null },
+    ]
+    expect(boardPlaces(rows).map((p) => p.id)).toEqual([null, 'r1', 'old', 'r2'])
+  })
   it('it starts on the folder selected; a board\'s own folder (or one below it) starts on the folder that holds the board', () => {
     const islands = [island('p1'), island('p2')]
     const foldersOf = () => FOLDERS
@@ -498,6 +506,36 @@ describe('🚨 MO5 8: an item\'s menu, and Rename', () => {
     fireEvent.keyDown(document.activeElement, { key: 'Escape' })
     await waitFor(() => expect(document.querySelector('[data-moth-item-menu]')).toBeNull())
     await waitFor(() => expect(document.activeElement).toBe(row))
+  })
+  it('round 1: a row is not announced as a menu button; Rename… from the keyboard, cancelled, gives the focus back to the row', async () => {
+    adapter.renameFolder = vi.fn(async () => ({}))
+    adapter.listMothFolders = vi.fn(async (pid) => (pid === 'p1' ? [{ id: 'f2', kind: 'custom', label: 'Refs', slug: 'refs', path: 'refs', parent_id: null }] : []))
+    render(<MothPage worldFactory={fakeWorld} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Project p1' }))
+    const row = await screen.findByRole('button', { name: /Refs/ })
+    expect(row.hasAttribute('aria-haspopup')).toBe(false)
+    row.focus()
+    fireEvent.keyDown(row, { key: 'F10', shiftKey: true })
+    await waitFor(() => expect(document.activeElement?.textContent).toBe('Open'))
+    fireEvent.click(within(document.querySelector('[data-moth-item-menu]')).getByRole('button', { name: 'Rename…' }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    await waitFor(() => expect(document.activeElement).toBe(row))
+  })
+  it('round 1: a menu let go of by a press elsewhere leaves the focus where it went', async () => {
+    render(<MothPage worldFactory={fakeWorld} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Project p1' }))
+    const row = await screen.findByRole('button', { name: /Refs/ })
+    fireEvent.contextMenu(row, { clientX: 40, clientY: 50 })
+    expect(document.querySelector('[data-moth-item-menu]')).toBeTruthy()
+    const find = screen.getByRole('searchbox', { name: 'Find and fly to' })
+    fireEvent.pointerDown(find)
+    fireEvent.mouseDown(find)
+    find.focus()
+    await waitFor(() => expect(document.querySelector('[data-moth-item-menu]')).toBeNull())
+    await new Promise((r) => setTimeout(r, 10))
+    expect(document.activeElement).toBe(find)
   })
   it('a refusal is said in the question, which stays', async () => {
     adapter.renameFolder = vi.fn(async () => { throw Object.assign(new Error('folder not found or not writable'), { code: '42501' }) })

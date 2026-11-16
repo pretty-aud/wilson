@@ -471,6 +471,14 @@ export default function MothPage({ isActive = true, worldFactory }) {
   const openBoardPanel = useCallback((row, title) => {
     if (!row) return
     if (scrubAt != null) { setNote(LOOKING_BACK_WORDS); return }
+    // Another board opened from the map round a framed one (MO5, item 4.5): the first one's project is read again, as
+    // its close would have done (round 1: a picture dropped on it left its folder saying "Nothing here").
+    const was = openBoardRef.current
+    if (was && String(was.board.id) !== String(row.id) && was.board.project_id != null) {
+      const pid = String(was.board.project_id)
+      notify([pid])
+      Promise.resolve().then(() => store?.refresh([pid])).catch(() => {})
+    }
     const r = worldRef.current?.renderer
     const dot = nodeId('folder', row.folder_id)
     const at = typeof r?.screenOf === 'function' ? r.screenOf(dot) : null
@@ -483,7 +491,7 @@ export default function MothPage({ isActive = true, worldFactory }) {
       camera: camera ? { ...camera } : null,
       selected: selectedRef.current,
     })
-  }, [scrubAt, index])
+  }, [scrubAt, index, notify, store])
   const closeBoard = useCallback((result) => {
     const was = openBoardRef.current
     if (!was) return
@@ -975,6 +983,13 @@ export default function MothPage({ isActive = true, worldFactory }) {
   // An entry chosen leaves the focus where it leads (a question, the list, a board); only a menu let go of (Escape, a
   // press elsewhere) gives it back to the row it was opened from (menuActed, kept with the menu's state above).
   const acting = (fn) => (...args) => { menuActed.current = true; return fn(...args) }
+  // An entry that asks a question (a dialog) hands the focus to the row first, as the kit's MenuButton hands it to its
+  // button: the dialog gives it back there when it closes (round 1: it fell to the page, the entry being gone).
+  const asking = (fn) => acting((...args) => {
+    const from = itemMenuAt?.from
+    try { from?.focus?.({ preventScroll: true }) } catch { /* focus is a courtesy */ }
+    return fn(...args)
+  })
   const menuItems = itemMenuAt ? itemMenu(itemMenuAt.id, {
     index,
     labelOf: (id) => (kindOf(id) === 'project' && islandOf(rowOf(id)) ? islandLabel(islandOf(rowOf(id)), { localOnly }) : null),
@@ -990,18 +1005,26 @@ export default function MothPage({ isActive = true, worldFactory }) {
     open: acting((id) => { setInside(id); select(id, { fly: true }) }),
     show: acting((id) => select(id, { fly: true })),
     openBoard: acting((b) => openBoardPanel(b)),
-    newBoard: acting((start) => setNewBoard({ start })),
-    moveFile: acting((fid) => { pickOne(fid); setMoving(true) }),
-    deleteFile: acting((fid) => { pickOne(fid); setConfirming(true) }),
-    rename: acting((r) => setRenaming({ ...r, isBoard: boardRows.has(String(r.folderId)) })),
-    jump: acting((j) => setJump(j)),
+    newBoard: asking((start) => setNewBoard({ start })),
+    moveFile: asking((fid) => { pickOne(fid); setMoving(true) }),
+    deleteFile: asking((fid) => { pickOne(fid); setConfirming(true) }),
+    rename: asking((r) => setRenaming({ ...r, isBoard: boardRows.has(String(r.folderId)) })),
+    jump: asking((j) => setJump(j)),
   }) : []
   const closeItemMenu = () => {
     const from = itemMenuAt?.from
     const acted = menuActed.current
     menuActed.current = false
     setItemMenuAt(null)
-    if (!acted && from && typeof from.focus === 'function') setTimeout(() => { try { from.focus({ preventScroll: true }) } catch { /* courtesy */ } }, 0)
+    // Back to the row only when the focus has nowhere else to be (Escape, or the menu's entry gone): a press elsewhere
+    // keeps the focus where it pressed (round 1: typing in the search field went to the row).
+    if (!acted && from && typeof from.focus === 'function') {
+      setTimeout(() => {
+        const now = typeof document !== 'undefined' ? document.activeElement : null
+        if (now && now !== document.body && !now.closest?.('[data-moth-item-menu]')) return
+        try { from.focus({ preventScroll: true }) } catch { /* courtesy */ }
+      }, 0)
+    }
   }
   const renameFolder = async (name) => {
     const asked = renaming

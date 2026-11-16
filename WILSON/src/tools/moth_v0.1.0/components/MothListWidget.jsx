@@ -38,7 +38,7 @@ export default function MothListWidget({
       const r = e.currentTarget.getBoundingClientRect()
       onMenu(id, r.left + 8, r.bottom, e.currentTarget)
     },
-    'aria-haspopup': 'menu',
+    // No aria-haspopup: Enter on a row opens or picks it, as before; the menu is the row's second way in (round 1).
   } : {})
   const islands = snap.islands
   const projectId = inside ? index.rows.get(inside)?.projectId ?? (kindOf(inside) === 'project' ? rowOf(inside) : null) : null

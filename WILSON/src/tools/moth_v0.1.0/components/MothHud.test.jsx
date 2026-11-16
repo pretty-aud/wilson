@@ -165,6 +165,26 @@ describe('MO5 1: the folder cards are never cut off, and their edges size them',
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(props.onSize).toHaveBeenCalledWith({ w: 280, h: 320 })
   })
+  it('round 1: where the room draws the cards smaller than kept, a touch, Escape or "taller" never saves the smaller size', () => {
+    const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, right: 1024, bottom: 300, width: 1024, height: 300, x: 0, y: 0 })
+    try {
+      const { props } = mount({ size: { w: 280, h: 320 } })
+      const card = screen.getByRole('region', { name: 'Folder 0' })
+      expect(parseInt(card.style.height, 10)).toBeLessThan(320) // the room holds it smaller
+      const height = screen.getByRole('separator', { name: 'Height of the folder cards' })
+      fireEvent.pointerDown(height, { clientX: 10, clientY: 100, pointerId: 1, button: 0 })
+      fireEvent.pointerUp(window, { clientX: 10, clientY: 100, pointerId: 1 })
+      expect(props.onSize).toHaveBeenLastCalledWith({ w: 280, h: 320 })
+      fireEvent.pointerDown(height, { clientX: 10, clientY: 100, pointerId: 2, button: 0 })
+      fireEvent.pointerMove(window, { clientX: 10, clientY: 120, pointerId: 2 })
+      fireEvent.keyDown(window, { key: 'Escape' })
+      expect(props.onSize).toHaveBeenLastCalledWith({ w: 280, h: 320 })
+      fireEvent.keyDown(height, { key: 'ArrowUp' })
+      expect(props.onSize).toHaveBeenLastCalledWith({ w: 280, h: 320 })
+    } finally {
+      rect.mockRestore()
+    }
+  })
   it('kept per person and company, read back as untrusted, and kept for the visit where nothing can be stored', () => {
     const store = new Map()
     const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) }
@@ -352,13 +372,40 @@ describe('MO5 2: the view is one bar of named icons', () => {
     render(<MothViewWidget {...props} />)
     return props
   }
-  it('one row along the top of the map, which never scrolls or cuts off what it opens', () => {
+  it('round 1: Save as greyed says why; What shows is a button that opens (never pressed), and Escape in it gives the focus back', async () => {
+    await mountBar({ viewSnap: { current: { key: 'unsaved', row: null }, views: [], unsaved: true, available: false } })
+    const saveAs = screen.getByRole('button', { name: 'Save as…' })
+    expect(saveAs.disabled).toBe(true)
+    expect(saveAs.getAttribute('title')).toBe('Saved views are not on this database yet.')
+    const shows = screen.getByRole('button', { name: 'What shows' })
+    fireEvent.click(shows)
+    expect(shows.getAttribute('aria-expanded')).toBe('true')
+    expect(shows.hasAttribute('aria-pressed')).toBe(false)
+    const pop = screen.getByRole('group', { name: 'What shows' })
+    pop.querySelector('button').focus()
+    fireEvent.keyDown(pop, { key: 'Escape' })
+    expect(screen.queryByRole('group', { name: 'What shows' })).toBeNull()
+    expect(document.activeElement).toBe(shows)
+  })
+  it('round 1: the focus ring of the cards\' edges and the board\'s title is the app\'s own', () => {
+    const css = readFileSync(resolve(__dirname, '../moth.css'), 'utf8')
+    for (const sel of ['.moth-card-grip:hover, .moth-card-grip:focus-visible', '.moth-board-title-button:hover, .moth-board-title-button:focus-visible']) {
+      const rule = css.slice(css.indexOf(sel)).match(/\{[^}]*\}/)?.[0] ?? ''
+      expect(rule, sel).not.toMatch(/outline: none/)
+    }
+  })
+  it('a bar along the top of the map, which never scrolls or cuts off what it opens, and takes a second row rather than draw one control over another', () => {
     const css = readFileSync(resolve(__dirname, '../moth.css'), 'utf8')
     const rule = css.match(/\.moth-view-bar \{[^}]*\}/)?.[0] ?? ''
     expect(rule).toMatch(/flex-direction: row;/)
-    expect(rule).toMatch(/flex-wrap: nowrap;/)
+    // Round 1: a window of 1,024 pixels (the app's narrowest) cannot hold every control in one row; wrapping beats
+    // the slider drawn over Move to and Delete.
+    expect(rule).toMatch(/flex-wrap: wrap;/)
     expect(rule).toMatch(/overflow: visible;/)
     expect(css).not.toMatch(/\.moth-view-widget \{/)
+    // What sits below it follows its real bottom, and the Look back sentence is cut shorter, never hidden.
+    expect(css).toMatch(/\.moth-hud-banners \{[^}]*top: calc\(var\(--moth-bar-bottom, 56px\) \+ 16px\);/)
+    expect(css).not.toMatch(/moth-time-says-short \{ display: none; \}/)
   })
   it('every button has a name a screen reader says and the same words as its tooltip; every field has a name', async () => {
     await mountBar()

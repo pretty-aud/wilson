@@ -271,4 +271,10 @@ describe('MO5 4.1: corners on every shape that has them', () => {
     expect(cornerDrawn({ kind: 'shape', shape: 'rounded_rectangle', w: 200, h: 100, style: { corner: 5 } })).toBe(5)
     expect(cornerDrawn({ kind: 'sticky', style: {} })).toBe(4)
   })
+  it('round 1: a speech bubble\'s corner never passes its tail\'s foot, and the slider shows its natural corner', () => {
+    const d = shapePath('speech_bubble', 180, 180, { corner: 64 })
+    expect(d).toContain('A39.6 39.6') // 0.22 of 180: the corner stops at the tail
+    expect(d).not.toMatch(/H64 A64/)
+    expect(cornerDrawn({ kind: 'shape', shape: 'speech_bubble', w: 180, h: 110, style: {} })).toBe(13)
+  })
 })

@@ -2004,6 +2004,64 @@ describe('🚨 MO5 4.3 and 4.4: lines from dots, lit sides, bends', () => {
     expect(s2.update).toHaveBeenLastCalledWith('c', expect.objectContaining({ style: expect.objectContaining({ route: 'curved' }), points: [0, 0, 200, 15] }), { settled: true })
   })
 
+  it('round 1: a double press on a line\'s middle still opens its words; a quick second press that moves still bends', async () => {
+    const store = fakeStore([RECT, OTHER, LINE()])
+    await mount({ store })
+    selectLine()
+    const h = named('connector-bend')[0]
+    press(h, toScreen({ x: h.x(), y: h.y() }))
+    release(toScreen({ x: h.x(), y: h.y() }))
+    await settle()
+    expect(screen.getByRole('textbox', { name: 'Words on the connector' })).toBeTruthy()
+  })
+  it('round 1: a press on an end that never moves changes nothing, even beside a thing', async () => {
+    const store = fakeStore([RECT, OTHER, BOX, LINE({ to_id: null, to_anchor: null, points: [100, 25, 50, 270] })])
+    await mount({ store })
+    selectLine({ x: 75, y: 150 })
+    const to = named('connector-handle').find((hd) => hd.attrs.boardHandle === 'to')
+    press(to, toScreen({ x: to.x(), y: to.y() }))
+    release(toScreen({ x: to.x(), y: to.y() }))
+    expect(store.update).not.toHaveBeenCalledWith('c', expect.anything(), expect.anything())
+  })
+  it('round 1: a finger on a dot draws a line, never a pan', async () => {
+    const { store } = await mount({ inputMode: 'touch' })
+    press(groupOf('a').findOne('Path'), toScreen({ x: 50, y: 25 }), { pointerType: 'touch' })
+    release(toScreen({ x: 50, y: 25 }), { pointerType: 'touch' })
+    await settle()
+    const right = named('connect-dot').find((d) => d.attrs.anchor === 'right')
+    const cam = stageNow().position()
+    press(right, toScreen({ x: right.x(), y: right.y() }), { pointerType: 'touch' })
+    moveTo(toScreen({ x: 304, y: 42 }), { pointerType: 'touch' })
+    release(toScreen({ x: 304, y: 42 }), { pointerType: 'touch' })
+    expect(stageNow().position()).toEqual(cam)
+    expect(store.add).toHaveBeenCalledWith(expect.objectContaining({ kind: 'connector', from_id: 'a', from_anchor: 'right', to_id: 'b' }))
+  })
+  it('round 1: a small thing on a larger one shows its own dots', async () => {
+    const BIG = { id: 'big', kind: 'shape', shape: 'rectangle', x: 0, y: 0, w: 300, h: 300, z: 1 }
+    const SMALL = { id: 'small', kind: 'shape', shape: 'rectangle', x: 100, y: 100, w: 40, h: 40, z: 2 }
+    await mount({ store: fakeStore([BIG, SMALL]) })
+    hover(toScreen({ x: 20, y: 20 }))
+    expect(named('connect-dot').every((d) => d.attrs.dotFor === 'big')).toBe(true)
+    hover(toScreen({ x: 120, y: 120 }))
+    expect(named('connect-dot').every((d) => d.attrs.dotFor === 'small')).toBe(true)
+  })
+  it('🚨 round 1: an Arrange button pressed while words are typed ends the words first; a colour keeps them', async () => {
+    await mount()
+    fireEvent.click(screen.getByTitle('Text (T)'))
+    press(stageNow(), toScreen({ x: 0, y: 300 }))
+    release(toScreen({ x: 0, y: 300 }))
+    await settle()
+    const box = screen.getByRole('textbox', { name: 'Text' })
+    const panel = document.querySelector('[data-moth-board-style]')
+    const colour = panel.querySelector('button:not([data-style-arrange] button)')
+    fireEvent.blur(box, { relatedTarget: colour })
+    expect(screen.queryByRole('textbox', { name: 'Text' })).toBeTruthy()
+    const arrange = panel.querySelector('[data-style-arrange] button')
+    fireEvent.blur(box, { relatedTarget: arrange })
+    await settle()
+    expect(screen.queryByRole('textbox', { name: 'Text' })).toBeNull()
+  })
+
   it('🚨 a bent line whose two ends move together moves whole; an unbent one only follows its ends (the control)', async () => {
     for (const [line, whole] of [[BENT(), true], [LINE(), false]]) {
       const store = fakeStore([RECT, OTHER, line])

@@ -37,9 +37,11 @@
 .moth-hud > * { pointer-events: auto; }
 .moth-hud-banners {
   position: absolute;
-  /* MO5: below the bar (her item 2), over the middle of the map. */
-  top: 72px;
+  /* MO5: below the bar (her item 2), however many rows it has (the bar says where it ends), over the middle of the map,
+     and over the folder cards, so a tall card never hides a notice (round 1). */
+  top: calc(var(--moth-bar-bottom, 56px) + 16px);
   left: calc(50% - 166px);
+  z-index: 3;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -60,9 +62,11 @@
   box-shadow: var(--shadow-float);
   overflow-y: auto;
 }
-/* MO5 (her item 2): the view is one bar along the top of the map, from the left edge to the list, one row; what it
-   opens (Find's matches, What shows) hangs below it, so the bar itself never scrolls or cuts them off. Where the bar is
-   narrow, the Look back sentence goes first, then Find shrinks; only a very narrow map wraps it onto a second row. */
+/* MO5 (her item 2): the view is one bar along the top of the map, from the left edge to the list; what it opens (Find's
+   matches, What shows) hangs below it, so the bar itself never scrolls or cuts them off. Where the bar is narrow, the
+   Look back sentence is cut shorter, then Find shrinks; where even that is not enough (a window under about 1,300
+   pixels with every control showing) the bar takes a second row rather than draw one control over another (round 1:
+   the slider was drawn over Move to and Delete, her "its overlapping" again). */
 .moth-view-bar {
   position: absolute;
   top: 16px;
@@ -70,23 +74,26 @@
   right: 332px;
   z-index: 2;
   flex-direction: row;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
+  row-gap: 6px;
   padding: 6px 8px;
   overflow: visible;
   container-type: inline-size;
 }
 .moth-bar-group { position: relative; display: flex; flex: 0 0 auto; align-items: center; gap: 2px; }
-.moth-bar-rule { flex: 0 0 1px; align-self: stretch; margin: 2px 4px; background-color: var(--color-rule); }
-.moth-bar-view { width: 184px; }
-.moth-bar-reach { width: 108px; }
-.moth-bar-find { display: flex; flex: 1 1 160px; align-items: center; gap: 4px; min-width: 96px; max-width: 220px; }
+.moth-bar-rule { flex: 0 0 1px; align-self: stretch; margin: 2px 3px; background-color: var(--color-rule); }
+.moth-bar-view { width: 160px; }
+.moth-bar-reach { width: 96px; }
+.moth-bar-find { display: flex; flex: 1 1 96px; align-items: center; gap: 4px; min-width: 96px; max-width: 220px; }
 .moth-bar-find-icon, .moth-bar-time-icon { flex: 0 0 auto; color: var(--color-ink-2); }
-.moth-bar-time { flex: 0 1 auto; min-width: 0; }
+.moth-bar-time { flex: 0 1 auto; min-width: 0; overflow: hidden; }
 .moth-time.moth-time-compact { flex-direction: row; align-items: center; gap: 6px; min-width: 0; }
-.moth-time-compact .moth-time-range { width: 104px; flex: 0 0 auto; }
-.moth-time-compact .moth-time-says-short { flex: 0 1 auto; min-width: 0; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.moth-time-compact .moth-time-range { width: 96px; flex: 0 0 auto; }
+/* The sentence, there or alone (history absent): one line, cut with an ellipsis, all of it in its tooltip and read
+   whole by a screen reader. */
+.moth-view-bar .moth-time-says-short { flex: 0 1 auto; min-width: 0; max-width: 88px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .moth-sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .moth-bar-pop {
   position: absolute;
@@ -105,9 +112,9 @@
   box-shadow: var(--shadow-float);
 }
 .moth-bar-find .moth-find-results { margin: 0; }
-@container (max-width: 860px) { .moth-time-says-short { display: none; } }
+/* Narrow, the Look back sentence is cut shorter, never hidden: it may be the only word that history is not here. */
+@container (max-width: 860px) { .moth-view-bar .moth-time-says-short { max-width: 72px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } }
 @container (max-width: 700px) { .moth-bar-view { width: 128px; } .moth-time-compact .moth-time-range { width: 72px; } }
-@container (max-width: 560px) { .moth-view-bar { flex-wrap: wrap; } }
 .moth-list-widget { position: absolute; top: 16px; right: 16px; bottom: 16px; width: 300px; }
 
 /* Rows and words inside the HUD. */
@@ -203,7 +210,8 @@
 .moth-card-grip[data-edge="top"] { top: -4px; left: 8px; right: 12px; height: 8px; cursor: ns-resize; }
 .moth-card-grip[data-edge="right"] { top: 12px; right: -4px; bottom: 8px; width: 8px; cursor: ew-resize; }
 .moth-card-grip[data-edge="corner"] { top: -5px; right: -5px; width: 14px; height: 14px; cursor: nesw-resize; }
-.moth-card-grip:hover, .moth-card-grip:focus-visible { background-color: color-mix(in srgb, var(--color-signal) 45%, transparent); border-radius: 4px; outline: none; }
+/* Focused, the app's own ring (index.css), never a faint fill alone (round 1). */
+.moth-card-grip:hover, .moth-card-grip:focus-visible { background-color: color-mix(in srgb, var(--color-signal) 45%, transparent); border-radius: 4px; }
 .moth-page[data-input="touch"] .moth-card-grip[data-edge="top"] { top: -8px; height: 16px; }
 .moth-page[data-input="touch"] .moth-card-grip[data-edge="right"] { right: -8px; width: 16px; }
 .moth-page[data-input="touch"] .moth-card-grip[data-edge="corner"] { top: -10px; right: -10px; width: 24px; height: 24px; }
@@ -396,7 +404,7 @@
   text-align: left;
   cursor: text;
 }
-.moth-board-title-button:hover, .moth-board-title-button:focus-visible { border-color: var(--color-rule); outline: none; }
+.moth-board-title-button:hover, .moth-board-title-button:focus-visible { border-color: var(--color-rule); }
 .moth-board-title-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .moth-board-title-pen { flex: 0 0 auto; color: var(--color-ink-2); opacity: 0; }
 .moth-board-title-button:hover .moth-board-title-pen, .moth-board-title-button:focus-visible .moth-board-title-pen { opacity: 1; }
@@ -472,6 +480,7 @@
   transition: min-height 200ms var(--ease-response, ease-out), padding 200ms var(--ease-response, ease-out);
 }
 .moth-page[data-input="touch"] .moth-hud-panel { gap: 12px; }
+.moth-page[data-input="touch"] .moth-view-bar { gap: 4px; row-gap: 6px; }
 .moth-page[data-input="touch"] .moth-row { padding: 8px 0; }
 
 @media (prefers-reduced-motion: reduce) {

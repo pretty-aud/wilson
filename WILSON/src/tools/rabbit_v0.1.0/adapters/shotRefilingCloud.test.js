@@ -408,6 +408,16 @@ describe('refileShotFolders: the happy path and its order', () => {
     expect(res.removedShotsCategory).toBe(false)
   })
 
+  it('MO5 round 1: a read of the boards that fails is no answer, so the shot stays and nothing of it moves', async () => {
+    const { tables, objects } = fixture()
+    tables.boards = []
+    const client = makeClient({ tables, objects, failRead: (name) => (name === 'boards' ? 'the connection dropped' : null) })
+    const res = await run(client)
+    expect(res.moved).toHaveLength(0)
+    expect(res.left.every(l => /could not check for a board/.test(l.reason))).toBe(true)
+    expect(client.log.filter(e => e[0] === 'move' || e[0].startsWith('rekey'))).toEqual([])
+  })
+
   it('keeps SHOTS while a shot with no scene still has a folder under it', async () => {
     const { tables, objects } = fixture()
     tables.folders.push(folder('f-sh3', 'entity', 'SHOTS/Loose', 'c-shots', { entity_type: 'shot', shot_id: 'sh3' }))

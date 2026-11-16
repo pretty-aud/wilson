@@ -30,9 +30,21 @@ export function boardPlaces(folders, isBoard = () => false) {
     return false
   }
   const out = [{ id: null, label: TOP_WORDS, depth: 0, kind: 'root' }]
+  // By path, a step at a time, so a folder's own come straight after it: "refs/old" before "refs-2" (round 1: sorted
+  // as whole strings, "-" came before "/" and "old" was drawn under the second Refs).
+  const steps = (f) => String(f.path ?? '').split('/').filter(Boolean)
+  const byPath = (a, b) => {
+    const x = steps(a)
+    const y = steps(b)
+    for (let i = 0; i < Math.min(x.length, y.length); i++) {
+      const c = x[i].localeCompare(y[i], undefined, { sensitivity: 'base' })
+      if (c) return c
+    }
+    return x.length - y.length
+  }
   rows
     .filter((f) => f.kind !== 'root' && !(f.parent_id == null && String(f.path ?? '') === '') && !underBoard(f))
-    .sort((a, b) => String(a.path ?? '').localeCompare(String(b.path ?? ''), undefined, { sensitivity: 'base' }))
+    .sort(byPath)
     .forEach((f) => out.push({
       id: String(f.id),
       label: f.label || f.slug || '(no name)',

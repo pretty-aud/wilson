@@ -1707,6 +1707,10 @@ async function refileShotPreflight(client, projectId, p, rows, folders, toPath) 
     for (const f of folders) if (f && f.parent_id && below.has(f.parent_id) && !below.has(f.id)) { below.add(f.id); grew = true; }
   }
   const boards = await client.from('boards').select('folder_id').in('folder_id', [...below]);
+  // A database without boards (0130) answers that the table is not there: no board. Any other failure to read is no
+  // answer, and the shot stays (MO5 round 1: read as "no board", the move went ahead and was refused at its end).
+  const absentTable = boards.error && (boards.error.code === '42P01' || boards.error.code === 'PGRST205');
+  if (boards.error && !absentTable) throw new Error(`could not check for a board in this shot's folder: ${boards.error.message || 'try again'}`);
   if (!boards.error && (boards.data || []).length) throw new Error(SHOT_HOLDS_BOARD);
   const ctx = { projectId, sceneId: p.scene.id, shotId: p.shot.id };
   for (const row of rows) {

@@ -136,15 +136,20 @@ export function createMothWorld({
   const clock = now || (() => (typeof performance !== 'undefined' ? performance.now() : Date.now()))
   const askFrame = requestFrame || ((fn) => (typeof requestAnimationFrame === 'function' ? requestAnimationFrame(fn) : setTimeout(() => fn(clock()), 16)))
   const dropFrame = cancelFrame || ((h) => (typeof cancelAnimationFrame === 'function' ? cancelAnimationFrame(h) : clearTimeout(h)))
+  // MO5 round 1: what a carried drop left, held where it was let go until a layout still running settles; then the
+  // layout starts again from the places on show (restartFromShown), so nothing it was forming is frozen half-made.
+  const settleHold = new Map()
   // A dot being dragged is where the pointer is, whatever a layout tick computed before the pointer got there; so is
-  // what it carries, by the same step; and so is a dot gliding after it was let go.
+  // what it carries, by the same step; so is a dot gliding after it was let go; so is what a carried drop left.
   const holdDragged = (xy) => {
-    const m = press?.dragging ? press : glide?.p
-    if (!m || !m.at || !(xy instanceof Float32Array)) return
+    if (!(xy instanceof Float32Array)) return
     const put = (id, p) => {
       const i = inputIndex.get(id)
       if (i != null && 2 * i + 1 < xy.length) { xy[2 * i] = p.x; xy[2 * i + 1] = p.y }
     }
+    settleHold.forEach((p, id) => put(id, p))
+    const m = press?.dragging ? press : glide?.p
+    if (!m || !m.at) return
     put(m.id, m.at)
     for (const c of m.carried) if (c.at) put(c.id, c.at)
   }
@@ -157,11 +162,25 @@ export function createMothWorld({
       remember(m.xy)
       renderer.setPositions(m.xy)
       if (layoutKind === 'radial' && handPlaced.size) renderer.setPositions(Object.fromEntries(handPlaced))
+      // A carried drop waited for this: the layout starts again from what is on show, and that run's settle is told.
+      if (settleHold.size && layoutKind === 'force') { restartFromShown(); return }
       listeners.settled?.()
     },
     // A refused pin (radial, or a dot the job no longer holds) leaves the job as it was; anything else ended it.
-    onError: (m) => { if (m?.code !== 'refused') listeners.settled?.({ failed: true }) },
+    onError: (m) => { if (m?.code !== 'refused') { settleHold.clear(); listeners.settled?.({ failed: true }) } },
   })
+
+  // The free layout starts again from the places on show, every dot given its place: nothing moves, nothing ticks.
+  function restartFromShown() {
+    settleHold.clear()
+    if (layoutKind !== 'force' || !input.nodes.length) return
+    const known = {}
+    for (const n of input.nodes) {
+      const q = handPlaced.get(n.id) || places.get(n.id)
+      if (q) known[n.id] = { x: q.x, y: q.y, ...(pinned.has(n.id) ? { pinned: true } : {}) }
+    }
+    client.run({ layout: 'force', nodes: input.nodes, links: input.links, positions: known })
+  }
 
   // The world's memory of places is the force layout's: a radial layout's places are computed from the tree each
   // time, so they never overwrite it (MO2 review round 1). Each place is updated where it is, not made anew, so a
@@ -191,6 +210,7 @@ export function createMothWorld({
    */
   function setGraph(next, { layout = 'force', saved = null } = {}) {
     endGlide()
+    settleHold.clear()
     graph = next || { nodes: [], edges: [] }
     byId = new Map(graph.nodes.map((n) => [n.id, n]))
     layoutKind = layout === 'radial' ? 'radial' : 'force'
@@ -270,9 +290,10 @@ export function createMothWorld({
     listeners.drag?.(null)
     if (!p.dragging) return
     // Back where it was: through the layout itself, so its next tick agrees, then free again unless it was pinned.
-    // What it carried goes back too; the layout never moved it (only the picture did), so it already agrees.
+    // A drag that carried things never told the layout (MO5 round 1: a pin let the layout pull what the dot lives in
+    // along), so the layout already agrees and only the picture goes back.
     const putBack = () => {
-      if (layoutKind === 'force') {
+      if (layoutKind === 'force' && !p.carried.length) {
         client.pin(p.id, p.start.x, p.start.y)
         if (!p.wasPinned) client.unpin(p.id)
       }
@@ -343,7 +364,10 @@ export function createMothWorld({
       batch[c.id] = c.at
       if (layoutKind === 'force') places.set(c.id, { x: c.at.x, y: c.at.y })
     }
-    if (layoutKind === 'force') { places.set(p.id, { x: p.at.x, y: p.at.y }); client.pin(p.id, p.at.x, p.at.y) }
+    if (layoutKind === 'force') {
+      places.set(p.id, { x: p.at.x, y: p.at.y })
+      if (!p.carried.length) client.pin(p.id, p.at.x, p.at.y)
+    }
     renderer.setPositions(batch)
     if (e >= GLIDE.maxMs || Math.hypot(g.vx, g.vy) * decay * g.k < GLIDE.stopSpeed) {
       glide = null
@@ -368,7 +392,8 @@ export function createMothWorld({
     handPlaced.set(p.id, { x: at.x, y: at.y })
     // What it carried stays where it was let go. A radial layout computes every place, so there each is kept by hand
     // like the dot itself; in a free layout each keeps its own pin (or none), and the layout starts again from the
-    // places on show, so nothing moves on the drop.
+    // places on show, so nothing moves on the drop: at once when it is at rest, or, while it is still running (still
+    // forming after a folder opened, say), when it settles, the dropped dots held where they are until then.
     const carried = []
     for (const c of p.carried) {
       const q = c.at || c.start
@@ -380,12 +405,9 @@ export function createMothWorld({
       carried.push({ id: c.id, x: q.x, y: q.y, pinned: pinned.has(c.id) })
     }
     if (carried.length && layoutKind === 'force' && input.nodes.length) {
-      const known = {}
-      for (const n of input.nodes) {
-        const q = handPlaced.get(n.id) || places.get(n.id)
-        if (q) known[n.id] = { x: q.x, y: q.y, ...(pinned.has(n.id) ? { pinned: true } : {}) }
-      }
-      client.run({ layout: 'force', nodes: input.nodes, links: input.links, positions: known })
+      settleHold.set(p.id, { x: at.x, y: at.y })
+      for (const c of carried) settleHold.set(c.id, { x: c.x, y: c.y })
+      if (!client.busy()) restartFromShown()
     }
     listeners.arranged?.({ id: p.id, x: at.x, y: at.y, ...(carried.length ? { carried } : {}) })
   }
@@ -443,7 +465,9 @@ export function createMothWorld({
       press.trail.push({ t: clock(), x: w.x, y: w.y })
       if (press.trail.length > 12) press.trail.shift()
       if (layoutKind === 'force') places.set(press.id, { x: w.x, y: w.y })
-      if (layoutKind === 'force') client.pin(press.id, w.x, w.y)
+      // A drag that carries things moves only the picture until it lets go (MO5 round 1): a pin would let the layout
+      // pull what the dot lives in, and its neighbours, along with it.
+      if (layoutKind === 'force' && !press.carried.length) client.pin(press.id, w.x, w.y)
       const batch = { [press.id]: w }
       const dx = w.x - press.start.x
       const dy = w.y - press.start.y
@@ -516,6 +540,9 @@ export function createMothWorld({
     if (!hit || hit.type !== 'dot' || !listeners.menu) return
     e.preventDefault()
     stopBloom()
+    // A long press that opened the menu is no click when it lifts (round 1: a board's dot opened its menu, then the
+    // board over it).
+    if (press && !press.dragging) press = null
     listeners.menu({ id: hit.id, x: e.clientX, y: e.clientY })
   }
 

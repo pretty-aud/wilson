@@ -135,6 +135,7 @@ export function cornerDrawn(el) {
   const own = el?.style?.corner
   if (own != null && Number.isFinite(Number(own))) return Math.max(0, Number(own))
   if (el?.kind === 'shape' && el.shape === 'rounded_rectangle') return Math.round(Math.min(finite(el.w), finite(el.h)) * 0.18)
+  if (el?.kind === 'shape' && el.shape === 'speech_bubble') return Math.round(Math.min(finite(el.w), finite(el.h) * 0.78) * 0.15)
   return resolveStyle(el?.kind, el?.style).corner
 }
 
@@ -237,7 +238,8 @@ export function shapePath(shape, width, height, { corner } = {}) {
     }
     case 'speech_bubble': {
       const bh = h * 0.78
-      const r = Math.min(c ?? Math.min(w, bh) * 0.15, Math.min(w, bh) / 2)
+      // Never past the tail's foot at 0.22 of the width (round 1: a larger corner folded back over the tail).
+      const r = Math.min(c ?? Math.min(w, bh) * 0.15, Math.min(w, bh) / 2, w * 0.22)
       const a = `A${fmt(r)} ${fmt(r)} 0 0 1 `
       return [
         `M${pt(r, 0)}`, `H${fmt(w - r)}`, `${a}${pt(w, r)}`, `V${fmt(bh - r)}`, `${a}${pt(w - r, bh)}`,

@@ -415,7 +415,14 @@ export function mountBoard(host, init) {
       if (endDrag.end === 'from') ends.start = at
       else ends.end = at
     }
-    if (bendDrag && bendDrag.id === el.id) ends.bends = bendDrag.bends
+    // Bends in hand: an end left to choose its side ('auto') faces the bends as they are now, as it will once they are
+    // saved (round 1: the line jumped on release).
+    if (bendDrag && bendDrag.id === el.id) {
+      const shaped = connectorEnds({ ...el, ...connectorRecord(ends.start, ends.end, bendDrag.bends) }, geom)
+      ends.start = shaped.start
+      ends.end = shaped.end
+      ends.bends = bendDrag.bends
+    }
     const route = routePoints(ends.start, ends.end, s.route, ends.bends)
     const line = trimForHeads(route, s.startHead, s.endHead, s.width)
     const colour = s.stroke ?? '#2B3440'
@@ -801,12 +808,13 @@ export function mountBoard(host, init) {
     }
     return out
   }
-  // The thing the pointer is over, for its dots: the one shown keeps them while the pointer is on its way out to a
-  // dot; else the topmost thing (not a line, a stroke or a frame) under the pointer.
+  // The thing the pointer is over, for its dots: on one of the shown thing's dots, that thing; else the topmost thing
+  // (not a line, a stroke or a frame) under the pointer; else the shown one while the pointer is on its way out to a
+  // dot (round 1: a small thing on a larger one never got its own dots).
   function hoverAt(p) {
     const reach = (dotGap() + dotRadius() + 2) / cam.scale
     const kept = hoverId ? geom(hoverId) : null
-    if (kept && containsPoint(kept, p, reach)) return hoverId
+    if (kept && connectionDots(kept, dotGap() / cam.scale).some((d) => Math.hypot(d.x - p.x, d.y - p.y) <= (dotRadius() + 4) / cam.scale)) return hoverId
     const kids = content.getChildren()
     for (let i = kids.length - 1; i >= 0; i -= 1) {
       const id = kids[i].attrs.elementId
@@ -815,6 +823,7 @@ export function mountBoard(host, init) {
       if (!dotsFit(g) || g.kind === 'frame') continue
       if (containsPoint(g, p)) return id
     }
+    if (kept && containsPoint(kept, p, reach)) return hoverId
     return null
   }
   function setHover(id) {
@@ -1019,7 +1028,8 @@ export function mountBoard(host, init) {
     try { host.parentElement?.focus?.({ preventScroll: true }) } catch { /* focus is a courtesy */ }
     const p = boardAt(evt)
     const screen = { x: num(evt.clientX), y: num(evt.clientY) }
-    const touchOnEmpty = evt.pointerType === 'touch' && tool === 'select' && !hit.id && !hit.handle
+    // A finger on a connection dot or a bend handle is theirs, never a pan (MO5 round 1).
+    const touchOnEmpty = evt.pointerType === 'touch' && tool === 'select' && !hit.id && !hit.handle && !hit.dot && hit.bend == null
     if (evt.button === 1 || spaceHeld || tool === 'hand' || touchOnEmpty) {
       begin({ type: 'pan', screen, cam: { ...cam } }, evt)
       return
@@ -1035,8 +1045,13 @@ export function mountBoard(host, init) {
       drawHandles()
       return
     }
-    // MO5 (her item 4.4): a press on a line's bend handle shapes it.
+    // MO5 (her item 4.4): a press on a line's bend handle shapes it. A second press there soon after the first, let go
+    // without moving, is the line's double press, as before: its words open (round 1: the handle sits where the label
+    // is). Moved, it bends.
     if (hit.bend != null && canWrite) {
+      const now = Date.now()
+      const dbl = !!lastDown && lastDown.id === hit.connId && now - lastDown.t < DOUBLE_MS
+      lastDown = dbl ? null : { id: hit.connId, t: now }
       settle()
       const rec = nodes.get(hit.connId)
       if (!rec?.ends) return
@@ -1044,14 +1059,14 @@ export function mountBoard(host, init) {
       const axis = elbowSlide(rec.ends.start, rec.ends.end)
       begin({
         type: 'bend', id: hit.connId, index: hit.bend, add: hit.add, bends0: rec.ends.bends.map((b) => ({ x: b.x, y: b.y })),
-        axis, middle: handle ? { x: handle.x, y: handle.y } : p, screen, moved: false,
+        axis, middle: handle ? { x: handle.x, y: handle.y } : p, screen, moved: false, dbl,
       }, evt)
       return
     }
     if (hit.handle && canWrite) {
       settle()
       endDrag = { id: hit.connId, end: hit.handle, point: p }
-      begin({ type: 'end', id: hit.connId, end: hit.handle }, evt)
+      begin({ type: 'end', id: hit.connId, end: hit.handle, screen }, evt)
       return
     }
     if (tool === 'select') { selectDown(hit.id, p, screen, evt); return }
@@ -1245,13 +1260,17 @@ export function mountBoard(host, init) {
       overlay.batchDraw()
     }
   }
-  // Where a dragged end of a line would land: on a thing other than the line, the side facing its other end.
+  // Where a dragged end of a line would land: on a thing other than the line, the side facing what connectorEnds
+  // will face once it is saved (its nearest bend, else the other end's thing's middle, else the other end), so the side
+  // lit is the side it lands on (round 1).
   function endDrop(a, p) {
     const el = geom(a.id)
     if (!el) return null
     const ends = nodes.get(a.id)?.ends ?? connectorEnds(el, geom)
-    const other = a.end === 'from' ? (ends.bends[0] ?? ends.end) : (ends.bends[ends.bends.length - 1] ?? ends.start)
-    return dropTarget(p, new Set([a.id]), other)
+    const otherEl = a.end === 'from' ? ends.toEl : ends.fromEl
+    const otherEnd = a.end === 'from' ? ends.end : ends.start
+    const near = a.end === 'from' ? ends.bends[0] : ends.bends[ends.bends.length - 1]
+    return dropTarget(p, new Set([a.id]), near ?? (otherEl ? centreOf(otherEl) : otherEnd))
   }
 
   function moveStep(a, p, evt) {
@@ -1368,6 +1387,7 @@ export function mountBoard(host, init) {
       bendDrag = null
       finish()
       const el = geom(a.id)
+      if (!a.moved && a.dbl && el) { beginEdit(a.id); return }
       if (!a.moved || !next || !el) { const rec = nodes.get(a.id); if (rec) build(rec); refreshSelection(); return }
       const ends = connectorEnds(el, geom)
       store.update(a.id, connectorRecord(ends.start, ends.end, next), { settled: true })
@@ -1381,6 +1401,14 @@ export function mountBoard(host, init) {
       endDrag = null
       finish()
       if (!el) return
+      // A press on an end that never moved changes nothing (round 1: near a thing, it tied the end there).
+      if (a.screen && Math.hypot(num(evt.clientX) - a.screen.x, num(evt.clientY) - a.screen.y) < sizes.slop) {
+        const rec = nodes.get(a.id)
+        if (rec) build(rec)
+        refreshSelection()
+        content.batchDraw()
+        return
+      }
       const next = { ...el }
       const anchor = target ? drop.anchor : null
       if (a.end === 'from') { next.from_id = target?.id ?? null; next.from_anchor = anchor } else { next.to_id = target?.id ?? null; next.to_anchor = anchor }
@@ -1841,6 +1869,8 @@ export function mountBoard(host, init) {
     ui.onTool?.(t)
   }
   function applyStyle(patch) {
+    // Another path saves a line's drawn ends: read settled, as every write is (round 1).
+    if (patch && patch.route != null) settle()
     const els = all()
     for (const id of selected) {
       const el = els.get(id)
@@ -2345,7 +2375,13 @@ function WordsEditor({ editor, inputMode, onInput, onBlur, onClose }) {
         onChange={(e) => onInput(e.target.value)}
         // MO5 (her item 4.2): into the style panel is not away from the words (Shift+Tab reaches it, a size is chosen
         // there); the panel ends the edit itself when the focus leaves both.
-        onBlur={(e) => { if (e.relatedTarget?.closest?.('[data-moth-board-style]')) return; onBlur() }}
+        onBlur={(e) => {
+          // The style panel's colours and sizes keep the words open; its Arrange buttons end them first (round 1: a
+          // button takes the focus on its press in Chromium, and a frame or a Delete then acted under an open box).
+          const to = e.relatedTarget
+          if (to?.closest?.('[data-moth-board-style]') && !to.closest('[data-style-arrange]')) return
+          onBlur()
+        }}
         style={{
           display: 'block', width: '100%', height: Math.max(b.height, b.fontSize * 1.4), boxSizing: 'border-box', margin: 0,
           padding: 0, border: `1px solid ${SELECT_COLOUR}`, outline: 'none', resize: 'none', overflow: 'hidden',
