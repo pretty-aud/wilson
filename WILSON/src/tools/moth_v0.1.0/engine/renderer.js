@@ -545,7 +545,10 @@ export function createRenderer({
       invalidate()
       return true
     },
-    /** What is under a screen point in the frame on screen. `exclude`: a dot id to look past (the one dragged). */
+    /**
+     * What is under a screen point in the frame on screen. `exclude`: a dot id to look past (the one dragged), or a Set
+     * of them (MO5: the dots a drag carries along with it).
+     */
     hitTest(sx, sy, slopPx = 4, exclude = null) {
       if (!last) return null
       let best = null
@@ -553,7 +556,7 @@ export function createRenderer({
       const D = last.dots
       for (let d = 0; d < D.count; d++) {
         const id = last.ids[D.index[d]]
-        if (id === exclude) continue
+        if (id === exclude || (exclude instanceof Set && exclude.has(id))) continue
         const dist = Math.hypot(D.x[d] - sx, D.y[d] - sy)
         if (dist <= D.r[d] + slopPx && dist < bestD) { bestD = dist; best = { type: 'dot', id, dist, r: D.r[d] } }
       }

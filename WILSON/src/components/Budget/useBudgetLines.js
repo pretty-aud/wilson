@@ -12,6 +12,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
+import { useRabbitOnline } from '../../tools/rabbit_v0.1.0/state/rabbitLive'
 import { projectBudgetSettings, lineMoney } from './budgetMath'
 
 // ── Sheets that budget lines belong to ──
@@ -35,7 +36,11 @@ export function useBudgetLines() {
   const project       = rabbit?.project
   const projectId     = project?.id
   const adapterMode   = rabbit?.adapterMode
-  const adapterStatus = rabbit?.adapterStatus
+  // F4: the adapter's `online`, one word from a context of its own, and not
+  // the status object off the value (rabbitLive.js). The load below runs
+  // again when it flips, as before; a new status that says the same thing
+  // does not draw this hook's host.
+  const adapterOnline = useRabbitOnline(rabbit)
 
   const [lines, setLines]       = useState([])
   const [actuals, setActuals]   = useState([])
@@ -78,7 +83,7 @@ export function useBudgetLines() {
 
   useEffect(() => {
     loadAll()
-  }, [loadAll, adapterMode, adapterStatus?.online])
+  }, [loadAll, adapterMode, adapterOnline])
 
   // ── Budget Lines CRUD ────────────────────────────────────
   const addLine = useCallback(async (data) => {

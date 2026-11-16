@@ -30,10 +30,10 @@
 // when the answer is not yours to change.
 // =============================================================================
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { RefreshCw, RotateCcw } from 'lucide-react'
 import { registryByTool, BUILTIN, REGISTRY } from '../../lib/aiModels'
-import { getModelSources, getPlatformEffort, areModelSourcesLoaded } from '../../lib/activeModel'
+import { getModelSources, getPlatformEffort, areModelSourcesLoaded, subscribeModelSourcesLoaded } from '../../lib/activeModel'
 import {
   loadApprovedModels, cachedApprovedModels,
   setUserModelOverride, loadModelSources,
@@ -51,9 +51,27 @@ function provenance(key, tier, sources, builtin) {
 }
 
 export default function UserModelsSection() {
+  // F4, review round 1 (B-1): subscribed, not read plainly while drawing, so a
+  // load that lands elsewhere draws this section again (activeModel.js says why).
+  const sourcesLoaded = useSyncExternalStore(subscribeModelSourcesLoaded, areModelSourcesLoaded, areModelSourcesLoaded)
   const [models, setModels] = useState(() => cachedApprovedModels())
   const [sources, setSources] = useState(() => getModelSources())
   const [efforts, setEfforts] = useState(() => getPlatformEffort())
+  // Review round 2 (B-1): the two copies above are as old as the mount or this
+  // section's own last load, and the flag says nothing of what a load brought.
+  // A load sets the tiers and the efforts before it sets the flag
+  // (loadModelSources), so when the flag moves both are read again, in this
+  // same render: the section never draws the loaded words over stale copies
+  // ("You have not overridden anything…" while the store holds the person's
+  // own choice). React's "adjusting state when a prop changes" pattern: the
+  // flag's last value seen is kept, and React draws again at once, before
+  // anything is shown. userModelsLoaded.test.jsx.
+  const [loadedSeen, setLoadedSeen] = useState(sourcesLoaded)
+  if (loadedSeen !== sourcesLoaded) {
+    setLoadedSeen(sourcesLoaded)
+    setSources(getModelSources())
+    setEfforts(getPlatformEffort())
+  }
   const [loading, setLoading] = useState(false)
   const [busyKey, setBusyKey] = useState(null)
   const [rowError, setRowError] = useState({})
@@ -129,7 +147,7 @@ export default function UserModelsSection() {
       )}
 
       <p className="s-row-desc mb-4">
-        {!areModelSourcesLoaded()
+        {!sourcesLoaded
           // Distinguishing "nothing is set" from "nothing has loaded" matters:
           // both draw an identical screen, and only one of them is the truth.
           ? 'Loading your settings…'

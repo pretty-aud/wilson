@@ -517,6 +517,9 @@ about whether anything is meant to use it.
 matches only the declaration — the writer is spelled `setOtterContext`. That is
 how a first pass this session concluded, wrongly, that it was never written.
 
+F4 (2026-11-13): each write is a render of App. Since F4 that renders the shell
+and no page (the pages are under `React.memo`); before, it rendered every page.
+
 ### The companion prompt tells the model to emit links against a context block that does not exist
 
 **OBSERVED (2026-08-14, Phase 6.)** `COMPANION_PROMPT` (`prompts.js`) says:
@@ -1332,6 +1335,8 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| F8 (2026-11-13, wave 2 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f8-edge-shared-plumbing`) — the Edge Functions' shared plumbing: one envelope crypto, one bucket loader, the caller checks once, one raw-HTTP transport and host rule, every body read under a measured cap (413 past it), the master keys and the opened ticket key kept per isolate, one SigV4 key per batch; deployed to wilson-dev; two review rounds. | F8-01 to F8-19 (below, the F8 section). | F1-01's 28 known type errors to 1 (F1-01, lowered). F8-01 and F8-02, closed by F8 as the second merger (`8a0bdb4f`); F8-03 tried there and taken back (`6515a9d2`), open on purpose. |
+| Post-overhaul F4 (2026-11-13, wave 2; `po/f4-rerender-discipline` into `feat/post-overhaul-edit-versioning`) — re-render discipline, nothing new on the screen meant: the pet's state in `PetHost` under App, the agent's value memoized and its input apart, `React.memo` on the pages and the three tools' roots, R.A.B.B.I.T.'s state that moves on its own clock out of the provider's value (`state/rabbitLive.js`), the Assets tab's warnings from one index (rabbit C5), O.T.T.E.R.'s lesson body and reference views memoized, D.O.G.'s preview placeholders at module level and its parse kept; measured in the running app before and after (a minute of the pet 2,105.7 to 2,859.2 ms of drawing → 42.4 to 50.7 ms); the render spy `src/lib/renderSpy.js` and its pins; two review rounds on Opus 5.5, whose security defects (the pet's saves and chat reaching the next person's account or screen) and the five things F4 had made worse were fixed in the session; no migration, no SQL, no Edge Function | F4-01 to F4-03, F4-05 to F4-07, F4-09 to F4-13 (F4-04, the pet's chat kept for the next person, was found and fixed in the session; F4-08, the agent's conversation kept for the next person, was found in the session and fixed after its merge) | P1-16 (the preview's loop, `b151c20e`). Comment markers: 4 → 4. |
 | MO3 (M.O.T.H. Session 3, 2026-11-08; `po/moth3-tags`) — typed tags, relationships and workspace notes: migrations 0124 to 0129 on wilson-dev, the notes' tiers and trash, the `[[` and `#` pickers in R.A.B.B.I.T., M.O.T.H.'s typed-tag drawer, notes, tags and links in the graph and its record; two whole-session review rounds. | MO3-01 to MO3-12 (above, after MO2's list). | MO2-03 (links are saved: 0127, and the page's link drop), MO2-09, MO2-10, MO2-11, MO2-12 and MO2-18 (0124). |
 | MO2 (M.O.T.H. Session 2, 2026-11-07; `po/moth2-graph`) — the graph engine merged with its callers, migrations 0122 and 0123 on wilson-dev, the graph, glow, HUD and navigation; two whole-session review rounds. | MO2-01 to MO2-23 (above, after MO2a's list). | MO2a's R1-17, R1-18, R1-4, 5, 22, 52, R1-11, 23, R1-8, 24, R1-25, R1-13, R1-6, R1-3, R1-7, R1-32, R1-33, R1-34. |
 | MO1 (M.O.T.H. Session 1, 2026-11-02 to 2026-11-07; `po/moth1-foundations-9l5hbg`) — migrations 0107 to 0119 and 0121, the Edge Functions, the desktop's trash, moves and office-server routes, and the lazy Moth page; two whole-session review rounds. | MO1-01 to MO1-15 (below, at the end of this file). | The workspace channel's private rows and the write hops on `tasks` and `assets` (A-R1-04, A-R2-03), `files_delete`'s hop (C-R2-01), S4d-01, S4d-02: 0107 to 0109. OSP-01, OSP-07, S4c-12 for claimed keys: 0114, 0115 and the Edge Functions. S4b-06's first half and the receipts' residual 1: 0121, 0115. |
@@ -1559,7 +1564,6 @@ defines them; a row's "owner" is who acts first.
 - **P1-13 · O.T.T.E.R.'s duplicate-found dialog is unreachable** (`renderDuplicateModal`; nothing sets its state). INFERRED from the code; would settle it: an import of a course whose slug exists. From A4-9.
 - **P1-14 · "Import failed: …" is `window.alert`** (`Otter.jsx` `handleImportFile`). MEASURED. From A4-10.
 - **P1-15 · Two `window.confirm` left** (`TeamView.jsx:388` "Remove from project", `:693` "Remove from roster"). MEASURED (P1's grep audit: 2). W9 already ruled the conversion; behaviour, so not P1's visual close.
-- **P1-16 · The slide preview logs "Maximum update depth exceeded"** when the duplicate resolver previews (`LayoutVisualizer`, C4). MEASURED. Needs a C4 ruling. From A4-13.
 - **P1-17 · Opening a task template logs React's "unique key" warning** (`TaskTemplateManager` → `TemplateEditor`). MEASURED by V2's probe.
 - **Autoplay (R4-36).** MEASURED: the video preview starts playing when it opens (`VideoPreview.jsx:177`, `controls autoPlay`), with no reduced-motion path. Left under C1 by B4; plan §5 names it for this file.
 
@@ -3071,6 +3075,16 @@ not fix:
   reads), in one wave. At their merge neither branch's numbers need be
   right (F8's type can clear what F7 edits): `KNOWN` is what the merge
   commit's own run reads. Owner: for the controller to place.
+  **Lowered by F8 (2026-11-13, `9b0255c3`): 14 lines and 28 errors to ONE,
+  `ai-files/index.ts TS2739 1` (F7's file).** MEASURED on GitHub's runner
+  (run of `18d73eea`, check-run 131699657639: "1 known errors in 1 groups …
+  deno counted 1"). Of the 27 cleared, the shared client type (the guards'
+  client typed as `SupabaseClient & ReturnType<typeof createClient>`, F8-01)
+  cleared 25: the three guards' 3, `resolve-login`'s 1 and `storage-gc`'s 17
+  (3 + 1 + 17 = 21), and `admin-set-active`'s TS2769, `operator-ai-keys`'
+  TS2769 and `operator-workspaces`' two (4). Two one-line casts cleared the
+  other two, `admin-user-security`'s and `operator-ai-keys`' TS2352. The one
+  left is F7's to clear.
 
 ## F2 (2026-10-31, wave 1 of `docs/sessions/PLAN_WEEK_2026-11-04.md`)
 
@@ -4444,7 +4458,7 @@ Each stood against a checker told to refute it. R1 is round 1, R2 round 2 on the
   than cut the wrong words, and says nothing; the tag of a `#` pick is still put on. INFERRED (whole-session round 2);
   settle with two people in one shared note, one typing above the other's pick.
 
-## MO4 (2026-11-08, M.O.T.H. Session 4 on `po/moth4-boards`, in progress) — left open
+## MO4 (2026-11-08, M.O.T.H. Session 4 on `po/moth4-boards`, merged 2026-11-12) — left open
 
 From the review round of 0130 to 0133 (12 reviewers, Opus 5.5; each finding read against the code). The rest were
 fixed in `e3730b7c`.
@@ -4893,3 +4907,592 @@ alone, so it is INFERRED by reading.
   the fixtures do the same; but 0132's write policy on `moth:board-live:` still lets a reader send an event of that
   name to every window there. Fix shape: a new migration narrowing `moth_board_live_write` so that no client may send
   an event named AUDIENCE on the live channel, with a suite case.
+
+## The twenty-eighth beta merge (the controller, 2026-11-12) — recorded
+
+Read on the merge commit `cc976d53` and on staging while 0107 to 0136 went in. Neither is fixed; the second needs
+no fix in the product.
+
+- **B28-01 · The live-board browser test went red once when two CI runs used wilson-dev at the same time.** OBSERVED
+  once, not reproduced. The push and the pull request each started a `Playwright auth (wilson-dev)` run of the same
+  commit three seconds apart. One failed `tests/e2e/boards.spec.ts:177` (a board live between two windows): on the
+  first try at line 213 (the canvas not visible in 30 s; that board took 31.9 s to be made), on the retry at line 335
+  (the editor still open after 30 s). The other run passed, and so did the other fourteen checks. Read as timing
+  under double load on one database; nobody has shown that the product is at fault, or that it is not. Not re-run.
+  Fix shape: keep two runs off wilson-dev at once (a concurrency group on that job), or give this spec's waits more
+  room, then run it twice at once to prove the change.
+- **B28-02 · Suite 17's #18 fails on a database with real rows on any day when edit-history rows have passed the
+  90-day line since the nightly purge.** MEASURED on staging, 2026-11-13 00:31 UTC: the test backdates one row and
+  expects `purge_edit_history()` to remove 1; it removed 5, because five real rows of 2026-08-14 were already past
+  the line (the 04:43 UTC job had succeeded on each of the last four nights and takes them at its next run). The
+  purge is right and the test's count is not its own. `docs/PRODUCTION_RUNBOOK.md` now names it with suite 74's #34
+  and #35 and suite 25's #13 as a healthy red. Fix shape: have the test count only the row it backdated.
+
+## F7 (2026-11-13, wave 2's database per-row work on `po/f7-database-per-row-work`; 0137, suite 139) — left open
+
+What 0137 and the three functions left, each with its measurement. Round 1 (nine reviewers) found two blockers, one
+of them a security finding, both fixed before anything reached dev. Round 2 (five reviewers, after the apply) found
+no blocker and nothing of security; what it changed is in the next commit (storage-gc's orphan scan paged, the tests),
+and what both rounds recorded is here. 0137 is applied on dev, so a fault in it is fixed by a later migration, never by
+editing it; none needed one.
+
+- **F7-01 · auth_events_insert still asks has_active_membership per row.** MEASURED on dev's live text: its WITH CHECK
+  is `... AND ((workspace_id IS NULL) OR has_active_membership(workspace_id))`, with no pin to the claim anywhere, so
+  the sub-select would change which company a member may name. One call per inserted sign-in event: negligible.
+  Left by design (0137's header).
+- **F7-02 · workspace_members' two read policies still ask it per row.** MEASURED (CI on `11256e74`: suites 14, 16, 24,
+  38 and 67 red with 42P17): `ws_members_self_update`'s WITH CHECK reads workspace_members by a sub-query, and the
+  row-security rewriter refuses to expand a table's policies a second time on one path once any of them holds a
+  sub-query; with the sub-select in `ws_members_select` and `ws_members_admin_write` every client UPDATE of a member
+  row recursed. A company's members are few rows. Fix shape: express self_update's "a member's row keeps its company"
+  without a sub-query (a trigger, or a definer helper), then restate the two with the next migration and its probe.
+- **F7-03 · Other helpers still run per row.** MEASURED on dev's 283 live policies: `can_write_project` in 70 policies
+  on 21 tables, `can_access_project_money` 34 on 9, `current_app_role` 32 on 15, `can_edit_shot_lists` 22 on 8,
+  `can_access_project_legal` 14 on 4, `is_live_workspace_admin` 12 on 8, `moth_can_read_target` 9 on 6,
+  `is_platform_operator` 5 on 4, `two_factor_satisfied` 5 on 3; all definers but `current_app_role`. Also
+  `fn_try_uuid` in 26 (22 on `storage.objects`, 4 on `realtime.messages`), plpgsql with an EXCEPTION block, so a
+  sub-transaction per row: the cost 0137 took out of the meter, still paid on storage and channel reads;
+  `rabbit_money_segment` 19 on 1, `moth_can_write_target` 8 on 3, `rabbit_legal_segment` 8 on 1,
+  `otter_is_course_owner` 7 on 3. Most take the row's project and cannot be lifted out of the row.
+  `is_platform_operator()` and `two_factor_satisfied()` (no argument, STABLE definers) and
+  `is_live_workspace_admin(workspace_id)` beside the workspace pin could take the same once-per-statement form, under
+  0137's proof and its recursion probe. Counted, not timed: dev is too small to show their cost. Measurement that
+  would: EXPLAIN (ANALYZE) of a storage listing and of a project's tasks read on staging's sizes, as a client, rolled
+  back, with the helper's calls counted in the plan's filters.
+- **F7-04 · storage-gc's round trips that stay one per row.** INFERRED by the design round and round 1: the queue's
+  status stamps (grouped, a run killed by the 150 s clock between a removal and its stamp would leave a disposal with
+  no certificate, then stamped `missing`), `remove()` with `certify()` per orphan (a batch answers one error, and a
+  kill would lose up to a batch of certificates), the projects and file_events reads per folder of the orphan scan
+  (groupable only with an exact per-folder fallback), and the twin question per old shot object. Measurement owed: the
+  stamps' share of a real run's time.
+- **F7-05 · The meter's arm 1b still reads both buckets of every company on every upload.** MEASURED on dev's plan
+  (126 objects at 04:24 UTC, none spelled otherwise): 0137 cut the cost per object from fn_try_uuid's sub-transaction
+  (about 0.2 ms) to a regular expression (about 5 µs), but arm 1b is still a scan of every object in rabbit-files and
+  rabbit-thumbnails. At dev's size the planner scans for arm 1a too (126 objects read once per project; the index
+  serves it only with seq scans off): the 26.7 to 2.8 ms is the sub-transactions gone. Making 1b read less needs an
+  index on `storage.objects` (a table of the storage schema): her decision, walkthrough 98's first question.
+  Measurement that settles whether to ask: the meter's EXPLAIN on staging's object count.
+- **F7-06 · 0137's own meter check runs the old meter for every company.** INFERRED: about 0.2 ms per object of both
+  buckets, times the number of companies, before any lock that makes anyone wait (it holds ACCESS SHARE only). Read the
+  rehearsal's time on staging and production before the apply (the runbook's row says so).
+- **F7-07 · rekey_file_body's picture-only phase sets a thumbnail_url without asking 0115's claim.** INFERRED by
+  round 1 (r1-gc, finding 4) from 0133: every other writer of a key consults `file_key_admissible`'s step 5, which
+  holds a queued key against a new row. storage-gc now reads and acts on 50 queue rows at a time, so the window is one
+  slice. Fix shape: the same step 5 for `p_to_thumb` in a later migration.
+- **F7-08 · A bin poster's path may hold any character but `//`, `..` and a backslash.** MEASURED by reading 0091's
+  `bin_files_poster_path_shape_chk`. It is how a key holding `")` could reach storage-gc's queue (round 1's security
+  finding, fixed in the drain: lists are quoted and escaped, and any key that is not plain is asked alone). Fix shape:
+  give the poster column `file_key_shape_ok`'s segment rule.
+- **F7-09 · No provider filter is proved for storage-gc's guard, so its read is a scan of `files`.** MEASURED on dev
+  (both indexes on the columns are partial on the provider; with seq scans off the unfiltered read still scans): a
+  network_share row can never name a bucket key (0117's CHECKs), but nothing in the schema stops a google_drive row
+  from naming one. The read is batched: MEASURED in the tests (round 2), a full page of 500 rows (250 bodies and their
+  250 pictures, typical keys) is 20 reads of `files` when nothing is named and 40 when everything is, where it was
+  500. **The orphan scan's two lookups keep the filter** (`referencedPaths` and the twin question `rowNamesTwin` ask
+  only `supabase`, `s3` and `local_server` rows, as before F7): so a google_drive row naming a `rabbit-files` key does
+  not keep it from the orphan scan, though the drain's guard asks every provider (a network_share row cannot name one,
+  by 0117's CHECKs). Kept on purpose: without the filter the twin question's LIKE is a scan of `files` for every old
+  object, which puts the 150 s deadline at risk. Fix shape, hers (walkthrough 98's second question): a CHECK retiring
+  google_drive (`storage_provider <> 'google_drive'`, after counting the rows on each environment: 0 on dev), which
+  would make the filter provable everywhere, the partial indexes usable and the orphan scan's filter complete.
+- **F7-10 · An event row naming a file id over about 2.7 kB can no longer be inserted, and a long one can stop the
+  apply.** INFERRED (round 1, and round 2 by reading): 0137's `app_events_file_id_idx` indexes `context->>'file_id'`
+  of every row, and a btree entry holds at most about 2,704 bytes, so a row whose file id is incompressible and longer
+  fails with 54000 where it was accepted before (0021's CHECK lets `context` be up to 8,000 characters, and any active
+  member may insert into their own company's app_events). No writer of this product names such an id: ai-files and
+  operator-ai-files accept only `file_` and 8 to 96 letters and digits, and no database function puts a client's file
+  id into app_events (dev's longest: 101 characters). The same member can make a staging or production apply, or a
+  re-run, refuse by first writing a file id over 1,000 bytes: the pre-flight refuses rather than build midway (the
+  runbook's row: read `longest_id` just before the apply; the 90-day purge removes such a row). The check is not
+  atomic with the build either (SHARE is taken at §4, after §3): a long row written between them aborts the build, a
+  safe refusal.
+- **F7-11 · CI's storage schema was never listed.** INFERRED by round 1 (r1-meter): whether arm 1a's range is served
+  by an index on CI's local stack is not known (correct either way). On dev it is served only with seq scans off, by
+  `objects_bucket_id_name_version_key` (F7-05).
+- **F7-12 · Two pgTAP pins prove less than their words since the sub-select also names `current_workspace_id()`.**
+  Fixed in suites 99 (test 4) and 101 (test 5), which now look for the pin itself. MEASURED by reading in round 2: no
+  other suite finds the pin by a bare `current_workspace_id()` substring (suite 103:166 reads a column's default;
+  suites 90, 95 and 100 pin whole texts). Suite 01:129 is in F7-18. Closed.
+- **F7-13 · The AI file list's main read (readUploadRows) takes a generic plan from a connection's sixth call.**
+  MEASURED on dev, 2026-11-13 04:52 UTC, one rolled-back session: the read prepared as PostgREST sends it (the JSON
+  key and every value as parameters), `plan_cache_mode` auto, as service_role, eight runs. The first five are custom
+  plans on `app_events_ai_files_ws_id_idx`, 0.75 ms; from the sixth the generic plan, a walk of `app_events_pkey`
+  with a filter: 4.3 ms for dev's busiest company (2,855 AI rows), 6.9 ms for a company with none (all 14,294 rows
+  walked). readCertifiedGone (2.2 to 2.9 ms) and readAbsentNoted (1.3 to 1.5 ms) kept custom plans in all nine runs.
+  MEASURED whole, 05:11 and 05:15 UTC on a quiet dev: the statement as sent, its JSON reply included, twelve runs, and
+  the old shape timed the same way (the two indexes and the statistics dropped inside a rolled-back transaction):
+  readUploadRows 5.1 ms for the first five and 8.6 ms after, the old shape 8.9 and 8.5; readCertifiedGone 5.7 against
+  6.0; readAbsentNoted 1.85 against 1.85. So at dev's size the indexes save about 4 ms on a connection's first five
+  upload reads and nothing after; the 44 ms live mean before 0137 was CI's load on dev and stale statistics. Whether
+  the two indexes earn their write cost (F7-17) is part of the same later decision. A generic plan cannot match an index on `context->>'tool'` when the key
+  is a parameter, and PostgREST keeps its prepared statements for a connection's life, so a pooled connection's
+  steady state is the generic plan, which grows with `app_events`. Options for a later migration, the controller's
+  and her call (walkthrough 98's third question): an index on `app_events (workspace_id, code, id)` that a generic
+  plan can use, or `plan_cache_mode = force_custom_plan` for service_role (INFERRED by round 2: PostgREST applies the
+  role's settings per request, so only the Edge Functions' service-role reads would change). Measurement that
+  settles it: the same eight runs on staging's `app_events`.
+- **F7-14 · A slow spell on dev, 04:30 to 04:50 UTC, to be read again.** MEASURED from dev's statement statistics,
+  04:30:47 to 04:49:57 UTC: readUploadRows ran 15 more times at a mean of 1,183 ms, readCertifiedGone 5 at 48.7 ms,
+  readAbsentNoted 5 at 80.7 ms. At 04:52 nothing was running on `app_events` and no lock was held on it; the worst plan
+  measured (F7-13) is 7 ms, and a cold first touch cost 95 to 200 ms. Read as dev's small server being slow in that
+  window (a cold cache or its disk), not a plan. READ AGAIN, 04:49:57 to 05:04:22 UTC (CI's smoke and Playwright on
+  `c23648dd` ran on dev): readUploadRows 60 calls at a mean of 51 ms, readCertifiedGone and readAbsentNoted 20 each at
+  11 ms; on a quiet dev at 05:11 the whole statements took 8.6, 5.7 and 1.8 ms. The live means follow CI's load on
+  dev's small server. Left open: a statement's first run on a fresh connection cost 46 to 270 ms in one timing loop,
+  while EXPLAIN shows under 1 ms of planning and every page already in memory (05:12 UTC); read as cold data, not
+  settled.
+- **F7-15 · 0137's own comments that are wrong (never edited: the file is applied).** MEASURED by reading the file:
+  line 15 says "207 calls" for the row's-column form; with `ws_members_select` and both clauses of
+  `ws_members_admin_write` left alone it restates 204 of them, plus notes_select's 1 and the 13 bare calls: 218, the
+  number §2 checks. Line 178 says "the one exception"; there are three policies, four clauses. Lines 1669 to 1671 say
+  each probe statement carries a WHERE or a RETURNING "so the read policies are collected too": true of the UPDATE
+  only (the DELETE's and the INSERT's `RETURNING 1` name no column, so they ask for no read right); the coverage is
+  still complete, and the handbook's §4.4 has the reasoning. Lines 63 and 64 say `app_events`' inserts wait "while" the
+  indexes are built; they wait from §4 to the commit (the runbook's row says so). Line 70 says the search_path is the
+  caller's again at the end: true, and `lock_timeout` (5 s) and the setting `f7.caller_search_path` stay set to the
+  transaction's end (harmless; a chained rehearsal's later files inherit them).
+- **F7-16 · Two small edges, grouped.** (a) INFERRED by round 2 (0137:1720 to 1723): the recursion probe re-raises only
+  `lock_not_available` and `query_canceled`, so a deadlock (40P01) on a statement kind outside the must-succeed rule
+  (FOR UPDATE, DELETE and INSERT, anything as anon, every table outside `public`, `storage.objects` included) counts
+  as a pass with nothing proven. Near impossible: the probe takes only weak locks. Fix shape, in a later file's probe:
+  re-raise `deadlock_detected`, and require success on `storage.objects` too, which holds 12 of the restated clauses.
+  (b) Older than F7, INFERRED by round 1: `rabbit_object_incoming_bytes` (0057:192) raises "bigint out of range" for a
+  size of 19 or more digits, though its comment says it never raises; the old and the new meter raise alike, and no
+  member path to such metadata was found (an upload's length is checked against the bucket's limit first).
+- **F7-17 · The file-id index holds an entry for every event row, most of them empty.** INFERRED by round 2: about 80%
+  of dev's `app_events` rows carry no `file_id` (2,831 AI rows of 14,177 before 0137), so each of those inserts adds an
+  empty entry. A partial index `WHERE (context->>'file_id') IS NOT NULL` would serve both naming reads (in a custom
+  plan an `= ANY` over the given ids implies it), and readAbsentNoted, which names no file id, could never take it, so
+  round 1's trap (a partial index taken for its predicate alone) stays shut. Small: take it only in a later migration
+  that touches this index anyway.
+- **F7-18 · Test notes, grouped (round 2).** Each is a test that proves less than its words; none hides a fault found.
+  `src/cloud/edgeSweeps.test.js`: ai-files' "after equals what the list then answers" compares against the
+  member-scoped list (no `workspace_members` row is planted, so the list answers `scope: 'own'`; every planted upload
+  is the admin's, so the two agree, and a sweep whose `after` was cut to the caller's own uploads would pass too: plant
+  a live admin and a second member's upload, and assert `scope === 'workspace'`); the two "says the same" cases
+  (ai-files' `remaining` against `after.count`, the operator's `remaining_attributed` against `left_alone`) compare
+  fields filled from one variable, so neither can go red, and the first case of each block is what proves the totals.
+  Suite 139: its recursion probe (`t139_recursion`, 139:85 to 116), the guard that lasts after 0137, is weaker than
+  0137's (as authenticated only, four statements with no WHERE or RETURNING, and no check that each statement was
+  rewritten, so a table whose PREPAREs all fail for another reason reads "no recursion"); #28, #29 and #55 (and #31's
+  exact sum) count everything company `11111111` can see, so they hold only while dev's fixture company has no real
+  rows; #26 is held by two restated policies at once (`tasks_update`'s own sub-select and the projects hop through
+  `projects_select`), so it goes red only if both break. Suite 01:129 pins the sub-select without the
+  `(workspace_id = current_workspace_id())` pin that suites 99 and 101 added (behaviour still held by suite 115:1815
+  and :1826). The brief's item 4 controls at the migration's level (a policy put back per row fails the
+  post-condition; a guard removed fails the comparison) exist only in the session's scratch files and ran against
+  `bcc8b131`'s file: the comparison is unchanged since, by diff, but the exception plant was proven against the one-row
+  check `6bdd30f2` replaced, and no plant restates `ws_members_select` or `ws_members_admin_write` as text. The
+  hand-off says which file each plant ran against.
+
+## F8 (2026-11-13, wave 2 of `docs/sessions/PLAN_WEEK_2026-11-04.md`) — left open
+
+The Edge Functions' shared plumbing (the session log's F8 row; `docs/sessions/handoffs/po-f8-2026-11-13.md`). What
+the second merger owes by the brief's line with F7, what F8 met outside its list, and what its review rounds
+recorded out of scope:
+
+- ~~**F8-01 · The guards type their client as an intersection only because one of F7's files names the old alias.**~~
+  **CLOSED by the second merger (F8, 2026-11-13; `8a0bdb4f`):** `_shared/aiFilesUpstream.ts` names `ServiceClient` (a
+  type-only import from `adminGuard.ts`), so `GuardClient = ServiceClient` and `serviceClient()` has no cast. MEASURED
+  with the local stand-in on the merged tree before and after: one group, `ai-files/index.ts TS2739 1` (beside the
+  stand-in's own `ai-proxy` line), no group rising; TS2739 did not clear, so `KNOWN` keeps that one line. CI's deno
+  check on the pushed branch is the measurement. The entry as it stood:
+  MEASURED (the local stand-in, then CI's deno check). `_shared/adminGuard.ts` types the guards' `admin` as
+  `GuardClient = SupabaseClient & ReturnType<typeof createClient>`, the true client first, because
+  `_shared/aiFilesUpstream.ts:25` (F7's) still names `ReturnType<typeof createClient>`; the plain true type in the
+  guards adds 11 errors to `ai-files` and 2 to `operator-ai-files` (the design round's measurement). Fix shape, the
+  second merger's: that one line to `ServiceClient`, then `GuardClient = ServiceClient` and the cast in
+  `serviceClient()` dropped; `KNOWN` read from CI on the merged tree.
+- ~~**F8-02 · storage-gc still loads a company's bucket its own way.**~~ **CLOSED by the second merger (F8,
+  2026-11-13; `8a0bdb4f`):** the drain's `s3Drain()` loads through `loadWorkspaceBucket(ctx.admin, ctx.workspaceId,
+  { requireByos: false, preflightCrypto: false })`, each refusal in storage-gc's own `fail(…)` sentence, the memo kept;
+  `supabaseHost()` for its own-host check; one `makeS3Presigner` a run, made inside the memo. MEASURED through the real
+  handler (`src/cloud/edgeGcBucket.test.js`, 34 cases green on the merge `a3d2370c` before a line moved, and after):
+  every refusal's words on every row, the bucket's answers, the order of two faults, reads that throw (500
+  `gc_failed`, WIL-3004), the counts and WIL-3003, the URLs byte for byte `presignS3Request`'s. Three rows take 7 HMACs
+  where they took 15. One difference, in statements only: a refused configuration now also reads the secret row (never
+  opened). The entry as it stood: `storage-gc/index.ts:238-298` (F7's file) is
+  the fourth copy the review's A1 named; the brief leaves it to the second merger. Fix shape:
+  `loadWorkspaceBucket(ctx.admin, ctx.workspaceId, { requireByos: false, preflightCrypto: false })` with its own
+  `fail(…)` sentences, `supabaseHost()` for its `:288`, and `makeS3Presigner` for the drain (up to 500 rows a run).
+- **F8-03 · ai-files authenticates twice for a sweep and re-reads the membership.** `ai-files/index.ts:407` then
+  `:429` (two GoTrue calls, two membership reads), and `isLiveAdmin` (`:341-349`, called at `:542`) re-reads the row
+  the member guard just read (the review's B2). **Tried by the second merger and taken back (F8, 2026-11-13).**
+  `8a0bdb4f` had the member guard hand its GoTrue answer and its read of the row to the admin guard and to
+  `isLiveAdmin` (a sweep's round trips 6 → 4, a list's 5 → 4). Review round 3 found that this moved the admin check
+  before the body: the member guard runs before the body is read (`:418`), which the client sends as slowly as it
+  likes, and the admin guard ran after it. So an admin demoted, deactivated or signed out while the DELETE body was
+  still uploading got the sweep (200 with its certificates, where it was 403, 403 and 401), and the list's scope came
+  from the read made before its two limiters (a role change or a failed read in between answered `workspace`, a read
+  that throws 200, where it was `own`, `own` and 502 `list_failed`). `6515a9d2` took it back: `ai-files/index.ts` is
+  `a3d2370c`'s again and the guards `b38d4e75`'s (but for F8-01's type), the timing pinned in
+  `src/cloud/edgeAiFilesCaller.test.js` section F (red against `4ab4260c`, green after). **The second membership read
+  and the second GoTrue call are deliberate in time**: each is the check made after the work it guards. A safe saving
+  would re-read the row after the body and reuse only the GoTrue answer (one call fewer a sweep); that still lets a
+  sign-out mid-upload through, so it is left as it is.
+- **F8-04 · The host rule has two words for a host that is not a DNS name.** `checkPublicHost`
+  (`_shared/gatewayReach.ts`) answers `not_a_name`; the reach check words it `malformed`, the S3 vet `local_name`, as
+  each did before (`localhost` is one: the name pattern needs a dot). Each is read by its own page and tests, so both
+  stay.
+- **F8-05 · A JSON `null` body makes thirteen of the fourteen body-reading functions throw.** MEASURED
+  (`src/cloud/edgeBodies.test.js`; on wilson-dev 2026-11-13 05:55 UTC, `admin-reset-password` with the body `null`:
+  500, `text/plain` "Internal Server Error", no CORS headers, so a browser reads it as a network error). Twelve throw
+  on the line after the read (`null.username` and the like), issue-session after its membership read; resolve-login
+  alone reads it as `{}`. The same for resolve-login's `{ "username": 5 }` or a non-string `workspace_slug`
+  (`:323-324`), after the limiter has counted it: no floor, not the uniform body. All as at `a71cd144`: F8 is a
+  refactor and kept them. No app sends either. Fix shape: one object check per function, each a change of answer.
+- **F8-06 · The clients' message tables have no `too_large`.** An admin, operator or AI request refused for size
+  reads "Request failed (413)." or "AI request failed (413)." (`src/cloud/adminApi.js:77`, `src/admin/operatorApi.js`,
+  `src/cloud/aiProxy.js:30-57,130`); storage shows the `detail`. No app request comes near a cap (the design round and
+  review round 1 re-read every caller). For a session in `src/`.
+- **F8-07 · A client made with no `auth` options starts a refresh timer that is never stopped.** INFERRED from
+  auth-js 2.65.0 (the library supabase-js 2.45.4 ships): outside a browser, `GoTrueClient` starts a 30 s auto-refresh
+  ticker. The guards', issue-session's, resolve-login's and the two storage functions' clients are made that way, as
+  before F8, and so are gateway-reach's and gateway-ticket's service clients, which come from the guards. Only
+  gateway-reach's and gateway-ticket's CALLER clients and gatewayGuard's service client (gateway-enrol, gateway-sync,
+  gateway-events) are quiet. No answer shows it. A decision for the controller: quiet clients
+  everywhere, later or never.
+- **F8-08 · Past 64 MiB the platform answers for the function (past 2 MiB for gateway-enrol).** MEASURED on
+  wilson-dev (2026-11-13): before F8 the old ai-proxy read 1 to 64 MiB whole (200, 04:45 UTC), so the platform sets no
+  limit before the function. What the 546s of 2026-08-11 were is INFERRED, and the two readings disagree: from that
+  64 MiB read, that they came from forwarding large bodies upstream; but the record of that day
+  (`src/cloud/aiProxy.js:43-55`) says the worker died handling the request body, before it reached Anthropic. Neither
+  is measured. With F8 a body past its cap is read through and thrown away up
+  to `DRAIN_MAX_BYTES` (64 MiB) and answered 413 (1 MiB and 8 MiB to storage-presign in 0.4 and 1.1 s; 35 MiB to
+  ai-proxy in 4.1 s; 06:38 UTC); a 70 MiB body is cut at 64 MiB and the platform answered 504 after 168 s. Without the
+  read-through a 1 MiB body got no answer in 90 s (06:10 UTC): the relay answers only after the upload is received.
+  gateway-enrol, whose read runs before any check and before anyone is authenticated, drains only to
+  `PRE_AUTH_DRAIN_MAX_BYTES` (2 MiB; no gateway sends more than about 20 KiB) and is cut there, its answer unchanged
+  (review round 2). Past 2 MiB the platform answers for it, as for the 70 MiB body (INFERRED: not measured at 2 MiB).
+  No app request or gateway is near any of these numbers.
+- **F8-09 · Three gateway functions answer an over-size body 400, not 413.** gateway-reach (4 KiB), gateway-ticket
+  (16 KiB) and gateway-enrol (64 KiB) read under a cap and answer the empty result with their shape refusal
+  (`gateway-reach/index.ts:91-94`, `gateway-ticket/index.ts:81-84`, `gateway-enrol/index.ts:57-71`); gateway-sync,
+  gateway-events and storage-read-urls answer 413. As before F8. Fix shape: compare `length` as gateway-sync does.
+- **F8-10 · A malformed bucket master secret reads as configured.** `storageSecretCryptoConfigured()` is true for any
+  non-empty value, so storage-presign and storage-read-urls answer 500 `secret_unusable` for a malformed one, not 503
+  `crypto_unavailable`. As before.
+- **F8-11 · The admin and member guards read a failed membership lookup as "no row".** `liveMembership`
+  (`_shared/adminGuard.ts`) hands the read's error back unjudged and both guards answer 403 `forbidden` for it, not
+  503; the operator guard answers 503 for its own row read. As before F8 (pinned in `src/cloud/edgeGuards.test.js`);
+  it fails closed either way.
+- **F8-12 · storage-secret tells an endpoint refusal three ways.** A config the signer cannot read answers 409 with
+  its bare sentence in `set` (no "the secret was not saved", no WIL-3007 row) and in `probe` (no `stage`); a resolved
+  private address answers with both. `set` seals the secret before it reads the config (a malformed master is 500
+  `encrypt_failed` before any read); `probe` never asks whether the master is set (409 or 500, never 503). As before;
+  pinned in `src/cloud/edgeStorage.test.js`.
+- **F8-13 · Small things gateway-ticket does, pinned as they were.** 51 copies of one clip id are refused (the cap
+  counts before duplicates fold, `_shared/gatewayShapes.ts:387`); a gateway whose version is null or unreadable passes
+  the hard floor (`compareVersions` answers 0); a master secret that is not 32 bytes is "will not open" (the key read
+  again, then 503 `key_unavailable`), not 503 `crypto_unavailable`; with no master and no key yet, a key pair is
+  generated before the seal fails (nothing is stored).
+- **F8-14 · Stale words in two headers.** `_shared/readUrls.ts:27-28` and `:143` describe a
+  `can_presign_project_read` check the code no longer makes (MO1 moved the decision to the row);
+  `_shared/rateLimit.ts:31` says "the eight authenticated callers" (16 calls in 13 functions are open by default).
+  Comments only. And one key that says more than it needs: `makeS3Presigner`'s cache key (`_shared/s3Presign.ts`)
+  holds the region beside the day, and without it nothing would change, since a presigner is made for one bucket and
+  always signs for that bucket's region (review round 2, T1).
+- **F8-15 · `src/cloud/aiFiles.test.js` leaks `fetch` between tests.** MEASURED by review round 1: in one
+  non-isolated worker with shuffle seed 11, 13 of its tests fail; the project's default isolated run is unaffected.
+  Not F8's file.
+- **F8-16 · The own-host check skips itself when `SUPABASE_URL` is malformed.** `supabaseHost()`
+  (`_shared/gatewayReachRun.ts`), which storage-presign and storage-secret now use for the S3 vet, answers `undefined`
+  for an empty or malformed `SUPABASE_URL`, where the old inline `new URL(…)` threw; the `*.supabase.(co|in|net|com)`
+  rule still applies. Unreachable: the guard's client needs the same URL first (review round 1, INFERRED). The same
+  since the second merger for storage-gc (`8a0bdb4f`): its drain's `storage-gc/index.ts:403` hands the S3 vet
+  `supabaseHost()`, so an empty or malformed `SUPABASE_URL` skips the own-host check where the old inline
+  `new URL(…)` threw and the run answered 500 `gc_failed`. Unreachable there too: the guard's GoTrue call needs the
+  URL before the drain is reached (review round 3, INFERRED).
+- **F8-17 · The harness's membership fake accepts a read with no workspace filter.** `seatCaller`
+  (`src/cloud/edgeHarness.js`) answers a `workspace_members` read that names the user but no workspace as a hit, so
+  under it a membership read that lost its workspace filter still seats the caller: `edgeStorage.test.js`,
+  `edgeBodies.test.js` and `edgeAiProxy.test.js` would not see that regression. `edgeGuards.test.js` pins each
+  guard's filters and catches a dropped one. VERIFIED by a mutant (review round 2, "whole").
+- **F8-18 · A body of exactly 64 MiB is cancelled after its last byte, not read to its end.** The drain stops once
+  it has counted `DRAIN_MAX_BYTES` and cancels the stream, so a body of exactly 64 MiB, or one that crosses 64 MiB in
+  its last chunk, is cancelled after its last byte instead of being read to its end (gateway-enrol's the same at
+  2 MiB since review round 2). VERIFIED by review round 2 ("drain"); whether the relay then answers is not measured.
+  Only bodies of 64 MiB and up (2 MiB and up at gateway-enrol).
+- **F8-19 · One test counts a getter, not bytes read.**
+  `src/tools/rabbit_v0.1.0/storage/storagePresignBoundary.test.js:693-695` counts reads of the request's `body`
+  getter, not bytes read, so it would pass a reader that took the stream and refused a declared length without
+  reading it. `edgeBodies.test.js` and `edgeBodyReader.test.js` count the bytes and catch that. VERIFIED (review round
+  2).
+
+## F4 (2026-11-13, wave 2 of `docs/sessions/PLAN_WEEK_2026-11-04.md`) — left open
+
+Re-render discipline (`po/f4-rerender-discipline`; brief `docs/sessions/briefs/po-f4-rerender-discipline.md`).
+What F4 met outside its list, what its measurements left, and what its two review rounds recorded. None is fixed.
+Review round 1 (six reviewers, Opus 5.5): two security defects and the five the round found F4 had made worse
+were fixed in the session, the five by her answer *"Fix them now (Recommended)"* (2026-11-13). Review round 2
+(five reviewers, Opus 5.5) found the first security fix incomplete (a save queued behind one in flight still
+reached the next person's account, and the pet's chat reached them by three other paths) and two of the five
+half done (Settings' Models tab drew the loaded words over stale copies; the open lesson was parsed again at
+every change of page): those were fixed in the session too, the first as security, the two as the rest of her
+answer. F4-08, the agent's own conversation kept for the next person, was fixed after the session's merge at her
+word *"Yes, fix it here"* (2026-11-13). What is below was left.
+
+- **F4-01 · Two pet pictures draw repeated React keys.** MEASURED in the running app (every pet render of an
+  otter: *"Encountered two children with the same key"*, the key `o14_13`) and while reading the sprites: each
+  sprite keys a pixel by its place (`src/components/sprites/index.jsx:98`, `` key={`o${x}_${y}`} ``) and the otter
+  and the monkey (`mk2_1`) paint a place twice. React may then drop or keep the wrong pixel on an update. Before F4
+  too. Fix shape: paint each place once, or key by the call's index.
+- **F4-02 · In the pet's agent mode the Send button sends nothing.** MEASURED in the running app before F4 and
+  unchanged by it: the button is `onClick={activeOnSend}` (`src/components/PetCompanion.jsx:226`), which hands the
+  click event to `sendAgentMessage(overrideInput)` (`src/agent/AgentProvider.jsx:263`); `overrideInput ||
+  agentInputRef.current` is the event, and *"currentInput.trim is not a function"* is an unhandled rejection. Enter
+  sends. Fix shape: `onClick={() => activeOnSend()}`.
+- **F4-03 · Day-scale words drawn from the clock move only when their component draws.** INFERRED by reading.
+  Today's date and the days left in R.A.B.B.I.T. (`views/budget/ClientViewTab.jsx:216`,
+  `components/MilestoneTrashModal.jsx:46`) and M.O.T.H. (`components/MothTrashView.jsx:14`, `MothTimeSlider.jsx:14`)
+  are computed from `Date.now()` while drawing. Before F4 a live pet's ticks drew every page and these with them; a
+  page left open across midnight now keeps yesterday's word. The minutes-and-hours words (the Admin terminal's,
+  O.T.T.E.R.'s requests) were fixed in the session: they read `lib/minuteClock.js`. Fix shape: the same clock.
+- **F4-05 · A change to the project open in R.A.B.B.I.T. is a new value for every reader of the provider.** MEASURED
+  (rabbit C1's other half; F4 took the state that moves on its own clock out of the value, `state/rabbitLive.js`):
+  one task renamed on the Assets tab is one commit in which all seven readers mounted there run, 574 component
+  renders (`state/volatileState.rerender.test.jsx`, pinned at that number so it moves with the code); in the running
+  app (development build, the Assets tab open, every page entered) a new value with nothing on the tab changed drew
+  17 readers and 2,237 components in 119 to 123 ms. Not only a write makes one (review round 2, E-1, by
+  reading; F4's commit `f7b20e87` said a write): the Bins tab's gateway refresh, every 60 s while the tab is open
+  in a company with gateways (`views/BinsView.jsx:347`), runs `discover` (`adapters/gatewayBins.js:248`), which
+  calls its `onChange` whatever it found, and the provider's handler (`gatewayChangedRef`, `RabbitProvider.jsx:6700`)
+  sets the bundle's `binFiles` and `binsInfo` with `ticketsRev` one more: a new value with nothing written, and
+  again at each batch of tickets (a hover on a tile). Before F4 too. Fix shape: split the value by what changes
+  together (the bundle's slices, the views, the actions), or a store read with selectors; and set nothing when
+  the gateways' state is unchanged.
+- **F4-06 · `NotesView.review.test.jsx` went red once under load.** OBSERVED once, not reproduced: *"a note moved to
+  the trash elsewhere: said in words, the editor locks, and no save is tried again"* read `ed.isEditable` true just
+  after the words appeared (line 177), in a run of 108 files on four workers; alone it passed three runs of three.
+  It reads nothing F4 changed. Fix shape: wait for the lock, not for the words.
+- **F4-07 · A link in the pet's chat goes through the first page's navigation.** INFERRED by reading (review round
+  1): `handleCompanionNavLink` (`src/App.jsx`, the pet's host) has `[]` as its deps, so it keeps the first render's
+  `navigateTo`, whose `currentPage` is the page the app opened on. On R.A.B.B.I.T. with an unsaved edit a link in
+  a chat reply skips the "leave with an unsaved edit?" question; on O.T.T.E.R. a link to O.T.T.E.R. replays the
+  2.2 s transition and, on the web, pushes a second history entry. The same before F4 (the handler was App's, with
+  the same deps). Fix shape: read `navigateTo` through a ref.
+- **F4-09 · D.O.G.'s Prompts tab shows the models as they were when D.O.G. last drew.** INFERRED by reading
+  (review round 2, B-3): `src/components/settings/ModelPicker.jsx:61` and `:65` read `modelFor()` and
+  `defaultModelFor()` while drawing, and D.O.G. is under `React.memo` since F4 (`e3e5efb1`). A load of the tiers
+  that lands while the tab is open (App's, when an offline launch's connection comes back) shows nothing there
+  until D.O.G. draws for a reason of its own; before F4, App's next render drew it. Caused by F4. Fix shape: a
+  subscription to the tiers in `lib/activeModel.js`, read by the picker with `useSyncExternalStore` (the flag's
+  subscription tells only that a first load landed).
+- **F4-10 · The model tiers stay the first person's when another signs in over them.** INFERRED by reading
+  (review round 2, B-4): `src/App.jsx` loads the tiers in an effect on `[authed, perms.offline]` only, and neither
+  changes when another person signs in with no sign-out between. The second person's Settings shows the first's own
+  choices and the first's company's defaults, and `modelFor()` answers from them, until Refresh. Before F4 too.
+  The agent's prompt overrides are the same (by reading, while fixing F4-08): `src/agent/AgentProvider.jsx` reads
+  them (`loadAgentSkills`) at mount and when Settings saves, so after a change of person its requests carry the
+  first person's prompt overrides until then, though App has mirrored the second's settings into the cache.
+  Security-adjacent: one person's settings shown to, and used for, another. Fix shape: key the load on the
+  signed-in person's id and empty the tiers (and the flag) when it changes; App tells the agent when the next
+  person's settings have reached the cache, and it reads its overrides again.
+- **F4-11 · The session's source guards and render pins have blind spots, and one rule calls correct code an
+  error.** CONFIRMED by temporary tests, deleted (review round 2, C-2 to C-5), and by reading (E-3, E-4); caused
+  by F4 (`ca2aa63f`, `f7b20e87`, `99d14da0`):
+  - `otterRerender.test.jsx`'s rule that a view reads no ref while it draws misses an alias (`const r = ref;
+    r.current`), a ref handed to a helper, a `[]` callback called while drawing, `Reflect.get` and
+    `({ current: cur } = ref)`; and it calls correct code an error: a handler made in the body and handed by name
+    (`const toTop = () => ref.current…; onClick={toTop}`), `onClick={cond ? () => … : undefined}`, a callback ref
+    (`ref={(el) => { r.current = el }}`). Its lists may hold only state and props (a memo's value, a hook's
+    result or a callback in a list is refused; `[x?.type]` reads as `undefined`).
+  - `src/lib/renderSpy.js`'s `typesOf` does not see a memo loaded through `lazy()`: `rendersOf` gives 0 and
+    `assertSeen` throws, so a pin on one fails rather than passes.
+  - `rabbitLive.test.jsx`'s list of readers matches only a single-quoted `useRabbitLive('name'`, and its guard on
+    D.O.G.'s six fields (line 258) only `rabbitCtx?.name`: a plain `rabbitCtx.bundle` passes the guard and is
+    `undefined` when it runs, since D.O.G.'s object holds six fields.
+  - `views/assetWarningRender.test.jsx:139` pins the provider's `tasksAbout` calls at 0 with nothing in the file
+    showing that the counter counts one (`ctx.selectTasksByAsset` still calls it and would), and by the reviewer's
+    reading no test fails if the rows stop asking for their warning.
+
+  Fix shape: one item at a time, each with a plant that turns it red.
+- **F4-12 · R.A.B.B.I.T.'s value does not list `authUserId`, and two readers ask for the adapter while drawing.**
+  INFERRED by reading (review round 2, E-2): `authUserId` is a field of the value (`state/RabbitProvider.jsx:9119`)
+  and not one of its `useMemo`'s deps (so at `a71cd144` too). Before F4 the adapter's status, set after every auth
+  event, made a new value; since F4 each `setAuthUserId` is fresh only because another field moves in the same
+  commit (`withdrawUserId` through the `canWithdraw*` callbacks and `recentlyWithdrawn`, `recoverableEditDrafts`
+  through `draftPersonKey`, or `projectMembers`). No reader sees the wrong person today. `components/ConnectionDot.jsx:118`
+  and `src/tools/moth_v0.1.0/MothPage.jsx:125` call `getAdapter()` while they draw; on a desktop launch in
+  `local_server` mode whose server answers offline, the one field of the value that changes is `tableViewLast`
+  (`state/tableViewsState.js:590`'s effect), and that is what takes the dot out of "pending". A refactor of
+  either would make these real. Fix shape: list `authUserId` in the deps; hand the adapter's kind to the
+  readers through `state/rabbitLive.js`.
+- **F4-13 · What a change of person still leaves to the next one.** INFERRED by reading (review round 2's fixes,
+  `8a9d6652` and `ad407a5d`, closed the rest). Before F4 too:
+  - The pet's chat request (`callAI`, `src/App.jsx`'s `sendChat`) reads the session's token when it is sent: a
+    question asked by A that goes out as the client takes B's session (another tab's sign-in) goes to the model
+    under B's account. Its answer is dropped since `8a9d6652`; the question is not. Security-adjacent. Fix shape:
+    the request names its person and the AI proxy refuses another's token (an Edge Function's change).
+  - When another person signs in over the first with no sign-out between, the first's save notice (its toast and
+    Settings' copy) and the Create Egg status stay up, as a sign-out would have cleared them; their words are
+    generic. One of them can be the database's own refusal: since `ad407a5d` the pet's and settings' saves name
+    their person, so a save of the first's that goes out as the client takes the second's session is refused
+    (SQLSTATE 42501) and can show, in that moment, as the first's save error. `src/lib/userStateWiring.test.js:342`
+    pins exactly two `setPetNoticeSticky(null)` in `App.jsx` ("cleared on sign-out and on a later successful save,
+    and nowhere else"), so a third clear changes that test too. Fix shape: the identity effect clears them where
+    it blanks the pet.
+  - From the review of F4-08's fix (one reviewer, Opus 5.5; by reading): a subject or course the agent's proposal
+    set generating just before a change of person keeps running (`src/tools/otter_v0.3.1/Otter.jsx`'s
+    `agentGenerateSingleSubject` and `agentGenerateCourse`, which do not track the person) and posts its result under
+    the next person's session. And at a launch whose stored session is one person's while the permissions name
+    another (another tab's sign-in during the launch), what was typed or sent to the agent before the permissions
+    answered stays: the agent is told the person only once the permissions are ready, and App's comparison with the
+    stored session's person (`bootOwnerRef`) is not handed to it. Fix shape: the generation queue keeps the person
+    it started for and stops when they go; App hands the agent the stored session's person until the permissions
+    answer.
+
+## MO5 (2026-11-16, M.O.T.H. polish on `po/mo5-moth-polish`; 0138, suite 140) — left open
+
+Her eight asks of 2026-11-16, built item by item (walkthrough 99). Two review rounds on Opus 5.5 (seven reviewers,
+then four); what broke something that worked, could lose work, or kept an item from doing what it says was fixed in
+`ddcdf9fa` and `36842ad0`. The rest is here, by PLAN_TO_1_0 §0's rule, numbered by area, not by finding order. None
+is a security finding.
+
+**Boards (items 4.1 to 4.5, 7)**
+
+- **MO5-01 · Lines on a board are drawn and bent with a pointer only.** MEASURED by reading `BoardCanvas.jsx`: the
+  connection dots, the lit side and the bend handles are drawn on the canvas, as MO4's end handles are; no key draws
+  a line between two things or bends one (Path and Straighten in the style panel do take keys). Fix shape: with a
+  thing selected, a key that starts a line from a side and Tab through the other things to tie it; a line's bends as
+  a list in the style panel that takes arrow keys.
+- **MO5-02 · A line tied to a rounded corner can end short of the outline.** MEASURED by reading `connectors.js`:
+  anchors sit at the middles of the box's sides, which are vertices on a decision, a diamond, a triangle's top and
+  the arrows' tips; Corners (item 4.1) cuts those vertices away, so a line tied there ends up to about 15 pixels
+  short. Fix shape: anchor points on the drawn outline (the rounded path's own point at that side).
+- **MO5-03 · A curve's pull, or square turns slid far, can run the line back across the thing it leaves.** MEASURED
+  by reading `routePoints` and `bendsAt`: the pull moves both control points by the same step, and the elbow's slide
+  is not held beyond the stubs. Fix shape: clamp the slide to the stubs; for the pull, keep each control point on its
+  side's face and move only its reach.
+- **MO5-04 · Square turns slide only when both ends leave the same way; an L shows no handle.** MEASURED by reading
+  `elbowSlide`. Fix shape: if she asks, the L's corner becomes a handle that makes it a Z.
+- **MO5-05 · A bent line with one end moving keeps its bends where they are.** MEASURED by reading `bentAlong`: a
+  line moves whole only when both its tied ends move together. Fix shape: bends kept relative to the line's ends,
+  only if she finds it wrong.
+- **MO5-06 · The board's keys stay live while a style button has the focus during typing.** INFERRED (round 1):
+  Shift+Tab out of a words box onto the panel's buttons, then Backspace or a letter acts on the board under the open
+  box (Backspace removes the text being typed). Fix shape: `key()` ignores keys while an editor is open and the
+  focus is in the style panel.
+- **MO5-07 · Typing then using the style panel works with the mouse, not by keyboard alone.** INFERRED (round 1): a
+  keyboard press on a panel button moves the focus out of the words box and ends the words. Fix shape: the panel's
+  buttons hand the focus back to the words box after acting while it is open.
+- **MO5-08 · Old boards change look: Corners already stored on a triangle or a star now rounds it.** MEASURED by
+  reading 4.1's change: the slider was offered on every shape before and did nothing on these. Fix shape: none
+  unless she sees it; a stored corner is what someone chose.
+- **MO5-09 · A board's re-read can put an old title back for a moment.** INFERRED (round 1): `load()` takes the read's
+  title with no check against the last title heard (the background has that check). Fix shape: the same version
+  check as the background's.
+- **MO5-10 · A refused rename of a board says the server's words** ("folder not found or not writable"), where the
+  map's Rename says a plain sentence. MEASURED by reading `boardStore.js`. Fix shape: the same words as the map's.
+- **MO5-11 · Escape after a failed board rename may close the board.** INFERRED (round 1): the title field is
+  disabled while the rename is asked; in Chromium the focus can fall to the page, and Escape then reaches the board.
+  Fix shape: the field takes the focus back when the refusal is shown.
+- **MO5-12 · The pet sits over the foot of a long style panel** (the Corners slider) when the board fills the view.
+  MEASURED in the pictures. Fix shape: the panel's bottom padding leaves the pet's corner free.
+- **MO5-29 · A line's end let go just outside a thing that sits in a frame ties to the frame.** MEASURED by reading
+  `dropTarget` (round 2): the thing under the pointer, a frame or a larger thing included, wins before the "near a
+  thing's dots" check; the lit outline shows the frame, so nothing is hidden. Fix shape: things before frames, and
+  the near check before a frame.
+- **MO5-30 · When one end of a line is dragged, its other end, left to choose its side, keeps the old side until the
+  release.** MEASURED by reading `drawConnector` (round 2; so at af95e905 too): round 1 fixed this for bends only.
+  And a bend let go keeps a tied end's stored point from the old bends, which shows only if that thing is deleted.
+  Fix shape: the same `shaped` ends for a dragged end and for the bend's save.
+- **MO5-31 · A sticky's words saving at that very moment, then Delete pressed on it with the mouse, can lose the last
+  words.** INFERRED (round 2, about even odds): the end of the words waits behind the save in flight, and the delete
+  has by then let the turn go. Fix shape: the delete awaits the words' end.
+- **MO5-13 · The hover's dots can stay on a thing the pointer has left**, after a wheel zoom or a gesture that ended
+  off the board, until the pointer moves; and a line just drawn whose bend is grabbed before the server answers its
+  id loses that bend. MEASURED by reading (`onHostLeave`, `renamed()`). Fix shape: hover read again on wheel and at a
+  gesture's end; `renamed()` follows `bendDrag`.
+
+**The map, the bar and the cards (items 1, 2, 5, 6)**
+
+- **MO5-14 · The cards' size and the two switches are kept on one computer, not with the person.** MEASURED by reading
+  0123's `set_moth_prefs`: it keeps four appearance keys and refuses any other, so the cards' size, the glide and the
+  magnet are kept in this browser (`wilson.moth.local.v1`, per person and company); before the permissions answer,
+  the key is `|`, shared by everyone on that computer (nothing is saved in that moment unless a card's edge is let
+  go). Fix shape: one migration that lets `set_moth_prefs` keep `card_w`, `card_h`, `glide` and `carry`.
+- **MO5-15 · A carried drop restarts the layout with every dot; a carried drag builds a batch every move.** INFERRED
+  (round 1): on a map of many thousands of dots, a drop of a large folder may pause the page for a moment. Fix shape:
+  a worker message that places given dots without a new run.
+- **MO5-16 · A glide keeps its place for up to 0.6 seconds before it is noted in the view.** INFERRED (round 1): a view
+  switched within that time takes the glided place; a window closed mid-glide loses that one drop. Fix shape: the
+  place noted at the release and corrected at the stop.
+- **MO5-32 · Round a framed board, the map's notices are under the frame**, and on a narrow window the bar's second
+  row too. MEASURED by reading `moth.css` (round 2): the board layer is z-index 5. Before 4.5 the board covered the
+  map whole, so nothing that worked is lost, but a move refused or "Renamed to…" is said where it cannot be seen. Fix
+  shape: while a board is framed, the notices go below its frame.
+- **MO5-33 · A board renamed in its window keeps its old name in the map's list and dot until it closes.** MEASURED
+  by reading (round 2): the rename reaches the board's people on its channel, not the page. Fix shape: the panel
+  tells the page the new title, and the page reads the project again.
+- **MO5-34 · Reduced motion is read when M.O.T.H. opens and heard only while it is in front.** MEASURED by reading
+  `MothPage.jsx` (round 2; since MO2): turned on while another tool is in front, the glide stays on until M.O.T.H.
+  is opened again. Fix shape: read it again whenever the page comes to the front.
+- **MO5-35 · A refused pin clears the layout's busy mark while its run still ticks.** INFERRED (round 2, by reading
+  `layoutClient.js`): a carried drop in that moment starts the layout again at once, which freezes a layout still
+  forming (what round 1 removed). Rare: it needs a refused pin then. Fix shape: a refused pin leaves busy as it was.
+- **MO5-17 · A dot joined to a folder carries the folder without its contents.** MEASURED by reading `carriedBy`: one
+  step out, by her words and the reading in the walkthrough. Fix shape: if she asks, a carried container takes its
+  contents too.
+- **MO5-18 · The bar's smaller gaps.** MEASURED by reading: the Look back tooltip leaves out the MO3 sentences about
+  notes, typed tags and links; "This view lasts for this visit only" is said only inside the view's menu; a greyed
+  icon-only Move to, Delete or Save as shows no tooltip in Chrome (a disabled button's title is not shown). Fix shape:
+  the tooltip from the same sentences; the visit sentence beside the view's name; the reasons as visible words under
+  the bar while greyed.
+- **MO5-19 · The cards' edges.** MEASURED by reading: 8-pixel targets (16 for touch, clipped by 2 to 4 pixels at the
+  strip's edge), two Tab stops on every card that all change one shared size, a tooltip that names only dragging;
+  and a card at the room's full width in a scrolling strip loses its right 8 pixels under the strip's scrollbar.
+  Fix shape: one pair of edges for the strip, not each card; the arrow keys named in the tooltip; the scrollbar
+  counted in the room.
+
+**The menus and New board (items 3, 8)**
+
+- **MO5-20 · Greyed entries and their reasons cannot be reached with the keys.** MEASURED by reading: the arrow keys
+  move between usable entries only, each reason is a plain line (on a file, Move to's reason sits after Delete),
+  the menu has no role and its name sits on an element a screen reader ignores; greyed *New board…* is inert with
+  its reason on a wrapper (the app's GatedAction pattern). MO4's folder menu is the same. Fix shape: the kit's Menu
+  with menu and menuitem roles, greyed entries focusable with `aria-disabled` and their reason as a description.
+- **MO5-21 · After Open or Show in the list from the menu, the focus is on the page.** MEASURED by reading: the
+  entries that open a question give the focus back to the row (round 1); these two lead elsewhere and leave it.
+  Fix shape: the focus to the list's new first row.
+- **MO5-22 · Some greyed reasons are not right for what they are on.** MEASURED by reading `MothItemMenu.jsx`:
+  *Rename this in R.A.B.B.I.T.* on a note, a typed tag or a file in a person's own space, none of which R.A.B.B.I.T.
+  opens; *A project is renamed in R.A.B.B.I.T.* on *My personal space*; *Show in the list* on a note, which the
+  list never shows; while looking back, Rename on a folder that is gone now is greyed with no words; a right-click
+  on a file tag's dot opens nothing. Fix shape: a reason for each kind.
+- **MO5-23 · The menu's smaller gaps.** MEASURED by reading: Tab or a zoom leaves it open; Move to and Delete from it
+  replace the person's ticked files, and Cancel does not put them back; for a board, *New board here…* is left out
+  rather than greyed; a pen's barrel button is not told from a right-click; a question asked from a map dot's menu
+  (no row to go back to) leaves the focus on the page when it closes. Fix shape: close on focus-out and camera
+  change; keep the ticks and act on the one item; the focus back to the map.
+- **MO5-28 · On a Windows touchscreen a long press on a dot may open it, then its menu.** INFERRED (round 2):
+  round 1 makes the menu end the press only when `contextmenu` comes before `pointerup` (Android's order, the
+  test's); Chromium on Windows may send it at the lift. Not run on a device. Fix shape: no pick for a touch or pen
+  press held past the long-press time.
+
+**The database and R.A.B.B.I.T. (item 3)**
+
+- **MO5-24 · A shot whose folder holds a board cannot be filed under another scene; one in the trash is not seen.**
+  MEASURED: 0130's guard refuses moving a folder that holds a board unless the move is Moth's own, so R.A.B.B.I.T.'s
+  re-filing stops first and says why (`SHOT_HOLDS_BOARD`); a failed read is now no answer (round 1). INFERRED (round
+  1): a board in the trash is invisible to that read (row security), so the re-filing goes ahead and is refused at
+  its end, leaving the shot's files at their new keys and its folder where it was, until the board is restored or
+  purged. Fix shape: a definer check of the folder's subtree (the guard's own), and the re-file's folder move through
+  `moth_move_folders`.
+- **MO5-25 · The rescue's locks: a deadlock it can now meet, and a purge that holds them.** INFERRED (rounds 1 and 2,
+  by reading 0138 §2 against `board_create`, `moth_move_folders` and `purge_soft_deleted`): deleting a thing's folder
+  holds its row, then asks the company's folder lock and the project's board lock (since round 1 always, not only
+  when a board is below); `board_create` or `moth_move_folders` aiming at that folder holds a lock and then asks the
+  row. Postgres finds the deadlock and one side gets 40P01: the scene delete or the board's make fails and can be
+  tried again; nothing is lost (0138's header names only the other two outcomes). And the nightly purge, one
+  transaction, now holds both locks for every company and project with a thing purged that night, so a Moth move, a
+  trash, a board's make or a thing's delete there waits for it (PostgREST's statement timeout is 8 s); a purge over
+  some thousands of projects would also fill the shared lock table. Fix shape, in a file after 0138: the rescue
+  returns before the locks when the folder has no child folder and no board (a board made in it locks its row, so
+  the delete waits and then sees it); the purge takes them once per company.
+- **MO5-26 · The dev stand-in disagrees with the cloud on shots and scenes.** MEASURED by reading
+  `rabbitFixturesAdapter.js`: its re-filing moves a shot folder that holds a board (the cloud refuses), and deleting
+  a scene or a shot leaves their folders (the cloud's rescue moves the boards to the top). Fix shape: the stand-in
+  follows the cloud.
+- **MO5-27 · Probes still owed.** `shotRefilingCloud.test.js` does not assert that no object moved for a refused shot
+  of the board case, and no test runs the trashed-board case of MO5-24.

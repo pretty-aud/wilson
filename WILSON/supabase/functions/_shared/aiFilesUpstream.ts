@@ -16,13 +16,15 @@
 // stays on ai-files' own byte-identical branch, with its header.
 // =============================================================================
 
-import type { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
+// F8-01 (the second merger): the client as createClient really returns it, the
+// type the guards hand ai-files and operator-ai-files (a type only).
+import type { ServiceClient } from './adminGuard.ts'
 import {
   MAX_LIST_PAGES, absentNotedIds, certifiedGoneIds, idLookupQueries, isFileId, listQuery, readListPage, storedFileOf,
   uploadRowOf, type ListPage, type StoredFile, type UploadRow,
 } from './aiFileStore.ts'
 
-type Client = ReturnType<typeof createClient>
+type Client = ServiceClient
 
 export const ANTHROPIC_FILES_URL = 'https://api.anthropic.com/v1/files'
 export const ANTHROPIC_VERSION = '2023-06-01'
@@ -313,7 +315,11 @@ export async function writeCertificate(
   }
 }
 
-/** Run `fn` over `items`, `limit` at a time, in order of completion. */
+/**
+ * Run `fn` over `items`, `limit` at a time. The answers come back in the ORDER OF `items`, whatever order the calls
+ * finish in: `out[i]` is `fn(items[i])`. The sweeps (ai-files, operator-ai-files) read each file's outcome by its
+ * index in the plan (F7), so this order is load-bearing.
+ */
 export async function pooled<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length)
   let next = 0

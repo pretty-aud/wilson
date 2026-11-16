@@ -261,7 +261,9 @@ describe('A3 — 0068\'s refusal is a re-read, never a retry', () => {
   })
 
   it('🚨 re-reads the account instead of retrying the write', () => {
-    expect(app).toMatch(/isStalePetWrite\(err\)[\s\S]{0,900}await\s+fetchCloudPet\(\)/)
+    // F4, review round 2: the re-read names the person the refused save was
+    // for, so a read sent after the session moved answers nothing.
+    expect(app).toMatch(/isStalePetWrite\(err\)[\s\S]{0,900}await\s+fetchCloudPet\(person\)/)
     // The failing control: no retry of the save that was just refused.
     expect(app).not.toMatch(/isStalePetWrite\(err\)[\s\S]{0,600}saveCloudPet\(/)
   })

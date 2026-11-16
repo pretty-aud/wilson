@@ -5,7 +5,7 @@ export function islandLabel(row, { localOnly = false } = {}) {
   return localOnly ? `${row.title} · On this computer only` : row.title
 }
 
-export default function MothIslands({ islands, openId, localOnly, onOpen }) {
+export default function MothIslands({ islands, openId, localOnly, onOpen, menuProps = () => ({}) }) {
   return (
     <nav className="moth-islands" aria-label="Projects" data-moth-islands>
       {islands.map((row) => (
@@ -15,6 +15,7 @@ export default function MothIslands({ islands, openId, localOnly, onOpen }) {
           className={`moth-island${row.id === openId ? ' is-open' : ''}`}
           aria-current={row.id === openId ? 'true' : undefined}
           onClick={() => onOpen(row.id)}
+          {...menuProps(row.id)}
         >
           {islandLabel(row, { localOnly })}
         </button>

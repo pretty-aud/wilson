@@ -34,6 +34,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Undo2, X } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
+import { useRabbitLive } from '../state/rabbitLive'
 
 const AUTO_DISMISS_MS = 8000
 // Tests shorten the wait through this global (the provider's history queue
@@ -42,7 +43,11 @@ const dismissAfterMs = () => globalThis.__WILSON_TEST_UNDO_TOAST_MS ?? AUTO_DISM
 
 export default function UndoToast() {
   const ctx = useRabbit()
-  const toast = ctx?.undoToast
+  // F4 (2026-11-13): the toast from a context of its own, not off the value
+  // (state/rabbitLive.js): it coming or going draws this component and no
+  // other reader of the provider. `undoHeld` stays a field of the value: a
+  // view holds it for as long as a bid version is viewed, not on a clock.
+  const toast = useRabbitLive('undoToast', ctx)
   const dismiss = ctx?.dismissUndoToast
   const held = ctx?.undoHeld || null
 

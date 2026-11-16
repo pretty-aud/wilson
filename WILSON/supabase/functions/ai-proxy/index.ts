@@ -40,6 +40,7 @@ import { corsHeaders, reply } from '../_shared/adminGuard.ts'
 import { requireActiveMember, type MemberContext } from '../_shared/memberGuard.ts'
 import { isRateLimited, envInt } from '../_shared/rateLimit.ts'
 import { decryptAiKey } from '../_shared/aiKeyCrypto.ts'
+import { readBodyJson, AI_PROXY_JSON_MAX_BYTES, TOO_LARGE } from '../_shared/gatewayWire.ts'
 
 type MemberCtxAdmin = MemberContext['admin']
 
@@ -187,12 +188,36 @@ Deno.serve(async (req: Request) => {
   if (!guard.ok) return guard.res
   const { admin, workspaceId, callerId } = guard.ctx
 
+  // F8 (f), the review's C5: the key read is STARTED here, before the limiter
+  // is awaited, and awaited where it always was (below, after validation). It
+  // writes nothing. Its row read and the decrypt are inside its try, so they
+  // never make it reject; the platform key's read (Deno.env.get) is not, and
+  // if that ever threw the promise would reject (review round 1, R1). So it is
+  // given a no-op catch at once: on every early answer (429, 413, 400, the
+  // JSON-null TypeError) nothing is left unhandled, which Deno would end the
+  // isolate for; and the `await keyRead` below still meets the rejection, and
+  // the handler rejects with it, exactly where the old code's await did. NOT
+  // Promise.all with the limiter: a limited call must be answered the moment
+  // the limiter says so, without waiting for the key and without reading the
+  // body. The one difference, named in DESIGN.md §8.3: a call then refused
+  // (429, 413, 400) has also read the company's key row and, when there is
+  // one, opened it.
+  const keyRead = resolveAnthropicKey(admin, workspaceId)
+  keyRead.catch(() => {})
+
   if (await isRateLimited(admin, 'ai-proxy', workspaceId, RPM, 60)) {
     return reply({ error: 'rate_limited' }, 429)
   }
 
+  // F8: read under a cap, after the guard and the limiter as before. The cap
+  // is the provider's 32 MiB request ceiling plus 1 MiB (gatewayWire.ts says
+  // why nothing tighter can be read from the code). Past it: 413. Not JSON:
+  // the old bad_json. The value is handed on untouched (F8-05).
   let body: Record<string, unknown>
-  try { body = await req.json() } catch { return reply({ error: 'bad_json' }, 400) }
+  const sent = await readBodyJson(req, AI_PROXY_JSON_MAX_BYTES)
+  if (sent.kind === 'too_large') return reply({ ...TOO_LARGE }, 413)
+  if (sent.kind === 'not_json') return reply({ error: 'bad_json' }, 400)
+  body = sent.value as Record<string, unknown>
 
   // Model ids are short; the cap keeps a hostile string out of the
   // app_events message/context CHECKs (0021: message ≤ 2000, context ≤ 8000).
@@ -256,7 +281,7 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  const resolved = await resolveAnthropicKey(admin, workspaceId)
+  const resolved = await keyRead
   if (!resolved) {
     // 501, not 503: this is a permanent config state, and every client retry
     // loop treats 429/503/529 as transient — a 503 here would burn ~21s of

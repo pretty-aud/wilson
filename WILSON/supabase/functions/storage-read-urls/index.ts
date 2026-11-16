@@ -16,35 +16,54 @@
 //
 // verify_jwt = false + in-function validation, like every function here (the
 // gateway can't validate this project's ES256 JWTs).
+//
+// F8 (wave 2, 2026-11-13): loadSigner's two reads (the configuration and the
+// sealed secret) are _shared/workspaceBucket.ts's loadWorkspaceBucket, shared
+// with storage-presign and storage-secret's probe; the two now run at once
+// and are judged in the order they always were. The refusals are worded HERE,
+// in this function's own words (bucketRefusal below), unchanged since P1. The
+// caller's own client is adminGuard.callerClient(req), built lazily as before.
 // =============================================================================
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
-import { corsHeaders, reply } from '../_shared/adminGuard.ts'
+import { callerClient, corsHeaders, reply, type ServiceClient } from '../_shared/adminGuard.ts'
 import { requireActiveMember, type MemberContext } from '../_shared/memberGuard.ts'
 import { isRateLimited, envInt } from '../_shared/rateLimit.ts'
-import { decryptStorageSecret, storageSecretCryptoConfigured } from '../_shared/storageSecretCrypto.ts'
-import { presignS3Request, type S3Target } from '../_shared/s3Presign.ts'
+import { makeS3Presigner } from '../_shared/s3Presign.ts'
 import { handleReadUrls } from '../_shared/readUrls.ts'
+import { loadWorkspaceBucket, type BucketRefusal } from '../_shared/workspaceBucket.ts'
 
-type S3Config = {
-  endpoint?: string
-  region: string
-  bucket: string
-  prefix?: string
-  accessKeyId: string
-  forcePathStyle?: boolean
+/** The loader's refusals, in this function's own words (unchanged since P1). */
+function bucketRefusal(r: BucketRefusal): { ok: false; status: number; body: Record<string, unknown> } {
+  switch (r.code) {
+    case 'storage_read_failed': return { ok: false, status: 500, body: { error: 'storage_read_failed', detail: r.message } }
+    case 'not_s3': return {
+      ok: false, status: 409,
+      body: { error: 'refused', detail: 'this workspace has no S3-compatible storage configured — an admin sets it in Admin Terminal → Storage' },
+    }
+    // Never asked for here (requireByos is false: a read), so never answered;
+    // worded as storage-presign words it, so no code is left without a sentence.
+    case 'not_active': return {
+      ok: false, status: 409,
+      body: { error: 'refused', detail: 'this workspace is on Petal cloud right now — its S3 configuration is retained but inactive, so new files do not go to the bucket' },
+    }
+    case 'crypto_unavailable': return { ok: false, status: 503, body: { error: 'crypto_unavailable', detail: 'WILSON_STORAGE_KEY_SECRET is not configured on this environment' } }
+    case 'secret_read_failed': return { ok: false, status: 500, body: { error: 'secret_read_failed', detail: r.message } }
+    case 'no_secret': return {
+      ok: false, status: 409,
+      body: { error: 'refused', detail: 'no bucket secret is stored for this workspace — an admin saves it in Admin Terminal → Storage' },
+    }
+    case 'secret_unusable': return { ok: false, status: 500, body: { error: 'secret_unusable', detail: `the stored bucket secret cannot be decrypted (${r.message}) — re-enter it in Admin Terminal → Storage` } }
+  }
 }
 
 Deno.serve(async (req: Request) => {
   // The caller's own client: the anon key carrying the caller's JWT, so the
   // predicate and the row read run under real RLS and real claims (the S33
   // rule — evaluated as the caller, never replicated).
-  let callerClient: ReturnType<typeof createClient> | null = null
-  const asCaller = () => (callerClient ??= createClient(
-    Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_ANON_KEY')!,
-    { global: { headers: { Authorization: `Bearer ${(req.headers.get('authorization') ?? '').slice(7)}` } } },
-  ))
+  // Built lazily, once, the first time a row is read (adminGuard.callerClient,
+  // with no auth options: this file never passed any).
+  let own: ServiceClient | null = null
+  const asCaller = () => (own ??= callerClient(req))
 
   const out = await handleReadUrls<MemberContext>(req, {
     guard: async () => {
@@ -81,55 +100,18 @@ Deno.serve(async (req: Request) => {
     // checked: a GET, as in storage-presign — a workspace back on Petal cloud
     // still reaches what it wrote.
     loadSigner: async (ctx) => {
-      const { data: ws, error: wsErr } = await ctx.admin
-        .from('workspace_storage')
-        .select('provider, provider_config')
-        .eq('workspace_id', ctx.workspaceId)
-        .maybeSingle()
-      if (wsErr) return { ok: false, status: 500, body: { error: 'storage_read_failed', detail: wsErr.message } }
-      if (ws?.provider !== 's3' || !ws.provider_config) {
-        return {
-          ok: false, status: 409,
-          body: { error: 'refused', detail: 'this workspace has no S3-compatible storage configured — an admin sets it in Admin Terminal → Storage' },
-        }
-      }
-      if (!storageSecretCryptoConfigured()) {
-        return { ok: false, status: 503, body: { error: 'crypto_unavailable', detail: 'WILSON_STORAGE_KEY_SECRET is not configured on this environment' } }
-      }
-      const { data: sec, error: secErr } = await ctx.admin
-        .from('workspace_storage_secrets')
-        .select('secret_ciphertext')
-        .eq('workspace_id', ctx.workspaceId)
-        .maybeSingle()
-      if (secErr) return { ok: false, status: 500, body: { error: 'secret_read_failed', detail: secErr.message } }
-      if (!sec?.secret_ciphertext) {
-        return {
-          ok: false, status: 409,
-          body: { error: 'refused', detail: 'no bucket secret is stored for this workspace — an admin saves it in Admin Terminal → Storage' },
-        }
-      }
-      let secret: string
-      try {
-        secret = await decryptStorageSecret(sec.secret_ciphertext as string)
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        return { ok: false, status: 500, body: { error: 'secret_unusable', detail: `the stored bucket secret cannot be decrypted (${message}) — re-enter it in Admin Terminal → Storage` } }
-      }
-      const cfg = ws.provider_config as S3Config
-      const target: S3Target = {
-        endpoint: cfg.endpoint,
-        region: cfg.region,
-        bucket: cfg.bucket,
-        forcePathStyle: cfg.forcePathStyle,
-      }
+      const cfg = await loadWorkspaceBucket(ctx.admin, ctx.workspaceId, { requireByos: false })
+      if (!cfg.ok) return bucketRefusal(cfg)
+      // F8 (C5): ONE presigner for this request's batch, made from this one
+      // loaded bucket and dropped with it (nothing kept between requests or
+      // companies): the signing key is derived once a day, not once a URL.
+      // Each URL keeps its own clock, as before.
+      const presigner = makeS3Presigner({ target: cfg.target, accessKeyId: cfg.accessKeyId, secretAccessKey: cfg.secret })
       return {
         ok: true,
         // The prefix is applied HERE and only here: storage_path stays
         // row-shaped in the database, and the client never sees or sends it.
-        sign: (key, expiresSeconds) => presignS3Request({
-          target,
-          accessKeyId: cfg.accessKeyId,
-          secretAccessKey: secret,
+        sign: (key, expiresSeconds) => presigner.presign({
           method: 'GET',
           key: cfg.prefix ? `${cfg.prefix}/${key}` : key,
           expiresSeconds,

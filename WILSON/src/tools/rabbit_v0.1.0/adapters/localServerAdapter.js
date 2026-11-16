@@ -105,6 +105,7 @@ function mothLocalS3() {
 // trash and moves are the cloud's too: nothing is in that trash here.
 export const BOARDS_LOCAL = 'Boards need this project in the cloud.';
 export const FOLDERS_LOCAL = 'Moving a folder or putting it in the trash needs this project in the cloud.';
+export const RENAME_LOCAL = 'Renaming a folder in M.O.T.H. needs this project in the cloud.';
 function boardsLocalAbsent(words = BOARDS_LOCAL) {
   const err = new Error(words);
   err.code = 'boards_absent';
@@ -438,6 +439,8 @@ export function localServerAdapter() {
     async trashFolders() { throw boardsLocalAbsent(FOLDERS_LOCAL); },
     async restoreFolders() { throw boardsLocalAbsent(FOLDERS_LOCAL); },
     async moveFolders() { throw boardsLocalAbsent(FOLDERS_LOCAL); },
+    // MO5 (0138): a folder's or a board's name is the cloud's to change; this computer alone says so.
+    async renameFolder() { throw boardsLocalAbsent(RENAME_LOCAL); },
     async listTrashedFolders() { return []; },
     // Not recorded for projects kept only on this computer (MOTH_DESIGN H2): no rows, and every kind recorded
     // only from now, so the scrub labels everything before as not recorded.

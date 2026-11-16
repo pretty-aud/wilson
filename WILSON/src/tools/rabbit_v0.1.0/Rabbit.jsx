@@ -37,6 +37,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { ListChecks, Settings as SettingsIcon, HelpCircle } from 'lucide-react'
 import { useRabbit } from './state/RabbitProvider'
+import { useRabbitLive } from './state/rabbitLive'
 import { useAgent } from '../../agent'
 import { useRosterMembers } from '../../components/TeamMembers/useRosterMembers'
 import { usePermissions } from '../../permissions/usePermissions'
@@ -258,11 +259,15 @@ export default function Rabbit({ currentPage } = {}) {
     }
     return out
   }, [rosterMembers])
-  const presence = <RealtimePresenceStrip realtimeStatus={ctx?.realtimeStatus} users={ctx?.presentUsers} avatarByUserId={avatarByUserId} />
+  // F4 (2026-11-13): the strip reads the channel's status and who is on it
+  // ITSELF (see it, below). The shell read both off the provider's value and
+  // handed them down, so a presence heartbeat was a new value for every reader
+  // and drew this shell with the open tab under it.
+  const presence = <RealtimePresenceStrip avatarByUserId={avatarByUserId} />
   // On Summary the faces share the tab strip's one row with eleven tabs (twelve
   // since S4a's Files), so the strip shows three faces and "+N" for the rest (R2 finding 3: five
   // faces at 1024 pushed the last tab out of view). The bar shows five.
-  const presenceCompact = <RealtimePresenceStrip realtimeStatus={ctx?.realtimeStatus} users={ctx?.presentUsers} avatarByUserId={avatarByUserId} max={3} />
+  const presenceCompact = <RealtimePresenceStrip avatarByUserId={avatarByUserId} max={3} />
   const statusInTabBar = activeView === 'summary'
 
   return (
@@ -377,7 +382,13 @@ export default function Rabbit({ currentPage } = {}) {
 // gone, the faces show only while the channel is LIVE (review round 1,
 // R1-11): on a channel error the last list stays in state, and faces with no
 // pill beside them would say people are here when nothing is listening.
-function RealtimePresenceStrip({ realtimeStatus, users, avatarByUserId = {}, max = 5 }) {
+function RealtimePresenceStrip({ avatarByUserId = {}, max = 5 }) {
+  // F4 (2026-11-13): the two it shows, each from a context of its own
+  // (state/rabbitLive.js), so a heartbeat draws these faces and nothing else.
+  // It reads nothing more of the provider, so it takes no `ctx` to fall back
+  // on: under a test's stand-in for the provider it shows nobody.
+  const realtimeStatus = useRabbitLive('realtimeStatus')
+  const users = useRabbitLive('presentUsers')
   // Session 8: presence meta only carries { user_id, label } — the roster is
   // joined in so chips can show real avatars where members uploaded one. The
   // shell fetches the roster and passes the map in (see Rabbit's comment).

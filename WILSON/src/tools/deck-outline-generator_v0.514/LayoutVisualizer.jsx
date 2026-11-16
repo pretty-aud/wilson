@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useLayoutEffect, useRef, useContext, createContext, memo } from 'react';
 import { FileText, Sparkles, ChevronRight, Layers, Eye, Image, RefreshCw } from 'lucide-react';
 import { parseSlideContent, parsePlacedAssets } from './parser';
 import { getLuminance, getContrastRatio, ensureContrast } from './colorUtils';
@@ -6,15 +6,345 @@ import { PRESET_THEMES } from './constants';
 import VideoThumbnail from './VideoThumbnail';
 import { bareAssetName } from './references/referenceModel';
 
-const LayoutVisualizer = ({ content, compact = false, overrideColors = null, onRefreshColors = null, onCycleTheme = null, themeName = '', themeIndex = 0, themeCount = 0, isGeneratingTheme = false, onContentChange = null, onTextContextMenu = null, placementAssets = [], zoomLevel = 0 }) => {
-  const parsed = parseSlideContent(content);
-  // Strip "N/A" values so they don't render — treat as empty/blank
-  if (parsed.subtitle && /^n\/?a\b/i.test(parsed.subtitle.trim())) {
-    parsed.subtitle = '';
+// =============================================================================
+// F4 (2026-11-13; the review's dog-otter C3, and OUTSTANDING P1-16). What
+// stands above the component, and why each is here and not inside it:
+//
+//   NO_ASSETS             The default for `placementAssets` was `[]` in the
+//                         parameter list: a NEW list at every render. The
+//                         effect that measures the pictures' shapes depends on
+//                         that list and sets state, so a caller that passed no
+//                         list (the duplicate resolver) sent the preview round
+//                         and round: P1-16, "Maximum update depth exceeded".
+//   the four readers      of an asset's line (its type, its ratio, its ratio's
+//                         label, its words): they read nothing but the line,
+//                         and the two placeholders need them.
+//   the two placeholders  ImagePlaceholder and IconLogoPlaceholder were
+//                         DECLARED INSIDE the component, so each render made
+//                         two new component types and React threw away every
+//                         frame on the slide and built it again: a placed
+//                         picture got a new <img>, and a placed video's frame
+//                         was read and drawn again (VideoThumbnail does that
+//                         when it mounts). Measured in
+//                         LayoutVisualizer.rerender.test.jsx: ten keystrokes
+//                         beside the preview mounted each of them ten times.
+//   PreviewPaint          what the placeholders read of the component (the
+//                         frame's ink, the slide's ground, the pictures'
+//                         measured shapes), handed down as one context so the
+//                         twenty-one places that draw a placeholder are as
+//                         they were.
+//   a picture's URL       one object URL for each placed picture, made when
+//                         its frame is first on screen and revoked when no
+//                         frame shows it. It was a `data:` URL built in the
+//                         render: the picture's whole base64 text, megabytes
+//                         of it, joined into a new string for every frame at
+//                         every render.
+// =============================================================================
+const NO_ASSETS = Object.freeze([]);
+
+// Classify asset type from the bracketed prefix
+const getAssetType = (asset) => {
+  const assetLower = asset.toLowerCase();
+  if (assetLower.includes('[image background]')) return 'image_background';
+  if (/\[image\s*[\|]/.test(assetLower) || assetLower.startsWith('[image]') || assetLower.includes('[image]')) return 'image';
+  if (/\[video\s*[\|]/.test(assetLower) || assetLower.startsWith('[video]') || assetLower.includes('[video]')) return 'video';
+  if (assetLower.includes('[icon/logo]') || assetLower.includes('[icon]') || assetLower.includes('[logo]')) return 'icon_logo';
+  if (/\[infograph\s*[\|]/.test(assetLower) || assetLower.startsWith('[infograph]') || assetLower.includes('[infograph]')) return 'infograph';
+  if (/\[timeline\s*[\|]/.test(assetLower) || assetLower.startsWith('[timeline]') || assetLower.includes('[timeline]')) return 'timeline';
+  // Fallback detection for older/unprefixed assets
+  if (['photo', 'screenshot', 'mockup', 'illustration', 'render', 'picture', 'portrait', 'headshot', 'artwork', 'mood board'].some(kw => assetLower.includes(kw))) return 'image';
+  if (['video', 'footage', 'clip', 'animation', 'reel', 'demo'].some(kw => assetLower.includes(kw))) return 'video';
+  if (['logo', 'icon', 'badge'].some(kw => assetLower.includes(kw))) return 'icon_logo';
+  if (['chart', 'graph', 'diagram', 'table', 'pie', 'bar graph', 'line graph', 'data viz'].some(kw => assetLower.includes(kw))) return 'infograph';
+  if (['timeline', 'schedule', 'roadmap', 'gantt'].some(kw => assetLower.includes(kw))) return 'timeline';
+  if (['background', 'bg image', 'backdrop'].some(kw => assetLower.includes(kw))) return 'image_background';
+  return 'other';
+};
+
+// Parse aspect ratio from asset string like "[Image | 16:9]" → { w: 16, h: 9 }
+const getAssetRatio = (asset) => {
+  const ratioMatch = asset.match(/\|\s*(\d+):(\d+)/);
+  if (ratioMatch) {
+    const w = parseInt(ratioMatch[1]);
+    const h = parseInt(ratioMatch[2]);
+    // Enforce minimum 16:9 for timelines
+    const type = getAssetType(asset);
+    if (type === 'timeline' && (w / h) < (16 / 9)) {
+      return { w: 16, h: 9 };
+    }
+    return { w, h };
   }
-  if (parsed.copyContent && /^n\/?a\b/i.test(parsed.copyContent.trim())) {
-    parsed.copyContent = '';
+  // Defaults by type
+  const type = getAssetType(asset);
+  if (type === 'timeline') return { w: 4, h: 1 };
+  if (type === 'infograph') return { w: 4, h: 3 };
+  if (type === 'video') return { w: 16, h: 9 };
+  return { w: 16, h: 9 };
+};
+
+// Get ratio label for display
+const getRatioLabel = (asset) => {
+  const ratioMatch = asset.match(/\|\s*(\d+:\d+)/);
+  return ratioMatch ? ratioMatch[1] : null;
+};
+
+// Get clean asset label (strip the type prefix and ratio)
+const getAssetLabel = (asset) => {
+  return asset.replace(/^\[(?:Image Background|Image|Video|Icon\/Logo|Icon|Logo|Infograph|Timeline)(?:\s*\|\s*\d+:\d+)?\]\s*[-–—]?\s*/i, '').replace(/<<.+?>>/g, '').trim();
+};
+
+// What the two placeholders read of the preview they are drawn in.
+const PreviewPaint = createContext({ assetColor: '#000000', ground: '#ffffff', nativeRatios: {} });
+
+// ── A placed picture's URL ───────────────────────────────────────────────────
+// One object URL for each picture (each asset OBJECT: D.O.G. keeps one for as
+// long as the file is attached), shared by every frame that shows it, counted,
+// and revoked when the last frame showing it is gone. Not revoked at once: in
+// a dev build React unmounts and mounts every component again as it first
+// appears, and a slide that changes layout moves a picture from one frame to
+// another; the URL waits one turn of the timer queue and is kept if a frame
+// shows it by then.
+//
+// Where the page cannot make one (no URL.createObjectURL, or one that refuses
+// this Blob, as a test's DOM may), or the picture's text is not base64, the
+// frame is given the `data:` URL it was given before.
+const pictureUrls = new WeakMap();   // the asset → { url, shown, letGo }
+const dataUrlOf = (asset) => `data:${asset.mediaType};base64,${asset.content}`;
+function objectUrlOf(asset) {
+  if (typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function' || typeof Blob === 'undefined' || typeof atob !== 'function') return null;
+  try {
+    const text = atob(asset.content);
+    const bytes = new Uint8Array(text.length);
+    for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i);
+    return URL.createObjectURL(new Blob([bytes], { type: asset.mediaType || 'application/octet-stream' }));
+  } catch {
+    return null;
   }
+}
+function showPicture(asset) {
+  let held = pictureUrls.get(asset);
+  if (!held) {
+    held = { url: objectUrlOf(asset), shown: 0, letGo: null };
+    pictureUrls.set(asset, held);
+  }
+  held.shown++;
+  if (held.letGo) { clearTimeout(held.letGo); held.letGo = null; }
+  return held.url ?? dataUrlOf(asset);
+}
+function hidePicture(asset) {
+  const held = pictureUrls.get(asset);
+  if (!held) return;
+  held.shown--;
+  if (held.shown > 0 || held.letGo) return;
+  held.letGo = setTimeout(() => {
+    held.letGo = null;
+    if (held.shown > 0) return;
+    pictureUrls.delete(asset);
+    if (held.url) URL.revokeObjectURL(held.url);
+  }, 0);
+}
+/** The URL of a placed picture for as long as this frame shows it; null for no picture, and until the frame is on screen. */
+function usePlacedPictureUrl(asset) {
+  const [shown, setShown] = useState(null);
+  // A layout effect: the URL is in the <img> before the frame is first painted.
+  useLayoutEffect(() => {
+    if (!asset) { setShown(null); return undefined; }
+    setShown({ asset, url: showPicture(asset) });
+    return () => hidePicture(asset);
+  }, [asset]);
+  // Never another picture's URL: for the one render between a change of picture and its effect, none.
+  return shown && shown.asset === asset ? shown.url : null;
+}
+
+// ── A placed video's thumbnail, one per video (F4, review round 1) ──────────
+// VideoThumbnail keeps the first frame it read in state and cannot drop a read
+// in flight, so a frame handed ANOTHER video kept showing the first one's
+// picture under the second one's name, and a late read could put it back.
+// Before F4 every render of the preview remounted every frame, which hid that;
+// a frame is kept now, so its thumbnail is keyed by the video object it shows:
+// another video is another mount, the same video across a redraw is kept.
+const videoKeys = new WeakMap();
+let lastVideoKey = 0;
+function keyOfVideo(asset) {
+  let key = videoKeys.get(asset);
+  if (!key) { key = `video-${++lastVideoKey}`; videoKeys.set(asset, key); }
+  return key;
+}
+
+// Image/Video placeholder component - visible frame with icon, label, and ratio
+// Uses CSS aspect-ratio to match the ratio declared in the markdown
+// When placedAsset is provided, renders the actual image/video thumbnail instead of placeholder
+function ImagePlaceholder({ label, assetType = 'image', className = "", fillContainer = false, placedAsset = null }) {
+  const { assetColor, ground, nativeRatios } = useContext(PreviewPaint);
+  const pictureUrl = usePlacedPictureUrl(placedAsset && placedAsset.type !== 'video' ? placedAsset : null);
+  const isVideo = assetType === 'video';
+  const isInfograph = assetType === 'infograph';
+  const isTimeline = assetType === 'timeline';
+  const ratioLabel = getRatioLabel(label);
+  const aiRatio = getAssetRatio(label);
+
+  // For placed assets, use pre-computed native aspect ratio from cache (stable, no re-renders)
+  let ratio = aiRatio;
+  if (placedAsset && placedAsset.type !== 'video') {
+    const cleanName = bareAssetName(placedAsset.file?.name).toLowerCase();
+    if (nativeRatios[cleanName]) {
+      ratio = nativeRatios[cleanName];
+    }
+  }
+
+  // Aspect-ratio enforcement strategy:
+  // fillContainer: Parent gives us a bounding box. We set aspect-ratio and
+  //   height:100% so the image fills the container height. maxWidth:100% prevents
+  //   horizontal overflow — ultra-wide images scale down proportionally.
+  // Normal: width:100%, aspect-ratio computes height. No height constraint.
+
+  // When a placed asset is provided, render the actual image
+  if (placedAsset) {
+    const isPlacedVideo = placedAsset.type === 'video';
+    const placedStyle = fillContainer
+      ? {
+          minHeight: '40px',
+          aspectRatio: `${ratio.w}/${ratio.h}`,
+          height: '100%',
+          maxWidth: '100%',
+        }
+      : {
+          minHeight: '40px',
+          aspectRatio: `${ratio.w}/${ratio.h}`,
+          width: '100%',
+        };
+
+    return (
+      <div
+        className={`rounded overflow-hidden relative ${className}`}
+        style={placedStyle}
+      >
+        {isPlacedVideo ? (
+          <VideoThumbnail key={keyOfVideo(placedAsset)} asset={placedAsset} />
+        ) : (
+          <img
+            src={pictureUrl || undefined}
+            alt={placedAsset.file?.name || 'Placed asset'}
+            className="w-full h-full object-cover"
+          />
+        )}
+        {/* Filename overlay */}
+        <span
+          className="absolute bottom-0 left-0 right-0 text-center px-1 py-0.5 truncate"
+          style={{
+            fontSize: '6px',
+            color: '#fff',
+            backgroundColor: 'rgba(0,0,0,0.6)',
+            letterSpacing: '0.02em'
+          }}
+        >
+          {placedAsset.file?.name || 'Asset'}
+        </span>
+      </div>
+    );
+  }
+
+  // Height-driven sizing for all images in fillContainer mode:
+  // height:100% fills container, maxWidth:100% prevents horizontal overflow.
+  // The layout wrapper clamps ultra-wide ARs to the available space, so ImagePlaceholder
+  // doesn't need to know about AR limits — it just fills its container.
+  const style = fillContainer
+    ? {
+        borderColor: assetColor,
+        backgroundColor: `${ground}66`,
+        minHeight: '40px',
+        aspectRatio: `${ratio.w}/${ratio.h}`,
+        height: '100%',
+        maxWidth: '100%',
+      }
+    : {
+        borderColor: assetColor,
+        backgroundColor: `${ground}66`,
+        minHeight: '40px',
+        aspectRatio: `${ratio.w}/${ratio.h}`,
+        width: '100%',
+      };
+
+  return (
+    <div
+      className={`border-2 border-dashed flex flex-col items-center justify-center rounded p-1 relative ${className}`}
+      style={style}
+    >
+      {ratioLabel && (
+        <span className="absolute top-0.5 right-1 text-[10px] font-mono opacity-70" style={{color: assetColor}}>{ratioLabel}</span>
+      )}
+      {isVideo ? (
+        <svg className="w-5 h-5 flex-shrink-0 mb-0.5" style={{color: assetColor}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <rect x="2" y="4" width="20" height="16" rx="2" strokeWidth="1.5"/>
+          <polygon points="10,8 16,12 10,16" strokeWidth="1.5" fill="currentColor" opacity="0.3"/>
+        </svg>
+      ) : isInfograph ? (
+        <svg className="w-5 h-5 flex-shrink-0 mb-0.5" style={{color: assetColor}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <rect x="3" y="12" width="4" height="8" rx="1" strokeWidth="1.5"/>
+          <rect x="10" y="6" width="4" height="14" rx="1" strokeWidth="1.5"/>
+          <rect x="17" y="9" width="4" height="11" rx="1" strokeWidth="1.5"/>
+        </svg>
+      ) : isTimeline ? (
+        <svg className="w-6 h-4 flex-shrink-0 mb-0.5" style={{color: assetColor}} fill="none" stroke="currentColor" viewBox="0 0 24 12">
+          <line x1="1" y1="6" x2="23" y2="6" strokeWidth="1.5"/>
+          <circle cx="4" cy="6" r="2" strokeWidth="1.5"/>
+          <circle cx="12" cy="6" r="2" strokeWidth="1.5"/>
+          <circle cx="20" cy="6" r="2" strokeWidth="1.5"/>
+        </svg>
+      ) : (
+        <svg className="w-5 h-5 flex-shrink-0 mb-0.5" style={{color: assetColor}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2" strokeWidth="1.5"/>
+          <circle cx="8.5" cy="8.5" r="1.5" strokeWidth="1.5"/>
+          <path d="M21 15l-5-5L5 21" strokeWidth="1.5"/>
+        </svg>
+      )}
+      <span
+        className="text-center w-full px-1 leading-tight"
+        style={{
+          color: assetColor,
+          fontSize: '7px',
+          wordBreak: 'break-word'
+        }}
+      >
+        {getAssetLabel(label) || 'Image'}
+      </span>
+    </div>
+  );
+}
+
+// Small icon/logo placeholder for inline placement
+// When assetIndex is provided, shows the number badge. Otherwise shows label.
+function IconLogoPlaceholder({ label, assetIndex }) {
+  const { assetColor, ground } = useContext(PreviewPaint);
+  return (
+    <div
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-dashed"
+      style={{ borderColor: `${assetColor}88`, backgroundColor: `${ground}44` }}
+    >
+      <svg className="w-3 h-3 flex-shrink-0" style={{color: assetColor}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <rect x="3" y="3" width="18" height="18" rx="4" strokeWidth="1.5"/>
+        <circle cx="12" cy="12" r="4" strokeWidth="1.5"/>
+      </svg>
+      <span style={{ color: assetColor, fontSize: '8px', fontWeight: 'bold' }}>
+        {assetIndex != null ? `${assetIndex}` : (getAssetLabel(label) || 'Logo')}
+      </span>
+    </div>
+  );
+}
+
+const LayoutVisualizer = ({ content, compact = false, overrideColors = null, onRefreshColors = null, onCycleTheme = null, themeName = '', themeIndex = 0, themeCount = 0, isGeneratingTheme = false, onContentChange = null, onTextContextMenu = null, placementAssets = NO_ASSETS, zoomLevel = 0 }) => {
+  // F4: parsed when the slide's text changes, not at every render.
+  const parsed = useMemo(() => {
+    const read = parseSlideContent(content);
+    // Strip "N/A" values so they don't render — treat as empty/blank
+    if (read.subtitle && /^n\/?a\b/i.test(read.subtitle.trim())) {
+      read.subtitle = '';
+    }
+    if (read.copyContent && /^n\/?a\b/i.test(read.copyContent.trim())) {
+      read.copyContent = '';
+    }
+    return read;
+  }, [content]);
   const rawLayoutType = parsed.layoutType || '';
   
   // Normalize layout type - remove extra spaces, convert to lowercase
@@ -65,8 +395,8 @@ const LayoutVisualizer = ({ content, compact = false, overrideColors = null, onR
   };
   
   const layoutKey = getLayoutKey(layoutType);
-  console.log('LayoutVisualizer - Raw:', rawLayoutType, '| Normalized:', layoutType, '| Key:', layoutKey, '| Title:', parsed.title);
-  
+
+
   // Fallback theme — used only when no overrideColors provided (first render)
   const generateThemeColors = () => {
     return PRESET_THEMES[0].colors;
@@ -282,67 +612,13 @@ const LayoutVisualizer = ({ content, compact = false, overrideColors = null, onR
     return sections;
   };
   
-  // Parse required assets into list
-  const parseAssets = () => {
-    if (!parsed.requiredAssets || parsed.requiredAssets.toLowerCase().includes('none')) return [];
-    return parsed.requiredAssets.split(/[•\n]/).map(a => a.trim()).filter(a => a.length > 0);
-  };
-  
-  // Classify asset type from the bracketed prefix
-  const getAssetType = (asset) => {
-    const assetLower = asset.toLowerCase();
-    if (assetLower.includes('[image background]')) return 'image_background';
-    if (/\[image\s*[\|]/.test(assetLower) || assetLower.startsWith('[image]') || assetLower.includes('[image]')) return 'image';
-    if (/\[video\s*[\|]/.test(assetLower) || assetLower.startsWith('[video]') || assetLower.includes('[video]')) return 'video';
-    if (assetLower.includes('[icon/logo]') || assetLower.includes('[icon]') || assetLower.includes('[logo]')) return 'icon_logo';
-    if (/\[infograph\s*[\|]/.test(assetLower) || assetLower.startsWith('[infograph]') || assetLower.includes('[infograph]')) return 'infograph';
-    if (/\[timeline\s*[\|]/.test(assetLower) || assetLower.startsWith('[timeline]') || assetLower.includes('[timeline]')) return 'timeline';
-    // Fallback detection for older/unprefixed assets
-    if (['photo', 'screenshot', 'mockup', 'illustration', 'render', 'picture', 'portrait', 'headshot', 'artwork', 'mood board'].some(kw => assetLower.includes(kw))) return 'image';
-    if (['video', 'footage', 'clip', 'animation', 'reel', 'demo'].some(kw => assetLower.includes(kw))) return 'video';
-    if (['logo', 'icon', 'badge'].some(kw => assetLower.includes(kw))) return 'icon_logo';
-    if (['chart', 'graph', 'diagram', 'table', 'pie', 'bar graph', 'line graph', 'data viz'].some(kw => assetLower.includes(kw))) return 'infograph';
-    if (['timeline', 'schedule', 'roadmap', 'gantt'].some(kw => assetLower.includes(kw))) return 'timeline';
-    if (['background', 'bg image', 'backdrop'].some(kw => assetLower.includes(kw))) return 'image_background';
-    return 'other';
-  };
-
-  // Parse aspect ratio from asset string like "[Image | 16:9]" → { w: 16, h: 9 }
-  const getAssetRatio = (asset) => {
-    const ratioMatch = asset.match(/\|\s*(\d+):(\d+)/);
-    if (ratioMatch) {
-      const w = parseInt(ratioMatch[1]);
-      const h = parseInt(ratioMatch[2]);
-      // Enforce minimum 16:9 for timelines
-      const type = getAssetType(asset);
-      if (type === 'timeline' && (w / h) < (16 / 9)) {
-        return { w: 16, h: 9 };
-      }
-      return { w, h };
-    }
-    // Defaults by type
-    const type = getAssetType(asset);
-    if (type === 'timeline') return { w: 4, h: 1 };
-    if (type === 'infograph') return { w: 4, h: 3 };
-    if (type === 'video') return { w: 16, h: 9 };
-    return { w: 16, h: 9 };
-  };
+  // (F4: getAssetType, getAssetRatio, getRatioLabel and getAssetLabel stand
+  // above the component now, word for word: the placeholders read them too.)
 
   // Get CSS aspect ratio string
   const getAspectStyle = (asset) => {
     const r = getAssetRatio(asset);
     return `${r.w}/${r.h}`;
-  };
-  
-  // Get ratio label for display
-  const getRatioLabel = (asset) => {
-    const ratioMatch = asset.match(/\|\s*(\d+:\d+)/);
-    return ratioMatch ? ratioMatch[1] : null;
-  };
-
-  // Get clean asset label (strip the type prefix and ratio)
-  const getAssetLabel = (asset) => {
-    return asset.replace(/^\[(?:Image Background|Image|Video|Icon\/Logo|Icon|Logo|Infograph|Timeline)(?:\s*\|\s*\d+:\d+)?\]\s*[-–—]?\s*/i, '').replace(/<<.+?>>/g, '').trim();
   };
 
   // Get human-readable type label
@@ -416,7 +692,13 @@ const LayoutVisualizer = ({ content, compact = false, overrideColors = null, onR
   
   const columnCount = layoutKey === 'TWO_COLUMNS' ? 2 : layoutKey === 'THREE_COLUMNS' ? 3 : layoutKey === 'FOUR_COLUMNS' ? 4 : 1;
   const copySections = parseCopyContent(parsed.copyContent, columnCount);
-  const assets = parseAssets();
+  // Parse required assets into list. (F4: one list for one slide's text; it
+  // was a new list at every render, and the index map below, a memo on it,
+  // was built again each time.)
+  const assets = useMemo(() => {
+    if (!parsed.requiredAssets || parsed.requiredAssets.toLowerCase().includes('none')) return [];
+    return parsed.requiredAssets.split(/[•\n]/).map(a => a.trim()).filter(a => a.length > 0);
+  }, [parsed]);
   const visualAssets = assets.filter(isFrameAsset);
   const iconAssets = assets.filter(a => getAssetType(a) === 'icon_logo');
   const layoutHints = parseLayoutHints();
@@ -429,162 +711,9 @@ const LayoutVisualizer = ({ content, compact = false, overrideColors = null, onR
     return map;
   }, [assets]);
 
-  // Image/Video placeholder component - visible frame with icon, label, and ratio
-  // Uses CSS aspect-ratio to match the ratio declared in the markdown
-  // When placedAsset is provided, renders the actual image/video thumbnail instead of placeholder
-  const ImagePlaceholder = ({ label, assetType = 'image', className = "", fillContainer = false, placedAsset = null }) => {
-    const isVideo = assetType === 'video';
-    const isInfograph = assetType === 'infograph';
-    const isTimeline = assetType === 'timeline';
-    const ratioLabel = getRatioLabel(label);
-    const aiRatio = getAssetRatio(label);
+  // (F4: ImagePlaceholder and IconLogoPlaceholder stand above the component
+  // now. Declared here they were two new component types at every render.)
 
-    // For placed assets, use pre-computed native aspect ratio from cache (stable, no re-renders)
-    let ratio = aiRatio;
-    if (placedAsset && placedAsset.type !== 'video') {
-      const cleanName = bareAssetName(placedAsset.file?.name).toLowerCase();
-      if (nativeRatioCache[cleanName]) {
-        ratio = nativeRatioCache[cleanName];
-      }
-    }
-
-    // Aspect-ratio enforcement strategy:
-    // fillContainer: Parent gives us a bounding box. We set aspect-ratio and
-    //   height:100% so the image fills the container height. maxWidth:100% prevents
-    //   horizontal overflow — ultra-wide images scale down proportionally.
-    // Normal: width:100%, aspect-ratio computes height. No height constraint.
-
-    // When a placed asset is provided, render the actual image
-    if (placedAsset) {
-      const isPlacedVideo = placedAsset.type === 'video';
-      const placedStyle = fillContainer
-        ? {
-            minHeight: '40px',
-            aspectRatio: `${ratio.w}/${ratio.h}`,
-            height: '100%',
-            maxWidth: '100%',
-          }
-        : {
-            minHeight: '40px',
-            aspectRatio: `${ratio.w}/${ratio.h}`,
-            width: '100%',
-          };
-
-      return (
-        <div
-          className={`rounded overflow-hidden relative ${className}`}
-          style={placedStyle}
-        >
-          {isPlacedVideo ? (
-            <VideoThumbnail asset={placedAsset} />
-          ) : (
-            <img
-              src={`data:${placedAsset.mediaType};base64,${placedAsset.content}`}
-              alt={placedAsset.file?.name || 'Placed asset'}
-              className="w-full h-full object-cover"
-            />
-          )}
-          {/* Filename overlay */}
-          <span
-            className="absolute bottom-0 left-0 right-0 text-center px-1 py-0.5 truncate"
-            style={{
-              fontSize: '6px',
-              color: '#fff',
-              backgroundColor: 'rgba(0,0,0,0.6)',
-              letterSpacing: '0.02em'
-            }}
-          >
-            {placedAsset.file?.name || 'Asset'}
-          </span>
-        </div>
-      );
-    }
-
-    // Height-driven sizing for all images in fillContainer mode:
-    // height:100% fills container, maxWidth:100% prevents horizontal overflow.
-    // The layout wrapper clamps ultra-wide ARs to the available space, so ImagePlaceholder
-    // doesn't need to know about AR limits — it just fills its container.
-    const style = fillContainer
-      ? {
-          borderColor: assetColor,
-          backgroundColor: `${colors[0]}66`,
-          minHeight: '40px',
-          aspectRatio: `${ratio.w}/${ratio.h}`,
-          height: '100%',
-          maxWidth: '100%',
-        }
-      : {
-          borderColor: assetColor,
-          backgroundColor: `${colors[0]}66`,
-          minHeight: '40px',
-          aspectRatio: `${ratio.w}/${ratio.h}`,
-          width: '100%',
-        };
-
-    return (
-      <div
-        className={`border-2 border-dashed flex flex-col items-center justify-center rounded p-1 relative ${className}`}
-        style={style}
-      >
-        {ratioLabel && (
-          <span className="absolute top-0.5 right-1 text-[10px] font-mono opacity-70" style={{color: assetColor}}>{ratioLabel}</span>
-        )}
-        {isVideo ? (
-          <svg className="w-5 h-5 flex-shrink-0 mb-0.5" style={{color: assetColor}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <rect x="2" y="4" width="20" height="16" rx="2" strokeWidth="1.5"/>
-            <polygon points="10,8 16,12 10,16" strokeWidth="1.5" fill="currentColor" opacity="0.3"/>
-          </svg>
-        ) : isInfograph ? (
-          <svg className="w-5 h-5 flex-shrink-0 mb-0.5" style={{color: assetColor}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <rect x="3" y="12" width="4" height="8" rx="1" strokeWidth="1.5"/>
-            <rect x="10" y="6" width="4" height="14" rx="1" strokeWidth="1.5"/>
-            <rect x="17" y="9" width="4" height="11" rx="1" strokeWidth="1.5"/>
-          </svg>
-        ) : isTimeline ? (
-          <svg className="w-6 h-4 flex-shrink-0 mb-0.5" style={{color: assetColor}} fill="none" stroke="currentColor" viewBox="0 0 24 12">
-            <line x1="1" y1="6" x2="23" y2="6" strokeWidth="1.5"/>
-            <circle cx="4" cy="6" r="2" strokeWidth="1.5"/>
-            <circle cx="12" cy="6" r="2" strokeWidth="1.5"/>
-            <circle cx="20" cy="6" r="2" strokeWidth="1.5"/>
-          </svg>
-        ) : (
-          <svg className="w-5 h-5 flex-shrink-0 mb-0.5" style={{color: assetColor}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <rect x="3" y="3" width="18" height="18" rx="2" ry="2" strokeWidth="1.5"/>
-            <circle cx="8.5" cy="8.5" r="1.5" strokeWidth="1.5"/>
-            <path d="M21 15l-5-5L5 21" strokeWidth="1.5"/>
-          </svg>
-        )}
-        <span
-          className="text-center w-full px-1 leading-tight"
-          style={{
-            color: assetColor,
-            fontSize: '7px',
-            wordBreak: 'break-word'
-          }}
-        >
-          {getAssetLabel(label) || 'Image'}
-        </span>
-      </div>
-    );
-  };
-  
-  // Small icon/logo placeholder for inline placement
-  // When assetIndex is provided, shows the number badge. Otherwise shows label.
-  const IconLogoPlaceholder = ({ label, assetIndex }) => (
-    <div 
-      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-dashed"
-      style={{ borderColor: `${assetColor}88`, backgroundColor: `${colors[0]}44` }}
-    >
-      <svg className="w-3 h-3 flex-shrink-0" style={{color: assetColor}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <rect x="3" y="3" width="18" height="18" rx="4" strokeWidth="1.5"/>
-        <circle cx="12" cy="12" r="4" strokeWidth="1.5"/>
-      </svg>
-      <span style={{ color: assetColor, fontSize: '8px', fontWeight: 'bold' }}>
-        {assetIndex != null ? `${assetIndex}` : (getAssetLabel(label) || 'Logo')}
-      </span>
-    </div>
-  );
-  
   // Calculate dynamic font size based on content length - small threshold range
   const getDynamicFontSize = (text, baseSize = 14, minSize = 11, maxChars = 400) => {
     const length = text?.length || 0;
@@ -616,7 +745,15 @@ const LayoutVisualizer = ({ content, compact = false, overrideColors = null, onR
   // Keyed by lowercase filename. Stable across re-renders — only recomputes when assets change.
   const [nativeRatioCache, setNativeRatioCache] = useState({});
   useEffect(() => {
-    if (!placementAssets || placementAssets.length === 0) { setNativeRatioCache({}); return; }
+    // F4 (P1-16): "no ratios" keeps the object it already is. It was
+    // `setNativeRatioCache({})`: a new object, so a new render, each time this
+    // effect ran; and with `placementAssets` defaulting to a new `[]` at every
+    // render it ran at every render, for ever (the duplicate resolver's
+    // preview: "Maximum update depth exceeded"). The default is one list now
+    // (NO_ASSETS, above); this is the second lock, for a caller that hands a
+    // new empty list each time.
+    const noRatios = () => setNativeRatioCache((was) => (Object.keys(was).length === 0 ? was : {}));
+    if (!placementAssets || placementAssets.length === 0) { noRatios(); return; }
     const cache = {};
     let pending = 0;
     placementAssets.forEach(f => {
@@ -638,8 +775,14 @@ const LayoutVisualizer = ({ content, compact = false, overrideColors = null, onR
         : `data:${f.mediaType};base64,${f.content}`;
       img.src = src;
     });
-    if (pending === 0) setNativeRatioCache({});
+    if (pending === 0) noRatios();
   }, [placementAssets]);
+
+  // F4: what the two placeholders (above the component) read of this preview.
+  // One object while none of the three changes, so a frame is drawn again for
+  // its own props or for one of these, and for nothing else.
+  const ground = colors[0];
+  const paint = useMemo(() => ({ assetColor, ground, nativeRatios: nativeRatioCache }), [assetColor, ground, nativeRatioCache]);
 
   // Look up placed asset for a given asset label from REQUIRED ASSETS
   // Matches <<filename.jpg>> markers embedded in the asset description
@@ -1445,6 +1588,9 @@ const LayoutVisualizer = ({ content, compact = false, overrideColors = null, onR
     );
   };
 
+  // F4: the slide, with what its placeholders read handed down to them.
+  const renderSlide = () => <PreviewPaint.Provider value={paint}>{renderLayout()}</PreviewPaint.Provider>;
+
   // Compact mode - just the slide preview (no wrapper, colors, or info)
   if (compact) {
     return (
@@ -1452,7 +1598,7 @@ const LayoutVisualizer = ({ content, compact = false, overrideColors = null, onR
         className="overflow-hidden"
         style={{ width: '672px', height: '378px' }}
       >
-        {renderLayout()}
+        {renderSlide()}
       </div>
     );
   }
@@ -1533,7 +1679,7 @@ const LayoutVisualizer = ({ content, compact = false, overrideColors = null, onR
               transition: 'transform 0.15s ease-out',
             }}
           >
-            {renderLayout()}
+            {renderSlide()}
           </div>
         </div>
 
@@ -1621,4 +1767,14 @@ const LayoutVisualizer = ({ content, compact = false, overrideColors = null, onR
 
 // Duplicate Page Resolver Modal
 
-export default LayoutVisualizer;
+// F4 (2026-11-13): under React.memo. D.O.G. holds 88 pieces of state, and a
+// change of any one of them, each letter typed in the deck context box among
+// them, ran this preview: the slide parsed, laid out and every frame built
+// again. It is drawn again now for a change of one of its own props. D.O.G.
+// hands it twelve, the same twelve across a render that changes none. Two of
+// them were not the same: onContentChange was written in the tag, a new
+// function each time, and onRefreshColors was a callback whose deps reach the
+// deck context box's text. Both are one function there now, and
+// App.focus.test.jsx types in that box with a slide in the preview to hold it:
+// a memo is worth what its props are.
+export default memo(LayoutVisualizer);

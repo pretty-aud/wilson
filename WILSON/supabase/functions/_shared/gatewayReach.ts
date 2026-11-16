@@ -30,6 +30,19 @@
 // the name after the same resolution and vetting (method 'pinned_fetch'),
 // and says so in its result — fetch resolves the name again itself, which
 // is the residual the brief names for that case.
+//
+// F8 (wave 2, 2026-11-13): s3Reach.ts, the S3 endpoint's probe, used to carry
+// its own copy of the transport below. Both now use these: withDeadline (the
+// words of its timeout a parameter: this file's are 'timed out', which only
+// classifyError reads; the S3 side's reach a person), readBytesUpTo,
+// connectLiteralTls, exchangeOnce and readBodyCapped. And the host rule is
+// one function, checkPublicHost, which each caller words in its own way:
+// a host that is not a DNS name is `malformed` here and `local_name` at the
+// S3 vet, as it always was (DESIGN.md F8-04). What is NOT shared, on purpose:
+// the two answer parsers (parseHealthResponse here, parseHttpAnswer there,
+// which read differently and could move a verdict if merged), how each caller
+// reads its input before the rule, and the error mapping (a failed write here
+// reads as nothing answered; s3Request lets it through).
 // =============================================================================
 
 import { parseIpv4, parseIpv6 } from './gatewayShapes.ts'
@@ -99,6 +112,37 @@ export type AddressCheck =
   | { ok: true; host: string; port: number; literal: boolean }
   | { ok: false; reason: 'malformed' | 'not_public' | 'local_name' | 'supabase_host' }
 
+export type HostRule =
+  | { ok: true; literal: boolean }
+  | { ok: false; reason: 'not_public' | 'not_a_name' | 'local_name' | 'supabase_host' }
+
+/**
+ * F8: the ONE rule for a host WILSON may be sent to, for a bare host (no port,
+ * no brackets) whose shape and length its caller has already judged, in this
+ * order:
+ *   1. an address literal must be public (not_public);
+ *   2. anything else must be a DNS name of two labels or more (not_a_name:
+ *      `localhost`, a bare label, an upper-case letter, a trailing dot, an
+ *      underscore; the pattern needs a dot, so `localhost` needs no test of
+ *      its own);
+ *   3. not under a local or reserved suffix (local_name);
+ *   4. not a Supabase host, nor this project's own (supabase_host).
+ * The host is judged exactly as given: lower-casing is the CALLER's reading
+ * (the S3 vet's URL parser lower-cases; the reach check does not, so
+ * `Gateway.Example.com` is malformed there). Do not normalise here.
+ */
+export function checkPublicHost(host: string, supabaseHost?: string): HostRule {
+  if (parseIpv4(host) || parseIpv6(host)) {
+    return isPublicIp(host) ? { ok: true, literal: true } : { ok: false, reason: 'not_public' }
+  }
+  if (!NAME_RE.test(host)) return { ok: false, reason: 'not_a_name' }
+  if (LOCAL_SUFFIX.test(host)) return { ok: false, reason: 'local_name' }
+  if (SUPABASE_SUFFIX.test(host) || (supabaseHost && host === supabaseHost.toLowerCase())) {
+    return { ok: false, reason: 'supabase_host' }
+  }
+  return { ok: true, literal: false }
+}
+
 /** Step 1: the address an admin set (0093's gateway_outside_address_ok, restated). */
 export function checkOutsideAddress(address: unknown, supabaseHost?: string): AddressCheck {
   if (!address || typeof address !== 'object' || Array.isArray(address)) return { ok: false, reason: 'malformed' }
@@ -107,15 +151,12 @@ export function checkOutsideAddress(address: unknown, supabaseHost?: string): Ad
     return { ok: false, reason: 'malformed' }
   }
   if (host.length < 1 || host.length > 253) return { ok: false, reason: 'malformed' }
-  if (parseIpv4(host) || parseIpv6(host)) {
-    return isPublicIp(host) ? { ok: true, host, port, literal: true } : { ok: false, reason: 'not_public' }
-  }
-  if (!NAME_RE.test(host)) return { ok: false, reason: 'malformed' }
-  if (host === 'localhost' || LOCAL_SUFFIX.test(host)) return { ok: false, reason: 'local_name' }
-  if (SUPABASE_SUFFIX.test(host) || (supabaseHost && host === supabaseHost.toLowerCase())) {
-    return { ok: false, reason: 'supabase_host' }
-  }
-  return { ok: true, host, port, literal: false }
+  const rule = checkPublicHost(host, supabaseHost)
+  // This caller's word for a host that is not a DNS name is `malformed`; the
+  // S3 vet's is `local_name`. Older than F8, read by each side's own page and
+  // tests (gatewayEdge.test.js pins `localhost` → malformed), so it stays.
+  if (!rule.ok) return { ok: false, reason: rule.reason === 'not_a_name' ? 'malformed' : rule.reason }
+  return { ok: true, host, port, literal: rule.literal }
 }
 
 /** Step 2: every resolved address must be public, and there must be one. */
@@ -223,12 +264,24 @@ export function insidePortToProbe(insidePort: unknown, outsidePort: unknown): nu
   return p === Number(outsidePort) ? null : p
 }
 
-async function withDeadline<T>(p: Promise<T>, ms: number, onLate?: (v: T) => void): Promise<T> {
+// ── The raw-HTTP transport (F8: shared with s3Reach.ts) ──────────────────────
+
+/** What this file's deadline says when it passes. classifyError reads only the error's NAME and these words. */
+export const TIMED_OUT = 'timed out'
+
+/**
+ * `p`, or an Error named TimedOut after `ms`. `onLate` is handed a value that
+ * arrives after the deadline (a socket to close). `message` is the error's
+ * words: keep each caller's own. The S3 side's sentence reaches a person (the
+ * probe's "could not reach the bucket endpoint (…)"); merging the two would
+ * change what that person reads.
+ */
+export async function withDeadline<T>(p: Promise<T>, ms: number, onLate?: (v: T) => void, message: string = TIMED_OUT): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
   let done = false
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
-      if (!done) reject(Object.assign(new Error('timed out'), { name: 'TimedOut' }))
+      if (!done) reject(Object.assign(new Error(message), { name: 'TimedOut' }))
     }, Math.max(1, ms))
   })
   try {
@@ -242,7 +295,8 @@ async function withDeadline<T>(p: Promise<T>, ms: number, onLate?: (v: T) => voi
   }
 }
 
-async function readUpTo(conn: Conn, max: number, deadline: number, now: () => number): Promise<string> {
+/** Reads BYTES until the peer closes, the cap or the deadline, whichever first. Never throws: a failed or late read ends it. */
+export async function readBytesUpTo(conn: Conn, max: number, deadline: number, now: () => number): Promise<Uint8Array> {
   const buf = new Uint8Array(max)
   let n = 0
   while (n < max) {
@@ -257,7 +311,71 @@ async function readUpTo(conn: Conn, max: number, deadline: number, now: () => nu
     if (got === null) break
     n += got
   }
-  return new TextDecoder().decode(buf.subarray(0, n))
+  return buf.subarray(0, n)
+}
+
+/**
+ * A TLS connection to an address LITERAL, the name used for SNI and
+ * certificate verification only, under one deadline; a connection that
+ * arrives late is closed. Throws what the connect threw, or TimedOut with
+ * `message`. The caller has already checked that `deps.connectTls` exists.
+ */
+export async function connectLiteralTls(
+  deps: ReachDeps, address: string, port: number, serverName: string, timeoutMs: number, message: string = TIMED_OUT,
+): Promise<Conn> {
+  if (!deps.connectTls) throw new Error('no raw TLS in this runtime')
+  return await withDeadline(deps.connectTls(address, port, serverName, timeoutMs), timeoutMs, (late) => late.close(), message)
+}
+
+/**
+ * One request over an open connection: write it whole, read at most
+ * `maxBytes` until the peer closes or `deadline`, then close, whatever
+ * happened. A write that fails or passes the deadline THROWS. The two callers
+ * differ here on purpose: s3Request lets it through (the probe's "connect"
+ * stage), the reach probe catches it and reads it as nothing answered
+ * (`not_this_gateway`). Each keeps its own; do not catch here.
+ */
+export async function exchangeOnce(
+  conn: Conn, request: Uint8Array, maxBytes: number, deadline: number, now: () => number, message: string = TIMED_OUT,
+): Promise<Uint8Array> {
+  try {
+    await withDeadline(conn.write(request), Math.max(1, deadline - now()), undefined, message)
+    return await readBytesUpTo(conn, maxBytes, deadline, now)
+  } finally {
+    try { conn.close() } catch { /* closed */ }
+  }
+}
+
+/** The part of a fetch body this file reads (a structural type, so no runtime library's name is needed). */
+export type CappedBody = {
+  getReader(): { read(): Promise<{ value?: Uint8Array; done?: boolean }>; cancel(): Promise<void> }
+}
+
+/**
+ * The fetch fallback's body, at most `max` bytes: read until the cap is
+ * reached or the body ends, then cancelled. A read that fails throws (each
+ * caller meets it where it met it before).
+ */
+export async function readBodyCapped(body: CappedBody, max: number): Promise<Uint8Array> {
+  const reader = body.getReader()
+  let total = 0
+  const parts: Uint8Array[] = []
+  while (total < max) {
+    const { value, done } = await reader.read()
+    if (done || !value) break
+    parts.push(value)
+    total += value.length
+  }
+  try { await reader.cancel() } catch { /* done */ }
+  const all = new Uint8Array(Math.min(total, max))
+  let off = 0
+  for (const p of parts) {
+    const take = Math.min(p.length, all.length - off)
+    all.set(p.subarray(0, take), off)
+    off += take
+    if (off >= all.length) break
+  }
+  return all
 }
 
 /**
@@ -308,7 +426,7 @@ export async function probeOutside(
   if (deps.connectTls) {
     let conn: Conn
     try {
-      conn = await withDeadline(deps.connectTls(target, chk.port, chk.host, limit), limit, (late) => late.close())
+      conn = await connectLiteralTls(deps, target, chk.port, chk.host, limit)
     } catch (e) {
       const kind = classifyError(e)
       const ms = deps.now() - started
@@ -322,12 +440,11 @@ export async function probeOutside(
     }
     let raw = ''
     try {
-      await withDeadline(conn.write(new TextEncoder().encode(request)), Math.max(1, deadline - deps.now()))
-      raw = await readUpTo(conn, PROBE_MAX_BYTES, deadline, deps.now)
+      raw = new TextDecoder().decode(await exchangeOnce(conn, new TextEncoder().encode(request), PROBE_MAX_BYTES, deadline, deps.now))
     } catch {
+      // A failed or late write: nothing answered in HTTP (`not_this_gateway`
+      // below). The S3 side lets the same failure through; this side never did.
       raw = ''
-    } finally {
-      try { conn.close() } catch { /* closed */ }
     }
     const ms = deps.now() - started
     const answer = parseHealthResponse(raw)
@@ -348,27 +465,7 @@ export async function probeOutside(
       signal: AbortSignal.timeout(limit),
     })
     let text = ''
-    if (res.body) {
-      const reader = res.body.getReader()
-      let total = 0
-      const parts: Uint8Array[] = []
-      while (total < PROBE_MAX_BYTES) {
-        const { value, done } = await reader.read()
-        if (done || !value) break
-        parts.push(value)
-        total += value.length
-      }
-      try { await reader.cancel() } catch { /* done */ }
-      const all = new Uint8Array(Math.min(total, PROBE_MAX_BYTES))
-      let off = 0
-      for (const p of parts) {
-        const take = Math.min(p.length, all.length - off)
-        all.set(p.subarray(0, take), off)
-        off += take
-        if (off >= all.length) break
-      }
-      text = new TextDecoder().decode(all)
-    }
+    if (res.body) text = new TextDecoder().decode(await readBodyCapped(res.body, PROBE_MAX_BYTES))
     const ms = deps.now() - started
     let proof: string | null = null
     if (res.status === 200) {

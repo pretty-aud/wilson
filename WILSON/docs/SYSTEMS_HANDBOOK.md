@@ -700,26 +700,75 @@ in each project's Supabase Dashboard.
 
 #### The tenancy rule
 
-Canonical read predicate (`projects_select`, current form,
-`0020_admin_grants_and_alignment.sql:241-243`):
+Canonical read predicate (`projects_select`, its tenancy part as 0137 left it,
+`0137_per_row_work.sql:1149-1150`; the live policy also carries 0072's
+private-project arm; 0020's per-row form, `0020_admin_grants_and_alignment.sql:241-243`,
+is history):
 
 ```sql
 deleted_at IS NULL
 AND workspace_id = public.current_workspace_id()
-AND public.has_active_membership(workspace_id)
+AND (SELECT public.has_active_membership(public.current_workspace_id()))
 ```
 
-Canonical write predicate (`projects_insert`, current form —
-`0013_project_members.sql:209-211` replaces 0004's two-clause version):
+Canonical write predicate (`projects_insert`, as 0137 left it,
+`0137_per_row_work.sql:1146-1147`, which also carries 0110's personal arm;
+`0013_project_members.sql:209-211` replaced 0004's two-clause version, with the
+call per row):
 
 ```sql
 workspace_id = public.current_workspace_id()
-AND public.has_active_membership(workspace_id)
+AND (SELECT public.has_active_membership(public.current_workspace_id()))
 AND public.current_app_role() IN ('admin', 'manager')
 ```
 
 The third clause is specific to `projects` (matrix parity: creating a project
 is an admin/manager action). Child tables keep the two-clause form.
+
+**Since 0137 (F7, 2026-11-13) the membership check is asked once per statement.**
+`has_active_membership` is a SECURITY DEFINER, so the planner never inlines it, and
+written as 0013 and 0020 wrote it, `AND public.has_active_membership(workspace_id)`,
+it ran once for every row a policy looked at (a 42-task UPDATE on dev made about 140
+calls; after 0137 the same UPDATE's plan holds five InitPlans, each run once). 186 of
+the 189 policies that call it now read `... AND workspace_id =
+public.current_workspace_id() AND (SELECT
+public.has_active_membership(public.current_workspace_id())) ...`, an InitPlan run
+once per statement. It is the same policy because the column is pinned to the claim
+beside it: where the pin is TRUE the two calls are one value, and where it is not,
+the AND holding it is not TRUE either way; no NOT, CASE, COALESCE, IS or comparison
+sits on any call's path (0137's header has the argument). The argument also takes the
+claim to be one value through a statement: PostgREST, storage and Realtime set
+`request.jwt.claims` between statements, never within one (only the test helpers
+`tests.login_as` and `tests.logout` of 0005 set it at all); a function that set it in
+the middle of a statement would break the equivalence. **Three keep the call per
+row:** `auth_events_insert` (no pin), and `ws_members_select` and
+`ws_members_admin_write`: `ws_members_self_update`'s WITH CHECK reads
+`workspace_members` by a sub-query, and the rewriter refuses ("infinite recursion
+detected in policy", 42P17) to expand a table's policies a second time on one path
+once any of them holds a sub-query. So 218 clauses are restated: the 13 bare calls,
+204 of the row's-column form and notes_select's one. (0137's own comments say "207
+calls" at its line 15 and "the one exception" at its line 178; the file is applied,
+so they are never edited: OUTSTANDING F7-15.)
+
+**A new policy follows the new form** where its column is pinned to the claim, and
+no table may then reach itself through its policies' sub-queries. **0137's probe**
+(its §7) prepares, on every table with row security, a read, a read FOR UPDATE, an
+UPDATE, a DELETE and an INSERT, as `authenticated` and as `anon`, refuses on 42P17,
+and refuses unless every protected table in `public` had its read and its UPDATE
+rewritten as `authenticated`. Its comment says each statement carries a WHERE or a
+RETURNING so that the read policies are collected; that is true of the UPDATE only
+(its `SET c = c` names a column; the DELETE's and the INSERT's `RETURNING 1` name
+none, so they ask for no read right). The coverage is still whole (round 2): a
+recursion needs a path from one command's policies, through sub-queries, back to the
+table, read there as a SELECT; every such path starts from one of the SELECT, UPDATE,
+DELETE or INSERT policy sets, and each is probed on its own (FOR UPDATE adds UPDATE's
+USING), so an upsert, a DELETE with a WHERE, an INSERT with RETURNING * or a MERGE
+recurses only where one probe already would; and every one of the 283 policies is TO
+public or TO authenticated, so `authenticated` sees every policy any other client role
+would. **Suite 139's probe**, the one that lasts after the apply, is weaker: four
+statements (a read, an UPDATE, a DELETE and an INSERT with no WHERE or RETURNING), as
+`authenticated` only, with no count of the statements actually rewritten (OUTSTANDING
+F7-18).
 
 Child tables that carry no `workspace_id` of their own inherit it through a
 live-parent `EXISTS` join — the "0014 pattern". Hiding a parent transitively
@@ -883,7 +932,7 @@ must not reimplement their logic.
 | `custom_access_token_hook(jsonb)` | DEFINER | Mints the four JWT claims |
 | `current_workspace_id()` | INVOKER | Active workspace from the claim |
 | `current_app_role()` | INVOKER | App role from the claim (deliberately claim-based, to avoid RLS recursion) |
-| `has_active_membership(uuid)` | DEFINER | The live membership gate used by nearly every policy |
+| `has_active_membership(uuid)` | DEFINER | The live membership gate used by nearly every policy; since 0137 asked once per statement, `(SELECT has_active_membership(current_workspace_id()))`, in 186 of the 189 (§4.4) |
 | `project_role_for` / `project_is_staffed` / `can_write_project` / `can_comment_project` / `can_manage_project_roster` | DEFINER | Project-level authority (0013); mirrored client-side by `projectRoleMatrix.js` |
 | `has_rate_card_grant(text)` | DEFINER | Live per-user rate-card view/edit grant (0020) |
 | `soft_delete_row` / `restore_soft_deleted` / `fn_trash_authz` | DEFINER | The only client path into and out of the trash |
@@ -1070,19 +1119,23 @@ A failed send never fails the write, and a missed one reads true at the next loa
 ### 4.6 Edge Functions
 
 Twelve functions, three shared guards, one shared crypto module and one shared
-limiter. All run with `verify_jwt = false` (§4.2).
+limiter. All run with `verify_jwt = false` (§4.2). **Since F8 (2026-11-13)
+there are four shared crypto modules:** `envelopeCrypto.ts` and the three built
+on it, `aiKeyCrypto.ts`, `storageSecretCrypto.ts` and `gatewayKeyCrypto.ts`
+(below, "The shared plumbing").
 
 > **Corrected 2026-10-28 (R2):** 23 functions since P1, not twelve (`supabase/functions/`, `_shared` aside). The table lists the
 > eleven of July; the twelfth, `provision-workspace`, left in S43. The other twelve: `ai-files` (§13.1), `operator-ai-files`,
 > `operator-models`, `operator-storage-plans`, `storage-presign` and `storage-secret` (§12.7a), `storage-read-urls` (P1, §12.7b),
 > and the five `gateway-*` (`docs/design/GATEWAY_DESIGN.md`). `adminGuard` is bundled by 21 of the 23, directly or through another
-> guard, and 16 call the shared limiter, `resolve-login` among them since Track B B1. Each function's secrets by name, and what
+> guard (by 23 of 23 since F8, 2026-11-13: `issue-session` and `resolve-login` import it now), and 16 call the shared limiter,
+> `resolve-login` among them since Track B B1. Each function's secrets by name, and what
 > production holds of each by the documents: `docs/PRODUCTION_RUNBOOK.md` (c).
 
 | Function | Caller | Guard | Job |
 |---|---|---|---|
 | `resolve-login` | `LoginScreen` (with `workspace_slug` since S43), `ForgotPasswordWizard` (without) | none (public, pre-auth) | Username (+ slug) → email, constant-time, uniform shape |
-| `issue-session` | `LoginScreen`, `WorkspaceSwitcher` | inline `getUser` | Seat `app_metadata.workspace_id` for the next refresh |
+| `issue-session` | `LoginScreen`, `WorkspaceSwitcher` | `adminGuard.authenticate` since F8 (inline `getUser` before) | Seat `app_metadata.workspace_id` for the next refresh |
 | `invite-member` | `InviteMemberDialog`, `MultiInviteDialog` | `requireWorkspaceAdmin` (since S17) | Invite by email, create the membership row with `onboarded_at` null |
 | `admin-create-user` | Admin Terminal → `adminApi.js` | `requireWorkspaceAdmin` | Create a member with a show-once password; optional synthesized email |
 | `admin-reset-password` | Admin Terminal | `requireWorkspaceAdmin` | Rotate a member's password, show-once |
@@ -1146,6 +1199,13 @@ original per-isolate in-memory bucket; the remaining functions have no limiter
 (§17). (`provision-workspace` was the other per-isolate one and was deleted in
 S43 — see §Onboarding.)
 
+> **Corrected by F8 (2026-11-13), counted from the code:** 19 calls in 16 functions: `ai-files` four (`ai-files`,
+> `ai-files-list`, and `ai-files-manage` twice), `ai-proxy`, the five `gateway-*`, the five `operator-*`, `resolve-login`
+> (on the durable limiter since Track B B1), `storage-presign`, `storage-read-urls` and `storage-secret`. Three fail closed
+> (`{ failOpen: false }`): `resolve-login`, `gateway-enrol` and `gateway-events`; the other sixteen calls fail open. Seven
+> functions have no limiter: `admin-create-user`, `admin-reset-password`, `admin-set-active`, `admin-user-security`,
+> `invite-member`, `issue-session` and `storage-gc`.
+
 **Show-once credentials.** WILSON stores no password anywhere. GoTrue accepts a
 plaintext password only to *set* it, so the create/reset response is the one
 moment the plaintext exists outside GoTrue's hash. `CredentialsPopup.jsx` holds
@@ -1156,6 +1216,82 @@ have **no real email** — one is synthesized as
 GoTrue's shape requirement. Consequence: forgot-password is unavailable for
 those accounts and an admin must reset instead; the response carries an
 `email_synthesized` flag so the UI can say so.
+
+**The shared plumbing (F8, wave 2, 2026-11-13).** Twenty of the 23 functions
+share their caller checks, their sealed secrets, a company's bucket, their
+raw-HTTP transport and their body reads; each is written once in `_shared/`.
+F7's three joined them at the merge (F8 the second merger): `storage-gc`'s
+drain loads its bucket with the shared loader and signs through one
+presigner a run (OUTSTANDING F8-02), and `aiFilesUpstream.ts` names
+`ServiceClient`, so the guards' client is the true type (F8-01). `ai-files`
+keeps its two caller checks as they were, on purpose: the member guard,
+then, once the body has arrived, a sweep's whole admin guard (GoTrue and the
+row asked again), and a list's role read again after its two limiters. Each
+second check is timed after the work it guards, so a demotion, deactivation
+or sign-out meanwhile is met; reusing the first answers was tried at
+`8a0bdb4f` and taken back (F8-03, open on purpose). What composes what:
+
+| Module | What it holds | Who uses it |
+|---|---|---|
+| `adminGuard.ts` | `authenticate(req)` (the bearer sliced at 7 and never trimmed, one service client, GoTrue's `getUser`, the claims decoded lazily so each guard reads them where it always did); `liveMembership(admin, ws, user, { withRole })` (the row read's error handed back, unjudged); `hasVerifiedTotp(admin, userId)` (a failure is `ok: false`; `count` from the data either way; `verified` decided by `.some` and `count` by `.filter`, apart, as the guards and admin-user-security each decided them at `a71cd144`: review round 2); `serviceClient()` and `callerClient(req, { quiet })`; `reply`, `jsonResponse`; the types `ServiceClient` and `GuardClient` (one type since the second merger, F8-01) | the three guards; issue-session, resolve-login, admin-user-security; gateway-reach and gateway-ticket (`callerClient(req, { quiet: true })`, as they built it); storage-presign and storage-read-urls (`callerClient(req)`, no options, as before); `gatewayGuard.ts` (`serviceClient({ quiet: true })` and `jsonResponse`), and through it gateway-enrol, gateway-sync and gateway-events |
+| `memberGuard.ts`, `operatorGuard.ts` | composed from the pieces above; each keeps its own rules: the member guard any active row and no MFA; the operator guard its three differences (no workspace in the context; the live `platform_operators` row the authority, a failed read 503; MFA hard, enrolment asked before the step-up) | as before |
+| `envelopeCrypto.ts` (new) | `makeEnvelopeCrypto(spec)` and `makeVersionedEnvelopeCrypto(base, spec)`: AES-256-GCM, `base64(iv[12] ‖ ciphertext ‖ tag[16])`, the master key imported once per secret name and value per isolate | `aiKeyCrypto.ts`, `storageSecretCrypto.ts`, `gatewayKeyCrypto.ts`, each keeping its secret's name, its error class and words, its truncation line (12, 12 and 28 bytes), its AAD (the ticket keys' `gateway-signing-key:<ws>:<kid>`; none for the other two) and its versions (keyVersions.ts's for the two; none for the ticket keys) |
+| `workspaceBucket.ts` (new) | `loadWorkspaceBucket(admin, ws, { requireByos, preflightCrypto })`: the configuration and the sealed secret read at once by the service role, after the guard, on the guard's workspace; the configuration's refusals answered as soon as it is read; seven coded refusals each caller words itself; `readWorkspaceBucketConfig` | storage-presign (`requireByos` for put and look), storage-read-urls (no mode check, a GET), storage-secret (the probe: no master-key preflight, as it never had one; `set`: the configuration only), storage-gc's drain (neither check, as it never had them; once a run; since the second merger, F8-02) |
+| `gatewayReach.ts` | the transport (`withDeadline` with each caller's own words, the byte reader, the literal-address TLS exchange, the capped fetch-fallback read) and `checkPublicHost` | the reach check and `s3Reach.ts`; a host that is not a DNS name is `malformed` at the one and `local_name` at the other, as before (F8-04) |
+| `gatewayWire.ts` | `readJsonLimited` (decodes as it reads; an optional third argument bounds the drain, `DRAIN_MAX_BYTES` when left out), `readBodyJson(req, cap)` (`json`, `not_json` or `too_large`), the caps, `TOO_LARGE`, `DRAIN_MAX_BYTES`, `PRE_AUTH_DRAIN_MAX_BYTES` (review round 2) | every function that reads a JSON body (gateway-enrol alone passes `PRE_AUTH_DRAIN_MAX_BYTES`); `readSmallJson` (aiFileStore.ts) is `readJsonLimited` plus the object check |
+| `s3Presign.ts` | `presignS3Request` (unchanged, byte for byte) and `makeS3Presigner` (the signing key derived once per UTC day and region per request) | storage-read-urls' batch, storage-secret's probe and storage-gc's drain (one presigner a run, since the second merger); storage-presign signs one URL |
+| `gatewaySigning.ts` | the opened ticket key kept per isolate: one entry a workspace, 256 at most (least recently used out), used only when the row just read names the same kid and ciphertext AND the master key is the same | gateway-ticket |
+
+**The caps, each from what its real callers send** (the design round's
+measurement of every caller in `src/`, re-read by review round 1; nothing in
+`electron/` or `gateway/` calls these):
+
+| Functions | Largest real body | Cap |
+|---|---|---|
+| admin-create-user, admin-reset-password, admin-set-active, admin-user-security, invite-member, operator-ai-keys, operator-models, operator-storage-plans, operator-workspaces, storage-presign, storage-secret | 1,610 bytes (operator-storage-plans with a 500-character note); storage-presign 1,047 (a 1,024-character path) | 16 KiB |
+| resolve-login, issue-session | 254 bytes (`{ company }`, 80 characters); 55 | 4 KiB |
+| ai-proxy | no bound in the client: pictures and PDFs go as file ids; text inline up to 262,144 characters a source, twenty sources, notes and lessons unbounded | 33 MiB: the provider's 32 MiB request ceiling plus 1 MiB |
+
+Past its cap a body is answered `413 { error: 'too_large', detail: 'the
+request is too large' }` where it was read. No more than the cap and one
+chunk is ever held; the rest is read through and thrown away, undecoded, up
+to `DRAIN_MAX_BYTES` (64 MiB), and only then is the stream cancelled.
+🚨 **The read-through is load-bearing, not waste.** Measured on wilson-dev
+(2026-11-13) with a reader that refused without reading on: storage-presign's
+413 reached the caller for 20, 64 and 256 KiB bodies, but 1 MiB and 8 MiB
+bodies got NO answer within 90 s (06:08-06:13 UTC), and ai-proxy's 34 and
+40 MiB a platform 502 after ~39 s (05:55-05:57 UTC, the ladder before the
+read-through): the hosted relay delivers an answer only once
+the request body has been received. With the read-through (06:38 UTC): 1 MiB
+and 8 MiB 413 in 0.4 and 1.1 s, resolve-login 1 MiB 413 in 0.6 s, ai-proxy
+35 MiB 413 in 4.1 s. Past 64 MiB the platform answers for the function (a
+70 MiB body: 504 after 168 s). gateway-enrol's read runs before any check,
+before anyone is authenticated, so it drains only to
+`PRE_AUTH_DRAIN_MAX_BYTES` (2 MiB; no gateway sends more than about 20 KiB,
+its PEM at most 16 KiB) and is cut there, past which the platform answers for
+it; its answer is unchanged (review round 2). resolve-login counts an
+over-size body with its limiter first (a limited caller hears 429) and
+answers 413 with its uniform miss `{ exists: false, email: null }`, after its
+floor; an over-size company request too, by design: past the cap its body
+is read as `{}`, so it is counted in the `:user` bucket and its 413 carries
+no `v`; issue-session
+answers 413 after the sign-in check and before the membership read. Measured
+before F8 (04:45 UTC): the old ai-proxy read a 64 MiB body whole (200), so
+the platform sets no limit of its own before the function.
+
+**The caches, and why a rotation still works.** A master key is kept per
+isolate under its secret's NAME, and used only while the environment still
+holds the VALUE it was imported from: a new version is a new name, another
+value under the same name is imported again, a removed secret is refused
+before the cache is looked at, a failed import keeps nothing, a master handed
+in by a caller is never kept, and the three modules share nothing. The opened
+ticket key is kept only for the kid and ciphertext the database names on THIS
+call (the database is read on every call), and only while the master key is
+the same object the envelope cache hands back.
+
+**The one side effect of starting ai-proxy's key read beside the limiter**
+(F8 f): a call it then refuses (429, 413, 400) has now also read the company's
+key row and, when there is one, opened it; nothing is written.
 
 ### 4.7 Storage buckets
 
@@ -1308,6 +1444,8 @@ only matter if someone **replays a migration by hand**:
 
 | If you re-run… | You must then re-run… | Because |
 |---|---|---|
+| any file that re-creates one of the 186 policies 0137 restated, or the meter | `0137`, last, after the rows below | **(F7)** 0137 restates 186 policies with the membership call asked once per statement, and `workspace_petal_committed_bytes` with the meter's arms 1a and 1b. A replay that re-creates one of those policies puts the call back per row: the same answers, slower, until 0137 runs again. 0137's pre-flight accepts either form of each listed clause (its post-condition refuses, naming the policy, where a clause's text is not otherwise dev's: the rows below put the rest back first), and the meter as 0115's (`96b8fb43380056a2e9925fc28a09c458`) or its own (`67bd041258c73fecae5b4031357e42d2`). 🚨 **0115 refuses after 0137:** its pre-flight pins the meter and nine of the storage policies 0137 restated (`petal_bin_posters_*`, `rabbit_files_*` and `rabbit_thumbnails_*`: insert, update, delete_own), so MO1's row below for 0115 cannot be followed on a database where 0137 is applied. Putting 0115's bodies back to replay it is a reviewed statement of its own, rolled back first; none is written. |
+| `0130` **or** `0131` | `0138`, after the rows below that name either | **(MO5)** 0138 restates `board_create` (0130's body) and `moth_move_folders` (0131's) without the refusal of a thing's own folder (an asset's, a scene's, a shot's). A replay of either puts that refusal back; 0138's pre-flight accepts 0130's and 0131's bodies by md5, so it runs again and takes it out. Suite 140's section B is what shows the difference (a board made in an asset's folder). |
 | `0130` | `0134` **first**, then `0136` | **(MO4)** 0134 restates `boards_select` and `board_elements_select` from 0130's text with the projects hop (0107's rule, suite 110's S2). A replay of 0130 puts both back without it, and 0130's post-condition still passes (it counts two policies); suite 110 fails meanwhile. 0134's pre-flight accepts 0130's two policies or its own, by name and by their clauses. A replay of 0130 never takes 0132's sender away: it makes its do-nothing `board_announce` only where none is there. 0136 restates `board_read` from 0130's text with the board's `background` and `background_version`, pinned by md5: its pre-flight accepts 0130's (`7135d1c611e54603a14bfcb590305e1a`) or its own (`3042ffac01c8f09ba7c03607d2e25fc0`). A replay of 0130 puts `board_read` back without the two keys, so every window draws the dotted grid and offers no choice until 0136 runs again. **The order is 0134, then 0136:** 0136's pre-flight also asks for 0134's two reads, which the replay took back, and refuses until 0134 has run. |
 | `0131` | `0135` | **(MO4)** 0135 restates `fn_files_folder_trash_guard` from 0131's body with one arm: a file whose batch's folder is deleted outright lets go of its batch. A replay of 0131 puts the guard back without it, and such a file is again listed nowhere and refused a restore until the purge takes it. 0135's pre-flight accepts 0131's md5 (`f9f87948091848ea6ea9c06f6d722b1a`) or its own (`82ff8938111483a85a9ef5c5dffb1370`). |
 | `0041` | `0107`, then `0131` | **(MO4)** 0131 restates `folders_select` from 0041's with a folder in the trash left out. A replay of 0041 puts back the read without it: every folder in the trash is read by clients again, and reached by their UPDATE and DELETE (0131's guards still refuse a client's write of the trash columns, and a delete with a batch below). 0107's row below stands for 0041's write policies. |
@@ -1827,7 +1965,13 @@ anything under `supabase/functions/` has `KNOWN` in its list, and at a merge
 annotation at its first line; the known ones are one warning, which carries
 Deno's own count; when the module graph fails before any check (esm.sh
 refusing an import) the annotation says that and nothing is compared. To
-move Deno, move it with the CLI's pin and read this job first.
+move Deno, move it with the CLI's pin and read this job first. **Since F8
+(2026-11-13) `KNOWN` holds one line, `ai-files/index.ts TS2739 1`** (F7's
+file). Of the other 27, the shared client type (the guards' client typed as
+`GuardClient`) cleared 25, storage-gc's 17 among them, and two one-line casts
+the last two, `admin-user-security`'s and `operator-ai-keys`' TS2352 (CI's run
+on `18d73eea`: "1 known errors in 1 groups … deno counted 1"; OUTSTANDING
+F1-01, F8-01).
 
 Repository secrets consumed (names only): `DEV_SUPABASE_URL`,
 `DEV_SUPABASE_ANON_KEY`, `DEV_PROBE_USERNAME`, `DEV_PROBE_PASSWORD`. The
@@ -2263,6 +2407,39 @@ walk found a file that was already there. An add through the desktop's route, un
 
 **MO1.** The drain takes `pending` and `failed` rows, in that order, because 0115 keeps a failed row's key claimed until it is
 really gone. A company's bucket that has stopped answering is asked once in a run, so what follows the drain still runs.
+
+**F7 (wave 2, 2026-11-13): the drain's guard is asked per slice, not per row.** The page of up to 500 queue rows is taken
+in slices of 50; for each slice the guard reads `files` once per column (`storage_path` for a body, `thumbnail_url` for a
+picture, both for a company bucket's row), chunked by what the request carries (about two chunks a column for a slice of
+typical keys), and the slice is acted on before the next is read, so "nothing names this" is at most one slice old
+(0115's claim holds a queued key against a new row meanwhile). The read has **no provider filter**: both indexes on those
+columns are partial on the provider, and no filter is proved for every provider (nothing stops a `google_drive` row from
+naming a bucket key: OUTSTANDING F7-09), so each read is a scan of `files`. Measured in the tests (round 2): a full page of
+500 rows, 250 bodies and their 250 pictures with typical keys, is **20 reads of `files` when nothing is named and 40 when
+everything is** (a chunk that names anything takes one more read, the empty page that ends it), where the per-row guard
+made 500. **A list of keys is sent quoted and escaped** (`.filter(col, 'in', …)`): postgrest-js's `.in()` escapes neither
+`"` nor `\`, and PostgREST reads a list only to its first closing `)`, so in the batched code before round 1's fix one key
+holding `")` blinded every key after it in its chunk, which would then have read "nothing names this" and been deleted
+(round 1's security finding, fixed before the function was deployed). Only a plain key (`[A-Za-z0-9._/-]`) is listed; any
+other is asked alone by `.eq()`, as the drain asked every key before. The chunker counts each value as it goes on the
+wire, quoted, form-encoded, and its comma as the 3 characters `%2C`. A failed read, whatever its error's shape, or an
+answer that is not a list, fails its rows `failed`; pages go by id until one comes back empty, whatever `max_rows` is; if
+only a chunk's confirming page fails, a path an earlier page already found named stays named (kept, as the per-row read
+kept it) and the rest fail.
+
+**The orphan scan's lookups (F7, round 2).** `referencedPaths` takes the same quoted lists and `.eq()` for a key that is
+not plain (its keys come from storage listings, which cannot hold `"` or `\`, so it was not exposed; it takes the fix all
+the same), and since round 2 the same paging by id to an empty page: unpaged, a `max_rows` below a chunk's matches left
+the rest unseen, and those objects were removed while a row still named them (older than F7; shown red in the tests with
+`max_rows` 3). The twin question (`rowNamesTwin`) fails closed on an answer that is not a list. Both keep the provider
+filter (`supabase`, `s3`, `local_server`) **on purpose**: without it the twin question's LIKE is a scan of `files` for
+every old object, which puts the 150 s deadline at risk. So a `google_drive` row naming a `rabbit-files` key does not keep
+it from the orphan scan, though the drain's guard asks every provider (a `network_share` row cannot name one: 0117's
+CHECKs); OUTSTANDING F7-09. The stamps, `remove()` with `certify()`, and the orphan scan's per-folder reads stay one per
+row (OUTSTANDING F7-04). `src/cloud/edgeSweeps.test.js` drives the drain and the orphan scan against an in-memory
+supabase-js that builds and parses lists as the two really do and answers at most `max_rows` rows, and holds each list
+as sent within about 6,000 characters; planted mistakes (a provider filter, a dropped chunk or page, an unordered page, a failed
+read taken as empty, one slice for the whole page) turn its cases red.
 
 `trg_files_gc_enqueue` fires `AFTER DELETE ON files WHEN storage_provider =
 'supabase'` and inserts a `storage_gc_queue` row. The `storage-gc` Edge
@@ -3679,6 +3856,32 @@ reads `no_folder` for its own project and stops nobody else.
 
 ### 12.10 The quota exemption is bounded by size (Track C, migration 0078)
 
+**F7 (0137, 2026-11-13): how the meter finds a company's objects.** `workspace_petal_committed_bytes(ws)` (0073, restated by
+0115 and 0137) counts the same bytes as before, in three arms. **1a**, for each of the company's projects, every object of
+`rabbit-files` and `rabbit-thumbnails` whose key starts `projects/<id>/`, read as a byte range in collation "C"
+(`>= 'projects/<id>/'`, `< 'projects/<id>0'`: '/' is 0x2F, '0' 0x30), a range an index led by `(bucket_id, name COLLATE
+"C")` can serve; no test function runs per object to find them (`rabbit_object_incoming_bytes` still reads each counted
+object's size). **Measured on dev (126 objects, 2026-11-13 04:24 UTC):** the planner does not take an index there, the
+table being so small: 1a is a scan of `storage.objects` for each of the company's 7 projects (126 rows read 7 times), and
+the 26.7 ms became 2.8 ms because `fn_try_uuid`'s sub-transactions are gone (23.0 of the 26.7 ms before); with sequential
+scans switched off, 1a takes `objects_bucket_id_name_version_key` by range (9.6 ms). **1b**, 0115's first arm verbatim
+behind a cheap test that keeps out every key whose second segment is the canonical spelling (0115 counts such a key
+exactly when 1a does): a key whose second segment is spelled another way (upper case, braces, missing or extra hyphens
+all name the project through `fn_try_uuid`, and the storage INSERT policies admit them, so a prefix alone would be a
+quota bypass). It still reads both buckets of every company on every upload, but runs a regular expression per object
+(about 5 µs on dev) where 0115 ran `fn_try_uuid`'s sub-transaction (about 0.2 ms) on every object: OUTSTANDING F7-05.
+**2**, 0115's moved copies, unchanged. `rabbit_object_incoming_bytes(metadata)` stays the only size source. The split
+leans on `storage.foldername(name)` being the name's segments less the last (storage-api's definition; nothing pins it):
+were it ever to keep the last segment, a two-segment key `projects/<id>` would be counted by 0115's arm and not by 1a
+(suite 139's two-segment plant is what would show it, on CI's storage version). 0137 installs the body under a
+candidate's name, compares old and new for every company (and for NULL, and an id no company has) in one statement and
+refuses on any difference, then replaces the function and pins its md5 (`67bd041258c73fecae5b4031357e42d2`), definer,
+owner and grants. That comparison sees only the data present: on a database with no companies it compares nothing real,
+and on a re-run the body with itself. Suite 139 carries the proof there: it plants every spelling and a moved copy against
+0115's body (63,615 bytes for company A), with controls cut from the live body, each held to its exact wrong total (no 1b
+30,787; no 2 57,471; `<=` 129,151; a `chr(255)` bound 47,231; one bucket in 1b 30,847), its cutting helpers reading the
+body with carriage returns stripped.
+
 Audrey's ruling, 2026-09-09, on the consequence §12.9 describes: **bound the
 exemption by size**, rather than cap `BudgetView`'s picker. Migration **0078**
 is that bound. Migration number taken with her explicit permission the same day
@@ -3882,6 +4085,28 @@ and a boundary rule requires every frame to satisfy
 > asset aspect ratios; it never reads the AI's x/y/width/height values. Do not
 > "fix" the visualiser to consume the JSON without knowing that.
 
+**The preview draws for its own props (F4, 2026-11-13).** `LayoutVisualizer`
+is exported under `React.memo`, and D.O.G. hands it twelve props that stay
+the same object across a render that changes none of them:
+`onContentChange` and `onRefreshColors` are callbacks D.O.G. keeps stable
+on purpose (the second through a ref, because `generateAIThemes` changes with
+every letter of the deck context). A new function written in the
+`<LayoutVisualizer` tag undoes the memo: `App.focus.test.jsx` types in the
+deck context box with a slide in the preview and holds the preview at no
+render. The two placeholders (`ImagePlaceholder`, `IconLogoPlaceholder`)
+stand at module level, so a frame is a component of one type for its life
+(declared inside the render they were two new types each time, and every
+frame was built again); they read the frame ink, the slide's ground and the
+pictures' measured shapes from the `PreviewPaint` context. A placed picture
+is drawn from ONE object URL per picture object, shared by every frame that
+shows it and revoked a turn after the last such frame goes (a dev build's
+double mount and a picture moving between frames keep it); where the page
+cannot make one, the frame takes the `data:` URL as before. `placementAssets`
+defaults to the module's frozen `NO_ASSETS`: a `[]` default was a new list at
+every render, the pictures-measuring effect depends on it and sets state,
+and the duplicate resolver, which passes none, looped ("Maximum update depth
+exceeded", OUTSTANDING's P1-16, closed by F4).
+
 **Attachments — today's behaviour, stated precisely because it is a known
 gap.** `projectFiles` skips any document or visual asset that lacks an inline
 `content` data URL, silently and with no error. In **local** mode every upload
@@ -3958,7 +4183,47 @@ deleted the id and the caller's row is the earliest naming it (otherwise
 `absent` row) and never asked about again; a lookup batch the store refuses (it
 refuses an id it cannot parse, measured) is split down to that id. The new
 routes spend their own rate buckets (`ai-files-manage` per caller,
-`ai-files-list` per workspace), never the upload's. Uploads reach the store
+`ai-files-list` per workspace), never the upload's. **F7 (0137):** a sweep, the
+workspace's or the operator's, lists the store and reads the rows ONCE: what it
+reports as left is that starting listing less the ids whose delete answered
+`deleted` (2xx) or `gone` (404), the two outcomes a delete certificate makes the
+next list skip (`pooled` answers in the order of its items, which this rests on).
+So it is the run's starting snapshot less what the run removed: an upload made
+during the run (or, for the operator, another environment's traffic on the shared
+key) is not in it, and a delete that timed out after the store had acted still
+counts as remaining. It can only over-count; the next list, or Refresh, corrects
+it. The rows these reads look for have two indexes of their own:
+`app_events_file_id_idx` on `context->>'file_id'`, over every row (a partial one,
+on the AI rows only, was taken by the planner for that predicate alone and made
+readAbsentNoted 2.4 ms become 78 ms in the rehearsal), and
+`app_events_ai_files_ws_id_idx` on `(workspace_id, id)` over every ai-files
+`WIL-6001` row (uploads and certificates alike), with statistics on
+`context->>'tool'`. PostgREST sends the JSON key and every value as parameters,
+so an index on the expression serves only a **custom** plan, one planned with the
+values in; a **generic** plan cannot match it. Real calls do use them: across one
+smoke run on dev (2026-11-13, 04:27 to 04:30 UTC) `app_events_ai_files_ws_id_idx`
+went from 1 to 36 scans and `app_events_file_id_idx` from 2 to 11 while
+readUploadRows ran 27 times. **But readUploadRows takes the generic plan from a
+connection's sixth call** (under `plan_cache_mode` auto PostgreSQL keeps a custom
+plan only while its estimate is the cheaper): measured on dev, prepared as
+PostgREST sends it, as service_role, 0.75 ms for the first five calls (the new
+index), then a walk of `app_events_pkey` with a filter, 4.3 ms for dev's busiest
+company and 6.9 ms for a company with no AI rows (the whole 14,294-row table
+walked), a plan that grows with the table (OUTSTANDING F7-13). readCertifiedGone
+(2.2 to 2.9 ms) and readAbsentNoted (1.3 to 1.5 ms) kept their custom plans.
+**Timed whole, the gain is small at dev's size.** The statement as PostgREST sends
+it, its JSON reply included, on a quiet dev (05:11 UTC), against the old shape
+timed the same way (the two indexes and the statistics dropped inside a
+rolled-back transaction, 05:15 UTC): readUploadRows 5.1 ms for the first five
+calls and 8.6 ms after, the old shape 8.9 and 8.5; readCertifiedGone 5.7 against
+6.0; readAbsentNoted 1.85 against 1.85. The 44 ms live mean before 0137 was taken
+under CI's load on dev and stale statistics, not the old plan's cost. The
+indexes are for a large `app_events`, where a company's AI rows stay few while
+the table grows; the generic plan cannot use them even then. Suite 139's
+#54 states the generic plan as measured; `src/cloud/edgeSweeps.test.js` drives
+both sweeps, a run a 429 ends among them (and, for ai-files, a company key that
+cannot be read at the delete), and holds `after` to the next list or summary.
+Uploads reach the store
 under a neutral name (`neutralFileName`: `document.pdf`), never the file's own. 🚨 Attribution lives only
 as long as app_events' 90-day purge keeps the upload row: a file older than
 that, never deleted, is nobody's to WILSON (pre-FX12 uploads from 2026-08-11
@@ -4283,6 +4548,20 @@ than merely hidden, so that a queue fetch does not fire for every user at
 launch. Sidebar 1 collapses with `Ctrl/Cmd + \`, gated on
 `currentPage === 'otter'` (§13.4).
 
+**What is built at a render (F4, 2026-11-13).** The views stay mounted and
+hidden exactly as above; what changed is how much of them a render of the
+tool builds again. The open lesson's markdown is drawn through
+`LessonBodyOnce`, which React draws again only for another text (it was
+parsed, and its code coloured, at every render: a lesson marked complete, a
+letter in a search). The function it is handed reads nothing of the
+component but the text, and must not: it would show as of the last change
+of the text. The shortcuts-or-functions view and the nodes view are the
+elements `renderHotkeys()` and `renderNodes()` return, kept with `useMemo`
+over the state each reads (seven and five), and `FunctionCard` is under
+`React.memo`. **A piece of state read in either function goes in its list**,
+or the view shows it stale: `otterRerender.test.jsx` parses the source and
+fails when a read of the component's own state is missing from the list.
+
 **Sidebar 1 resizes by its edge (SB1, night 10, 2026-11-01).** The kit Panel's
 handle (§13.4): `resizable storageKey="otter.sidebar1.width" minWidth={180}
 maxWidth={480} minBeside={720}`, the width remembered beside
@@ -4509,6 +4788,28 @@ caches, the 404 and the reminder.
 
 `src/tools/rabbit_v0.1.0/`. Mounted once near the top of the app by
 `RabbitProvider` and kept alive across navigation.
+
+**The provider's one value, and what moves beside it (F4, 2026-11-13).**
+`useRabbit()` hands about seventy files ONE value, and a new value draws all
+of its readers. Eight pieces of state change on their own clock and are no
+longer fields or deps of that value: `adapterStatus`, `undoToast`,
+`activeIngestion`, `ingestionRun`, `realtimeStatus`, `presentUsers`,
+`workspaceRealtimeStatus`, `workspacePresentUsers`
+(`state/rabbitLive.js`). The seven that something shows each have a context,
+read with `useRabbitLive('<name>', ctx)`; the adapter's one word `online`
+has its own, read with `useRabbitOnline(ctx)` by the connection dot and the
+six data hooks that load again when it flips (the status object is replaced
+at every projects refresh, for a status that says the same). **The value
+still carries all eight, as getters over what the provider last rendered
+with: right in a handler, wrong while drawing** (a getter tells nobody, so a
+component reading one is never drawn again for it). `rabbitLive.test.jsx`
+reads every source file for a member read of one of the eight outside the
+provider and lists the readers. With no provider above (the tests that stand
+in for it), each hook answers from the `ctx` it is handed. D.O.G. reads six
+fields of the provider (the mode, the projects list and four functions) as
+one memoized object, `useRabbitProjects(useRabbit)`, which changes with the
+list, the mode and the open project's id. What remains: any change to the
+open project is still a new value for every reader (§17, *Re-rendering*).
 
 **Object model**: project → phase → asset → task (a task may hang off an asset
 *or* directly off a phase). Optional, project-toggleable modules add scenes →
@@ -4823,6 +5124,18 @@ five-phase ~2.1 s transition before flipping the visible page.
 >    *after* the role check — and inside that child, hand each section an
 >    `isActive` prop so its own fetch waits for first activation.
 
+**A render of App no longer renders every page (F4, 2026-11-13).** The pages
+(Home, Projects, Rate card, Team members, Dashboard, Help, Settings' bridge,
+M.O.T.H.'s surface) and the three tools' roots (each in its own `index.jsx`)
+are under `React.memo`: App hands each the same props across a render that
+changes none, and the page is not run. Left out, and named in `App.jsx`:
+`PageSurface` (its `children` is new at every render), the Files page
+(mounted only on screen) and the Admin terminal (it computes "5m ago" while
+it draws, and a change of page is what refreshes those words). **A page
+under the memo that reads the clock, a ref, storage or a module value while
+it draws shows it stale**: the re-renders that used to refresh it are gone.
+`App.rerender.test.jsx` holds the counts; the pet's own host is §13.5.
+
 **One main region per page (post-overhaul FX15).** `PageSurface`
 (`src/layout/PageSurface.jsx`, moved out of `App.jsx`; App renders it as
 before) is the page's `<main>`, except on a page whose tool draws its own (the
@@ -5125,6 +5438,57 @@ or an offline launch's confirmation (`petLifecycle.js`
 > refreshed.* and reloads the account's copy. The pet does not sync live
 > between machines (1.1).
 
+**Where the pet lives in the tree (F4, 2026-11-13).** Its state, its four
+clocks (the 30 s decay, the sleep Z every 2 s, the dream cloud, the attention
+jump), its chat and its handlers are `PetHost`, a component of `App.jsx`
+that wraps the signed-in column, so a tick of the pet draws the pet and no
+page (it drew App and every page). The shell (`App`) keeps what outlives a
+pet: the save queue, the cached pet read at launch, whose pet it is, the sync
+retries and `signOutLocal`; it reaches the host's `setPetData` through a ref
+(`petHostRef`), and the host keeps the shell's `petDataRef` current. The
+companion is drawn where it always was, through `PetCompanionSlot`.
+Settings is handed the pet through `PetSettingsContext`, fed while Settings
+is the page on screen (or the pet is gone), so a tick off screen draws no
+Settings. The text typed to the agent is `AgentProvider`'s own context
+(`useAgentInput`), not a field of its memoized value.
+
+> 🚨 **A child's effects run before its parent's.** The host's material-change
+> save therefore runs before App's identity effect in a commit they share.
+> When another person signs in over the first (no sign-out between) in the
+> same commit as a decay tick's material change, the save once went out with
+> the new person's session, addressed to the old (review round 1). And a
+> check made when a write STARTS is still late: a save queued behind one in
+> flight starts when that one returns (review round 2). So a save carries the
+> person it was made for: `savePet` labels it with whose the pet on screen is
+> (`petPersonRef`, moved by the identity effect and the sign-out), and
+> `performPetSave` refuses it, without a word, once `isPetPerson` fails (the
+> pet, the routing and who App last drew signed in, `signedInUserRef`), at the
+> start and after each await; `savePet` reports a landing only while that
+> person is still there. The identity effect blanks the pet on any change of
+> person, routed or not. When App blanks it through the host's handle (a
+> sign-out, a switch) the chat, the field's words and the hatch dialog go with
+> it, and the host counts the blank (`personChangesRef`): an answer, or a
+> dialog, set going before the count moved is dropped. App sees a change of
+> person only when it draws, and another tab's sign-in reaches the client's
+> session through shared storage first, so the pet's and settings' rows name
+> their person (`saveCloudPet(pet, userId)`, `fetchCloudPet(userId)`, and the
+> settings' read and save with the person `setUserStateOwner` named as they
+> started): sent under another person's token, 0046's policies refuse the
+> write and the read answers nothing. A launch whose stored session is one
+> person's while the permissions name another shows neither that person's
+> cached pet nor their cache key. `App.rerender.test.jsx`'s describe for a
+> change of person holds each path; `userState.test.js` each named call. The
+> agent's conversation leaves the same way (F4-08, after the merge): App hands
+> `AgentProvider` the person (`person`, as the identity effect reads it), and
+> when it changes the messages, the typed text, an open diff, the bulk queue,
+> a proposal, the undo list and the toast go before the next frame, auto-
+> approve goes back to asking and the system prompt edited in Settings to the
+> default, and an answer, a context still being read or an edit mid-apply for
+> the leaving person is dropped where it lands. A moment of `undefined` (the
+> permissions not ready again while a held sign-in is confirmed) is no change
+> of person, as for App. `AgentProvider.rerender.test.jsx` pins each piece.
+> Its prompt overrides stay until Settings saves (OUTSTANDING F4-10).
+
 **The agent** is a chat companion that can propose and apply changes. Its
 system prompt is per-tool and user-overridable; the registry holds both tools'
 prompts and twelve skill labels.
@@ -5256,6 +5620,18 @@ call, the last writer wins each element, and an undo names the version it expect
 changed it since) and `board_delete_elements`. At most 5,000 elements a board and 500 boards a project. A client's own
 statement never deletes or moves a folder holding a board (`fn_folders_board_guard`). A board is not yet in
 `moth_history`, `edit_history` or the takeout (OUTSTANDING MO4-14).
+
+**Boards in a thing's own folder, and renaming (MO5, 0138).** Since 0138 `board_create` and `moth_move_folders` also
+accept a scene's, a shot's or an asset's own folder (the text above, "never inside", is 0130's). Deleting the thing
+deletes its folder by key, which would take the board's rows with it; so `trg_folders_board_rescue` (BEFORE DELETE on
+`folders`, a thing's folder only, named to run after `fn_folders_board_guard`) takes the company's folder lock and the
+project's board lock, then moves every board below the folder to the project's top, under a free name that is never a
+money or Legal name, its folders' paths rewritten; its elements, versions, channel and files are untouched. A project
+or a company going takes its boards as before (the rescue steps aside when their own row is going). A client's own
+delete of such a folder is still refused by the guard while a board is below. `moth_rename_folder(folder, name)`
+renames a person's own folder or a board's (never a project's top, a category folder or a thing's own folder: "WILSON
+made this folder, so its name stays."), through Moth's write gate, the label alone (slug and path stay), and tells a
+board's new title on its channel. Suite 140.
 
 **A folder's trash (MO4, 0131, 0135).** A folder goes to the trash with everything below it not already there, as one
 batch: one `trash_batch` on each folder and file it takes, so `moth_restore_folders` brings back that batch and nothing
@@ -5476,7 +5852,7 @@ else.
 
 ## 15. Testing and verification
 
-**As of MO4 with 0136 (2026-11-12):** 132 pgTAP suites, 7,243 checks (suite 134's plan from 43 to 64, suite 137's from 42 to 45), the whole set read once on wilson-dev on the applied schema at 0136: 7,243 planned = collected, 7,241 passed, the two reds suite 74's #34 and #35 (dev's own old sign-in rows, red before this session). **As of MO4 (2026-11-12):** 132 pgTAP suites, 7,219 checks with 0130 to 0135 (by count of the suites' plans; the whole set last read on wilson-dev on the applied schema after 0133, 7,205 of 7,209, before 0134 and suite 136's last ten probes; after 0134 and 0135 suites 110 and 134 to 138 read 325 of 325 there). **As of MO3 (2026-11-08):** 127 pgTAP suites, 6,950 checks with 0128 and 0129 (by count, after both whole-session review rounds; the whole set read on wilson-dev, rolled back, with the two prepended before they were applied and on the applied schema at the session's end: 6,948 passed, the rest suite 74's two checks on dev's own old sign-in rows, red before this session). **As of MO2 (2026-11-07):** 120 pgTAP suites, 6,511 checks with 0122 and 0123 (by count, after both review rounds) (the whole set read 6,493 on wilson-dev, rolled back, before the 15 probes the planted breakages asked for; the four suites they went into were read again). **As of MO1 (2026-11-07):** 117 pgTAP suites, 6,252 checks with 0120 and 0121, read by running them on wilson-dev, rolled back. The counts just below are dated history.
+**As of MO5 with 0138 (2026-11-16):** 134 pgTAP suites, 7,356 checks by count of the suites' plans (suite 140, 53). The whole set was read once on wilson-dev on the applied schema at 0138 (scratch runner, one request a suite, rolled back, 07:19 to 07:28 UTC): 134 suites, 7,356 planned = collected, 7,354 passed, the two reds suite 74's #34 and #35 (dev's own old sign-in rows, red before this session). **As of F7 with 0137 (2026-11-13):** 133 pgTAP suites, 7,303 checks by count of the suites' plans (suite 139, 60; suites 01, 90, 95, 99, 101 and 115 pin the sub-select's text). The whole set was read once on wilson-dev on the applied schema at 0137 (`node scripts/tap-all.mjs`, 04:17 to 04:22 UTC): 133 suites, 7,243 planned = collected, 7,240 passed; suite 139 did not start there (`QUERY FAILED`: a literal of its spanning two lines met the runner's CRLF), so its 60 were not collected in that run; with the literal on one line it then ran alone, 60 of 60 (and again after round 2's changes, 60 of 60, rolled back, about 04:58 UTC). In all 7,300 of 7,303 passed, the three reds suite 25's #13 and suite 74's #34 and #35 (dev's own rows older than 90 days, red before this session). **As of MO4 with 0136 (2026-11-12):** 132 pgTAP suites, 7,243 checks (suite 134's plan from 43 to 64, suite 137's from 42 to 45), the whole set read once on wilson-dev on the applied schema at 0136: 7,243 planned = collected, 7,241 passed, the two reds suite 74's #34 and #35 (dev's own old sign-in rows, red before this session). **As of MO4 (2026-11-12):** 132 pgTAP suites, 7,219 checks with 0130 to 0135 (by count of the suites' plans; the whole set last read on wilson-dev on the applied schema after 0133, 7,205 of 7,209, before 0134 and suite 136's last ten probes; after 0134 and 0135 suites 110 and 134 to 138 read 325 of 325 there). **As of MO3 (2026-11-08):** 127 pgTAP suites, 6,950 checks with 0128 and 0129 (by count, after both whole-session review rounds; the whole set read on wilson-dev, rolled back, with the two prepended before they were applied and on the applied schema at the session's end: 6,948 passed, the rest suite 74's two checks on dev's own old sign-in rows, red before this session). **As of MO2 (2026-11-07):** 120 pgTAP suites, 6,511 checks with 0122 and 0123 (by count, after both review rounds) (the whole set read 6,493 on wilson-dev, rolled back, before the 15 probes the planted breakages asked for; the four suites they went into were read again). **As of MO1 (2026-11-07):** 117 pgTAP suites, 6,252 checks with 0120 and 0121, read by running them on wilson-dev, rolled back. The counts just below are dated history.
 
 **pgTAP** — 55 suites under `supabase/tests/rls/` (Session 20 added 39–42, one
 per model control-plane table; **Session 24 added 43–47, one per money table;
@@ -5773,6 +6149,30 @@ Everything below is *known*, not discovered by a reader. The live list is
 human actions live in `docs/OWED_AUDREY.md`; **everything currently broken and
 unfixed is `docs/OUTSTANDING.md`** (S19), which is the one to read at the start
 of a session — this section is limits by design, that file is faults.
+
+**The database's per-row work (F7, 0137; counts measured on wilson-dev, 2026-11-13)**
+
+- **Three policies still ask has_active_membership per row** of the 189 that call it (the 189 are on 65 tables; 283
+  policies in all): `auth_events_insert`, which pins no company, and `workspace_members`' two read-side policies, which
+  a sub-select would make recurse (§4.4). OUTSTANDING F7-01, F7-02.
+- **Other helpers run per row**: `can_write_project` in 70 policies on 21 tables, `can_access_project_money` in 34,
+  `current_app_role` in 32, `fn_try_uuid` in 26 (22 on `storage.objects`, 4 on `realtime.messages`: plpgsql with an
+  EXCEPTION block, so a sub-transaction per row, the cost §12.10 took out of the meter), `can_edit_shot_lists` in 22,
+  `rabbit_money_segment` in 19, `can_access_project_legal` in 14, `is_live_workspace_admin` in 12,
+  `moth_can_read_target` in 9, `moth_can_write_target` and `rabbit_legal_segment` in 8 each, `otter_is_course_owner` in
+  7, `is_platform_operator` and `two_factor_satisfied` in 5 each. Most take the row's project. Counted, not timed: dev
+  is too small to show their cost. OUTSTANDING F7-03.
+- **The quota meter still reads both buckets of every company** on every upload, to find a key spelled other than
+  `projects/<id>/` (cheap per object since 0137; only an index on a storage table would make that arm read less).
+  F7-05.
+- **storage-gc's guard is a scan of `files` per chunk**: 20 to 40 reads for a full page of 500 rows (measured in the
+  tests), where it was 500. No provider filter is proved, so no index can serve it. F7-09.
+- **readUploadRows (the AI file list) takes a generic plan from a connection's sixth call**: a walk of `app_events` by
+  id that grows with the table, where its first five calls use the new index. Timed whole on dev, 5.1 ms then 8.6 ms,
+  against 8.9 and 8.5 for the old shape timed the same way: at dev's size the indexes save little. F7-13.
+- **An event naming an incompressible file id over about 2.7 kB cannot be inserted** (the file-id index's entry
+  limit); the functions accept only ids of `file_` and 8 to 96 letters and digits, and dev's longest is 101 characters.
+  F7-10.
 
 **The office server (MO1, 0117)**
 
@@ -7383,6 +7783,8 @@ side by side)**
   resolve fails it (REV-01's `PAGE`, TS2304), as does a new type error. A
   function that passes can still fail on a value at run time: a secret
   unset, a row of another shape.
+- **Since F8 (2026-11-13) one error stays, F7's `ai-files` TS2739**; the
+  paragraph below is F1's account of the 28 it began with (OUTSTANDING F1-01).
 - **28 errors stay, counted, not fixed** (`docs/OUTSTANDING.md` F1-01). The
   three guards type their client as `ReturnType<typeof createClient>`,
   which is `SupabaseClient<unknown, never, GenericSchema>`, and hand it the
@@ -7418,6 +7820,79 @@ Panel's handle)**
   a mouse (2.5.8; 24 for a finger), and the hairline's 1.48:1 at rest
   (1.4.11). And a wide courses column at 1280 puts the lesson's *Next* under
   the pet (SB1-04).
+
+**The Edge Functions' shared plumbing (F8, 2026-11-13; §4.6)**
+
+- **A body is refused at its cap, not before it.** The caps (16 KiB, 4 KiB,
+  33 MiB) are bounds on what is held, measured against every real caller;
+  past one the body is still read through (and thrown away) up to 64 MiB so
+  the hosted relay delivers the 413. A body past 64 MiB is cut there, and the
+  platform answers for the function (a 70 MiB body to ai-proxy: 504 after
+  168 s on wilson-dev). No app request comes near a cap.
+- **The clients' messages have no `too_large`.** An admin, operator or AI
+  request refused for size reads "Request failed (413)." or "AI request failed
+  (413)." (OUTSTANDING F8-06); storage shows the sentence.
+- **A cache lives as long as its isolate, and no longer than its secret.**
+  The master keys, and the opened ticket key, are kept per isolate and checked
+  against the environment's value (and, for the ticket key, the row read on
+  this call) every time: a rotation, a removed secret or a new kid takes
+  effect on the next call. Nothing is kept across isolates; a cold isolate
+  pays one import again (a ticket's first call: 2 imports and 1 open; a warm
+  one: none).
+- **The opened bucket secret is NOT cached.** It is opened on every presign:
+  keeping it would outlive a `clear` or a re-save by the isolate's life.
+- **Over 256 companies playing clips through one isolate**, the oldest-used
+  company's ticket key is opened again on its next call (the cache's bound).
+- **A JSON `null` body still throws in thirteen functions** (a bare 500 with
+  no CORS headers, measured on wilson-dev): kept, a refactor (F8-05).
+
+**Re-rendering (F4, 2026-11-13; §13.1 to §13.5)**
+
+- **Measured, before and after**, in the running app (a development build,
+  so React's StrictMode draws twice; the fixtures; headless Chromium at
+  1440 × 900; every page entered; R.A.B.B.I.T. on the Assets tab, a slide in
+  D.O.G.'s preview, a lesson open), React's own render time and the number
+  of component renders:
+
+  | Event | Before (two runs) | After (two runs) |
+  |---|---|---|
+  | One minute of the pet idle | 11 to 15 commits, 2,105.7 to 2,859.2 ms, 32,145 to 43,747 renders | 12 to 13 commits, 42.4 to 50.7 ms, 88 to 96 renders |
+  | Ten characters typed to the pet | 680.2 to 892.4 ms, 29,320 to 32,188 | 46.5 to 56.7 ms, 170 to 188 |
+  | A presence heartbeat | 2,389 to 2,395 renders (19 readers of the value), 24.2 to 29.2 ms | 2 renders (no reader), 1.1 to 1.3 ms |
+  | The channel's status flipping | 2,389 to 2,395, 139.3 to 165.5 ms | 4, 1.1 ms (one run without a pet tick in it) |
+  | One step of an ingestion | 2,395 to 2,401, 144 to 153.4 ms | 8, 1.4 to 1.7 ms |
+  | A new adapter status saying the same | 2,389 to 2,395, 27.2 to 28.7 ms | 168 (the two pages that print it), 11.1 ms |
+  | `tasksAbout` calls in one render of the asset list | 30 (15 rows, drawn twice) | 0 |
+  | Ten keystrokes in D.O.G.'s deck context box | the preview ran 10 to 11 times and mounted each placeholder as often | the preview ran 0 times; D.O.G. itself 10 |
+  | The duplicate resolver's preview, 3 s of hover | 2,009 commits, 1,720.5 ms, 38 "Maximum update depth exceeded" | 2 commits, 4.5 to 5.5 ms, none |
+
+  The same five are pinned in vitest with `src/lib/renderSpy.js` (React's
+  DevTools commit hook; it must be imported before react-dom):
+  `App.rerender.test.jsx`, `App.focus.test.jsx`,
+  `state/volatileState.rerender.test.jsx`, `views/assetWarningRender.test.jsx`,
+  `LayoutVisualizer.rerender.test.jsx`, `otterRerender.test.jsx`. The bundle
+  grew by 6,396 bytes with the review rounds' fixes and F4-08's (main chunk
+  5,125,939 → 5,132,335; gzip 1,502.49 → 1,504.76 kB); every other chunk is
+  the same size (those that name the main chunk's file differ in that name).
+- **A change to the open project is still a new value for every R.A.B.B.I.T.
+  reader** (rabbit C1's other half, `docs/OUTSTANDING.md`). One task renamed
+  on the Assets tab is one commit in which all seven readers there run, 574
+  component renders (pinned in `volatileState.rerender.test.jsx`, so the
+  number moves with the code); in the running app a new value with nothing
+  on the tab changed drew 17 readers and 2,237 components in 119 to 123 ms.
+  A write is not the only cause: the Bins tab's 60 s gateway refresh sets
+  the bundle's `binFiles` and `binsInfo` whatever it found, a new value
+  with nothing written (F4-05).
+- **D.O.G. draws its whole component for each letter typed in its own
+  fields**: its 88 pieces of state live in one component, about 33 ms a
+  letter in a development build. Only its preview stopped joining in.
+- **What reads the clock, a ref, storage or a module value while it draws is
+  as fresh as its last render.** Before F4 a live pet's ticks drew every page
+  every few seconds and hid that. Words of minutes and hours read
+  `src/lib/minuteClock.js` (`useMinuteClock()`, one shared interval while
+  somebody reads it); a module flag a surface draws from is read with
+  `useSyncExternalStore` (the model tiers' loaded flag in Settings); the
+  day-scale words are not yet clocked (`docs/OUTSTANDING.md` F4-03).
 
 ## Appendix A — Glossary
 

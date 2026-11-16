@@ -37,6 +37,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
+import { useRabbitLive } from '../../tools/rabbit_v0.1.0/state/rabbitLive'
 import { useWorkspaceMembers, isOwnAvatarUrl } from '../TeamMembers/useWorkspaceMembers'
 import ProfileSection from '../settings/ProfileSection'
 import DashboardTasksView from './DashboardTasksView'
@@ -61,17 +62,15 @@ export default function DashboardPage() {
     window.addEventListener(OPEN_DASHBOARD_NOTE, toNotes)
     return () => window.removeEventListener(OPEN_DASHBOARD_NOTE, toNotes)
   }, [])
-  const rabbit = useRabbit()
 
+  // F4 (2026-11-13): the page no longer reads R.A.B.B.I.T.'s provider. It read
+  // the whole value for the strip's two props, so it was drawn again at every
+  // change of that value (a write to the open project among them). The strip
+  // reads its own two now (below).
   return (
     <div className="dash-page">
       <Toolbar
-        right={(
-          <WorkspacePresenceStrip
-            status={rabbit?.workspaceRealtimeStatus}
-            users={rabbit?.workspacePresentUsers || []}
-          />
-        )}
+        right={<WorkspacePresenceStrip />}
       >
         <Tabs
           label="Dashboard views"
@@ -122,9 +121,14 @@ export default function DashboardPage() {
 // Presence meta carries only { user_id, label } (auth user_metadata may be
 // stale) — join against the workspace directory for display names + real
 // avatars.
-function WorkspacePresenceStrip({ status, users }) {
+function WorkspacePresenceStrip() {
   const wm = useWorkspaceMembers()
   const rabbit = useRabbit()
+  // F4: the channel's status and who is on it, each from its own context
+  // (rabbitLive.js), read HERE and not handed down by the page: a heartbeat
+  // draws this strip and nothing else on the page.
+  const status = useRabbitLive('workspaceRealtimeStatus', rabbit)
+  const users = useRabbitLive('workspacePresentUsers', rabbit)
 
   // Roster/avatar liveness (review finding M3): workspace_members events on
   // the workspace channel debounce into a directory reload so avatar and

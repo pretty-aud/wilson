@@ -24,6 +24,7 @@
 // =============================================================================
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMinuteClock } from '../../lib/minuteClock'
 import { RefreshCw, ScrollText } from 'lucide-react'
 import { supabase } from '../../cloud/auth/supabaseClient'
 import { describeErrorCode } from '../../cloud/errorCodes'
@@ -98,6 +99,7 @@ function timeAgo(iso) {
 }
 
 export default function LogsSection({ isActive, workspaceId, wm }) {
+  useMinuteClock()   // the tables' "5m ago" move while the section is open (lib/minuteClock.js says why)
   const [tab, setTab] = useState('system')
 
   // Sign-ins stream (B2 part 2, auth_events)

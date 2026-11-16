@@ -13,10 +13,14 @@
 
 import { Sparkles, Loader2, X, Check, AlertCircle, ArrowRight } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
+import { useRabbitLive } from '../state/rabbitLive'
 
 export default function IngestionToast({ onJumpToReview }) {
   const ctx = useRabbit()
-  const run = ctx?.ingestionRun
+  // F4 (2026-11-13): the run from a context of its own, not off the value
+  // (state/rabbitLive.js): a step of the breakdown draws this toast and the
+  // wizard's progress step, and no other reader of the provider.
+  const run = useRabbitLive('ingestionRun', ctx)
   if (!run) return null
 
   const { phase, chunksDone, chunksTotal, lastLabel, fileCount, error } = run

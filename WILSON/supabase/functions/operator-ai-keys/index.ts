@@ -36,6 +36,7 @@ import {
   logPlatformEvent,
 } from '../_shared/operatorGuard.ts'
 import { isRateLimited, envInt } from '../_shared/rateLimit.ts'
+import { readBodyJson, SMALL_JSON_MAX_BYTES, TOO_LARGE } from '../_shared/gatewayWire.ts'
 import {
   encryptAiKey,
   decryptAiKey,
@@ -99,8 +100,14 @@ Deno.serve(async (req: Request) => {
   if (!guard.ok) return guard.res
   const ctx = guard.ctx
 
+  // F8: read under a cap (largest real body 583 bytes, a 500-character key).
+  // Past it: 413, before the limiter (an over-size body is not counted, as a
+  // bad_json one is not). The value is handed on untouched (F8-05).
   let body: Record<string, unknown>
-  try { body = await req.json() } catch { return reply({ error: 'bad_json' }, 400) }
+  const sent = await readBodyJson(req, SMALL_JSON_MAX_BYTES)
+  if (sent.kind === 'too_large') return reply({ ...TOO_LARGE }, 413)
+  if (sent.kind === 'not_json') return reply({ error: 'bad_json' }, 400)
+  body = sent.value as Record<string, unknown>
 
   const action = typeof body.action === 'string' ? body.action : ''
   if (action !== 'set' && action !== 'clear' && action !== 'secrets_status' && action !== 'reseal') {
@@ -142,7 +149,9 @@ Deno.serve(async (req: Request) => {
           .range(from, from + PAGE - 1)
         if (error) return { rows, error: error.message as string }
         if (total === null) total = typeof count === 'number' ? count : 0
-        const page = (data ?? []) as Array<Record<string, unknown>>
+        // The select list is built at run time, so no row type can be read
+        // from it: the rows are named here (F8: a type only, nothing runs differently).
+        const page = (data ?? []) as unknown as Array<Record<string, unknown>>
         rows.push(...page)
         if (page.length === 0 || rows.length >= total) break
       }

@@ -44,19 +44,23 @@ const { isRealPet, resolveUserPet, saveCloudPet, fetchCloudPet, resolveUserSetti
         setUserStateOwner, pushSettingsToCloud, mirrorSettingsToCache } =
   await import('./userState')
 
-/** Minimal PostgREST double: one canned answer for select, one for upsert. */
+/**
+ * Minimal PostgREST double: one canned answer for select, one for upsert. A
+ * select may be narrowed with `.eq(column, value)` (a named read): `eq`
+ * records each, and the canned answer comes back either way.
+ */
 function stubTable({ selectRow = null, selectError = null,
                      upsertRows = [{ user_id: 'u1' }], upsertError = null } = {}) {
   const upsert = vi.fn(() => ({
     select: () => Promise.resolve({ data: upsertRows, error: upsertError }),
   }))
+  const answer = () => Promise.resolve({ data: selectRow, error: selectError })
+  const eq = vi.fn(() => ({ maybeSingle: answer }))
   from.mockReturnValue({
-    select: () => ({
-      maybeSingle: () => Promise.resolve({ data: selectRow, error: selectError }),
-    }),
+    select: () => ({ eq, maybeSingle: answer }),
     upsert,
   })
-  return { upsert }
+  return { upsert, eq }
 }
 
 const PRISTINE_EGG = {
@@ -256,6 +260,16 @@ describe('resolveUserPet — which pet wins', () => {
     expect(res.pet.totalThumbsUp).toBe(7)
   })
 
+  it('🚨 the adoption names the account it is for, so it cannot land in another person\'s row (F4, review round 2)', async () => {
+    const { upsert } = stubTable({ selectRow: null })
+    loadPet.mockResolvedValue(REAL_GHOST)
+
+    await resolveUserPet('u1')
+
+    expect(upsert).toHaveBeenCalledTimes(1)
+    expect(upsert.mock.calls[0][0].user_id).toBe('u1')
+  })
+
   it('CONTROL: adoption still happens when the account has NO row at all', async () => {
     // The guard above must not disable the migration case it sits in front of.
     const { upsert } = stubTable({ selectRow: null })
@@ -297,10 +311,20 @@ describe('saveCloudPet — an RLS refusal is not a success', () => {
     await expect(saveCloudPet(REAL_GHOST)).resolves.toBeUndefined()
   })
 
-  it('never sends user_id — the column default stamps it from the JWT', async () => {
+  it('without an owner it sends no user_id, so the column default stamps it from the JWT; the pet object never names one', async () => {
     const { upsert } = stubTable({})
     await saveCloudPet({ ...REAL_GHOST, userId: 'someone-else' })
     expect(upsert.mock.calls[0][0]).not.toHaveProperty('user_id')
+  })
+
+  it('🚨 with an owner the row names it, upserted on user_id (F4, review round 2)', async () => {
+    // The client's session can move to another person between App's check and this request (another tab's sign-in
+    // through shared storage). Filled by the default, the last person's pet went into the next person's row; named,
+    // 0046's policies refuse it under the other person's token (the INSERT's WITH CHECK, the update's USING).
+    const { upsert } = stubTable({})
+    await saveCloudPet(REAL_GHOST, 'u1')
+    expect(upsert.mock.calls[0][0]).toMatchObject({ user_id: 'u1', form: 'ghost' })
+    expect(upsert.mock.calls[0][1]).toEqual({ onConflict: 'user_id' })
   })
 
   it('maps camelCase to snake_case and never sends `state`', async () => {
@@ -329,6 +353,14 @@ describe('fetchCloudPet', () => {
     stubTable({ selectRow: { name: 'X', form: 'egg', feedback: null } })
     const pet = await fetchCloudPet()
     expect(Array.isArray(pet.feedback)).toBe(true)
+  })
+
+  it('🚨 named, it reads only that person\'s row; unnamed, the session\'s, as before (F4, review round 2)', async () => {
+    const { eq } = stubTable({ selectRow: null })
+    await fetchCloudPet('u1')
+    expect(eq.mock.calls).toEqual([['user_id', 'u1']])
+    await fetchCloudPet()
+    expect(eq).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -382,6 +414,24 @@ describe('resolveUserSettings', () => {
     expect(res.adopted).toBe(false)
     expect(upsert).not.toHaveBeenCalled()
   })
+
+  it('🚨 names the person it starts for, on the read and on the lift (F4, review round 2)', async () => {
+    const { upsert, eq } = stubTable({ selectRow: null })
+    setUserStateOwner('u1')
+    loadOtterSettings.mockResolvedValue({ prompts: { companion: 'be warm' } })
+    await resolveUserSettings()
+    expect(eq.mock.calls).toEqual([['user_id', 'u1']])
+    expect(upsert.mock.calls[0][0]).toMatchObject({ user_id: 'u1', prompts: { companion: 'be warm' } })
+    expect(upsert.mock.calls[0][1]).toEqual({ onConflict: 'user_id' })
+  })
+
+  it('and with nobody signed in, names nobody, as before', async () => {
+    const { upsert, eq } = stubTable({ selectRow: null })
+    loadOtterSettings.mockResolvedValue({ prompts: { companion: 'be warm' } })
+    await resolveUserSettings()
+    expect(eq).not.toHaveBeenCalled()
+    expect(upsert.mock.calls[0][0]).not.toHaveProperty('user_id')
+  })
 })
 
 describe('pushSettingsToCloud — the writer that was dead on first pass', () => {
@@ -406,6 +456,17 @@ describe('pushSettingsToCloud — the writer that was dead on first pass', () =>
     expect(row.agent_prompt_overrides).toEqual({ otter: { systemPromptOverride: 'cite sources' } })
     // Machine state must not ride along even on the push path.
     expect(JSON.stringify(row)).not.toContain('local_server')
+  })
+
+  it('🚨 names the person signed in when it started, so another session refuses it (F4, review round 2)', async () => {
+    const { upsert } = stubTable({})
+    setUserStateOwner('user-1')
+    loadOtterSettings.mockResolvedValue({ prompts: { companion: 'be warm' } })
+    const pushing = pushSettingsToCloud()
+    setUserStateOwner('user-2')                 // another person signs in while the local settings are read
+    await pushing
+    expect(upsert.mock.calls[0][0].user_id).toBe('user-1')
+    expect(upsert.mock.calls[0][1]).toEqual({ onConflict: 'user_id' })
   })
 
   it('surfaces an RLS refusal rather than reporting success', async () => {
@@ -545,18 +606,18 @@ describe('A3 — resolveUserPet reads only THIS account\'s cache', () => {
       }),
     }))
     let selects = 0
+    const maybeSingle = () => {
+      selects += 1
+      // First read: nothing real, so adoption is attempted. Second read (the
+      // recovery): the row another machine wrote.
+      return Promise.resolve({
+        data: selects === 1 ? null : { name: CLOUD.name, form: 'egg', feedback: [{ rating: 'up' }] },
+        error: null,
+      })
+    }
+    const eq = vi.fn(() => ({ maybeSingle }))
     from.mockReturnValue({
-      select: () => ({
-        maybeSingle: () => {
-          selects += 1
-          // First read: nothing real, so adoption is attempted. Second read (the
-          // recovery): the row another machine wrote.
-          return Promise.resolve({
-            data: selects === 1 ? null : { name: CLOUD.name, form: 'egg', feedback: [{ rating: 'up' }] },
-            error: null,
-          })
-        },
-      }),
+      select: () => ({ eq, maybeSingle }),
       upsert,
     })
     loadPet.mockResolvedValue(REAL_GHOST)
@@ -565,6 +626,19 @@ describe('A3 — resolveUserPet reads only THIS account\'s cache', () => {
     expect(out.adopted).toBe(false)
     expect(out.source).toBe('cloud')
     expect(out.pet?.name).toBe('Newer')
+    // F4, review round 2: both reads, the first and the recovery, name the account.
+    expect(eq.mock.calls).toEqual([['user_id', UID], ['user_id', UID]])
+  })
+
+  it('🚨 a named read under another person\'s session answers null, and the path it takes ends refused, with no egg written (F4, review round 2)', async () => {
+    // The session moved: the named read finds nothing (RLS hides the row, the filter hides theirs), so this looks
+    // like "no row yet". A real cached pet is then adopted with a named save, which the policies refuse (42501).
+    const { upsert, eq } = stubTable({ selectRow: null, upsertError: { message: 'new row violates row-level security policy', code: '42501' } })
+    loadPet.mockResolvedValue(REAL_GHOST)
+    await expect(resolveUserPet(UID)).rejects.toMatchObject({ code: '42501' })
+    expect(eq).toHaveBeenCalledWith('user_id', UID)
+    expect(upsert).toHaveBeenCalledTimes(1)
+    expect(upsert.mock.calls[0][0]).toMatchObject({ user_id: UID, form: 'ghost' })
   })
 
   it('🚨 and ANY OTHER adoption failure still raises', async () => {

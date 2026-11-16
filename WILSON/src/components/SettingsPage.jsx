@@ -10,6 +10,7 @@ import PasswordSection from './settings/PasswordSection'
 import SessionSection from './settings/SessionSection'
 import { defaultAgentSkillsState } from './settings/agentSkillRegistry'
 import { useRabbit } from '../tools/rabbit_v0.1.0/state/RabbitProvider'
+import { useRabbitLive } from '../tools/rabbit_v0.1.0/state/rabbitLive'
 import { useRateCard } from './RateCard/useRateCard'
 import { ADAPTER_MODES, adapterSupportsWrites } from '../tools/rabbit_v0.1.0/adapters'
 import { otterFetch } from '../tools/otter_v0.3.1/adapters'
@@ -164,6 +165,9 @@ export default function SettingsPage({
 
   // RABBIT provider + rate card hooks for the new RABBIT tab.
   const rabbitCtx = useRabbit()
+  // F4: the adapter's status from its own context, not off the value
+  // (rabbitLive.js): the "Connected / Offline" line below follows it.
+  const adapterStatus = useRabbitLive('adapterStatus', rabbitCtx)
   const rateCard = useRateCard()
   const [rabbitDefaultRateCardId, setRabbitDefaultRateCardId] = useState(null)
   const [adapterSwitching, setAdapterSwitching] = useState(false)
@@ -858,10 +862,10 @@ export default function SettingsPage({
                     two label columns never lined up. It is inside the group
                     now, on the same optical left edge. */}
                 <div className="s-adapter-status">
-                  <span className="s-online-dot" data-online={!!rabbitCtx?.adapterStatus?.online} />
+                  <span className="s-online-dot" data-online={!!adapterStatus?.online} />
                   <span className="s-row-desc">
-                    {rabbitCtx?.adapterStatus?.online ? 'Connected' : 'Offline'}
-                    {rabbitCtx?.adapterStatus?.error && ` — ${rabbitCtx.adapterStatus.error}`}
+                    {adapterStatus?.online ? 'Connected' : 'Offline'}
+                    {adapterStatus?.error && ` — ${adapterStatus.error}`}
                   </span>
                 </div>
               </Section>

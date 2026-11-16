@@ -276,12 +276,12 @@ SELECT is(
   'files_select: 0088''s body with the Legal arm');                                                       -- 9
 SELECT is(
   (SELECT with_check FROM pg_policies WHERE schemaname = 'public' AND tablename = 'files' AND policyname = 'files_insert'),
-  '((workspace_id = current_workspace_id()) AND has_active_membership(workspace_id) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id) OR (file_row_is_legal(is_financial, storage_path) AND can_access_project_legal(project_id))) AND (EXISTS ( SELECT 1' || chr(10)
+  '((workspace_id = current_workspace_id()) AND ( SELECT has_active_membership(current_workspace_id()) AS has_active_membership) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id) OR (file_row_is_legal(is_financial, storage_path) AND can_access_project_legal(project_id))) AND (EXISTS ( SELECT 1' || chr(10)
   || '   FROM projects p' || chr(10) || '  WHERE (p.id = files.project_id))))',
   'files_insert: 0088''s body with the Legal arm');                                                       -- 10
 SELECT is(
   (SELECT qual FROM pg_policies WHERE schemaname = 'public' AND tablename = 'files' AND policyname = 'files_update'),
-  '((workspace_id = current_workspace_id()) AND has_active_membership(workspace_id) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id) OR (file_row_is_legal(is_financial, storage_path) AND can_access_project_legal(project_id))) AND (EXISTS ( SELECT 1' || chr(10)
+  '((workspace_id = current_workspace_id()) AND ( SELECT has_active_membership(current_workspace_id()) AS has_active_membership) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id) OR (file_row_is_legal(is_financial, storage_path) AND can_access_project_legal(project_id))) AND (EXISTS ( SELECT 1' || chr(10)
   || '   FROM projects p' || chr(10) || '  WHERE (p.id = files.project_id))))',
   'files_update USING: 0088''s with the Legal arm, and 0107''s project hop');                                                      -- 11
 SELECT is(
@@ -291,7 +291,7 @@ SELECT is(
   'files_update WITH CHECK: 0088''s with the Legal arm');                                                 -- 12
 SELECT is(
   (SELECT qual FROM pg_policies WHERE schemaname = 'public' AND tablename = 'files' AND policyname = 'files_delete'),
-  '((workspace_id = current_workspace_id()) AND has_active_membership(workspace_id) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id) OR (file_row_is_legal(is_financial, storage_path) AND can_access_project_legal(project_id))) AND (EXISTS ( SELECT 1' || chr(10)
+  '((workspace_id = current_workspace_id()) AND ( SELECT has_active_membership(current_workspace_id()) AS has_active_membership) AND can_write_project(project_id) AND ((NOT file_row_is_money(is_financial, storage_path)) OR can_access_project_money(project_id) OR (file_row_is_legal(is_financial, storage_path) AND can_access_project_legal(project_id))) AND (EXISTS ( SELECT 1' || chr(10)
   || '   FROM projects p' || chr(10) || '  WHERE (p.id = files.project_id))))',
   'files_delete: 0088''s body with the Legal arm, and 0107''s project hop');                                                       -- 13
 SELECT is(
@@ -340,7 +340,7 @@ SELECT is(
   -- (rate cards, admins, or a topic reader; captured_private rows the
   -- creator's). The arms this suite pins are unchanged; suite 111 proves the
   -- new one caller by caller.
-  '((workspace_id = current_workspace_id()) AND (current_app_role() = ANY (ARRAY[''admin''::text, ''manager''::text])) AND has_active_membership(workspace_id) AND ((NOT is_financial) OR (current_app_role() = ''admin''::text) OR COALESCE(can_access_project_money(project_id), false) OR (is_legal AND COALESCE(can_access_project_legal(project_id), false))) AND ((entity_type = ANY (ARRAY[''rate_cards''::text, ''rate_card_entries''::text])) OR (current_app_role() = ''admin''::text) OR (can_read_project_topic(project_id) AND ((NOT captured_private) OR (EXISTS ( SELECT 1' || chr(10) || '   FROM projects p' || chr(10) || '  WHERE ((p.id = edit_history.project_id) AND (p.created_by = auth.uid()))))))))',
+  '((workspace_id = current_workspace_id()) AND (current_app_role() = ANY (ARRAY[''admin''::text, ''manager''::text])) AND ( SELECT has_active_membership(current_workspace_id()) AS has_active_membership) AND ((NOT is_financial) OR (current_app_role() = ''admin''::text) OR COALESCE(can_access_project_money(project_id), false) OR (is_legal AND COALESCE(can_access_project_legal(project_id), false))) AND ((entity_type = ANY (ARRAY[''rate_cards''::text, ''rate_card_entries''::text])) OR (current_app_role() = ''admin''::text) OR (can_read_project_topic(project_id) AND ((NOT captured_private) OR (EXISTS ( SELECT 1' || chr(10) || '   FROM projects p' || chr(10) || '  WHERE ((p.id = edit_history.project_id) AND (p.created_by = auth.uid()))))))))',
   'edit_history_select: 0012''s arms, 0088''s money arm, the Legal arm on is_legal rows, and 0108''s project audience');            -- 17
 SELECT is(
   (SELECT qual FROM pg_policies WHERE schemaname = 'public' AND tablename = 'file_events' AND policyname = 'file_events_select'),
@@ -349,7 +349,7 @@ SELECT is(
   -- unchanged; suite 96 re-proves each of them caller by caller.
   -- MO1 (0116, her ruling of 2026-11-05) adds one more: a row written while the project
   -- was private stays with its creator and the admins; suite 78 proves it caller by caller.
-  '((workspace_id = current_workspace_id()) AND has_active_membership(workspace_id) AND (can_read_project_topic(project_id) OR (current_app_role() = ''admin''::text)) AND ((NOT is_financial) OR (current_app_role() = ''admin''::text) OR COALESCE(can_access_project_money(project_id), false) OR (file_event_is_legal(old_path, new_path) AND COALESCE(can_access_project_legal(project_id), false))) AND ((event <> ''viewed_remote''::text) OR is_live_workspace_admin(workspace_id)) AND ((NOT captured_private) OR (current_app_role() = ''admin''::text) OR (EXISTS ( SELECT 1' || chr(10) || '   FROM projects p' || chr(10) || '  WHERE ((p.id = file_events.project_id) AND (p.created_by = auth.uid()))))))',
+  '((workspace_id = current_workspace_id()) AND ( SELECT has_active_membership(current_workspace_id()) AS has_active_membership) AND (can_read_project_topic(project_id) OR (current_app_role() = ''admin''::text)) AND ((NOT is_financial) OR (current_app_role() = ''admin''::text) OR COALESCE(can_access_project_money(project_id), false) OR (file_event_is_legal(old_path, new_path) AND COALESCE(can_access_project_legal(project_id), false))) AND ((event <> ''viewed_remote''::text) OR is_live_workspace_admin(workspace_id)) AND ((NOT captured_private) OR (current_app_role() = ''admin''::text) OR (EXISTS ( SELECT 1' || chr(10) || '   FROM projects p' || chr(10) || '  WHERE ((p.id = file_events.project_id) AND (p.created_by = auth.uid()))))))',
   '🚨 file_events_select: 0074''s arms, the money arm, the Legal arm — and NO purged exception (Legal 1); 0093''s live-admin conjunct for remote viewings; 0116''s private-time conjunct'); -- 18
 
 -- A19-A20: edit_history's is_legal snapshot column, the classifier's three

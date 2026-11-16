@@ -21,6 +21,13 @@
 // to whenever they go above a frame, and goes with a frame only when both its ends go. While a move is in hand,
 // what it moves is drawn on top; when it ends the drawing order is the board's own again.
 //
+// Lines (MO5, her items 4.3 and 4.4): a thing under the pointer, or one selected alone, shows a connection dot
+// beyond each side; a drag from a dot draws a line tied to that side, and over another thing the side the end would
+// land on is lit and the end snaps to it (so too when an end of a line is dragged to tie it again). A selected line
+// has handles to shape it: bends on a straight line (a hollow handle in each stretch adds one), the one pull of a
+// curve (the curve passes through it), the middle of square turns (it slides). Choosing another path lets its bends
+// go; Straighten in the style panel does too. A bent line whose two ends move together moves whole.
+//
 // Under everything, the board's background (background.js: a dotted grid, blank, or a lined grid) on a layer of its
 // own that takes no presses. It is painted again only when the camera, the size of the view or the background
 // changes, never when an element does. The background is the board's (boardStore's getBackground), chosen in the
@@ -47,8 +54,8 @@ import {
   sanitizeStyle, shapePath, textBoxFor,
 } from './shapes.js'
 import {
-  connectorEnds, connectorRecord, connectorsTouching, containsPoint, endAngles, headShape, labelPoint, pickAnchor,
-  routeBounds, routePoints, toBoard as localToBoard, trimForHeads,
+  anchorPoint, centreOf, connectionDots, connectorEnds, connectorRecord, connectorsTouching, containsPoint, elbowSlide, endAngles,
+  headShape, labelPoint, pickAnchor, routeBounds, routePoints, sideSegment, toBoard as localToBoard, trimForHeads,
 } from './connectors.js'
 import {
   boardToScreen, bottomZ, boundsOf, boxFrom, byStack, fitCamera, grow, intersects, marqueeHits, nextZ,
@@ -134,12 +141,18 @@ export function targetSizes(inputMode) {
   }
 }
 
-/** What a Konva node under the pointer belongs to: an element, a connector's end handle, or the transformer. */
+/**
+ * What a Konva node under the pointer belongs to: an element, a connector's end handle, a thing's connection dot
+ * (MO5: { dot: its element, anchor: its side }), a line's bend handle (MO5: { bend: its index, add, connId }), or
+ * the transformer.
+ */
 export function elementIdOf(node) {
   let n = node
   while (n) {
     if (typeof n.getClassName === 'function' && n.getClassName() === 'Transformer') return { transformer: true }
     const a = n.attrs || {}
+    if (a.boardHandle === 'dot') return { dot: a.dotFor, anchor: a.anchor }
+    if (a.boardHandle === 'bend') return { bend: a.bendIndex, add: !!a.addBend, connId: a.connId }
     if (a.boardHandle) return { handle: a.boardHandle, connId: a.connId }
     if (a.elementId) return { id: a.elementId }
     n = typeof n.getParent === 'function' ? n.getParent() : null
@@ -245,6 +258,8 @@ export function mountBoard(host, init) {
   const stickyText = new Map() // element id -> { text, state, fileId }
   let glow = new Map()
   let endDrag = null // { id, end, point } while a connector's end is dragged
+  let bendDrag = null // MO5: { id, bends } while a line's bend, pull or middle is dragged
+  let hoverId = null // MO5: the thing under the pointer, whose connection dots show
   let editor = null
   let editingId = null
   let action = null
@@ -395,9 +410,18 @@ export function mountBoard(host, init) {
     const g = rec.group
     const ends = connectorEnds(el, geom)
     if (endDrag && endDrag.id === el.id) {
-      const free = { ...endDrag.point, side: null, nx: 0, ny: 0 }
-      if (endDrag.end === 'from') ends.start = free
-      else ends.end = free
+      // Over a thing, the dragged end sits where it would land (MO5): on the lit side.
+      const at = endDrag.snap ?? { ...endDrag.point, side: null, nx: 0, ny: 0 }
+      if (endDrag.end === 'from') ends.start = at
+      else ends.end = at
+    }
+    // Bends in hand: an end left to choose its side ('auto') faces the bends as they are now, as it will once they are
+    // saved (round 1: the line jumped on release).
+    if (bendDrag && bendDrag.id === el.id) {
+      const shaped = connectorEnds({ ...el, ...connectorRecord(ends.start, ends.end, bendDrag.bends) }, geom)
+      ends.start = shaped.start
+      ends.end = shaped.end
+      ends.bends = bendDrag.bends
     }
     const route = routePoints(ends.start, ends.end, s.route, ends.bends)
     const line = trimForHeads(route, s.startHead, s.endHead, s.width)
@@ -678,6 +702,9 @@ export function mountBoard(host, init) {
     }
     refreshSelection()
     if (lostSelection) ui.onSelection?.([...selected])
+    // MO5 (her item 4.2): the words box follows what changed under it while it is open (a style chosen in the panel
+    // as the words are typed, a move, an undo, someone else's change).
+    if (editor) pushEditor()
     cull()
     ui.onChange?.()
     content.batchDraw()
@@ -710,8 +737,9 @@ export function mountBoard(host, init) {
         trNodes.push(rec.group)
       }
       const single = trNodes.length === 1 ? nodes.get(trNodes[0].attrs.elementId)?.el : null
+      // The turning handle sits above the top connection dot (MO5).
       tr.setAttrs({
-        resizeEnabled: canWrite, rotateEnabled: canWrite, anchorSize: sizes.anchor, rotateAnchorOffset: sizes.anchor * 2.5,
+        resizeEnabled: canWrite, rotateEnabled: canWrite, anchorSize: sizes.anchor, rotateAnchorOffset: sizes.anchor * 2.5 + (canWrite ? 2 * dotRadius() + 4 : 0),
         keepRatio: !!(single && single.kind === 'shape' && keepsRatio(single.shape)),
       })
       tr.nodes(trNodes)
@@ -730,6 +758,16 @@ export function mountBoard(host, init) {
         strokeWidth: 6, strokeScaleEnabled: false, listening: false, name: 'connector-highlight',
       })))
       if (!canWrite || selected.size > 10) continue
+      // A line selected alone shows the handles that shape it, under its ends' (MO5, her item 4.4).
+      if (selected.size === 1 && !action) {
+        for (const b of bendHandles(rec)) {
+          handles.add(new Konva.Circle({
+            x: b.x, y: b.y, radius: (b.add ? sizes.handle - 2 : sizes.handle - 1) / cam.scale,
+            fill: b.add ? '#FFFFFF' : SELECT_COLOUR, stroke: SELECT_COLOUR, strokeWidth: 1.5 / cam.scale, opacity: b.add ? 0.85 : 1,
+            boardHandle: 'bend', connId: id, bendIndex: b.index, addBend: b.add, name: 'connector-bend',
+          }))
+        }
+      }
       for (const [end, p] of [['from', rec.ends.start], ['to', rec.ends.end]]) {
         handles.add(new Konva.Circle({
           x: p.x, y: p.y, radius: sizes.handle / cam.scale, fill: '#FFFFFF', stroke: SELECT_COLOUR, strokeWidth: 2 / cam.scale,
@@ -737,7 +775,183 @@ export function mountBoard(host, init) {
         }))
       }
     }
+    // MO5 (her item 4.3): the connection dots of the thing under the pointer and of a thing selected alone.
+    const r = dotRadius() / cam.scale
+    for (const id of dotOwners()) {
+      const g = geom(id)
+      if (!g) continue
+      for (const d of connectionDots(g, dotGap() / cam.scale)) {
+        handles.add(new Konva.Circle({
+          x: d.x, y: d.y, radius: r, fill: '#FFFFFF', stroke: SELECT_COLOUR, strokeWidth: 1.5 / cam.scale,
+          boardHandle: 'dot', dotFor: id, anchor: d.side, name: 'connect-dot',
+        }))
+      }
+    }
   }
+
+  // ---- lines: connection dots and bends (MO5, her items 4.3 and 4.4) -----------------------------------------
+  // How big a connection dot is and how far beyond its side it sits, in screen pixels: clear of the selection's own
+  // middle handles (half an anchor and the frame's padding out). The turning handle is raised above the top dot.
+  const dotRadius = () => Math.max(5, sizes.handle - 1)
+  const dotGap = () => sizes.anchor / 2 + 6 + dotRadius()
+  const dotsFit = (el) => !!el && el.kind !== 'connector' && el.kind !== 'pen'
+  // Whose dots show: none while a gesture or a words box is open, to someone who may only look, or with a tool that
+  // draws; else the thing under the pointer, and a thing selected alone (a frame only then: the pointer inside a
+  // frame is over what it holds).
+  function dotOwners() {
+    if (action || editor || !canWrite || (tool !== 'select' && tool !== 'connector')) return []
+    const out = []
+    if (hoverId && dotsFit(geom(hoverId)) && geom(hoverId).kind !== 'frame') out.push(hoverId)
+    if (selected.size === 1) {
+      const [id] = selected
+      if (id !== hoverId && dotsFit(geom(id))) out.push(id)
+    }
+    return out
+  }
+  // The thing the pointer is over, for its dots: on one of the shown thing's dots, that thing; else the topmost thing
+  // (not a line, a stroke or a frame) under the pointer; else the shown one while the pointer is on its way out to a
+  // dot (round 1: a small thing on a larger one never got its own dots).
+  function hoverAt(p) {
+    const reach = (dotGap() + dotRadius() + 2) / cam.scale
+    const kept = hoverId ? geom(hoverId) : null
+    // On the way from a side's middle out to its dot, or on the dot: the shown thing keeps its dots, whatever lies
+    // under (round 2: a band beside the side gave way to the larger thing below, and the dot could not be reached).
+    const lane = (dotRadius() + 4) / cam.scale
+    const onLane = (d) => {
+      const a = anchorPoint(kept, d.side)
+      const vx = d.x - a.x
+      const vy = d.y - a.y
+      const len2 = vx * vx + vy * vy || 1
+      const t = Math.max(0, Math.min(1, ((p.x - a.x) * vx + (p.y - a.y) * vy) / len2))
+      return Math.hypot(p.x - (a.x + vx * t), p.y - (a.y + vy * t)) <= lane
+    }
+    if (kept && connectionDots(kept, dotGap() / cam.scale).some(onLane)) return hoverId
+    const kids = content.getChildren()
+    for (let i = kids.length - 1; i >= 0; i -= 1) {
+      const id = kids[i].attrs.elementId
+      if (!id || !kids[i].visible()) continue
+      const g = geom(id)
+      if (!dotsFit(g) || g.kind === 'frame') continue
+      if (containsPoint(g, p)) return id
+    }
+    if (kept && containsPoint(kept, p, reach)) return hoverId
+    return null
+  }
+  function setHover(id) {
+    const next = id ?? null
+    if (next === hoverId) return
+    hoverId = next
+    drawHandles()
+    overlay.batchDraw()
+  }
+  // Where a line's end would land at a board point: the thing under it (else one whose dots it is on), the side it
+  // snaps to (a dot's side, or the side facing `towards`), and that point. Never a line, and never `exclude`.
+  function dropTarget(p, exclude, towards) {
+    let target = elementAt(p, exclude)
+    if (!target) {
+      const reach = (dotGap() + dotRadius()) / cam.scale
+      const kids = content.getChildren()
+      for (let i = kids.length - 1; i >= 0 && !target; i -= 1) {
+        const id = kids[i].attrs.elementId
+        if (!id || exclude.has(id) || !kids[i].visible()) continue
+        const g = geom(id)
+        if (dotsFit(g) && g.kind !== 'frame' && containsPoint(g, p, reach)) target = g
+      }
+    }
+    if (!target) return null
+    let anchor = pickAnchor(target, p, (sizes.handle * 2) / cam.scale)
+    if (anchor === 'auto') {
+      // On a dot of it: that dot's side.
+      const near = connectionDots(target, dotGap() / cam.scale).find((d) => Math.hypot(d.x - p.x, d.y - p.y) <= (dotRadius() + 4) / cam.scale)
+      if (near) anchor = near.side
+    }
+    const at = anchorPoint(target, anchor, towards ?? p)
+    return { target, anchor, at }
+  }
+  // The lit side (or centre) of the thing a line's end would land on, its outline, and its other dots.
+  function highlightTarget(drop) {
+    preview.find('.target').forEach((n) => n.destroy())
+    preview.find('.target-side').forEach((n) => n.destroy())
+    preview.find('.target-dot').forEach((n) => n.destroy())
+    if (!drop) return
+    const { target, at } = drop
+    preview.add(new Konva.Rect({
+      x: target.x, y: target.y, width: num(target.w), height: num(target.h), rotation: num(target.rotation), stroke: SELECT_COLOUR,
+      strokeWidth: 1, strokeScaleEnabled: false, opacity: 0.6, name: 'target', listening: false,
+    }))
+    const seg = sideSegment(target, at.side)
+    if (seg) {
+      preview.add(new Konva.Line({
+        points: [seg[0].x, seg[0].y, seg[1].x, seg[1].y], stroke: SELECT_COLOUR, strokeWidth: 4, lineCap: 'round',
+        strokeScaleEnabled: false, name: 'target-side', listening: false,
+      }))
+    }
+    preview.add(new Konva.Circle({
+      x: at.x, y: at.y, radius: (dotRadius() + 1) / cam.scale, fill: SELECT_COLOUR, stroke: '#FFFFFF', strokeWidth: 1.5 / cam.scale,
+      name: 'target-dot', listening: false,
+    }))
+  }
+  // The handles that shape a selected line: [{ x, y, index, add }] — a straight line's bends and, in each stretch
+  // long enough, a hollow one that adds a bend there; a curve's one pull (on the curve); square turns' middle, where
+  // it can slide.
+  function bendHandles(rec) {
+    const el = geom(rec.el.id)
+    if (!el || !rec.route || !rec.ends) return []
+    const route = resolveStyle('connector', el.style).route
+    const bends = rec.ends.bends
+    if (route === 'curved') {
+      if (bends.length > 1) return bends.map((b, i) => ({ x: b.x, y: b.y, index: i, add: false }))
+      const m = labelPoint(rec.route)
+      return [{ x: m.x, y: m.y, index: 0, add: !bends.length }]
+    }
+    if (route === 'elbow') {
+      const axis = elbowSlide(rec.ends.start, rec.ends.end)
+      const m = axis ? middleStretch(rec.route.points, axis) : null
+      return m ? [{ x: m.x, y: m.y, index: 0, add: !bends.length }] : []
+    }
+    const pts = [rec.ends.start, ...bends, rec.ends.end]
+    const out = bends.map((b, i) => ({ x: b.x, y: b.y, index: i, add: false }))
+    if (bends.length >= 62) return out
+    for (let i = 0; i + 1 < pts.length; i += 1) {
+      const a = pts[i]
+      const b = pts[i + 1]
+      if (Math.hypot(b.x - a.x, b.y - a.y) * cam.scale < 36) continue
+      out.push({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, index: i, add: true })
+    }
+    return out
+  }
+  // The middle of square turns' stretch that slides: the longest upright stretch (sliding in x) or level one (in y).
+  function middleStretch(points, axis) {
+    let best = null
+    let bestLen = 0
+    for (let i = 2; i + 1 < points.length; i += 2) {
+      const x0 = points[i - 2]
+      const y0 = points[i - 1]
+      const x1 = points[i]
+      const y1 = points[i + 1]
+      const upright = Math.abs(x1 - x0) < 0.01
+      const level = Math.abs(y1 - y0) < 0.01
+      if ((axis === 'x' && !upright) || (axis === 'y' && !level)) continue
+      const len = Math.hypot(x1 - x0, y1 - y0)
+      if (len > bestLen) { bestLen = len; best = { x: (x0 + x1) / 2, y: (y0 + y1) / 2 } }
+    }
+    return best
+  }
+  // A bend handle dragged to a board point: the line's bends as they would be.
+  function bendsAt(a, p) {
+    const route = resolveStyle('connector', geom(a.id)?.style).route
+    const pt = { x: round2(p.x), y: round2(p.y) }
+    if (route === 'elbow') {
+      const m = a.middle
+      return [a.axis === 'x' ? { x: pt.x, y: round2(m.y) } : { x: round2(m.x), y: pt.y }]
+    }
+    if (route === 'curved' && a.bends0.length <= 1) return [pt]
+    const next = a.bends0.map((b) => ({ ...b }))
+    if (a.add) next.splice(a.index, 0, pt)
+    else next[a.index] = pt
+    return next
+  }
+  const hasBends = (c) => Array.isArray(c?.points) && c.points.length > 4
   function drawGuides(list) {
     guides.destroyChildren()
     for (const g of list) {
@@ -771,6 +985,8 @@ export function mountBoard(host, init) {
     window.addEventListener('pointermove', onWinMove, true)
     window.addEventListener('pointerup', onWinUp, true)
     window.addEventListener('pointercancel', onWinCancel, true)
+    // Connection dots and bend handles step aside while a gesture is in hand (MO5).
+    if (hoverId || selected.size) drawHandles()
     ui.onBusy?.(true)
   }
   function finish() {
@@ -781,6 +997,7 @@ export function mountBoard(host, init) {
     preview.destroyChildren()
     marquee.visible(false)
     drawGuides([])
+    if (!destroyed) drawHandles()
     ui.onBusy?.(false)
     overlay.batchDraw()
   }
@@ -797,11 +1014,15 @@ export function mountBoard(host, init) {
       for (const id of [...a.starts.keys(), ...a.touching]) { const rec = nodes.get(id); if (rec) build(rec) }
       refreshSelection()
     }
-    if (a.type === 'end') {
+    if (a.type === 'end' || a.type === 'bend') {
       endDrag = null
+      bendDrag = null
       const rec = nodes.get(a.id)
       if (rec) build(rec)
+      finish()
       refreshSelection()
+      content.batchDraw()
+      return
     }
     finish()
     // The lift of a move is let go of: the board's own order, nothing saved for it.
@@ -818,15 +1039,45 @@ export function mountBoard(host, init) {
     try { host.parentElement?.focus?.({ preventScroll: true }) } catch { /* focus is a courtesy */ }
     const p = boardAt(evt)
     const screen = { x: num(evt.clientX), y: num(evt.clientY) }
-    const touchOnEmpty = evt.pointerType === 'touch' && tool === 'select' && !hit.id && !hit.handle
+    // A finger on a connection dot or a bend handle is theirs, never a pan (MO5 round 1).
+    const touchOnEmpty = evt.pointerType === 'touch' && tool === 'select' && !hit.id && !hit.handle && !hit.dot && hit.bend == null
     if (evt.button === 1 || spaceHeld || tool === 'hand' || touchOnEmpty) {
       begin({ type: 'pan', screen, cam: { ...cam } }, evt)
+      return
+    }
+    // MO5 (her item 4.3): a press on a thing's connection dot draws a line from that side, whatever the tool.
+    if (hit.dot && canWrite) {
+      settle()
+      const from = geom(hit.dot)
+      if (!from) return
+      const start = anchorPoint(from, hit.anchor)
+      setHover(null)
+      begin({ type: 'connect', from: hit.dot, fromAnchor: hit.anchor, start: { x: start.x, y: start.y }, screen }, evt)
+      drawHandles()
+      return
+    }
+    // MO5 (her item 4.4): a press on a line's bend handle shapes it. A second press there soon after the first, let go
+    // without moving, is the line's double press, as before: its words open (round 1: the handle sits where the label
+    // is). Moved, it bends.
+    if (hit.bend != null && canWrite) {
+      const now = Date.now()
+      const dbl = !!lastDown && lastDown.id === hit.connId && now - lastDown.t < DOUBLE_MS
+      lastDown = dbl ? null : { id: hit.connId, t: now }
+      settle()
+      const rec = nodes.get(hit.connId)
+      if (!rec?.ends) return
+      const handle = bendHandles(rec).find((b) => b.index === hit.bend && b.add === hit.add)
+      const axis = elbowSlide(rec.ends.start, rec.ends.end)
+      begin({
+        type: 'bend', id: hit.connId, index: hit.bend, add: hit.add, bends0: rec.ends.bends.map((b) => ({ x: b.x, y: b.y })),
+        axis, middle: handle ? { x: handle.x, y: handle.y } : p, screen, moved: false, dbl,
+      }, evt)
       return
     }
     if (hit.handle && canWrite) {
       settle()
       endDrag = { id: hit.connId, end: hit.handle, point: p }
-      begin({ type: 'end', id: hit.connId, end: hit.handle }, evt)
+      begin({ type: 'end', id: hit.connId, end: hit.handle, screen }, evt)
       return
     }
     if (tool === 'select') { selectDown(hit.id, p, screen, evt); return }
@@ -888,14 +1139,26 @@ export function mountBoard(host, init) {
     const frames = [...moving].filter((id) => els.get(id)?.kind === 'frame')
     return [...frames, ...[...moving].filter((id) => els.get(id)?.kind !== 'frame')]
   }
+  // MO5 (her item 4.4): a bent line both of whose ends are tied to what moves goes with them whole, bends and all;
+  // any other tied line keeps its bends where they are and its ends follow.
+  function bentAlong(moving, els = all()) {
+    const out = []
+    for (const cid of connectorsTouching(els.values(), moving)) {
+      if (moving.has(cid)) continue
+      const c = els.get(cid)
+      if (hasBends(c) && c.from_id && c.to_id && moving.has(c.from_id) && moving.has(c.to_id)) out.push(cid)
+    }
+    return out
+  }
   function startMove(p, screen, evt, clickSelect) {
     settle()
     const els = all()
     const moving = new Set(carried())
     if (!moving.size) return
-    const starts = new Map([...moving].map((id) => { const g = geom(id); return [id, { x: num(g.x), y: num(g.y) }] }))
     const box0 = unionBounds([...moving].map((id) => boxOf(id)))
     const candidates = pickCandidates(snapEntries(moving), moving, viewRect(cam, view))
+    for (const cid of bentAlong(moving, els)) moving.add(cid)
+    const starts = new Map([...moving].map((id) => { const g = geom(id); return [id, { x: num(g.x), y: num(g.y) }] }))
     const touching = [...connectorsTouching(els.values(), moving)].filter((id) => !moving.has(id))
     begin({ type: 'move', start: p, screen, starts, moving, box0, candidates, touching, moved: false, clickSelect, frame: null }, evt)
   }
@@ -987,14 +1250,38 @@ export function mountBoard(host, init) {
     }
     if (a.type === 'connect') { connectPreview(a, p); return }
     if (a.type === 'end') {
-      endDrag = { ...endDrag, point: p }
+      const drop = endDrop(a, p)
+      endDrag = { ...endDrag, point: p, snap: drop ? drop.at : null }
       const rec = nodes.get(a.id)
       if (rec) build(rec)
       drawHandles()
-      highlightTarget(elementAt(p, new Set([a.id])))
+      highlightTarget(drop)
+      content.batchDraw()
+      overlay.batchDraw()
+      return
+    }
+    if (a.type === 'bend') {
+      if (!a.moved && Math.hypot(num(evt.clientX) - a.screen.x, num(evt.clientY) - a.screen.y) < sizes.slop) return
+      a.moved = true
+      bendDrag = { id: a.id, bends: bendsAt(a, p) }
+      const rec = nodes.get(a.id)
+      if (rec) build(rec)
+      drawHandles()
       content.batchDraw()
       overlay.batchDraw()
     }
+  }
+  // Where a dragged end of a line would land: on a thing other than the line, the side facing what connectorEnds
+  // will face once it is saved (its nearest bend, else the other end's thing's middle, else the other end), so the side
+  // lit is the side it lands on (round 1).
+  function endDrop(a, p) {
+    const el = geom(a.id)
+    if (!el) return null
+    const ends = nodes.get(a.id)?.ends ?? connectorEnds(el, geom)
+    const otherEl = a.end === 'from' ? ends.toEl : ends.fromEl
+    const otherEnd = a.end === 'from' ? ends.end : ends.start
+    const near = a.end === 'from' ? ends.bends[0] : ends.bends[ends.bends.length - 1]
+    return dropTarget(p, new Set([a.id]), near ?? (otherEl ? centreOf(otherEl) : otherEnd))
   }
 
   function moveStep(a, p, evt) {
@@ -1106,14 +1393,36 @@ export function mountBoard(host, init) {
       setSelection([id])
       return
     }
+    if (a.type === 'bend') {
+      const next = bendDrag && bendDrag.id === a.id ? bendDrag.bends : null
+      bendDrag = null
+      finish()
+      const el = geom(a.id)
+      if (!a.moved && a.dbl && el) { beginEdit(a.id); return }
+      if (a.moved) lastDown = null // a bend is no first press of a double press (round 2)
+      if (!a.moved || !next || !el) { const rec = nodes.get(a.id); if (rec) build(rec); refreshSelection(); return }
+      const ends = connectorEnds(el, geom)
+      store.update(a.id, connectorRecord(ends.start, ends.end, next), { settled: true })
+      reconcileNow()
+      return
+    }
     if (a.type === 'end') {
-      const target = elementAt(p, new Set([a.id]))
+      const drop = endDrop(a, p)
+      const target = drop?.target ?? null
       const el = geom(a.id)
       endDrag = null
       finish()
       if (!el) return
+      // A press on an end that never moved changes nothing (round 1: near a thing, it tied the end there).
+      if (a.screen && Math.hypot(num(evt.clientX) - a.screen.x, num(evt.clientY) - a.screen.y) < sizes.slop) {
+        const rec = nodes.get(a.id)
+        if (rec) build(rec)
+        refreshSelection()
+        content.batchDraw()
+        return
+      }
       const next = { ...el }
-      const anchor = target ? pickAnchor(target, p, (sizes.handle * 2) / cam.scale) : null
+      const anchor = target ? drop.anchor : null
       if (a.end === 'from') { next.from_id = target?.id ?? null; next.from_anchor = anchor } else { next.to_id = target?.id ?? null; next.to_anchor = anchor }
       const ends = connectorEnds(next, geom)
       if (!target) { if (a.end === 'from') ends.start = p; else ends.end = p }
@@ -1135,28 +1444,25 @@ export function mountBoard(host, init) {
   }
 
   function connectPlan(a, p) {
-    const target = elementAt(p, new Set(a.from ? [a.from] : []))
+    const from = a.from ? geom(a.from) : null
+    const drop = dropTarget(p, new Set(a.from ? [a.from] : []), from ? centreOf(from) : a.start)
+    const target = drop?.target ?? null
     const tmp = {
       kind: 'connector', ...connectorRecord(a.start, p), from_id: a.from, from_anchor: a.from ? a.fromAnchor : null,
-      to_id: target?.id ?? null, to_anchor: target ? pickAnchor(target, p, (sizes.handle * 2) / cam.scale) : null,
+      to_id: target?.id ?? null, to_anchor: target ? drop.anchor : null,
     }
-    return { ...tmp, ends: connectorEnds(tmp, geom), target }
+    return { ...tmp, ends: connectorEnds(tmp, geom), target, drop }
   }
   function connectPreview(a, p) {
     const plan = connectPlan(a, p)
-    const route = routePoints(plan.ends.start, plan.ends.end, 'straight')
+    const route = routePoints(plan.ends.start, plan.ends.end, resolveStyle('connector', NEW_STYLE.connector).route)
     preview.destroyChildren()
-    preview.add(new Konva.Line({ points: route.points, stroke: SELECT_COLOUR, strokeWidth: 2, strokeScaleEnabled: false, dash: [6, 4], name: 'connect-preview' }))
-    highlightTarget(plan.target)
-    overlay.batchDraw()
-  }
-  function highlightTarget(target) {
-    preview.find('.target').forEach((n) => n.destroy())
-    if (!target) return
-    preview.add(new Konva.Rect({
-      x: target.x, y: target.y, width: num(target.w), height: num(target.h), rotation: num(target.rotation), stroke: SELECT_COLOUR,
-      strokeWidth: 2, strokeScaleEnabled: false, name: 'target', listening: false,
+    preview.add(new Konva.Line({
+      points: route.points, bezier: route.bezier, tension: route.tension, stroke: SELECT_COLOUR, strokeWidth: 2,
+      strokeScaleEnabled: false, dash: [6, 4], name: 'connect-preview',
     }))
+    highlightTarget(plan.drop)
+    overlay.batchDraw()
   }
 
   function placeBox(kind, start, p, small) {
@@ -1434,6 +1740,8 @@ export function mountBoard(host, init) {
     }
   }
   function pushEditor() {
+    // A words box opening or closing hides or shows the connection dots (MO5).
+    if (!destroyed) { drawHandles(); overlay.batchDraw() }
     if (!editor) { ui.onEdit?.(null); return }
     ui.onEdit?.({
       id: editor.id, kind: editor.kind, text: editor.text, status: editor.status, words: editor.words,
@@ -1567,9 +1875,14 @@ export function mountBoard(host, init) {
     const t = next || 'select'
     if (t === tool) return
     tool = t
+    if (t !== 'select' && t !== 'connector') hoverId = null
+    drawHandles()
+    overlay.batchDraw()
     ui.onTool?.(t)
   }
   function applyStyle(patch) {
+    // Another path saves a line's drawn ends: read settled, as every write is (round 1).
+    if (patch && patch.route != null) settle()
     const els = all()
     for (const id of selected) {
       const el = els.get(id)
@@ -1577,8 +1890,25 @@ export function mountBoard(host, init) {
       const merged = { ...(el.style || {}) }
       for (const [k, v] of Object.entries(patch || {})) { if (v == null) delete merged[k]; else merged[k] = v }
       const style = sanitizeStyle(el.kind, merged)
-      if (JSON.stringify(style) !== JSON.stringify(el.style || {})) store.update(id, { style }, { settled: true })
+      if (JSON.stringify(style) === JSON.stringify(el.style || {})) continue
+      // Another path lets a line's bends go (MO5, her item 4.4): a curve's pull is no straight line's bend. One run,
+      // one undo step.
+      const reroute = el.kind === 'connector' && hasBends(el) && resolveStyle('connector', style).route !== resolveStyle('connector', el.style).route
+      store.update(id, reroute ? { style, ...unbent(el) } : { style }, { settled: true })
     }
+    reconcileNow()
+  }
+  // A line's stored form with its bends let go of, its ends where they are drawn.
+  function unbent(el) {
+    const ends = nodes.get(el.id)?.ends ?? connectorEnds(el, geom)
+    return connectorRecord(ends.start, ends.end)
+  }
+  // MO5 (her item 4.4): Straighten, in the style panel: every selected line's bends go.
+  function straighten() {
+    if (!canWrite) return
+    settle()
+    const els = all()
+    for (const id of selected) { const el = els.get(id); if (el?.kind === 'connector' && hasBends(el)) store.update(id, unbent(el), { settled: true }) }
     reconcileNow()
   }
   function applyShape(shape) {
@@ -1677,8 +2007,10 @@ export function mountBoard(host, init) {
     if (!canWrite) return
     settle()
     const els = all()
-    // A frame carries what it holds, and what lands in a frame goes above it, as a drag does.
+    // A frame carries what it holds, and what lands in a frame goes above it, as a drag does; a bent line tied at
+    // both ends to what moves goes whole (MO5).
     const moved = carried()
+    moved.push(...bentAlong(new Set(moved), els))
     for (const id of moved) {
       const el = els.get(id)
       if (el) store.update(id, { x: round2(num(el.x) + dx), y: round2(num(el.y) + dy) }, { settled: true })
@@ -1889,7 +2221,11 @@ export function mountBoard(host, init) {
     }
     // The pointer is sent only while it moves; boardLive holds it to ten a second.
     if (!pinch && live?.sendPointer) { const p = boardAt(evt); live.sendPointer(round2(p.x), round2(p.y)) }
+    // MO5 (her item 4.3): a mouse or a pen over a thing shows its connection dots (a finger selects it first).
+    if (!pinch && !action && !editor && canWrite && evt.pointerType !== 'touch' && (tool === 'select' || tool === 'connector')) setHover(hoverAt(boardAt(evt)))
+    else if (hoverId && (evt.pointerType === 'touch' || !canWrite)) setHover(null)
   }
+  function onHostLeave() { if (!action) setHover(null) }
   function onHostUp(evt) {
     if (evt.pointerType !== 'touch') return
     touches.delete(evt.pointerId)
@@ -1910,6 +2246,7 @@ export function mountBoard(host, init) {
   host.addEventListener('mousedown', onHostMouseDown, true)
   host.addEventListener('pointerdown', onHostDown, true)
   host.addEventListener('pointermove', onHostMove, true)
+  host.addEventListener('pointerleave', onHostLeave)
   host.addEventListener('pointerup', onHostUp, true)
   host.addEventListener('pointercancel', onHostUp, true)
 
@@ -1965,6 +2302,7 @@ export function mountBoard(host, init) {
     fit,
     applyStyle,
     applyShape,
+    straighten,
     stack,
     removeSelection,
     frameSelection,
@@ -2008,6 +2346,7 @@ export function mountBoard(host, init) {
       host.removeEventListener('mousedown', onHostMouseDown, true)
       host.removeEventListener('pointerdown', onHostDown, true)
       host.removeEventListener('pointermove', onHostMove, true)
+      host.removeEventListener('pointerleave', onHostLeave)
       host.removeEventListener('pointerup', onHostUp, true)
       host.removeEventListener('pointercancel', onHostUp, true)
       if (ro) ro.disconnect()
@@ -2046,7 +2385,15 @@ function WordsEditor({ editor, inputMode, onInput, onBlur, onClose }) {
         maxLength={10000}
         readOnly={ended}
         onChange={(e) => onInput(e.target.value)}
-        onBlur={onBlur}
+        // MO5 (her item 4.2): into the style panel is not away from the words (Shift+Tab reaches it, a size is chosen
+        // there); the panel ends the edit itself when the focus leaves both.
+        onBlur={(e) => {
+          // The style panel's colours and sizes keep the words open; its Arrange buttons end them first (round 1: a
+          // button takes the focus on its press in Chromium, and a frame or a Delete then acted under an open box).
+          const to = e.relatedTarget
+          if (to?.closest?.('[data-moth-board-style]') && !to.closest('[data-style-arrange]')) return
+          onBlur()
+        }}
         style={{
           display: 'block', width: '100%', height: Math.max(b.height, b.fontSize * 1.4), boxSizing: 'border-box', margin: 0,
           padding: 0, border: `1px solid ${SELECT_COLOUR}`, outline: 'none', resize: 'none', overflow: 'hidden',
@@ -2295,11 +2642,14 @@ export default function BoardCanvas({ store, live = null, turns = null, adapter 
         />
       )}
       <StylePanel
-        elements={editor ? [] : selectedEls}
+        elements={selectedEls}
         canWrite={writable}
         inputMode={inputMode}
+        editing={!!editor}
+        onLeave={() => ctlRef.current?.editBlur()}
         onStyle={(patch) => ctlRef.current?.applyStyle(patch)}
         onShape={(s) => ctlRef.current?.applyShape(s)}
+        onStraighten={() => ctlRef.current?.straighten()}
         onStack={(dir) => ctlRef.current?.stack(dir)}
         onRemove={() => ctlRef.current?.removeSelection()}
         onFrame={() => ctlRef.current?.frameSelection()}

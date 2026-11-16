@@ -19,13 +19,18 @@
 // credential's hash, which every gateway call sends in a request URL.
 // Round 2, finding 4: the inside port answers 'gateway' (the red line) only
 // for the inside door's own signature, a close at once.
+//
+// F8 (wave 2, 2026-11-13): the client is typed adminGuard.ServiceClient (a
+// type only); supabaseHost() below is now also what storage-presign,
+// storage-secret and (since the second merger, F8-02) storage-gc hand their
+// S3 vet.
 // =============================================================================
 
-import type { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
+import type { ServiceClient } from './adminGuard.ts'
 import { denoReachDeps, insidePortToProbe, isPublicIp, probeInside, probeOutside, type InsideAnswer, type OutsideResult } from './gatewayReach.ts'
 import { reachProof } from './gatewayWire.ts'
 
-type Client = ReturnType<typeof createClient>
+type Client = ServiceClient
 
 export type BegunCheck = {
   check_id: string

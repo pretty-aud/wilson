@@ -2547,11 +2547,13 @@ SELECT is((SELECT count(*)::int FROM pg_policies
 SELECT is((SELECT array_agg(policyname || ' ' || md5(COALESCE(qual, '') || '|' || COALESCE(with_check, '')) ORDER BY policyname) FROM pg_policies
             WHERE schemaname = 'storage' AND tablename = 'objects'
               AND (policyname LIKE 'rabbit\_%\_money\_%' OR policyname LIKE 'petal\_%')),
-  ARRAY['petal_bin_posters_delete_own df3b7e08dae664725c1eea676eae952e',
-        'petal_bin_posters_insert be9f43c1c87bde7804826b8a0ec27da5',
+  -- F7 (0137): the three bin-poster policies ask has_active_membership once per statement (a sub-select); their md5s
+  -- moved with that one substitution and nothing else (0137's own comparison proves it).
+  ARRAY['petal_bin_posters_delete_own 3387455f1cffa8e46663a90d750d7f69',
+        'petal_bin_posters_insert de750360013b6532c2f3bca75afc17ee',
         'petal_bin_posters_remote_viewing_insert 5c2903256ac409cfbddbda71e66231b2',
         'petal_bin_posters_remote_viewing_update 96a5f9c25a053395687e01b84953a0fc',
-        'petal_bin_posters_update 4d66609119c6606e283b02890bfde3f9',
+        'petal_bin_posters_update 253b31cc1ba3520573ca32e7b5255c88',
         'petal_storage_quota_insert b08a99323953283cd0545520859d6367',
         'rabbit_files_money_delete 2c70d5bc96bb3d74c43ce6a0e34bb24b',
         'rabbit_files_money_insert 72b98b2cf371ee0df286fef30d8d5686',

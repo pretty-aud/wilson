@@ -125,7 +125,8 @@ SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 
 SELECT ok(
-  (SELECT strpos(with_check, 'personal_owner_id IS NULL') > 0 AND strpos(with_check, 'has_active_membership(workspace_id)') > 0
+  -- F7 (0137): the membership check is asked once per statement, inside a sub-select.
+  (SELECT strpos(with_check, 'personal_owner_id IS NULL') > 0 AND strpos(with_check, '( SELECT has_active_membership(current_workspace_id()) AS has_active_membership)') > 0
      FROM pg_policies WHERE schemaname = 'public' AND tablename = 'projects' AND policyname = 'projects_insert')
   AND (SELECT strpos(qual, 'personal_owner_id IS NULL') > 0 AND strpos(qual, '''admin''') > 0
          FROM pg_policies WHERE schemaname = 'public' AND tablename = 'projects' AND policyname = 'projects_delete'),

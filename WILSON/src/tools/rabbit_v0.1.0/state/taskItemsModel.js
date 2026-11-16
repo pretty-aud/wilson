@@ -190,6 +190,50 @@ export function tasksAbout(tasks, items, kind, entityId, available = true) {
   return tasks.filter(t => t && taskIds.has(String(t.id)))
 }
 
+/**
+ * F4 (2026-11-13; the review's rabbit C5): tasksAbout for EVERY entity of a
+ * kind in one walk of the items and one of the tasks. Map(String(entityId) →
+ * tasks), where each list is what tasksAbout(tasks, items, kind, entityId,
+ * available) returns for that id: the same tasks, in the order of `tasks`, the
+ * same objects. An entity no task is about has no entry.
+ *
+ * A list that asks row by row (the Assets tab's warning) cost one tasksAbout
+ * per row, each a walk of every item and a filter of every task. Every rule
+ * here is tasksAbout's own, kept line for line (ids compared as strings,
+ * holes in either list skipped, a task named twice counted once), and
+ * assetWarnings.test.js holds the two to the same answer.
+ */
+export function tasksAboutByEntity(tasks, items, kind, available = true) {
+  const byEntity = new Map()
+  if (!Array.isArray(tasks) || !isItemKind(kind)) return byEntity
+  const add = (entityKey, task) => {
+    const list = byEntity.get(entityKey)
+    if (list) list.push(task)
+    else byEntity.set(entityKey, [task])
+  }
+  if (!available) {
+    const f = KIND_FIELD[kind]
+    for (const t of tasks) if (t && t[f] != null) add(String(t[f]), t)
+    return byEntity
+  }
+  // The entities of the kind each task's items name: Map(String(taskId) → Set(String(entityId))).
+  const namedBy = new Map()
+  for (const i of Array.isArray(items) ? items : []) {
+    if (!i || i.entity_type !== kind) continue
+    const taskKey = String(i.task_id)
+    const named = namedBy.get(taskKey)
+    if (named) named.add(String(i.entity_id))
+    else namedBy.set(taskKey, new Set([String(i.entity_id)]))
+  }
+  if (namedBy.size === 0) return byEntity
+  for (const t of tasks) {
+    if (!t) continue
+    const named = namedBy.get(String(t.id))
+    if (named) for (const entityKey of named) add(entityKey, t)
+  }
+  return byEntity
+}
+
 /** Count of tasks about each entity of a kind: { entityId: n } (a task counts once per entity). */
 export function taskCountsByEntity(tasks, items, kind, available = true) {
   const out = {}

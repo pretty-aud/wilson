@@ -30,12 +30,19 @@
 // version its envelope names (a bare envelope is version 1). The re-seal is
 // operator-ai-keys's `reseal` with `secret: 'storage'`. The environment is
 // read through readEnv (Deno's, or Node's for the vitest proof).
+//
+// F8 (wave 2, 2026-11-13): the envelope itself (the AES-GCM seal and open,
+// the master key's import and its per-isolate cache, the version prefix) is
+// _shared/envelopeCrypto.ts, shared with aiKeyCrypto.ts and
+// gatewayKeyCrypto.ts. This module keeps what is its own: its secret's name,
+// its error class, its sentence for a truncated envelope, and every name it
+// exports, with the same signatures. Its cache is its own instance: a key
+// imported here is never used by another credential domain.
 // =============================================================================
 
-import { secretNameFor, readEnv, currentKeyVersion, envelopeVersion, wrapEnvelope } from './keyVersions.ts'
+import { lastFourHint, makeVersionedEnvelopeCrypto } from './envelopeCrypto.ts'
 
 const SECRET_ENV = 'WILSON_STORAGE_KEY_SECRET'
-const IV_BYTES = 12
 
 export class StorageSecretCryptoUnavailable extends Error {
   constructor(name: string = SECRET_ENV) {
@@ -44,86 +51,34 @@ export class StorageSecretCryptoUnavailable extends Error {
   }
 }
 
-function b64encode(bytes: Uint8Array): string {
-  let s = ''
-  for (const b of bytes) s += String.fromCharCode(b)
-  return btoa(s)
-}
-
-function b64decode(s: string): Uint8Array {
-  const bin = atob(s)
-  const out = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
-  return out
-}
-
-/**
- * Import the data-encryption key of one version from the environment.
- *
- * WILSON_STORAGE_KEY_SECRET (version 1) or WILSON_STORAGE_KEY_SECRET_V<n>
- * must be 32 random bytes, base64-encoded — generate with
- * `openssl rand -base64 32`. A short or malformed value is refused rather
- * than stretched or padded (the aiKeyCrypto rule): silently accepting a weak
- * key would make the ciphertext look encrypted while being trivially
- * breakable.
- */
-async function importKey(version: number): Promise<CryptoKey> {
-  const name = secretNameFor(SECRET_ENV, version)
-  const raw = readEnv(name)
-  if (!raw) throw new StorageSecretCryptoUnavailable(name)
-  let bytes: Uint8Array
-  try {
-    bytes = b64decode(raw.trim())
-  } catch {
-    throw new Error(`${name} is not valid base64`)
-  }
-  if (bytes.length !== 32) {
-    throw new Error(`${name} must decode to exactly 32 bytes (got ${bytes.length})`)
-  }
-  return await crypto.subtle.importKey('raw', bytes, { name: 'AES-GCM' }, false, [
-    'encrypt',
-    'decrypt',
-  ])
-}
+// WILSON_STORAGE_KEY_SECRET (version 1) or WILSON_STORAGE_KEY_SECRET_V<n>
+// must be 32 random bytes, base64-encoded — generate with
+// `openssl rand -base64 32`. A short or malformed value is refused rather
+// than stretched or padded (the aiKeyCrypto rule, now envelopeCrypto.ts's).
+// Truncated means no room for anything after the IV: 12 bytes or fewer.
+const envelope = makeVersionedEnvelopeCrypto(SECRET_ENV, {
+  unavailable: (name) => new StorageSecretCryptoUnavailable(name),
+  truncated: 'storage secret envelope is truncated',
+  truncatedAtBytes: 12,
+})
 
 /** True when a secret of some version is present — used to fail with a clear message. */
 export function storageSecretCryptoConfigured(): boolean {
-  return currentKeyVersion(SECRET_ENV) !== null
+  return envelope.configured()
 }
 
 /** P8 (TPN-ENC-015): the version a new row is sealed under (the highest present), or null. */
 export function storageSecretCurrentVersion(): number | null {
-  return currentKeyVersion(SECRET_ENV)
+  return envelope.currentVersion()
 }
 
 export async function encryptStorageSecret(plaintext: string): Promise<string> {
-  const version = currentKeyVersion(SECRET_ENV)
-  if (version === null) throw new StorageSecretCryptoUnavailable()
-  const key = await importKey(version)
-  const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES))
-  const ct = new Uint8Array(
-    await crypto.subtle.encrypt(
-      { name: 'AES-GCM', iv },
-      key,
-      new TextEncoder().encode(plaintext),
-    ),
-  )
-  const envelope = new Uint8Array(iv.length + ct.length)
-  envelope.set(iv, 0)
-  envelope.set(ct, iv.length)
-  return wrapEnvelope(b64encode(envelope), version)
+  return await envelope.encrypt(plaintext)
 }
 
 export async function decryptStorageSecret(envelopeText: string): Promise<string> {
   // P8 (TPN-ENC-015): the envelope names its version; a bare one is version 1.
-  const { version, body } = envelopeVersion(envelopeText)
-  const key = await importKey(version)
-  const envelope = b64decode(body)
-  if (envelope.length <= IV_BYTES) throw new Error('storage secret envelope is truncated')
-  const iv = envelope.slice(0, IV_BYTES)
-  const ct = envelope.slice(IV_BYTES)
-  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct)
-  return new TextDecoder().decode(plain)
+  return await envelope.decrypt(envelopeText)
 }
 
 /**
@@ -134,6 +89,5 @@ export async function decryptStorageSecret(envelopeText: string): Promise<string
  * readable.
  */
 export function storageKeyHint(plaintext: string): string {
-  const t = plaintext.trim()
-  return t.length <= 4 ? '*'.repeat(t.length) : t.slice(-4)
+  return lastFourHint(plaintext)
 }

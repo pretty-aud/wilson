@@ -996,3 +996,46 @@ describe('boardStore: words', () => {
     expect(isRefusal({ code: 'network' })).toBe(false)
   })
 })
+
+// MO5 item 7: the board's title is its folder's name, renamed through the server; the latest of a rename's answer
+// and the channel's message is kept, whichever comes first.
+describe('MO5 7: boardStore renames the board', () => {
+  it('renameBoard asks the server for its folder, takes the name it answers and tells the panel', async () => {
+    const { adapter, store, events } = await loaded([])
+    adapter.renameFolder = vi.fn(async (fid, name) => ({ folder_id: fid, label: name.trim(), board_id: BOARD, changed: true, at: 100 }))
+    events.length = 0
+    await expect(store.renameBoard(' Story board ')).resolves.toBe('Story board')
+    expect(adapter.renameFolder).toHaveBeenCalledWith('f1', ' Story board ')
+    expect(store.getBoard().title).toBe('Story board')
+    expect(events.some((e) => e.type === 'board')).toBe(true)
+  })
+  it('the channel\'s title is taken when newer, and an older one heard after a newer is not', async () => {
+    const { store } = await loaded([])
+    store.applyBoard({ board: BOARD, op: 'title', title: 'Second', at: 200 })
+    expect(store.getBoard().title).toBe('Second')
+    store.applyBoard({ board: BOARD, op: 'title', title: 'First', at: 100 })
+    expect(store.getBoard().title).toBe('Second')
+    store.applyBoard({ board: 'b-other', op: 'title', title: 'Elsewhere', at: 300 })
+    expect(store.getBoard().title).toBe('Second')
+  })
+  it('a rename answered after a newer name was heard keeps the newer one', async () => {
+    const { adapter, store } = await loaded([])
+    let answer
+    adapter.renameFolder = vi.fn(() => new Promise((r) => { answer = r }))
+    const asked = store.renameBoard('Mine')
+    store.applyBoard({ board: BOARD, op: 'title', title: 'Theirs, later', at: 500 })
+    answer({ label: 'Mine', at: 400, changed: true })
+    await asked
+    expect(store.getBoard().title).toBe('Theirs, later')
+  })
+  it('a refusal is thrown in the server\'s words; a reader is refused without asking', async () => {
+    const { adapter, store } = await loaded([])
+    adapter.renameFolder = vi.fn(async () => { throw Object.assign(new Error('A name cannot be empty.'), { code: '22023' }) })
+    await expect(store.renameBoard('x')).rejects.toThrow('A name cannot be empty.')
+    expect(store.getBoard().title).toBe('Ideas')
+    const look = await loaded([], { ...BOARD_ROW, can_write: false })
+    look.adapter.renameFolder = vi.fn()
+    await expect(look.store.renameBoard('x')).rejects.toThrow(BOARD_WORDS.readOnly)
+    expect(look.adapter.renameFolder).not.toHaveBeenCalled()
+  })
+})

@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Upload, FileText, Sparkles, Copy, Check, ChevronDown, ChevronRight, X, Loader2, Layers, Trash2, Download, Eye, Code, FolderUp, Plus, Settings, HelpCircle, Lock, Unlock, RefreshCw, Undo2, Redo2, Scissors, ClipboardList, Bold, List, ListOrdered } from 'lucide-react';
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider';
+import { useRabbitProjects } from '../../tools/rabbit_v0.1.0/state/rabbitLive';
 import { useHeldOffline } from '../../cloud/auth/heldSession';
 import { offlineSentence } from '../../cloud/ConnectionLostBanner';
 import { Panel, Card, Button, IconButton, Switch, EmptyState, Banner, Toolbar, Select, Spinner, Menu, Dialog, Drawer, Tabs, useToast } from '../../ui';
@@ -148,7 +149,16 @@ export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', 
   // RabbitProvider store (same source as the Projects page and
   // RABBIT itself). Local state only owns the new-project modal
   // form fields and the currently-selected project id.
-  const rabbitCtx = useRabbit();
+  //
+  // F4 (2026-11-13): the SIX fields D.O.G. reads (the mode, the list, and the
+  // four functions below), as one object the provider keeps for it, and not the
+  // provider's whole value. D.O.G. read the whole value, so every write to the
+  // project open in R.A.B.B.I.T. (a task renamed, a row arriving from a
+  // colleague) ran this component, on screen or off. The six change with the
+  // list, the mode and which project is open. `useRabbit` is handed over, not
+  // called: with no provider above (a test that stands in for it) the hook
+  // calls it, so that test's stand-in still answers.
+  const rabbitCtx = useRabbitProjects(useRabbit);
   // S2 (RECONNECT_DESIGN.md §11.8): a sign-in held at an offline launch, on the
   // cloud adapter — card 1 says so in one sentence and offers no New project.
   const projectsHeldOffline = useHeldOffline() && rabbitCtx?.adapterMode === 'supabase';
@@ -709,10 +719,20 @@ Generate 3 color themes for this deck.`;
   }, [allThemes, themeIndex]);
 
   // Refresh: always generate new AI themes (button always works regardless of checkbox)
+  //
+  // F4 (2026-11-13): ONE function for the life of the tool. generateAIThemes
+  // is a new function at every letter typed in the deck context box (the
+  // context is one of its deps), and this was a new function with it: a new
+  // prop, at every letter, for the slide preview, which is under React.memo
+  // (measured in the running app: ten letters ran the preview ten times, the
+  // memo notwithstanding). The click calls the generator as the last render
+  // made it, which is what the prop was.
+  const generateAIThemesRef = useRef(generateAIThemes);
+  generateAIThemesRef.current = generateAIThemes;
   const refreshDeckColors = useCallback(() => {
-    generateAIThemes();
-  }, [generateAIThemes]);
-  
+    generateAIThemesRef.current();
+  }, []);
+
   // Sort history by page number
   const sortedHistory = useMemo(() => {
     return [...history].sort((a, b) => {
@@ -2529,6 +2549,16 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${srcFiles.some(f => 
     textRedoStack.current = [];
     setUndoRedoCounts({ undo: textUndoStack.current.length, redo: 0 });
   }, [flushPendingUndo]);
+
+  // F4 (2026-11-13): the preview's onContentChange, as ONE function for as
+  // long as the open tab and its text are the same. It was written in the
+  // preview's own tag, a new function at every render of D.O.G., and the
+  // preview is under React.memo now: with a new prop each time it would be
+  // drawn each time, every letter typed in the deck context box included.
+  const handleVisualizerContentChange = useCallback((newContent) => {
+    pushTextUndo(activeTab?.content || '');
+    updateTabContent(newContent);
+  }, [pushTextUndo, activeTab, updateTabContent]);
 
   // Text undo
   const handleTextUndo = useCallback(() => {
@@ -4752,7 +4782,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       themeIndex={Math.min(themeIndex, allThemes.length - 1)}
                       themeCount={allThemes.length}
                       isGeneratingTheme={isGeneratingTheme}
-                      onContentChange={(newContent) => { pushTextUndo(activeTab?.content || ''); updateTabContent(newContent); }}
+                      onContentChange={handleVisualizerContentChange}
                       onTextContextMenu={handleVisualizerContextMenu}
                       placementAssets={placementAssets}
                       zoomLevel={zoomLevel}

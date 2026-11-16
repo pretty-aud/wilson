@@ -70,14 +70,47 @@ describe('a board is made as board_create makes it', () => {
   it('refuses what board_create refuses, in its words', async () => {
     const { store, mara, dev } = company()
     await expect(mara.createBoard(PROJECT_ID, null, 'x'.repeat(121))).rejects.toEqual(refusal('22023', W.nameLength))
+    // 0138: a thing's own folder holds a board like any other.
     const entity = store.folders.find(f => f.project_id === PROJECT_ID && f.kind === 'entity')
-    await expect(mara.createBoard(PROJECT_ID, entity.id, 'Inside')).rejects.toEqual(refusal('22023', W.entityChain))
+    expect((await mara.createBoard(PROJECT_ID, entity.id, 'Inside')).path).toBe(`${entity.path}/inside`)
     await expect(mara.createBoard(PROJECT_ID, null, 'Invoices')).rejects.toEqual(refusal('22023', W.keptName))
     await expect(mara.createBoard(PROJECT_ID, 'f1c70000-000a-4000-8000-999999999999', 'Nowhere')).rejects.toEqual(refusal('42501', W.folderNotWritable))
     await expect(dev.createBoard(PROJECT_ID, null, 'Mine')).rejects.toEqual(refusal('42501', W.folderNotWritable))
     // CONTROL: Dev reads a board he may not change.
     const { made } = await newBoard(mara)
     expect((await dev.readBoard(made.board_id)).board.can_write).toBe(false)
+  })
+})
+
+describe('a folder is renamed as moth_rename_folder renames it (0138)', () => {
+  it('a board\'s folder: the label alone, cleaned; everyone on the board hears the new title; the same name says nothing', async () => {
+    const { store, mara, theo } = company()
+    const { made, board } = await newBoard(mara, 'Lookbook')
+    const t = ears()
+    theo.openBoardChannels(await theo.boardChannels(board.id), t.handlers)
+    await flush()
+    const out = await mara.renameFolder(made.folder_id, '  Story\tboard ')
+    expect(out).toMatchObject({ folder_id: made.folder_id, label: 'Story board', board_id: board.id, changed: true })
+    const folder = store.folders.find(f => f.id === made.folder_id)
+    expect([folder.label, folder.slug, folder.path]).toEqual(['Story board', 'lookbook', 'lookbook'])
+    await flush()
+    expect(t.heard.board).toEqual([{ board: board.id, op: 'title', title: 'Story board', at: out.at }])
+    expect((await theo.readBoard(board.id)).board.title).toBe('Story board')
+    expect(await mara.renameFolder(made.folder_id, 'Story board')).toMatchObject({ changed: false })
+    await flush()
+    expect(t.heard.board).toHaveLength(1)
+  })
+  it('refuses what moth_rename_folder refuses, in its words: WILSON\'s own folders, an empty or long name, a reader', async () => {
+    const { store, mara, dev } = company()
+    const { made } = await newBoard(mara)
+    for (const kind of ['root', 'category', 'entity']) {
+      const f = store.folders.find(x => x.project_id === PROJECT_ID && x.kind === kind)
+      await expect(mara.renameFolder(f.id, 'Mine')).rejects.toEqual(refusal('22023', W.renameKept))
+    }
+    await expect(mara.renameFolder(made.folder_id, ' \t ')).rejects.toEqual(refusal('22023', W.renameEmpty))
+    await expect(mara.renameFolder(made.folder_id, 'x'.repeat(121))).rejects.toEqual(refusal('22023', W.renameLength))
+    await expect(dev.renameFolder(made.folder_id, 'Mine')).rejects.toEqual(refusal('42501', W.folderNotWritable))
+    expect(store.folders.find(f => f.id === made.folder_id).label).toBe('Lookbook')
   })
 })
 
@@ -643,8 +676,9 @@ describe('a folder\'s trash and moves (0131), a board\'s with it', () => {
     expect(store.folders.find(f => f.id === child.folder_id).path).toBe('beta/alpha/beta')
     expect((await mara.readBoard(child.board_id)).board.folder_id).toBe(child.folder_id)
     await expect(mara.moveFolders([b.folder_id], child.folder_id)).rejects.toEqual(refusal('22023', W.intoItself))
+    // 0138: a board may go into a thing's own folder (a plan, so what follows finds it where it was).
     const entity = store.folders.find(f => f.project_id === PROJECT_ID && f.kind === 'entity')
-    await expect(mara.moveFolders([b.folder_id], entity.id)).rejects.toEqual(refusal('22023', W.boardEntity))
+    expect((await mara.moveFolders([b.folder_id], entity.id, true)).moved[0].to).toBe(`${entity.path}/beta`)
     const category = store.folders.find(f => f.project_id === PROJECT_ID && f.kind === 'category')
     await expect(mara.moveFolders([category.id], b.folder_id)).rejects.toEqual(refusal('22023', W.layout))
     const space = store.projects.find(p => p.personal_owner_id === MEMBER_ID.mara)
@@ -664,7 +698,8 @@ describe('a folder\'s trash and moves (0131), a board\'s with it', () => {
 
 describe('the fake says what the database says', () => {
   it('every word it refuses with is the SQL\'s own', () => {
-    const sql = ['0130_boards.sql', '0131_folder_trash_and_moves.sql', '0132_board_channels.sql', '0133_sticky_locks.sql']
+    const sql = ['0130_boards.sql', '0131_folder_trash_and_moves.sql', '0132_board_channels.sql', '0133_sticky_locks.sql',
+      '0138_boards_in_any_folder.sql']
       .map(f => readFileSync(join(__dirname, '../../../supabase/migrations', f), 'utf8')).join('\n')
     for (const [key, words] of Object.entries(W)) {
       expect(sql, key).toContain(`'${words.replace(/'/g, "''")}'`)

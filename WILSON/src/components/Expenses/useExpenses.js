@@ -11,6 +11,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
+import { useRabbitOnline } from '../../tools/rabbit_v0.1.0/state/rabbitLive'
 
 const MAX_HISTORY = 10
 
@@ -20,7 +21,11 @@ export function useExpenses() {
   const project     = rabbit?.project
   const projectId   = project?.id
   const adapterMode = rabbit?.adapterMode
-  const adapterStatus = rabbit?.adapterStatus
+  // F4: the adapter's `online`, one word from a context of its own, and not
+  // the status object off the value (rabbitLive.js). The load below runs
+  // again when it flips, as before; a new status that says the same thing
+  // does not draw this hook's host.
+  const adapterOnline = useRabbitOnline(rabbit)
 
   const [expenses, setExpenses] = useState([])
   const [loading, setLoading]   = useState(false)
@@ -94,7 +99,7 @@ export function useExpenses() {
 
   useEffect(() => {
     loadExpenses()
-  }, [loadExpenses, adapterMode, adapterStatus?.online])
+  }, [loadExpenses, adapterMode, adapterOnline])
 
   // ── Add ──────────────────────────────────────────────────
   const addExpense = useCallback(async (data) => {
