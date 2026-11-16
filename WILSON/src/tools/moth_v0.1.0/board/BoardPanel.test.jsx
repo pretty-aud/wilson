@@ -760,7 +760,7 @@ describe('🚨 the corners resize', () => {
 
 // MO5 item 7: the board's title is edited where it is. Enter keeps it, Escape puts it back and the board stays open,
 // a refusal is said, someone who may only look has nothing to press, and a new name heard from the server shows.
-describe('?? MO5 7: the title, renamed in the board window', () => {
+describe('🚨 MO5 7: the title, renamed in the board window', () => {
   const renaming = (impl) => {
     h.makeStore = (opts) => {
       const s = fakeStore({ board: { id: 'b1', folder_id: 'f1', title: 'Plans', can_write: true } })
@@ -835,7 +835,7 @@ describe('?? MO5 7: the title, renamed in the board window', () => {
 
 // MO5 item 4.5: the map works round a board in its frame; an Escape typed in one of the map's own fields is that
 // field's, and the board stays.
-describe('?? MO5 4.5: Escape in a field of the map is not the board\'s', () => {
+describe('🚨 MO5 4.5: Escape in a field of the map is not the board\'s', () => {
   it('an Escape from the list\'s search leaves the board open; one from the page closes it', async () => {
     const field = document.createElement('input')
     document.body.appendChild(field)

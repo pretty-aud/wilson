@@ -333,3 +333,61 @@ describe('MothSettings', () => {
     expect(screen.getByText(/Invoices, finance and legal files/)).toBeTruthy()
   })
 })
+
+// MO5 item 2: "more of a bar with options than a window with options stacked on top of each other ... icons where
+// possible". One row; every control named for a screen reader and in its tooltip; nothing the stacked card held lost.
+describe('MO5 2: the view is one bar of named icons', () => {
+  const mountBar = async (extra = {}) => {
+    const { default: MothViewWidget } = await import('./MothViewWidget.jsx')
+    const { normalizeConfig, QUICK_VIEWS } = await import('../state/mothViewState.js')
+    const views = { select: vi.fn(), setConfig: vi.fn(), reset: vi.fn(async () => {}), setFocus: vi.fn(), writable: () => true, canWriteProject: () => true }
+    const props = {
+      views, viewSnap: { current: { key: 'v1', row: { id: 'v1', name: 'Mine', scope_kind: 'aggregate' } }, views: [{ id: 'v1', name: 'Mine' }], unsaved: true },
+      config: normalizeConfig(QUICK_VIEWS['q:folders'].config), catalogue: CAT, index: INDEX, selectedNode: { id: 'folder:d0', projectId: 'p1' },
+      pickedCount: 1, gate: { allowed: true }, canUndo: true, canRedo: false, jump: { label: 'Open in R.A.B.B.I.T.' },
+      history: { available: true, floor: Date.now() - 86400000 * 3, at: null, setAt: vi.fn() },
+      onUndo: vi.fn(), onRedo: vi.fn(), onMove: vi.fn(), onDelete: vi.fn(), onJump: vi.fn(), onFind: vi.fn(), onNewView: vi.fn(), onRelayout: vi.fn(), onError: vi.fn(),
+      ...extra,
+    }
+    render(<MothViewWidget {...props} />)
+    return props
+  }
+  it('one row along the top of the map, which never scrolls or cuts off what it opens', () => {
+    const css = readFileSync(resolve(__dirname, '../moth.css'), 'utf8')
+    const rule = css.match(/\.moth-view-bar \{[^}]*\}/)?.[0] ?? ''
+    expect(rule).toMatch(/flex-direction: row;/)
+    expect(rule).toMatch(/flex-wrap: nowrap;/)
+    expect(rule).toMatch(/overflow: visible;/)
+    expect(css).not.toMatch(/\.moth-view-widget \{/)
+  })
+  it('every button has a name a screen reader says and the same words as its tooltip; every field has a name', async () => {
+    await mountBar()
+    const bar = document.querySelector('[data-moth-view-widget]')
+    const buttons = [...bar.querySelectorAll('button')]
+    expect(buttons.length).toBeGreaterThan(8)
+    for (const b of buttons) {
+      const name = b.getAttribute('aria-label') || b.textContent.trim()
+      expect(name, b.outerHTML.slice(0, 80)).toBeTruthy()
+      if (!b.textContent.trim()) expect(b.getAttribute('title') ?? name, name).toBeTruthy()
+    }
+    for (const f of bar.querySelectorAll('select, input')) expect(f.getAttribute('aria-label') || f.id, f.outerHTML.slice(0, 80)).toBeTruthy()
+  })
+  it('nothing the card held is lost: the view and its menu, Save as, Find, What shows, Focus and its reach, Look back, Move to, Delete, the jump, Undo and Redo', async () => {
+    const p = await mountBar()
+    for (const name of ['Save as…', 'What shows', 'Focus here', 'Move to…', 'Delete', 'Open in R.A.B.B.I.T.', 'Undo', 'Redo', 'Save this view', 'More for this view']) {
+      expect(screen.getByRole('button', { name }), name).toBeTruthy()
+    }
+    expect(screen.getByRole('combobox', { name: 'View' })).toBeTruthy()
+    expect(screen.getByLabelText('Find and fly to')).toBeTruthy()
+    expect(screen.getByLabelText('Focus reaches')).toBeTruthy()
+    expect(screen.getByLabelText('Look back')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'More for this view' }))
+    for (const name of ['New view…', 'Save', 'Rename…', 'Delete view…', 'Reset', 'Lay out again']) expect(screen.getByRole('button', { name }), name).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Lay out again' }))
+    expect(p.onRelayout).toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'What shows' }))
+    expect(screen.getByRole('group', { name: 'What shows' })).toBeTruthy()
+    fireEvent.keyDown(screen.getByRole('group', { name: 'What shows' }), { key: 'Escape' })
+    expect(screen.queryByRole('group', { name: 'What shows' })).toBeNull()
+  })
+})

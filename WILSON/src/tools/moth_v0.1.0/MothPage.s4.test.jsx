@@ -612,7 +612,7 @@ describe('Help', () => {
 })
 
 // MO5 item 4.5: "when the user makes the board window small they should be able to move around the file viewer/web".
-describe('?? MO5 4.5: the map works round a board in its frame', () => {
+describe('🚨 MO5 4.5: the map works round a board in its frame', () => {
   it('in its frame the board\'s layer takes no press: only the frame does, and the map is dimmed, never blurred', async () => {
     const { readFileSync } = await import('node:fs')
     const { resolve } = await import('node:path')

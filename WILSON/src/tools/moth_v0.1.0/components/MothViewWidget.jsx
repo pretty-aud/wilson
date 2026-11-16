@@ -4,7 +4,11 @@
 // slider; and Move to and Delete on what is selected (her §12a.8), with Undo, Redo and opening it in its own tool.
 // Appearance is Settings' (the toolbar's right end), never here.
 import { useMemo, useState } from 'react'
-import { Button, Chip, Dialog, Field, Input, Select } from '../../../ui'
+import {
+  BookmarkPlus, Crosshair, ExternalLink, FolderInput, History as HistoryIcon, Redo2, Save, Search as SearchIcon,
+  SlidersHorizontal, Trash2, Undo2,
+} from 'lucide-react'
+import { Button, Chip, Dialog, Field, IconButton, Input, MenuButton, Select } from '../../../ui'
 import GatedAction from '../../../permissions/GatedAction'
 import { QUICK_VIEWS, DOT_CHOICES, LINE_CHOICES, TAG_WORDS, searchCatalogue, UNSAVED_LABEL } from '../state/mothViewState.js'
 import MothTimeSlider from './MothTimeSlider.jsx'
@@ -12,7 +16,7 @@ import MothTimeSlider from './MothTimeSlider.jsx'
 export default function MothViewWidget({
   views, viewSnap, config, catalogue, index, selectedNode, pickedCount, gate, canUndo, canRedo, jump, localOnly,
   onUndo, onRedo, onMove, onDelete, onJump, onFind, onNewView, onRelayout, onError, history, livePositions = () => ({}),
-  onViewDeleted = () => {},
+  onViewDeleted = () => {}, extra = null,
 }) {
   const [query, setQuery] = useState('')
   const [showing, setShowing] = useState(false)
@@ -70,9 +74,26 @@ export default function MothViewWidget({
     try { await views.save({ positions: livePositions() }) } catch (err) { onError?.(err?.message || String(err)) } finally { setBusy(false) }
   }
 
+  // MO5 (her item 2): "more of a bar with options than a window with options stacked on top of each other ... use icons
+  // where possible". One row along the top of the map: the view and its menu, Find, What shows, Focus, Look back, what
+  // to do with what is ticked, Undo and Redo. Every icon says its name to a screen reader and in its tooltip; what does
+  // not fit in a row is in the view's menu (New view, Save, Rename, Delete view, Reset, Lay out again) or opens below
+  // the bar (What shows). Nothing the stacked card held is lost.
+  const viewMenu = [
+    { label: 'New view…', onClick: onNewView },
+    ...(current.row && viewSnap?.unsaved && writableHere ? [{ label: 'Save', onClick: saveInPlace }] : []),
+    ...(current.row && writableHere ? [
+      { label: 'Rename…', onClick: () => setRenaming({ name: current.row.name }) },
+      { label: 'Delete view…', danger: true, onClick: () => setDeleting(true) },
+    ] : []),
+    { divider: true },
+    { label: 'Reset', onClick: () => views?.reset().catch((err) => onError?.(err?.message || String(err))) },
+    { label: 'Lay out again', onClick: onRelayout },
+    ...(viewSnap?.available === false ? [{ header: 'This view lasts for this visit only.' }] : []),
+  ]
   return (
-    <section className="moth-hud-panel moth-view-widget" aria-label="View" data-moth-view-widget>
-      <div className="moth-row">
+    <section className="moth-hud-panel moth-view-bar" aria-label="View" data-moth-view-widget>
+      <div className="moth-bar-group" role="group" aria-label="The view">
         <Select
           aria-label="View"
           size="sm"
@@ -80,41 +101,35 @@ export default function MothViewWidget({
           options={options}
           onChange={(key) => { if (key && key !== 'unsaved') views?.select(key) }}
           data-moth-view-pick
+          className="moth-bar-view"
         />
-        <Button size="sm" variant="ghost" onClick={onNewView} data-moth-view-new>New</Button>
-      </div>
-      <div className="moth-row">
         {current.row && viewSnap?.unsaved && writableHere && (
-          <Button size="sm" onClick={saveInPlace} loading={busy} loadingLabel="Saving…" data-moth-view-save>Save</Button>
+          <IconButton size="sm" Icon={Save} title="Save this view" onClick={saveInPlace} disabled={busy} data-moth-view-save />
         )}
-        <Button size="sm" variant="ghost" onClick={() => setSaving({ name: '', scope: 'aggregate', positions: livePositions() })}
-          disabled={viewSnap?.available === false} title={viewSnap?.available === false ? 'Saved views are not on this database yet.' : undefined} data-moth-view-save-as>
-          Save as…
-        </Button>
-        <Button size="sm" variant="ghost" onClick={() => views?.reset().catch((err) => onError?.(err?.message || String(err)))} data-moth-view-reset>Reset</Button>
-        <Button size="sm" variant="ghost" onClick={onRelayout} data-moth-relayout>Lay out again</Button>
+        <IconButton size="sm" Icon={BookmarkPlus} title="Save as…"
+          onClick={() => setSaving({ name: '', scope: 'aggregate', positions: livePositions() })}
+          disabled={viewSnap?.available === false} data-moth-view-save-as />
+        <MenuButton title="More for this view" items={viewMenu} minWidth={200} />
       </div>
-      {current.row && writableHere && (
-        <div className="moth-row">
-          <Button size="sm" variant="ghost" onClick={() => setRenaming({ name: current.row.name })} data-moth-view-rename>Rename…</Button>
-          <Button size="sm" variant="ghost" onClick={() => setDeleting(true)} data-moth-view-delete>Delete view…</Button>
-        </div>
-      )}
-      {viewSnap?.available === false && <p className="moth-quiet">This view lasts for this visit only.</p>}
-
-      <div className="moth-search-box">
+      <span className="moth-bar-rule" aria-hidden="true" />
+      <div className="moth-search-box moth-bar-find">
+        <SearchIcon size={14} aria-hidden="true" className="moth-bar-find-icon" />
         <input
           className="moth-search"
           type="search"
           placeholder="Find and fly to…"
           aria-label="Find and fly to"
+          title="Find and fly to"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && hits[0]) { onFind(hits[0].id); setQuery('') } }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && hits[0]) { onFind(hits[0].id); setQuery('') }
+            if (e.key === 'Escape' && query) { e.preventDefault(); e.stopPropagation(); setQuery('') }
+          }}
           data-moth-find
         />
         {query && (
-          <ul className="moth-find-results" data-moth-find-results>
+          <ul className="moth-find-results moth-bar-pop" data-moth-find-results>
             {hits.length === 0 && <li className="moth-quiet">Nothing has that name.</li>}
             {hits.map((h) => (
               <li key={h.id}>
@@ -124,12 +139,16 @@ export default function MothViewWidget({
           </ul>
         )}
       </div>
-
-      <button type="button" className="moth-disclose" aria-expanded={showing} onClick={() => setShowing((v) => !v)} data-moth-view-show>
-        What shows
-      </button>
-      {showing && (
-        <div className="moth-view-show">
+      <div className="moth-bar-group moth-bar-anchor">
+        <IconButton size="sm" Icon={SlidersHorizontal} title="What shows" aria-expanded={showing} active={showing}
+          onClick={() => setShowing((v) => !v)} data-moth-view-show />
+        <IconButton size="sm" Icon={Crosshair} title={focusOn ? 'Show everything' : 'Focus here'} aria-pressed={!!focusOn} active={!!focusOn}
+          disabled={!selectedNode} onClick={() => views?.setFocus(focusOn ? null : selectedNode?.id)} data-moth-focus />
+        <Select size="sm" aria-label="Focus reaches" value={String(config.focusDepth)} onChange={(v) => set({ focusDepth: Number(v) || 1 })}
+          options={[{ value: '1', label: 'One step' }, { value: '2', label: 'Two steps' }]} className="moth-bar-reach" />
+        {showing && (
+          <div className="moth-view-show moth-bar-pop" role="group" aria-label="What shows"
+            onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setShowing(false) } }}>
           <p className="moth-label">Dots</p>
           <div className="moth-chips">
             {DOT_CHOICES.map(([k, words]) => (
@@ -155,33 +174,30 @@ export default function MothViewWidget({
               <Chip key={t} active={config.tags.includes(t)} onClick={() => set({ tags: toggle(config.tags, t) })}>{t}</Chip>
             ))}
           </div>
-        </div>
-      )}
-
-      <div className="moth-row">
-        <Button size="sm" variant="ghost" disabled={!selectedNode} aria-pressed={!!focusOn}
-          onClick={() => views?.setFocus(focusOn ? null : selectedNode?.id)} data-moth-focus>
-          {focusOn ? 'Show everything' : 'Focus here'}
-        </Button>
-        <Select size="sm" aria-label="Focus reaches" value={String(config.focusDepth)} onChange={(v) => set({ focusDepth: Number(v) || 1 })}
-          options={[{ value: '1', label: 'One step' }, { value: '2', label: 'Two steps' }]} />
+          </div>
+        )}
       </div>
-
-      <MothTimeSlider history={history} />
-
-      <div className="moth-row moth-actions">
+      <span className="moth-bar-rule" aria-hidden="true" />
+      <div className="moth-bar-group moth-bar-time">
+        <HistoryIcon size={14} aria-hidden="true" className="moth-bar-time-icon" />
+        <MothTimeSlider history={history} compact />
+      </div>
+      <span className="moth-bar-rule" aria-hidden="true" />
+      <div className="moth-bar-group" role="group" aria-label="What is ticked">
         <GatedAction allowed={gate.allowed} reason={gate.reason}>
-          <Button size="sm" onClick={onMove} disabled={!gate.allowed || pickedCount === 0} data-moth-move>Move to…</Button>
+          <IconButton size="sm" Icon={FolderInput} title="Move to…" onClick={onMove} disabled={!gate.allowed || pickedCount === 0} data-moth-move />
         </GatedAction>
         <GatedAction allowed={gate.allowed} reason={gate.reason}>
-          <Button size="sm" variant="danger" onClick={onDelete} disabled={!gate.allowed || pickedCount === 0} data-moth-delete>Delete</Button>
+          <IconButton size="sm" Icon={Trash2} title="Delete" danger onClick={onDelete} disabled={!gate.allowed || pickedCount === 0} data-moth-delete />
         </GatedAction>
-        {jump && <Button size="sm" variant="ghost" onClick={onJump} data-moth-jump>{jump.label}</Button>}
+        {jump && <IconButton size="sm" Icon={ExternalLink} title={jump.label} onClick={onJump} data-moth-jump />}
       </div>
-      <div className="moth-row">
-        <Button size="sm" variant="ghost" onClick={onUndo} disabled={!canUndo} data-moth-undo>Undo</Button>
-        <Button size="sm" variant="ghost" onClick={onRedo} disabled={!canRedo} data-moth-redo>Redo</Button>
+      <span className="moth-bar-rule" aria-hidden="true" />
+      <div className="moth-bar-group" role="group" aria-label="Undo and redo">
+        <IconButton size="sm" Icon={Undo2} title="Undo" onClick={onUndo} disabled={!canUndo} data-moth-undo />
+        <IconButton size="sm" Icon={Redo2} title="Redo" onClick={onRedo} disabled={!canRedo} data-moth-redo />
       </div>
+      {extra}
 
       {renaming && (
         <Dialog

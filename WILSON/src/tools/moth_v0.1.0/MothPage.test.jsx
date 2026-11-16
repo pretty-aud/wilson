@@ -927,6 +927,8 @@ describe('MO2 review round 1 on the page', () => {
     adapter.deleteMothView = vi.fn(async () => ({ removed: true }))
     adapter.createMothView = vi.fn(async (v) => ({ id: 'v2', name: v.name, scope_kind: v.scopeKind, project_id: v.projectId, revision: 1, position: 0, config: v.config }))
     render(<MothPage worldFactory={fakeWorld} />)
+    // MO5 (her item 2): Delete view is in the bar's view menu.
+    fireEvent.click(await screen.findByRole('button', { name: 'More for this view' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Delete view…' }))
     expect(await screen.findByText(/Where its dots were goes with it/)).toBeTruthy()
     fireEvent.click(document.querySelector('[data-moth-view-delete-confirm]'))
