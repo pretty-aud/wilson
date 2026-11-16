@@ -327,6 +327,34 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* MO5 (her item 7): the title, pressed to rename it where it is (a pencil shows on hover and focus), and the field it
+   becomes. */
+.moth-board-title-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 0 -6px;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: text;
+}
+.moth-board-title-button:hover, .moth-board-title-button:focus-visible { border-color: var(--color-rule); outline: none; }
+.moth-board-title-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.moth-board-title-pen { flex: 0 0 auto; color: var(--color-ink-2); opacity: 0; }
+.moth-board-title-button:hover .moth-board-title-pen, .moth-board-title-button:focus-visible .moth-board-title-pen { opacity: 1; }
+.moth-board-title-input {
+  margin: 0 0 0 -6px;
+  padding: 2px 6px;
+  border: 1px solid var(--color-signal);
+  border-radius: var(--radius-control);
+  background-color: var(--color-paper-raised, var(--color-paper));
+  font-family: inherit;
+  outline: none;
+}
 /* Who else is on the board: a name beside its colour, cut short before it crowds the board's own name. */
 .moth-board-people { display: flex; flex: 0 1 auto; align-items: center; gap: 10px; min-width: 0; margin: 0; padding: 0; color: var(--color-ink-2); font-size: var(--text-dense); list-style: none; }
 .moth-board-people li { display: flex; align-items: center; gap: 4px; min-width: 0; }

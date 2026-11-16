@@ -13,7 +13,7 @@
 // change the board can put it in the trash from here: asked first in the panel itself, then the board's own folder
 // goes (0131's moth_trash_folders), and Moth's trash lists it with Bring back.
 import { Component, Suspense, lazy, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, Expand, Maximize2, Shrink, Trash2 } from 'lucide-react'
+import { ArrowLeft, Expand, Maximize2, Pencil, Shrink, Trash2 } from 'lucide-react'
 import { Banner, Button, IconButton } from '../../../ui'
 import { createBoardStore } from './boardStore.js'
 import { joinBoard } from './boardLive.js'
@@ -105,6 +105,77 @@ function PeopleHere({ live }) {
   )
 }
 
+// MO5 (her item 7): the board's title, edited where it is. Someone who may change the board presses it (or presses
+// Enter or F2 on it) and types; Enter keeps the name, Escape puts it back and leaves the board open, and going
+// elsewhere keeps what was typed. It is renamed through the server (0138's moth_rename_folder, the board's folder's
+// name, asked through Moth's write gate), and everyone on the board sees the new name. Someone who may only look
+// sees the name and nothing to press.
+export const TITLE_WORDS = Object.freeze({ edit: 'Rename this board', field: 'Board name', busy: 'Renaming…' })
+function BoardTitle({ title, canWrite, onRename, onWords }) {
+  const [draft, setDraft] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const inputRef = useRef(null)
+  const buttonRef = useRef(null)
+  const done = useRef(false)
+  useEffect(() => {
+    if (draft === null) return
+    const el = inputRef.current
+    try { el?.focus({ preventScroll: true }); el?.select?.() } catch { /* focus is a courtesy */ }
+  }, [draft === null]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!canWrite) setDraft(null) }, [canWrite])
+  if (!canWrite) return <span className="moth-board-title" title={title} data-moth-board-title>{title}</span>
+  const start = () => { done.current = false; onWords(''); setDraft(title) }
+  const stop = (refocus) => {
+    setDraft(null)
+    if (refocus) setTimeout(() => { try { buttonRef.current?.focus({ preventScroll: true }) } catch { /* courtesy */ } }, 0)
+  }
+  const keep = async (refocus) => {
+    if (done.current || busy || draft === null) return
+    const name = draft.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').trim()
+    if (!name || name === title) { done.current = true; stop(refocus); return }
+    done.current = true
+    setBusy(true)
+    try {
+      await onRename(name)
+      stop(refocus)
+    } catch (err) {
+      done.current = false
+      onWords(err?.message || String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+  if (draft === null) {
+    return (
+      <button ref={buttonRef} type="button" className="moth-board-title moth-board-title-button" title={`${title} — ${TITLE_WORDS.edit}`}
+        aria-label={`${TITLE_WORDS.field}: ${title}. ${TITLE_WORDS.edit}`} onClick={start}
+        onKeyDown={(e) => { if (e.key === 'F2') { e.preventDefault(); start() } }} data-moth-board-title>
+        <span className="moth-board-title-text">{title}</span>
+        <Pencil size={12} aria-hidden="true" className="moth-board-title-pen" />
+      </button>
+    )
+  }
+  return (
+    <input
+      ref={inputRef}
+      className="moth-board-title moth-board-title-input"
+      aria-label={TITLE_WORDS.field}
+      value={draft}
+      maxLength={120}
+      disabled={busy}
+      onChange={(e) => { setDraft(e.target.value); onWords('') }}
+      onKeyDown={(e) => {
+        // Taken here, so the board's own Escape (back to the map) and keys never see them.
+        if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); keep(true) }
+        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done.current = true; onWords(''); stop(true) }
+        else e.stopPropagation()
+      }}
+      onBlur={() => keep(false)}
+      data-moth-board-title-input
+    />
+  )
+}
+
 export function BoardPanel({
   board, adapter, me, companyId = null, initialSize = 'framed', onClose, origin = null, inputMode = 'mouse',
   reducedMotion = false, onSize,
@@ -123,6 +194,7 @@ export function BoardPanel({
   const [status, setStatus] = useState({ phase: 'loading', words: '' })
   const [parts, setParts] = useState(null) // { store, turns, live }
   const [liveWords, setLiveWords] = useState('')
+  const [titleWords, setTitleWords] = useState('')
   const [attempt, setAttempt] = useState(0)
   const [, setTick] = useState(0)
   const escape = useMemo(() => createEscapeStack(), [])
@@ -441,7 +513,13 @@ export function BoardPanel({
         onPointerLeave={() => { if (!gesture && hoverZone) setHoverZone(null) }}
       >
         <header className="moth-board-head">
-          <span className="moth-board-title" title={title}>{title}</span>
+          <BoardTitle
+            key={parts?.store ? 'ready' : 'waiting'}
+            title={title}
+            canWrite={canWrite && status.phase === 'ready' && typeof parts?.store?.renameBoard === 'function'}
+            onRename={(name) => parts.store.renameBoard(name)}
+            onWords={setTitleWords}
+          />
           <PeopleHere live={parts?.live ?? null} />
           {/* A board that may only be looked at is said by the canvas, which is told canWrite. */}
           <div className="moth-board-sizes" role="group" aria-label="Board size">
@@ -458,9 +536,10 @@ export function BoardPanel({
             {BACK_WORDS}
           </Button>
         </header>
-        {liveWords && (
+        {(liveWords || titleWords) && (
           <div className="moth-board-notes">
-            <p className="moth-quiet" data-moth-board-live-failed>{liveWords}</p>
+            {liveWords && <p className="moth-quiet" data-moth-board-live-failed>{liveWords}</p>}
+            {titleWords && <p className="moth-quiet" role="alert" data-moth-board-title-words>{titleWords}</p>}
           </div>
         )}
         <div className="moth-board-body">
