@@ -4,7 +4,10 @@
 // says instead), the time slider (it says what is not recorded), the first visit's three starts, and Settings.
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
-import MothCards, { MAX_PINNED, SIXTH_SENTENCE } from './MothCards.jsx'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import MothCards, { MAX_PINNED, SIXTH_SENTENCE, cardsRoom, fitCard, resizedCard, CARD_FLOOR, CARD_KEY_STEP } from './MothCards.jsx'
+import { CARD_LIMITS, DEFAULT_LOCAL, readLocalPrefs, writeLocalPrefs, normalizeLocal } from '../state/mothAppearance.js'
 import MothBloom, { previewKind, noPreviewReason } from './MothBloom.jsx'
 import MothTimeSlider from './MothTimeSlider.jsx'
 import MothFirstVisit from './MothFirstVisit.jsx'
@@ -88,6 +91,90 @@ describe('MothCards', () => {
     fireEvent.dragOver(card, { dataTransfer: data })
     fireEvent.drop(card, { dataTransfer: data })
     expect(props.onDropFile).toHaveBeenCalledWith('f1', 'folder:d1')
+  })
+})
+
+// MO5 item 1: her picture, the folder card cut off under a sideways scrollbar. The cards are never larger than the
+// room, wrap and share the height rather than scroll sideways, and their edges size them, kept per person.
+describe('MO5 1: the folder cards are never cut off, and their edges size them', () => {
+  const mount = (extra = {}) => {
+    const props = { selectedId: 'folder:d0', index: INDEX, recent: [], onSelect: vi.fn(), onOpenCard: vi.fn(), onDropFile: vi.fn(), onNote: vi.fn(), onSize: vi.fn(), ...extra }
+    const out = render(<MothCards {...props} />)
+    return { ...out, props }
+  }
+  it('the strip never scrolls sideways (the scrollbar covered the cards), it wraps and scrolls up and down', () => {
+    const css = readFileSync(resolve(__dirname, '../moth.css'), 'utf8')
+    const rule = css.match(/\.moth-cards-strip \{[^}]*\}/)?.[0] ?? ''
+    expect(rule).toMatch(/overflow-x: hidden;/)
+    expect(rule).toMatch(/overflow-y: auto;/)
+    expect(rule).toMatch(/flex-wrap: wrap;/)
+    expect(rule).not.toMatch(/overflow-x: auto/)
+  })
+  it('a card opens larger than before and is drawn at the size kept for the person', () => {
+    mount({ size: { w: 360, h: 420 } })
+    const card = screen.getByRole('region', { name: 'Folder 0' })
+    expect(card.style.width).toBe('360px')
+    expect(card.style.height).toBe('420px')
+    cleanup()
+    mount()
+    const fresh = screen.getByRole('region', { name: 'Folder 0' })
+    expect(fresh.style.width).toBe(`${DEFAULT_LOCAL.card_w}px`)
+    expect(DEFAULT_LOCAL.card_w).toBeGreaterThan(216)
+    expect(DEFAULT_LOCAL.card_h).toBeGreaterThan(248)
+  })
+  it('the room wins: a card is never larger than what the map leaves it, and many cards share its height', () => {
+    expect(cardsRoom({ w: 1280, h: 649 })).toEqual({ w: 1280 - 16 - 348 - 36 - 6, h: 649 - 16 - 88 - 6 })
+    expect(fitCard({ w: 600, h: 900 }, { w: 300, h: 250 })).toEqual({ w: 300, h: 250 })
+    expect(fitCard({ w: 280, h: 320 }, { w: 1000, h: 800 })).toEqual({ w: 280, h: 320 })
+    // Two cards that do not fit side by side: two rows, each half the room less the gap, so both show whole.
+    expect(fitCard({ w: 280, h: 320 }, { w: 360, h: 382 }, 2)).toEqual({ w: 280, h: 187 })
+    // Side by side they keep their own height.
+    expect(fitCard({ w: 280, h: 320 }, { w: 900, h: 382 }, 3)).toEqual({ w: 280, h: 320 })
+    // Past the floor they scroll rather than shrink to nothing.
+    expect(fitCard({ w: 280, h: 320 }, { w: 300, h: 300 }, 6).h).toBe(CARD_FLOOR)
+  })
+  it('the top edge grows a card upward, the right edge wider, the corner both, held to the limits and the room', () => {
+    const start = { w: 280, h: 320 }
+    expect(resizedCard(start, 'top', 0, -50, null)).toEqual({ w: 280, h: 370 })
+    expect(resizedCard(start, 'right', 40, 0, null)).toEqual({ w: 320, h: 320 })
+    expect(resizedCard(start, 'corner', 40, -50, null)).toEqual({ w: 320, h: 370 })
+    expect(resizedCard(start, 'top', 0, 900, null).h).toBe(CARD_LIMITS.minH)
+    expect(resizedCard(start, 'right', 5000, 0, null).w).toBe(CARD_LIMITS.maxW)
+    expect(resizedCard(start, 'top', 0, -900, { w: 400, h: 500 }).h).toBe(500)
+  })
+  it('each edge is a named separator a keyboard moves; a drag keeps the size when let go and Escape puts it back', () => {
+    const { props } = mount({ size: { w: 280, h: 320 } })
+    const height = screen.getByRole('separator', { name: 'Height of the folder cards' })
+    const width = screen.getByRole('separator', { name: 'Width of the folder cards' })
+    expect(height.getAttribute('aria-valuenow')).toBe('320')
+    expect(height.getAttribute('title')).toMatch(/taller or shorter/)
+    fireEvent.keyDown(height, { key: 'ArrowUp' })
+    expect(props.onSize).toHaveBeenLastCalledWith({ w: 280, h: 320 + CARD_KEY_STEP })
+    fireEvent.keyDown(width, { key: 'ArrowLeft' })
+    expect(props.onSize).toHaveBeenLastCalledWith({ w: 280 - CARD_KEY_STEP, h: 320 })
+    props.onSize.mockClear()
+    fireEvent.pointerDown(height, { clientX: 10, clientY: 100, pointerId: 1, button: 0 })
+    fireEvent.pointerMove(window, { clientX: 10, clientY: 40, pointerId: 1 })
+    expect(screen.getByRole('region', { name: 'Folder 0' }).style.height).toBe('380px')
+    expect(props.onSize).not.toHaveBeenCalled()
+    fireEvent.pointerUp(window, { clientX: 10, clientY: 40, pointerId: 1 })
+    expect(props.onSize).toHaveBeenCalledWith({ w: 280, h: 380 })
+    props.onSize.mockClear()
+    fireEvent.pointerDown(width, { clientX: 10, clientY: 100, pointerId: 2, button: 0 })
+    fireEvent.pointerMove(window, { clientX: 90, clientY: 100, pointerId: 2 })
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(props.onSize).toHaveBeenCalledWith({ w: 280, h: 320 })
+  })
+  it('kept per person and company, read back as untrusted, and kept for the visit where nothing can be stored', () => {
+    const store = new Map()
+    const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) }
+    expect(writeLocalPrefs('u1|c1', { card_w: 333, card_h: 444 }, storage)).toMatchObject({ card_w: 333, card_h: 444 })
+    expect(readLocalPrefs('u1|c1', storage)).toMatchObject({ card_w: 333, card_h: 444, glide: true, carry: false })
+    expect(readLocalPrefs('u2|c1', storage)).toEqual(normalizeLocal(null))
+    store.set('wilson.moth.local.v1', JSON.stringify({ 'u1|c1': { card_w: 'huge', card_h: 99999, glide: 'yes' } }))
+    expect(readLocalPrefs('u1|c1', storage)).toMatchObject({ card_w: DEFAULT_LOCAL.card_w, card_h: CARD_LIMITS.maxH, glide: true })
+    const broken = { getItem: () => { throw new Error('denied') }, setItem: () => { throw new Error('denied') } }
+    expect(writeLocalPrefs('u1|c1', { card_w: 300 }, broken).card_w).toBe(300)
   })
 })
 

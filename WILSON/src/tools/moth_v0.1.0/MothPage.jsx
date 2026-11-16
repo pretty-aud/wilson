@@ -37,7 +37,7 @@ import { createMothCatalogue } from './state/mothCatalogue.js'
 import { createInputMode, prefersReducedMotion } from './state/mothInputMode.js'
 import { QUICK_VIEWS, normalizeConfig, engineView, filterByTags, containersOf } from './state/mothViewState.js'
 import { createMothViews } from './state/mothViews.js'
-import { colourFor, radiusFor, normalizeAppearance } from './state/mothAppearance.js'
+import { colourFor, radiusFor, normalizeAppearance, readLocalPrefs, writeLocalPrefs } from './state/mothAppearance.js'
 import { rewind, recordedSince, s3Floors, s3RecordedSince, readHistory, RECENT_DAYS } from './state/mothHistoryScrub.js'
 import { mothJump, JUMP_WORDS } from './state/mothJumps.js'
 import MothWorldView from './components/MothWorldView.jsx'
@@ -187,6 +187,11 @@ export default function MothPage({ isActive = true, worldFactory }) {
     scopeRef.current = scope
   }
   const history = historyRef.current
+  // MO5: what this person keeps on this computer (state/mothAppearance.js): the cards' size, the glide, carrying.
+  const localScope = `${perms?.userId ?? ''}|${perms?.workspaceId ?? ''}`
+  const [local, setLocalState] = useState(() => readLocalPrefs(localScope))
+  useEffect(() => { setLocalState(readLocalPrefs(localScope)) }, [localScope])
+  const setLocal = useCallback((patch) => setLocalState(writeLocalPrefs(localScope, patch)), [localScope])
   const canUndo = useSyncExternalStore(history.subscribe, history.canUndo)
   const canRedo = useSyncExternalStore(history.subscribe, history.canRedo)
 
@@ -1055,6 +1060,8 @@ export default function MothPage({ isActive = true, worldFactory }) {
             onOpenCard={(id) => views?.noteOpened(id)}
             onDropFile={dropFile}
             onNote={setNote}
+            size={{ w: local.card_w, h: local.card_h }}
+            onSize={(s) => setLocal({ card_w: s.w, card_h: s.h })}
           />
           {drag?.target && (
             <span className="moth-cursor-word" style={{ left: drag.x + 14, top: drag.y + 14 }} data-moth-cursor-word>

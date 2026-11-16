@@ -115,15 +115,30 @@
 .moth-personal { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .moth-field { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; font-size: var(--text-dense); }
 
-/* The folder cards and the recent-folders icon, bottom left. */
-.moth-cards { position: absolute; left: 16px; bottom: 16px; display: flex; align-items: flex-end; gap: 8px; max-width: calc(100% - 360px); }
+/* The folder cards and the recent-folders icon, bottom left. MO5: never larger than the room (MothCards measures it and
+   says it here too), the cards wrapping onto more rows and scrolling up and down together, never sideways: a sideways
+   scrollbar covered the cards' lower part. */
+.moth-cards { position: absolute; left: 16px; bottom: 16px; display: flex; align-items: flex-end; gap: 8px; max-width: calc(100% - 348px); max-height: calc(100% - 104px); }
 /* The cards scroll on their own, so the recent list above the clock icon is never clipped by them. */
-.moth-cards-strip { display: flex; align-items: flex-end; gap: 8px; min-width: 0; overflow-x: auto; }
-.moth-card {
+.moth-cards-strip {
   display: flex;
-  flex: 0 0 216px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+  padding: 6px 6px 0 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.moth-card {
+  position: relative;
+  display: flex;
+  flex: 0 0 auto;
   flex-direction: column;
-  max-height: 248px;
+  box-sizing: border-box;
+  width: 280px;
+  height: 320px;
   border: 1px solid var(--color-rule);
   border-radius: var(--radius-float);
   background-color: var(--moth-hud-ground);
@@ -133,7 +148,17 @@
 .moth-card.is-over { border-color: var(--color-ink-2); }
 .moth-card-head { display: flex; align-items: center; gap: 4px; padding: 4px 4px 4px 8px; border-bottom: 1px solid var(--color-rule); }
 .moth-card-title { flex: 1 1 auto; min-width: 0; overflow: hidden; font-size: var(--text-dense); text-overflow: ellipsis; white-space: nowrap; }
-.moth-card-rows { margin: 0; padding: 8px; list-style: none; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; font-size: var(--text-dense); }
+.moth-card-rows { flex: 1 1 auto; min-height: 0; margin: 0; padding: 8px; list-style: none; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; font-size: var(--text-dense); }
+/* A card's top edge, right edge and the corner between them: dragged to size the cards (the top grows them upward,
+   the right wider); the two edges take the arrow keys when they have the focus. */
+.moth-card-grip { position: absolute; z-index: 1; touch-action: none; }
+.moth-card-grip[data-edge="top"] { top: -4px; left: 8px; right: 12px; height: 8px; cursor: ns-resize; }
+.moth-card-grip[data-edge="right"] { top: 12px; right: -4px; bottom: 8px; width: 8px; cursor: ew-resize; }
+.moth-card-grip[data-edge="corner"] { top: -5px; right: -5px; width: 14px; height: 14px; cursor: nesw-resize; }
+.moth-card-grip:hover, .moth-card-grip:focus-visible { background-color: color-mix(in srgb, var(--color-signal) 45%, transparent); border-radius: 4px; outline: none; }
+.moth-page[data-input="touch"] .moth-card-grip[data-edge="top"] { top: -8px; height: 16px; }
+.moth-page[data-input="touch"] .moth-card-grip[data-edge="right"] { right: -8px; width: 16px; }
+.moth-page[data-input="touch"] .moth-card-grip[data-edge="corner"] { top: -10px; right: -10px; width: 24px; height: 24px; }
 .moth-recent { position: relative; }
 .moth-recent-list {
   position: absolute;
