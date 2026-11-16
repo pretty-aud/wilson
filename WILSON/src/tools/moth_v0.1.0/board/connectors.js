@@ -71,6 +71,32 @@ export function anchorPoint(g, anchor, towards) {
   return { x: p.x, y: p.y, side, nx: n.x, ny: n.y }
 }
 
+/**
+ * MO5 (her item 4.3): the stretch of a side that is lit when a line's end would land on it, as two board points: the
+ * whole side of a box, the middle half of a round shape's (where it touches the circle), or null for the centre.
+ */
+export function sideSegment(g, side) {
+  if (!SIDE_AT[side] || side === 'center') return null
+  const b = anchorBox(g)
+  const round = g?.kind === 'shape' && (g.shape === 'circle' || g.shape === 'connector_circle' || g.shape === 'ellipse')
+  const f = round ? 0.25 : 0
+  const ends = {
+    top: [[f, 0], [1 - f, 0]], bottom: [[f, 1], [1 - f, 1]], left: [[0, f], [0, 1 - f]], right: [[1, f], [1, 1 - f]],
+  }[side]
+  return ends.map(([fx, fy]) => toBoard(g, b.x + b.w * fx, b.y + b.h * fy))
+}
+
+/**
+ * MO5 (her item 4.3): where an element's connection dots sit: one beyond each side's middle, `gap` board units out
+ * along the side's face, so they clear the selection's own handles. [{ side, x, y }].
+ */
+export function connectionDots(g, gap = 0) {
+  return ['top', 'right', 'bottom', 'left'].map((side) => {
+    const a = anchorPoint(g, side)
+    return { side, x: a.x + a.nx * gap, y: a.y + a.ny * gap }
+  })
+}
+
 /** The anchor nearest a board point within `threshold`, else 'auto' (a drop anywhere else on the element). */
 export function pickAnchor(g, point, threshold) {
   let best = 'auto'
@@ -144,40 +170,72 @@ function dedupe(points) {
 
 const flat = (points) => points.flatMap((p) => [round2(p.x), round2(p.y)])
 
+// Which way each end of a curve or an elbow leaves: along its side's face, or (a free end, or the centre) towards
+// the other end along the longer axis.
+function faces(start, end, s, e) {
+  const ns = start?.side && start.side !== 'center' ? { nx: start.nx, ny: start.ny } : freeNormal(s, e)
+  const ne = end?.side && end.side !== 'center' ? { nx: end.nx, ny: end.ny } : freeNormal(e, s)
+  return { ns, ne }
+}
+// A turned element's face is held to the nearer axis: an elbow only turns square.
+const axisOf = (n) => (Math.abs(n.nx) >= Math.abs(n.ny) ? 'h' : 'v')
+
+/**
+ * MO5 (her item 4.4): which way an elbow's middle can be slid, if at all: 'x' when both ends leave sideways (its
+ * middle stretch stands upright and slides left and right), 'y' when both leave up or down, null for an L (one turn,
+ * nothing to slide). An elbow keeps where it was slid as one bend: its x, or its y.
+ */
+export function elbowSlide(start, end) {
+  const s = { x: num(start?.x), y: num(start?.y) }
+  const e = { x: num(end?.x), y: num(end?.y) }
+  const { ns, ne } = faces(start, end, s, e)
+  const sa = axisOf(ns)
+  const ea = axisOf(ne)
+  if (sa === 'h' && ea === 'h') return 'x'
+  if (sa === 'v' && ea === 'v') return 'y'
+  return null
+}
+
 /**
  * The line between two ends: { points (flat, board units), bezier, tension }. Straight runs through its bends;
- * curved is one cubic leaving each side along its face (through the bends, smoothed, when it has some); elbow is
- * square turns, leaving each side by a short stub.
+ * curved is one cubic leaving each side along its face, pulled (MO5, her item 4.4) so it passes through its one bend
+ * when it has one (through several bends, smoothed, as older lines kept them); elbow is square turns, leaving each
+ * side by a short stub, its middle stretch where its one bend slid it.
  */
 export function routePoints(start, end, route = 'straight', bends = []) {
   const s = { x: num(start?.x), y: num(start?.y) }
   const e = { x: num(end?.x), y: num(end?.y) }
   if (route === 'curved') {
-    if (bends.length) return { points: flat([s, ...bends, e]), bezier: false, tension: 0.5 }
+    if (bends.length > 1) return { points: flat([s, ...bends, e]), bezier: false, tension: 0.5 }
     const dist = Math.hypot(e.x - s.x, e.y - s.y)
     const reach = Math.max(24, dist * 0.4)
-    const ns = start?.side && start.side !== 'center' ? { nx: start.nx, ny: start.ny } : freeNormal(s, e)
-    const ne = end?.side && end.side !== 'center' ? { nx: end.nx, ny: end.ny } : freeNormal(e, s)
-    const c1 = { x: s.x + ns.nx * reach, y: s.y + ns.ny * reach }
-    const c2 = { x: e.x + ne.nx * reach, y: e.y + ne.ny * reach }
+    const { ns, ne } = faces(start, end, s, e)
+    let c1 = { x: s.x + ns.nx * reach, y: s.y + ns.ny * reach }
+    let c2 = { x: e.x + ne.nx * reach, y: e.y + ne.ny * reach }
+    if (bends.length === 1) {
+      // Its middle (t = 1/2) is (s + 3 c1 + 3 c2 + e) / 8: both controls moved by 4/3 of the pull put it on the bend.
+      const mid = { x: (s.x + 3 * c1.x + 3 * c2.x + e.x) / 8, y: (s.y + 3 * c1.y + 3 * c2.y + e.y) / 8 }
+      const dx = ((num(bends[0].x) - mid.x) * 4) / 3
+      const dy = ((num(bends[0].y) - mid.y) * 4) / 3
+      c1 = { x: c1.x + dx, y: c1.y + dy }
+      c2 = { x: c2.x + dx, y: c2.y + dy }
+    }
     return { points: flat([s, c1, c2, e]), bezier: true, tension: 0 }
   }
   if (route === 'elbow') {
     const stub = 24
-    const ns = start?.side && start.side !== 'center' ? { nx: start.nx, ny: start.ny } : freeNormal(s, e)
-    const ne = end?.side && end.side !== 'center' ? { nx: end.nx, ny: end.ny } : freeNormal(e, s)
-    // A turned element's face is held to the nearer axis: an elbow only turns square.
-    const axis = (n) => (Math.abs(n.nx) >= Math.abs(n.ny) ? 'h' : 'v')
-    const sa = axis(ns)
-    const ea = axis(ne)
+    const { ns, ne } = faces(start, end, s, e)
+    const sa = axisOf(ns)
+    const ea = axisOf(ne)
     const s1 = sa === 'h' ? { x: s.x + Math.sign(ns.nx || 1) * stub, y: s.y } : { x: s.x, y: s.y + Math.sign(ns.ny || 1) * stub }
     const e1 = ea === 'h' ? { x: e.x + Math.sign(ne.nx || 1) * stub, y: e.y } : { x: e.x, y: e.y + Math.sign(ne.ny || 1) * stub }
+    const slid = bends.length ? bends[0] : null
     let middle
     if (sa === 'h' && ea === 'h') {
-      const mx = (s1.x + e1.x) / 2
+      const mx = slid && Number.isFinite(Number(slid.x)) ? num(slid.x) : (s1.x + e1.x) / 2
       middle = [{ x: mx, y: s1.y }, { x: mx, y: e1.y }]
     } else if (sa === 'v' && ea === 'v') {
-      const my = (s1.y + e1.y) / 2
+      const my = slid && Number.isFinite(Number(slid.y)) ? num(slid.y) : (s1.y + e1.y) / 2
       middle = [{ x: s1.x, y: my }, { x: e1.x, y: my }]
     } else if (sa === 'h') {
       middle = [{ x: e1.x, y: s1.y }]

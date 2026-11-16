@@ -6,7 +6,7 @@
 // drawing order through onStack ('forward', 'backward', 'front', 'back'), and Delete removes the selection.
 // "Frame selection" (onFrame) is offered when something selected is not a line tied at an end, and "Remove the frame only"
 // (onFrameOnly) when every selected thing is a frame.
-import { ArrowDown, ArrowUp, BringToFront, SendToBack, Trash2, AlignLeft, AlignCenter, AlignRight, Frame, Ungroup } from 'lucide-react'
+import { ArrowDown, ArrowUp, BringToFront, SendToBack, Trash2, AlignLeft, AlignCenter, AlignRight, Frame, Ungroup, MoveRight } from 'lucide-react'
 import { IconButton, Select } from '../../../ui'
 import { SHAPES, SHAPE_LABELS, styleKeysFor, resolveStyle, takesCorner, cornerDrawn } from './shapes.js'
 import { isTied } from './frames.js'
@@ -101,7 +101,7 @@ function Row({ label, children }) {
   )
 }
 
-export default function StylePanel({ elements = [], canWrite = false, inputMode = 'mouse', onStyle, onShape, onStack, onRemove, onFrame, onFrameOnly, editing = false, onLeave }) {
+export default function StylePanel({ elements = [], canWrite = false, inputMode = 'mouse', onStyle, onShape, onStack, onRemove, onFrame, onFrameOnly, onStraighten, editing = false, onLeave }) {
   if (!canWrite || !elements.length) return null
   // MO5 (her item 4.2): while words are typed the panel stays (the text tool's words take their size and colour as they
   // are written). A press on a style's button keeps the typing going (its mousedown never takes the focus); Arrange's
@@ -139,6 +139,8 @@ export default function StylePanel({ elements = [], canWrite = false, inputMode 
   const cornered = elements.every(takesCorner)
   const corners = elements.map(cornerDrawn)
   const corner = corners.every((c) => c === corners[0]) ? corners[0] : undefined
+  // MO5 (her item 4.4): Straighten, beside Path, while a selected line has bends (a pull, a slid middle) to let go.
+  const bent = elements.some((el) => el.kind === 'connector' && Array.isArray(el.points) && el.points.length > 4)
 
   return (
     <aside
@@ -211,7 +213,12 @@ export default function StylePanel({ elements = [], canWrite = false, inputMode 
       )}
       {has('route') && (
         <Row label="Path">
-          <Select aria-label="Path" size={size} value={v('route') ?? ''} placeholder={v('route') === undefined ? 'Mixed' : null} options={ROUTE_OPTIONS} onChange={(r) => { if (r) set('route', r) }} />
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <Select aria-label="Path" size={size} value={v('route') ?? ''} placeholder={v('route') === undefined ? 'Mixed' : null} options={ROUTE_OPTIONS} onChange={(r) => { if (r) set('route', r) }} />
+            </div>
+            {bent && <IconButton size={size} Icon={MoveRight} title="Straighten: let go of the bends" data-style-straighten onClick={() => onStraighten?.()} />}
+          </div>
         </Row>
       )}
       {(has('start_head') || has('end_head')) && (

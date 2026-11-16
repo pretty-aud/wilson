@@ -1843,6 +1843,188 @@ describe('BoardCanvas: the board\'s keys after its own buttons', () => {
   })
 })
 
+// MO5 (her items 4.3 and 4.4): lines as she asked for them. A thing under the pointer (or selected alone) shows a dot
+// beyond each side; a drag from a dot draws a line tied to that side, and over another thing the side it would land
+// on is lit and the end snaps there; a selected line has handles that bend it, pull its curve or slide its turns.
+describe('🚨 MO5 4.3 and 4.4: lines from dots, lit sides, bends', () => {
+  const hover = (at) => act(() => { host().dispatchEvent(pointerEvent('pointermove', { clientX: at.x, clientY: at.y })) })
+  const LINE = (over = {}) => ({
+    id: 'c', kind: 'connector', x: 0, y: 0, w: 1, h: 1, z: 4, points: [0, 0, 1, 1], from_id: 'a', from_anchor: 'right',
+    to_id: 'b', to_anchor: 'left', style: { end_head: 'none' }, ...over,
+  })
+  // a's right (100, 25) to b's left (300, 40), and one bend at (200, -80)
+  const BENT = (over = {}) => LINE({ points: [100, 25, 200, -80, 300, 40], ...over })
+  const BOX = { id: 'd', kind: 'shape', shape: 'rectangle', x: 0, y: 200, w: 100, h: 60, z: 3 }
+  const selectLine = (at = { x: 200, y: 32 }) => {
+    press(groupOf('c').findOne('.connector-line'), toScreen(at))
+    release(toScreen(at))
+  }
+  const dragHandle = (node, to) => {
+    press(node, toScreen({ x: node.x(), y: node.y() }))
+    moveTo(toScreen(to))
+    release(toScreen(to))
+  }
+  const saved = (store, id = 'c') => store.getElements().get(id)
+  const bendOf = (el, i = 0) => ({ x: num(el.x) + el.points[2 + 2 * i], y: num(el.y) + el.points[3 + 2 * i] })
+  const num = (v) => Number(v) || 0
+
+  it('a thing under the pointer shows a dot beyond each side; off it, none; nor to a reader, nor with the pen', async () => {
+    await mount()
+    hover(toScreen({ x: 50, y: 25 }))
+    const dots = named('connect-dot')
+    expect(dots.map((d) => d.attrs.anchor).sort()).toEqual(['bottom', 'left', 'right', 'top'])
+    expect(dots.every((d) => d.attrs.dotFor === 'a')).toBe(true)
+    const right = dots.find((d) => d.attrs.anchor === 'right')
+    expect(right.x()).toBeGreaterThan(100)
+    expect(right.y()).toBeCloseTo(25, 5)
+    hover(toScreen({ x: 200, y: 300 }))
+    expect(named('connect-dot')).toHaveLength(0)
+    fireEvent.click(screen.getByTitle('Pen (P)'))
+    hover(toScreen({ x: 50, y: 25 }))
+    expect(named('connect-dot')).toHaveLength(0)
+    cleanup()
+    await mount({ store: fakeStore([RECT, OTHER], { canWrite: false }), canWrite: false })
+    hover(toScreen({ x: 50, y: 25 }))
+    expect(named('connect-dot')).toHaveLength(0)
+  })
+
+  it('🚨 a drag from a dot draws a line tied to that side; over another thing its side is lit and the end snaps there', async () => {
+    const { store } = await mount()
+    hover(toScreen({ x: 50, y: 25 }))
+    const right = named('connect-dot').find((d) => d.attrs.anchor === 'right')
+    press(right, toScreen({ x: right.x(), y: right.y() }))
+    expect(named('connect-dot')).toHaveLength(0) // they step aside while the line is drawn
+    moveTo(toScreen({ x: 304, y: 42 }))
+    expect(named('connect-preview')).toHaveLength(1)
+    // The circle's left side is lit where it meets the circle, and the end's dot sits on its middle.
+    expect(named('target-side')[0].points()).toEqual([300, 20, 300, 60])
+    const dot = named('target-dot')[0]
+    expect([dot.x(), dot.y()]).toEqual([300, 40])
+    release(toScreen({ x: 304, y: 42 }))
+    expect(store.add).toHaveBeenCalledWith(expect.objectContaining({ kind: 'connector', from_id: 'a', from_anchor: 'right', to_id: 'b', to_anchor: 'left' }))
+    await settle()
+    expect(groupOf('new-1').findOne('.connector-line').points().slice(0, 2)).toEqual([100, 25])
+  })
+
+  it('an end dragged to tie it again lights the side it would land on, and lands there', async () => {
+    const store = fakeStore([RECT, OTHER, BOX, LINE()])
+    await mount({ store })
+    selectLine()
+    const to = named('connector-handle').find((h) => h.attrs.boardHandle === 'to')
+    press(to, toScreen({ x: to.x(), y: to.y() }))
+    moveTo(toScreen({ x: 52, y: 203 }))
+    expect(named('target-side')[0].points()).toEqual([0, 200, 100, 200])
+    release(toScreen({ x: 52, y: 203 }))
+    expect(store.update).toHaveBeenLastCalledWith('c', expect.objectContaining({ to_id: 'd', to_anchor: 'top', from_id: 'a' }), { settled: true })
+  })
+
+  it('🚨 a straight line: the hollow handle in a stretch adds a bend where it is let go', async () => {
+    const store = fakeStore([RECT, OTHER, LINE()])
+    await mount({ store })
+    selectLine()
+    const handles = named('connector-bend')
+    expect(handles).toHaveLength(1)
+    expect(handles[0].attrs.addBend).toBe(true)
+    expect([handles[0].x(), handles[0].y()]).toEqual([200, 32.5])
+    dragHandle(handles[0], { x: 200, y: -80 })
+    const el = saved(store)
+    expect(el.points).toHaveLength(6)
+    const b = bendOf(el)
+    expect(b.x).toBeCloseTo(200, 0)
+    expect(b.y).toBeCloseTo(-80, 0)
+    await settle()
+    // Drawn through it; and now its bend is a handle of its own, with a hollow one in each stretch.
+    const pts = groupOf('c').findOne('.connector-line').points()
+    expect(pts[2]).toBeCloseTo(200, 0)
+    expect(pts[3]).toBeCloseTo(-80, 0)
+    expect(named('connector-bend').filter((h) => !h.attrs.addBend)).toHaveLength(1)
+    expect(named('connector-bend').filter((h) => h.attrs.addBend)).toHaveLength(2)
+  })
+
+  it('🚨 a curve: its one pull sits on the curve, and the curve passes where it is let go', async () => {
+    const store = fakeStore([RECT, OTHER, LINE({ style: { end_head: 'none', route: 'curved' } })])
+    await mount({ store })
+    selectLine({ x: 200, y: 32 })
+    const pull = named('connector-bend')
+    expect(pull).toHaveLength(1)
+    dragHandle(pull[0], { x: 200, y: 150 })
+    expect(saved(store).points).toHaveLength(6)
+    await settle()
+    const p = groupOf('c').findOne('.connector-line').points()
+    expect(p).toHaveLength(8) // still one cubic
+    expect((p[0] + 3 * p[2] + 3 * p[4] + p[6]) / 8).toBeCloseTo(200, 0)
+    expect((p[1] + 3 * p[3] + 3 * p[5] + p[7]) / 8).toBeCloseTo(150, 0)
+  })
+
+  it('square turns: the middle slides sideways only, and stays where it was let go', async () => {
+    const store = fakeStore([RECT, OTHER, LINE({ style: { end_head: 'none', route: 'elbow' } })])
+    await mount({ store })
+    selectLine({ x: 200, y: 25 })
+    const mid = named('connector-bend')
+    expect(mid).toHaveLength(1)
+    const y0 = mid[0].y()
+    dragHandle(mid[0], { x: 250, y: -500 })
+    const b = bendOf(saved(store))
+    expect(b.x).toBeCloseTo(250, 0)
+    expect(b.y).toBeCloseTo(y0, 0)
+    await settle()
+    const p = groupOf('c').findOne('.connector-line').points()
+    const upright = []
+    for (let i = 2; i < p.length; i += 2) if (Math.abs(p[i] - p[i - 2]) < 0.01 && Math.abs(p[i + 1] - p[i - 1]) > 0.01) upright.push(p[i])
+    expect(upright).toEqual([250])
+  })
+
+  it('a bend let go of mid-drag (the pointer lost) saves nothing', async () => {
+    const store = fakeStore([RECT, OTHER, LINE()])
+    await mount({ store })
+    selectLine()
+    const h = named('connector-bend')[0]
+    press(h, toScreen({ x: h.x(), y: h.y() }))
+    moveTo(toScreen({ x: 200, y: -80 }))
+    act(() => { window.dispatchEvent(pointerEvent('pointercancel', {})) })
+    expect(store.update).not.toHaveBeenCalledWith('c', expect.anything(), expect.anything())
+    expect(groupOf('c').findOne('.connector-line').points()).toEqual([100, 25, 300, 40])
+  })
+
+  it('🚨 another path lets the bends go, in the same step; Straighten does too, and shows only while there are bends', async () => {
+    const store = fakeStore([RECT, OTHER, BENT()])
+    await mount({ store })
+    selectLine({ x: 150, y: -27 })
+    await settle()
+    fireEvent.click(screen.getByTitle('Straighten: let go of the bends'))
+    expect(saved(store).points).toHaveLength(4)
+    await settle()
+    expect(screen.queryByTitle('Straighten: let go of the bends')).toBeNull()
+    cleanup()
+    const s2 = fakeStore([RECT, OTHER, BENT()])
+    await mount({ store: s2 })
+    selectLine({ x: 150, y: -27 })
+    await settle()
+    fireEvent.change(screen.getByRole('combobox', { name: 'Path' }), { target: { value: 'curved' } })
+    expect(s2.update).toHaveBeenLastCalledWith('c', expect.objectContaining({ style: expect.objectContaining({ route: 'curved' }), points: [0, 0, 200, 15] }), { settled: true })
+  })
+
+  it('🚨 a bent line whose two ends move together moves whole; an unbent one only follows its ends (the control)', async () => {
+    for (const [line, whole] of [[BENT(), true], [LINE(), false]]) {
+      const store = fakeStore([RECT, OTHER, line])
+      await mount({ store })
+      press(groupOf('a').findOne('Path'), toScreen({ x: 50, y: 25 }))
+      release(toScreen({ x: 50, y: 25 }))
+      press(groupOf('b').findOne('Path'), toScreen({ x: 340, y: 40 }), { shiftKey: true })
+      release(toScreen({ x: 340, y: 40 }))
+      press(groupOf('a').findOne('Path'), toScreen({ x: 50, y: 25 }))
+      moveTo(toScreen({ x: 100, y: 85 }))
+      release(toScreen({ x: 100, y: 85 }))
+      const moved = store.update.mock.calls.filter(([id]) => id === 'c')
+      if (whole) {
+        expect(moved).toEqual([['c', { x: 50, y: 60 }, { settled: true }]])
+        expect(bendOf(saved(store))).toEqual({ x: 250, y: -20 })
+      } else expect(moved).toEqual([])
+      cleanup()
+    }
+  })
+})
+
 describe('the helpers', () => {
   it('targets grow under a finger or a pen', () => {
     expect(targetSizes('touch').anchor).toBeGreaterThan(targetSizes('mouse').anchor)
