@@ -16,9 +16,10 @@
 // React.lazy, and its canvas through another). "New board" is in a folder's menu, and the trash lists folders and
 // boards to bring back. On this computer alone there are no boards, and the menu says why.
 import { Component, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { HelpCircle, Settings as SettingsIcon, Tags as TagsIcon } from 'lucide-react'
+import { HelpCircle, Settings as SettingsIcon, SquarePlus, Tags as TagsIcon } from 'lucide-react'
 import { Banner, Button, Dialog, Drawer, IconButton } from '../../ui'
 import { usePermissions } from '../../permissions/usePermissions'
+import GatedAction from '../../permissions/GatedAction'
 import { useWorkspaceMembers } from '../../components/TeamMembers/useWorkspaceMembers'
 import { canOnProject, projectActionDeniedReason } from '../../permissions/projectRoleMatrix'
 import { useRabbit } from '../rabbit_v0.1.0/state/RabbitProvider'
@@ -51,6 +52,7 @@ import MothBloom from './components/MothBloom.jsx'
 import MothMoveTo from './components/MothMoveTo.jsx'
 import MothTrashView from './components/MothTrashView.jsx'
 import MothTagPanel from './components/MothTagPanel.jsx'
+import MothNewBoard, { NO_PLACE_WORDS } from './components/MothNewBoard.jsx'
 import { BOARD_NEEDS_CLOUD, boardWords, dropLeaving, whoKey } from './board/boardPanelState.js'
 import './moth.css'
 
@@ -883,36 +885,63 @@ export default function MothPage({ isActive = true, worldFactory }) {
   // ── MO4: the folder's menu, and New board ─────────────────────────────────────────────────────────────────────
   // Inside a project or one of its folders (never inside a board), the menu offers a board where the person may
   // change the project. On this computer alone it offers none and says why.
+  // MO5 (her item 3): New board is also a button always in sight in the top strip; both open one dialog that asks the
+  // name and where it goes, starting on the folder selected. Each project says whether a board may be made in it.
+  const boardGate = (pid) => {
+    if (localOnly || typeof adapter.createBoard !== 'function') return { allowed: false, reason: BOARD_NEEDS_CLOUD }
+    if (scrubAt != null) return { allowed: false, reason: LOOKING_BACK_WORDS }
+    const island = islandOf(pid)
+    const g = access(island)
+    if (!island || !g.allowed || !island.can_write) return { allowed: false, reason: g.reason || 'You may not change this project.' }
+    return { allowed: true, reason: null }
+  }
   const insideKind = inside ? kindOf(inside) : null
   const insideBoard = insideKind === 'folder' ? boardRows.get(rowOf(inside)) ?? null : null
   let folderMenu = null
   if ((insideKind === 'project' || insideKind === 'folder') && !insideBoard && insideProject) {
-    const island = islandOf(insideProject)
-    const g = access(island)
+    const g = boardGate(insideProject)
     if (localOnly || typeof adapter.createBoard !== 'function') folderMenu = [{ header: BOARD_NEEDS_CLOUD }]
-    else if (scrubAt != null) folderMenu = [{ label: 'New board', disabled: true }, { header: LOOKING_BACK_WORDS }]
-    else if (!g.allowed || !island?.can_write) folderMenu = [{ label: 'New board', disabled: true }, { header: g.reason || 'You may not change this project.' }]
+    else if (!g.allowed) folderMenu = [{ label: 'New board', disabled: true }, { header: g.reason }]
     else {
       const folderId = insideKind === 'folder' ? rowOf(inside) : null
-      folderMenu = [{ label: 'New board', onClick: () => setNewBoard({ projectId: insideProject, folderId, title: '', busy: false, error: '' }) }]
+      folderMenu = [{ label: 'New board', onClick: () => setNewBoard({ start: { projectId: insideProject, folderId } }) }]
     }
   }
-  const makeBoard = async () => {
-    const asked = newBoard
-    if (!asked || makingBoard.current) return
+  // Where the strip's button starts: the folder (or project) of what is selected, else the one the list is inside.
+  const placeOf = (id) => {
+    for (let x = id, n = 0; x && n < 80; x = index.parent.get(x) ?? null, n++) {
+      const k = kindOf(x)
+      if (k === 'folder') return { projectId: index.rows.get(x)?.projectId ?? null, folderId: rowOf(x) }
+      if (k === 'project') return { projectId: rowOf(x), folderId: null }
+    }
+    return null
+  }
+  const anyBoardPlace = (islands || []).some((row) => boardGate(String(row.id)).allowed)
+  const newBoardButton = localOnly || typeof adapter.createBoard !== 'function' ? { allowed: false, reason: BOARD_NEEDS_CLOUD }
+    : scrubAt != null ? { allowed: false, reason: LOOKING_BACK_WORDS }
+    : !anyBoardPlace ? { allowed: false, reason: NO_PLACE_WORDS }
+    : { allowed: true, reason: null }
+  const askNewBoard = () => {
+    const start = (selected.length === 1 ? placeOf(selected[0]) : null) || (inside ? placeOf(inside) : null)
+    setNewBoard({ start })
+  }
+  const makeBoard = async ({ projectId, folderId, title }) => {
+    if (makingBoard.current) return
     makingBoard.current = true
-    setNewBoard({ ...asked, busy: true, error: '' })
     try {
-      const out = await adapter.createBoard(asked.projectId, asked.folderId, asked.title.trim() || null)
-      const row = { id: String(out.board_id), folder_id: String(out.folder_id), project_id: String(out.project_id ?? asked.projectId) }
+      let out
+      try {
+        out = await adapter.createBoard(projectId, folderId, title || null)
+      } catch (err) {
+        throw new Error(boardWords(err, { making: true }))
+      }
+      const row = { id: String(out.board_id), folder_id: String(out.folder_id), project_id: String(out.project_id ?? projectId) }
       setNewBoard(null)
       setBoardRows((was) => new Map(was).set(row.folder_id, row))
       setBoardsAsked((n) => n + 1)
       notify([row.project_id])
       Promise.resolve().then(() => store.refresh([row.project_id])).catch(() => {})
       openBoardPanel(row, out.title)
-    } catch (err) {
-      setNewBoard((s) => (s ? { ...s, busy: false, error: boardWords(err, { making: true }) } : s))
     } finally {
       makingBoard.current = false
     }
@@ -923,6 +952,9 @@ export default function MothPage({ isActive = true, worldFactory }) {
       <div className="moth-strip">
         <span className="moth-strip-title">{current.row?.name ?? QUICK_VIEWS[current.key]?.name ?? 'M.O.T.H.'}</span>
         <div className="moth-strip-right">
+          <GatedAction allowed={newBoardButton.allowed} reason={newBoardButton.reason}>
+            <Button size="sm" variant="ghost" Icon={SquarePlus} onClick={askNewBoard} disabled={!newBoardButton.allowed} data-moth-new-board>New board…</Button>
+          </GatedAction>
           <IconButton size="sm" Icon={HelpCircle} title="Help & documentation" onClick={() => setShowHelpModal(true)} />
           <IconButton size="sm" Icon={TagsIcon} title="Typed tags" onClick={() => setTagsOpen(true)} />
           <IconButton size="sm" Icon={SettingsIcon} title="M.O.T.H. settings" onClick={() => setSettingsOpen(true)} />
@@ -1089,33 +1121,16 @@ export default function MothPage({ isActive = true, worldFactory }) {
         </BoardBoundary>
       )}
       {newBoard && (
-        <Dialog
-          width="confirm"
-          title="New board"
-          onClose={() => { if (!newBoard.busy) setNewBoard(null) }}
-          busy={newBoard.busy}
-          footer={(
-            <>
-              <Button variant="ghost" onClick={() => setNewBoard(null)} disabled={newBoard.busy}>Cancel</Button>
-              <Button onClick={makeBoard} loading={newBoard.busy} loadingLabel="Making…" data-moth-board-make>Make the board</Button>
-            </>
-          )}
-        >
-          <label className="moth-field">
-            Name
-            <input
-              className="moth-search"
-              type="text"
-              value={newBoard.title}
-              maxLength={120}
-              placeholder="Board"
-              disabled={newBoard.busy}
-              onChange={(e) => { const title = e.target.value; setNewBoard((s) => (s ? { ...s, title, error: '' } : s)) }}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); makeBoard() } }}
-            />
-          </label>
-          {newBoard.error && <Banner tone="danger" data-moth-board-make-error>{newBoard.error}</Banner>}
-        </Dialog>
+        <MothNewBoard
+          islands={islands || []}
+          foldersOf={(pid) => catalogue.folders?.[pid] ?? []}
+          isBoard={(fid) => boardRows.has(String(fid))}
+          gateOf={boardGate}
+          start={newBoard.start}
+          localOnly={localOnly}
+          onMake={makeBoard}
+          onClose={() => setNewBoard(null)}
+        />
       )}
 
       {showHelpModal && (

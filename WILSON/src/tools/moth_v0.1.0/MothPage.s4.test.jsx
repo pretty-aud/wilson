@@ -32,6 +32,7 @@ import { keepLeaving, leavingOf, whoKey } from './board/boardPanelState.js'
 import { MothHelp } from './components/MothSettings.jsx'
 import { BOARD_NEEDS_CLOUD } from './board/boardPanelState.js'
 import { FOLDERS_FAILED_SENTENCE } from './components/MothTrashView.jsx'
+import { boardPlaces, startPlace, TOP_WORDS, NO_PLACE_WORDS } from './components/MothNewBoard.jsx'
 
 const island = (id, extra = {}) => ({
   id, title: `Project ${id}`, is_personal: false, is_mine: false, is_private: false, my_project_role: 'member', is_staffed: true, can_write: true, ...extra,
@@ -357,8 +358,76 @@ describe('🚨 New board, in a folder\'s menu', () => {
   })
 })
 
+// MO5 item 3: a New board button always in sight, a dialog asking the name and where it goes, starting on the folder
+// selected; almost any folder may hold a board (0138), never another board's; where none may be made, it says why.
+describe('🚨 MO5 3: New board… in the strip, and where the board goes', () => {
+  const FOLDERS = [
+    { id: 'root', kind: 'root', parent_id: null, path: '', slug: 'p', label: 'Project' },
+    { id: 'assets', kind: 'category', parent_id: 'root', path: 'ASSETS', slug: 'ASSETS', label: 'ASSETS' },
+    { id: 'mira', kind: 'entity', parent_id: 'assets', path: 'ASSETS/mira', slug: 'mira', label: 'Mira' },
+    { id: 'bf', kind: 'custom', parent_id: 'root', path: 'plans', slug: 'plans', label: 'Plans' },
+    { id: 'inbf', kind: 'custom', parent_id: 'bf', path: 'plans/old', slug: 'old', label: 'Old' },
+  ]
+  it('the picker lists the top first, every folder under its parent, a thing\'s own among them, and never a board\'s', () => {
+    const places = boardPlaces(FOLDERS, (id) => id === 'bf')
+    expect(places.map((p) => [p.id, p.depth, p.label])).toEqual([[null, 0, TOP_WORDS], ['assets', 1, 'ASSETS'], ['mira', 2, 'Mira']])
+  })
+  it('it starts on the folder selected; a board\'s own folder (or one below it) starts on the folder that holds the board', () => {
+    const islands = [island('p1'), island('p2')]
+    const foldersOf = () => FOLDERS
+    const isBoard = (id) => id === 'bf'
+    expect(startPlace({ start: { projectId: 'p1', folderId: 'mira' }, islands, foldersOf, isBoard })).toEqual({ projectId: 'p1', folderId: 'mira' })
+    expect(startPlace({ start: { projectId: 'p1', folderId: 'inbf' }, islands, foldersOf, isBoard })).toEqual({ projectId: 'p1', folderId: null })
+    expect(startPlace({ start: { projectId: 'p1', folderId: 'root' }, islands, foldersOf, isBoard })).toEqual({ projectId: 'p1', folderId: null })
+    // Nothing selected: the first project a board may be made in.
+    expect(startPlace({ start: null, islands, foldersOf, isBoard, gateOf: (pid) => ({ allowed: pid === 'p2' }) })).toEqual({ projectId: 'p2', folderId: null })
+  })
+  it('the strip\'s button opens the question on the folder the list is inside, and makes the board there', async () => {
+    render(<MothPage worldFactory={fakeWorld} />)
+    await intoProject()
+    fireEvent.click(screen.getByRole('button', { name: /Refs/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'New board…' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByLabelText('Project').value).toBe('p1')
+    expect(within(dialog).getByLabelText('Where it goes').selectedOptions[0].textContent.trim()).toBe('Refs')
+    // A board's own folder is no place for another board.
+    expect([...within(dialog).getByLabelText('Where it goes').options].map((o) => o.textContent.trim())).toEqual([TOP_WORDS, 'Refs'])
+    fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: 'Moodboard' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Make the board' }))
+    await waitFor(() => expect(adapter.createBoard).toHaveBeenCalledWith('p1', 'f2', 'Moodboard'))
+    await waitFor(() => expect(panel()).toBeTruthy())
+  })
+  it('another place may be chosen; a project the person may not change is greyed with why, and nothing is made there', async () => {
+    adapter.listMothIslands = vi.fn(async () => [MINE, island('p1'), island('p3', { title: 'Look only', my_project_role: 'reviewer', can_write: false })])
+    render(<MothPage worldFactory={fakeWorld} />)
+    await intoProject()
+    fireEvent.click(screen.getByRole('button', { name: 'New board…' }))
+    const dialog = await screen.findByRole('dialog')
+    const project = within(dialog).getByLabelText('Project')
+    const looking = [...project.options].find((o) => o.value === 'p3')
+    expect(looking.disabled).toBe(true)
+    expect(looking.textContent).toMatch(/\(you may not change it\)$/)
+    fireEvent.change(project, { target: { value: 'me' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Make the board' }))
+    await waitFor(() => expect(adapter.createBoard).toHaveBeenCalledWith('me', null, null))
+  })
+  it('with no project to change, the button is greyed and says why', async () => {
+    adapter.listMothIslands = vi.fn(async () => [island('p1', { my_project_role: 'reviewer', can_write: false })])
+    render(<MothPage worldFactory={fakeWorld} />)
+    await intoProject()
+    expect(document.querySelector('[data-moth-new-board]').disabled).toBe(true)
+    expect(screen.getByTitle(NO_PLACE_WORDS).contains(document.querySelector('[data-moth-new-board]'))).toBe(true)
+  })
+})
+
 describe('🚨 on this computer alone', () => {
   beforeEach(() => { state.rabbit.adapterMode = 'local_server' })
+  it('MO5: the strip\'s New board… is greyed, and says boards need the cloud', async () => {
+    render(<MothPage worldFactory={fakeWorld} />)
+    await intoProject('Project p1 · On this computer only')
+    expect(document.querySelector('[data-moth-new-board]').disabled).toBe(true)
+    expect(screen.getByTitle(BOARD_NEEDS_CLOUD).contains(document.querySelector('[data-moth-new-board]'))).toBe(true)
+  })
   it('no board is asked for or offered, and the menu says why', async () => {
     render(<MothPage worldFactory={fakeWorld} />)
     await intoProject('Project p1 · On this computer only')

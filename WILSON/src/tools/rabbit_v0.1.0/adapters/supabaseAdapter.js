@@ -1694,9 +1694,20 @@ async function rewriteFileRow(client, row, column, from, to, putBack) {
 }
 
 /** Everything that would stop a shot, found BEFORE its first object moves. */
+export const SHOT_HOLDS_BOARD = 'this shot\'s folder holds a board, so it stays where it is for now';
 async function refileShotPreflight(client, projectId, p, rows, folders, toPath) {
   const taken = folders.find(f => f && f.id !== p.folder.id && f.path === toPath);
   if (taken) throw new Error(`a folder already sits at ${toPath}`);
+  // MO5 (0138): a board may now sit in a thing's own folder. A shot's folder that holds one (at any depth) is not
+  // re-filed from here: 0130's guard refuses the move, and the board's folder would keep its old path. It stays where
+  // it is, and says why. A database without boards has none to find.
+  const below = new Set([p.folder.id]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const f of folders) if (f && f.parent_id && below.has(f.parent_id) && !below.has(f.id)) { below.add(f.id); grew = true; }
+  }
+  const boards = await client.from('boards').select('folder_id').in('folder_id', [...below]);
+  if (!boards.error && (boards.data || []).length) throw new Error(SHOT_HOLDS_BOARD);
   const ctx = { projectId, sceneId: p.scene.id, shotId: p.shot.id };
   for (const row of rows) {
     const to = nestedShotKey(row.storage_path, ctx);
@@ -2025,6 +2036,7 @@ function unwrapMoth(result, fnName) {
 // s3_sticky_off), which come back as that code and those words. Moth's own trash codes read as mothErrors.js says.
 // A database without a board function says so in words, with the code the page reads as "not on this database".
 export const BOARDS_ABSENT = 'This company\'s database does not have boards yet.';
+export const RENAME_ABSENT = 'Renaming a folder is not on this company\'s database yet.';
 export const BOARD_COLUMNS = 'id, folder_id, project_id, audience_gen, revision';
 const BOARD_READ_CHUNK = 50;
 const BOARD_SAVE_CHUNK = 500;
@@ -6994,6 +7006,18 @@ export function supabaseAdapter() {
       const plan = planOnly && typeof planOnly === 'object' ? !!planOnly.planOnly : !!planOnly;
       return unwrapBoard(await client.rpc('moth_move_folders', { p_ids: ids, p_dest_parent: destParentId, p_plan_only: plan }),
         'moth_move_folders');
+    },
+    // MO5 (0138): a person's own folder renamed, a board's title among them: { folder_id, label, board_id, changed,
+    // at }. Its label alone changes; WILSON's own folders keep their names, in the server's words. A database before
+    // 0138 says renaming is not there yet.
+    async renameFolder(folderId, label) {
+      const client = await requireClient();
+      try {
+        return unwrapBoard(await client.rpc('moth_rename_folder', { p_folder: folderId, p_label: label }), 'moth_rename_folder');
+      } catch (err) {
+        if (err?.code === 'boards_absent') throw boardWordsError('rename_absent', RENAME_ABSENT);
+        throw err;
+      }
     },
 
     // A board's two private channels (0132), joined as projectTopicName's are: `topic` is the database's (elements,
