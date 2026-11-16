@@ -20,8 +20,11 @@ const PINS = [
   ["name: 'Everything', exact: true", `${MOTH}/components/MothListWidget.jsx`, '>Everything<'],
   ["getByTitle('More for this project')", `${MOTH}/MothPage.jsx`, "'More for this project'"],
   ["getByText('New board', { exact: true })", `${MOTH}/MothPage.jsx`, "label: 'New board', onClick"],
-  ["'[data-moth-board-make]'", `${MOTH}/MothPage.jsx`, 'data-moth-board-make>'],
-  ["'[data-moth-board-make-error]'", `${MOTH}/MothPage.jsx`, 'data-moth-board-make-error'],
+  // MO5: the New board dialog is its own (the menu's New board and the strip's New board… both open it); its name is
+  // its first input.
+  ["'[data-moth-board-make]'", `${MOTH}/components/MothNewBoard.jsx`, 'data-moth-board-make>'],
+  ["'[data-moth-board-make-error]'", `${MOTH}/components/MothNewBoard.jsx`, 'data-moth-board-make-error'],
+  [".locator('.ui-dialog input').first()", `${MOTH}/components/MothNewBoard.jsx`, 'data-moth-board-name'],
   ["name: 'Open board', exact: true", `${MOTH}/components/MothListWidget.jsx`, '>Open board<'],
   ["'[data-moth-board]'", `${MOTH}/board/BoardPanel.jsx`, 'data-moth-board={board.id}'],
   ["'[data-moth-board] .konvajs-content'", 'node_modules/konva/lib/Stage.js', 'konvajs-content'],

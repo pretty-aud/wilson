@@ -16,9 +16,10 @@
 // React.lazy, and its canvas through another). "New board" is in a folder's menu, and the trash lists folders and
 // boards to bring back. On this computer alone there are no boards, and the menu says why.
 import { Component, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { HelpCircle, Settings as SettingsIcon, Tags as TagsIcon } from 'lucide-react'
-import { Banner, Button, Dialog, Drawer, IconButton } from '../../ui'
+import { HelpCircle, Magnet, Settings as SettingsIcon, SquarePlus, Tags as TagsIcon } from 'lucide-react'
+import { Banner, Button, Dialog, Drawer, IconButton, Menu } from '../../ui'
 import { usePermissions } from '../../permissions/usePermissions'
+import GatedAction from '../../permissions/GatedAction'
 import { useWorkspaceMembers } from '../../components/TeamMembers/useWorkspaceMembers'
 import { canOnProject, projectActionDeniedReason } from '../../permissions/projectRoleMatrix'
 import { useRabbit } from '../rabbit_v0.1.0/state/RabbitProvider'
@@ -37,7 +38,7 @@ import { createMothCatalogue } from './state/mothCatalogue.js'
 import { createInputMode, prefersReducedMotion } from './state/mothInputMode.js'
 import { QUICK_VIEWS, normalizeConfig, engineView, filterByTags, containersOf } from './state/mothViewState.js'
 import { createMothViews } from './state/mothViews.js'
-import { colourFor, radiusFor, normalizeAppearance } from './state/mothAppearance.js'
+import { colourFor, radiusFor, normalizeAppearance, readLocalPrefs, writeLocalPrefs } from './state/mothAppearance.js'
 import { rewind, recordedSince, s3Floors, s3RecordedSince, readHistory, RECENT_DAYS } from './state/mothHistoryScrub.js'
 import { mothJump, JUMP_WORDS } from './state/mothJumps.js'
 import MothWorldView from './components/MothWorldView.jsx'
@@ -51,6 +52,8 @@ import MothBloom from './components/MothBloom.jsx'
 import MothMoveTo from './components/MothMoveTo.jsx'
 import MothTrashView from './components/MothTrashView.jsx'
 import MothTagPanel from './components/MothTagPanel.jsx'
+import MothNewBoard, { NO_PLACE_WORDS } from './components/MothNewBoard.jsx'
+import { itemMenu, MothRenameDialog, RENAME_WORDS } from './components/MothItemMenu.jsx'
 import { BOARD_NEEDS_CLOUD, boardWords, dropLeaving, whoKey } from './board/boardPanelState.js'
 import './moth.css'
 
@@ -62,6 +65,7 @@ export const MANAGED_ROW_SENTENCE = 'This file belongs to an asset. Change it fr
 // MO4: a board's dot has a colour of its own, whatever Settings colours the rest by.
 export const BOARD_DOT_COLOUR = '#ff7a59'
 const LOOKING_BACK_WORDS = 'Looking back changes nothing. Come back to now to change things.'
+export const BOARD_LOOKING_BACK_WORDS = 'The board closed while you look back: a board is always as it is now.'
 
 // The board panel's chunk that could not be loaded says so, and the way back to the map stays.
 class BoardBoundary extends Component {
@@ -165,8 +169,22 @@ export default function MothPage({ isActive = true, worldFactory }) {
   const [openBoard, setOpenBoard] = useState(null)
   const [boardSize, setBoardSize] = useState('framed')
   const [newBoard, setNewBoard] = useState(null)
+  // MO5 (her item 8): the menu a right-click (or Shift+F10 on a row) opens, and the Rename it can ask.
+  const [itemMenuAt, setItemMenuAt] = useState(null) // { id, x, y, from }
+  const [renaming, setRenaming] = useState(null) // { id, projectId, folderId, name, isBoard }
+  const menuActed = useRef(false)
+  // Opened from the keyboard (from a row), the menu's first entry that may be used takes the focus.
+  useEffect(() => {
+    if (!itemMenuAt?.from || typeof document === 'undefined') return undefined
+    const t = setTimeout(() => {
+      try { document.querySelector('[data-moth-item-menu] .ui-menu-item:not([disabled])')?.focus({ preventScroll: true }) } catch { /* courtesy */ }
+    }, 0)
+    return () => clearTimeout(t)
+  }, [itemMenuAt])
   const openBoardRef = useRef(null)
   openBoardRef.current = openBoard
+  const boardSizeRef = useRef(boardSize)
+  boardSizeRef.current = boardSize
   const selectedRef = useRef(selected)
   selectedRef.current = selected
   const makingBoard = useRef(false)
@@ -187,6 +205,12 @@ export default function MothPage({ isActive = true, worldFactory }) {
     scopeRef.current = scope
   }
   const history = historyRef.current
+  // MO5: what this person keeps on this computer (state/mothAppearance.js): the cards' size, the glide, carrying.
+  const localScope = `${perms?.userId ?? ''}|${perms?.workspaceId ?? ''}`
+  const [local, setLocalState] = useState(() => readLocalPrefs(localScope))
+  useEffect(() => { setLocalState(readLocalPrefs(localScope)) }, [localScope])
+  // Each change adds to what the page holds, so where nothing can be stored one change never puts another back (round 2).
+  const setLocal = useCallback((patch) => setLocalState((cur) => writeLocalPrefs(localScope, { ...cur, ...patch })), [localScope])
   const canUndo = useSyncExternalStore(history.subscribe, history.canUndo)
   const canRedo = useSyncExternalStore(history.subscribe, history.canRedo)
 
@@ -449,6 +473,14 @@ export default function MothPage({ isActive = true, worldFactory }) {
   const openBoardPanel = useCallback((row, title) => {
     if (!row) return
     if (scrubAt != null) { setNote(LOOKING_BACK_WORDS); return }
+    // Another board opened from the map round a framed one (MO5, item 4.5): the first one's project is read again, as
+    // its close would have done (round 1: a picture dropped on it left its folder saying "Nothing here").
+    const was = openBoardRef.current
+    if (was && String(was.board.id) !== String(row.id) && was.board.project_id != null) {
+      const pid = String(was.board.project_id)
+      notify([pid])
+      Promise.resolve().then(() => store?.refresh([pid])).catch(() => {})
+    }
     const r = worldRef.current?.renderer
     const dot = nodeId('folder', row.folder_id)
     const at = typeof r?.screenOf === 'function' ? r.screenOf(dot) : null
@@ -461,7 +493,7 @@ export default function MothPage({ isActive = true, worldFactory }) {
       camera: camera ? { ...camera } : null,
       selected: selectedRef.current,
     })
-  }, [scrubAt, index])
+  }, [scrubAt, index, notify, store])
   const closeBoard = useCallback((result) => {
     const was = openBoardRef.current
     if (!was) return
@@ -469,8 +501,13 @@ export default function MothPage({ isActive = true, worldFactory }) {
     setOpenBoard(null)
     setBoardSize('framed')
     const r = worldRef.current?.renderer
-    if (was.camera && typeof r?.setCamera === 'function') r.setCamera(was.camera)
-    setSelected(was.selected ?? [])
+    // MO5 (her item 4.5): the map works round a board in its frame. Someone who used it while the board was open (a
+    // press, a wheel or a key on the map, its list or its panels) keeps where they went; otherwise the map comes back
+    // as it was when the board opened, as before.
+    if (!was.touched) {
+      if (was.camera && typeof r?.setCamera === 'function') r.setCamera(was.camera)
+      setSelected(was.selected ?? [])
+    }
     if (result?.words) setNote(result.words)
   }, [])
   // Leaving the page, or another account, company or adapter: no board of the last one stays open.
@@ -497,6 +534,11 @@ export default function MothPage({ isActive = true, worldFactory }) {
       Promise.resolve().then(() => store?.refresh([pid])).catch(() => {})
     }
   }, [closeBoard, notify, store])
+  // Looking back opens no board, and the map round a framed board can start it (MO5, item 4.5): the board closes, and
+  // says why (round 2: the map showed the past while the board could still be changed now).
+  useEffect(() => {
+    if (scrubAt != null && openBoardRef.current) boardClosed({ how: 'button', words: BOARD_LOOKING_BACK_WORDS })
+  }, [scrubAt, boardClosed])
 
   // ── Doing things (Session 1's, kept whole) ───────────────────────────────────────────────────────────────────
   const act = useCallback(async (fn) => {
@@ -700,9 +742,11 @@ export default function MothPage({ isActive = true, worldFactory }) {
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(flushPlaces, SAVE_PLACES_MS)
   }, [views, flushPlaces])
-  const onArranged = useCallback(({ id, x, y }) => {
+  const onArranged = useCallback(({ id, x, y, carried }) => {
     if (!views || scrubAt != null) return
     views.notePlace(id, { x, y, pinned: true })
+    // MO5 (her item 6): what the drag carried is kept where it was let go, each with its own pin (or none).
+    for (const c of carried || []) views.notePlace(c.id, { x: c.x, y: c.y, pinned: !!c.pinned })
     queueFlush()
   }, [views, scrubAt, queueFlush])
   const onSettled = useCallback((how) => {
@@ -783,8 +827,10 @@ export default function MothPage({ isActive = true, worldFactory }) {
       const undoing = key === 'z' && !event.shiftKey
       const redoing = key === 'y' || (key === 'z' && event.shiftKey)
       if (!undoing && !redoing) return
-      // MO4: an open board has its own undo, and the key is the board's.
-      if (openBoardRef.current) return
+      // MO4: an open board has its own undo, and the key is the board's. MO5 (her item 4.5): once the person works on the
+      // map round a board in its frame, the key is the map's while the focus is outside the board.
+      const ob = openBoardRef.current
+      if (ob && (boardSizeRef.current !== 'framed' || !ob.touched || event.target?.closest?.('[data-moth-board-layer]'))) return
       event.stopPropagation()
       if (typingIn(event.target)) return
       event.preventDefault()
@@ -878,36 +924,148 @@ export default function MothPage({ isActive = true, worldFactory }) {
   // ── MO4: the folder's menu, and New board ─────────────────────────────────────────────────────────────────────
   // Inside a project or one of its folders (never inside a board), the menu offers a board where the person may
   // change the project. On this computer alone it offers none and says why.
+  // MO5 (her item 3): New board is also a button always in sight in the top strip; both open one dialog that asks the
+  // name and where it goes, starting on the folder selected. Each project says whether a board may be made in it.
+  const boardGate = (pid) => {
+    if (localOnly || typeof adapter.createBoard !== 'function') return { allowed: false, reason: BOARD_NEEDS_CLOUD }
+    if (scrubAt != null) return { allowed: false, reason: LOOKING_BACK_WORDS }
+    const island = islandOf(pid)
+    const g = access(island)
+    if (!island || !g.allowed || !island.can_write) return { allowed: false, reason: g.reason || 'You may not change this project.' }
+    return { allowed: true, reason: null }
+  }
   const insideKind = inside ? kindOf(inside) : null
   const insideBoard = insideKind === 'folder' ? boardRows.get(rowOf(inside)) ?? null : null
   let folderMenu = null
   if ((insideKind === 'project' || insideKind === 'folder') && !insideBoard && insideProject) {
-    const island = islandOf(insideProject)
-    const g = access(island)
+    const g = boardGate(insideProject)
     if (localOnly || typeof adapter.createBoard !== 'function') folderMenu = [{ header: BOARD_NEEDS_CLOUD }]
-    else if (scrubAt != null) folderMenu = [{ label: 'New board', disabled: true }, { header: LOOKING_BACK_WORDS }]
-    else if (!g.allowed || !island?.can_write) folderMenu = [{ label: 'New board', disabled: true }, { header: g.reason || 'You may not change this project.' }]
+    else if (!g.allowed) folderMenu = [{ label: 'New board', disabled: true }, { header: g.reason }]
     else {
       const folderId = insideKind === 'folder' ? rowOf(inside) : null
-      folderMenu = [{ label: 'New board', onClick: () => setNewBoard({ projectId: insideProject, folderId, title: '', busy: false, error: '' }) }]
+      folderMenu = [{ label: 'New board', onClick: () => setNewBoard({ start: { projectId: insideProject, folderId } }) }]
     }
   }
-  const makeBoard = async () => {
-    const asked = newBoard
-    if (!asked || makingBoard.current) return
-    makingBoard.current = true
-    setNewBoard({ ...asked, busy: true, error: '' })
+  // Where the strip's button starts: the folder (or project) of what is selected, else the one the list is inside.
+  const placeOf = (id) => {
+    for (let x = id, n = 0; x && n < 80; x = index.parent.get(x) ?? null, n++) {
+      const k = kindOf(x)
+      if (k === 'folder') return { projectId: index.rows.get(x)?.projectId ?? null, folderId: rowOf(x) }
+      if (k === 'project') return { projectId: rowOf(x), folderId: null }
+    }
+    return null
+  }
+  const anyBoardPlace = (islands || []).some((row) => boardGate(String(row.id)).allowed)
+  const newBoardButton = localOnly || typeof adapter.createBoard !== 'function' ? { allowed: false, reason: BOARD_NEEDS_CLOUD }
+    : scrubAt != null ? { allowed: false, reason: LOOKING_BACK_WORDS }
+    : !anyBoardPlace ? { allowed: false, reason: NO_PLACE_WORDS }
+    : { allowed: true, reason: null }
+  const askNewBoard = () => {
+    const start = (selected.length === 1 ? placeOf(selected[0]) : null) || (inside ? placeOf(inside) : null)
+    setNewBoard({ start })
+  }
+  // ── MO5 (her item 8): an item's menu, and Rename ──────────────────────────────────────────────────────────────
+  const writeGate = (pid) => {
+    if (scrubAt != null) return { allowed: false, reason: LOOKING_BACK_WORDS }
+    const island = islandOf(pid)
+    const g = access(island)
+    if (!island || !g.allowed || !island.can_write) return { allowed: false, reason: g.reason || 'You may not change this project.' }
+    return { allowed: true, reason: null }
+  }
+  const folderOf = (pid, fid) => (catalogue.folders?.[pid] || []).find((f) => String(f?.id) === String(fid)) ?? null
+  const underBoard = (pid, fid) => {
+    for (let f = folderOf(pid, fid), n = 0; f && n < 64; f = f.parent_id != null ? folderOf(pid, f.parent_id) : null, n++) {
+      if (boardRows.has(String(f.id))) return true
+    }
+    return false
+  }
+  const jumpOf = (id) => {
+    const node = graph.nodes.find((n) => n.id === id) ?? index.rows.get(id) ?? null
+    if (!node) return null
+    if (node.kind === 'note') return mothJump(node)
+    const isle = islandOf(node.projectId)
+    return isle && !isle.is_personal ? mothJump(node) : null
+  }
+  const pickOne = (fid) => { setPicked(new Set([fid])); setSelected([nodeId('file', fid)]) }
+  // An entry chosen leaves the focus where it leads (a question, the list, a board); only a menu let go of (Escape, a
+  // press elsewhere) gives it back to the row it was opened from (menuActed, kept with the menu's state above).
+  const acting = (fn) => (...args) => { menuActed.current = true; return fn(...args) }
+  // An entry that asks a question (a dialog) hands the focus to the row first, as the kit's MenuButton hands it to its
+  // button: the dialog gives it back there when it closes (round 1: it fell to the page, the entry being gone).
+  const asking = (fn) => acting((...args) => {
+    const from = itemMenuAt?.from
+    try { from?.focus?.({ preventScroll: true }) } catch { /* focus is a courtesy */ }
+    return fn(...args)
+  })
+  const menuItems = itemMenuAt ? itemMenu(itemMenuAt.id, {
+    index,
+    labelOf: (id) => (kindOf(id) === 'project' && islandOf(rowOf(id)) ? islandLabel(islandOf(rowOf(id)), { localOnly }) : null),
+    boardOf: (fid) => boardRows.get(String(fid)) ?? null,
+    underBoard,
+    folderOf,
+    fileOf: fileRow,
+    managedWords: MANAGED_ROW_SENTENCE,
+    boardGate,
+    writeGate,
+    cloud: !localOnly && typeof adapter.renameFolder === 'function',
+    jumpFor: jumpOf,
+    open: acting((id) => { setInside(id); select(id, { fly: true }) }),
+    show: acting((id) => select(id, { fly: true })),
+    openBoard: acting((b) => openBoardPanel(b)),
+    newBoard: asking((start) => setNewBoard({ start })),
+    moveFile: asking((fid) => { pickOne(fid); setMoving(true) }),
+    deleteFile: asking((fid) => { pickOne(fid); setConfirming(true) }),
+    rename: asking((r) => setRenaming({ ...r, isBoard: boardRows.has(String(r.folderId)) })),
+    jump: asking((j) => setJump(j)),
+  }) : []
+  const closeItemMenu = () => {
+    const from = itemMenuAt?.from
+    const acted = menuActed.current
+    menuActed.current = false
+    setItemMenuAt(null)
+    // Back to the row only when the focus has nowhere else to be (Escape, or the menu's entry gone): a press elsewhere
+    // keeps the focus where it pressed (round 1: typing in the search field went to the row).
+    if (!acted && from && typeof from.focus === 'function') {
+      setTimeout(() => {
+        const now = typeof document !== 'undefined' ? document.activeElement : null
+        if (now && now !== document.body && !now.closest?.('[data-moth-item-menu]')) return
+        try { from.focus({ preventScroll: true }) } catch { /* courtesy */ }
+      }, 0)
+    }
+  }
+  const renameFolder = async (name) => {
+    const asked = renaming
+    if (!asked) return
+    let out
     try {
-      const out = await adapter.createBoard(asked.projectId, asked.folderId, asked.title.trim() || null)
-      const row = { id: String(out.board_id), folder_id: String(out.folder_id), project_id: String(out.project_id ?? asked.projectId) }
+      out = await adapter.renameFolder(asked.folderId, name)
+    } catch (err) {
+      if (err?.code === '42501') throw new Error('You cannot rename this folder. It may have moved, or you may not change it.')
+      throw err
+    }
+    setRenaming(null)
+    setNote(RENAME_WORDS.done(out?.label || name))
+    notify([asked.projectId])
+    Promise.resolve().then(() => store.refresh([asked.projectId])).catch(() => {})
+  }
+
+  const makeBoard = async ({ projectId, folderId, title }) => {
+    if (makingBoard.current) return
+    makingBoard.current = true
+    try {
+      let out
+      try {
+        out = await adapter.createBoard(projectId, folderId, title || null)
+      } catch (err) {
+        throw new Error(boardWords(err, { making: true }))
+      }
+      const row = { id: String(out.board_id), folder_id: String(out.folder_id), project_id: String(out.project_id ?? projectId) }
       setNewBoard(null)
       setBoardRows((was) => new Map(was).set(row.folder_id, row))
       setBoardsAsked((n) => n + 1)
       notify([row.project_id])
       Promise.resolve().then(() => store.refresh([row.project_id])).catch(() => {})
       openBoardPanel(row, out.title)
-    } catch (err) {
-      setNewBoard((s) => (s ? { ...s, busy: false, error: boardWords(err, { making: true }) } : s))
     } finally {
       makingBoard.current = false
     }
@@ -918,12 +1076,20 @@ export default function MothPage({ isActive = true, worldFactory }) {
       <div className="moth-strip">
         <span className="moth-strip-title">{current.row?.name ?? QUICK_VIEWS[current.key]?.name ?? 'M.O.T.H.'}</span>
         <div className="moth-strip-right">
+          <GatedAction allowed={newBoardButton.allowed} reason={newBoardButton.reason}>
+            <Button size="sm" variant="ghost" Icon={SquarePlus} onClick={askNewBoard} disabled={!newBoardButton.allowed} data-moth-new-board>New board…</Button>
+          </GatedAction>
           <IconButton size="sm" Icon={HelpCircle} title="Help & documentation" onClick={() => setShowHelpModal(true)} />
           <IconButton size="sm" Icon={TagsIcon} title="Typed tags" onClick={() => setTagsOpen(true)} />
           <IconButton size="sm" Icon={SettingsIcon} title="M.O.T.H. settings" onClick={() => setSettingsOpen(true)} />
         </div>
       </div>
-      <div className="moth-stage">
+      {/* MO5 (her item 4.5): a press, a wheel or a key on the map, its list or its panels while a board is open is the
+          person working on the map (the board's own layer is outside this stage). */}
+      <div className="moth-stage"
+        onPointerDownCapture={() => { if (openBoardRef.current) openBoardRef.current.touched = true }}
+        onWheelCapture={() => { if (openBoardRef.current) openBoardRef.current.touched = true }}
+        onKeyDownCapture={() => { if (openBoardRef.current) openBoardRef.current.touched = true }}>
         <MothWorldView
           graph={graph}
           layout={config.layout}
@@ -935,6 +1101,8 @@ export default function MothPage({ isActive = true, worldFactory }) {
           selection={selected}
           rules={rules}
           flyTo={flyTo}
+          carry={!!local.carry}
+          glide={!!local.glide && !calm}
           worldRef={worldRef}
           createWorld={worldFactory}
           onPick={(id, how) => {
@@ -942,6 +1110,8 @@ export default function MothPage({ isActive = true, worldFactory }) {
             // MO4: a click on a board's dot opens the board.
             const board = id && !how?.additive && kindOf(id) === 'folder' ? boardRows.get(rowOf(id)) : null
             if (board) { openBoardPanel(board); return }
+            // MO5 (her item 4.5): picking on the map round an open board is the person's own; the board's close keeps it.
+            if (openBoardRef.current) openBoardRef.current.touched = true
             select(id, how)
           }}
           onOpen={openContainer}
@@ -952,6 +1122,7 @@ export default function MothPage({ isActive = true, worldFactory }) {
           onSettled={onSettled}
           onFrame={recorder ? onFrame : undefined}
           onDropFile={dropFile}
+          onMenu={(m) => { setBloom(null); setItemMenuAt({ id: m.id, x: m.x, y: m.y, from: null }) }}
         />
         <div className="moth-hud" data-moth-hud>
           <div className="moth-hud-banners">
@@ -1011,6 +1182,14 @@ export default function MothPage({ isActive = true, worldFactory }) {
             onRelayout={() => worldRef.current?.relayout()}
             onError={setError}
             onViewDeleted={(undo, name) => setViewUndo({ undo, name })}
+            extra={(
+              <>
+                <span className="moth-bar-rule" aria-hidden="true" />
+                {/* MO5 (her item 6): on, a drag on the map carries what is joined to the dot; kept for this person. */}
+                <IconButton size="sm" Icon={Magnet} title="Move what is joined along" active={!!local.carry} aria-pressed={!!local.carry}
+                  onClick={() => setLocal({ carry: !local.carry })} data-moth-carry />
+              </>
+            )}
           />
           <MothListWidget
             adapter={adapter}
@@ -1046,6 +1225,7 @@ export default function MothPage({ isActive = true, worldFactory }) {
             isBoard={(fid) => boardRows.has(String(fid))}
             insideBoard={insideBoard}
             onOpenBoard={(row) => openBoardPanel(row)}
+            onMenu={(id, x, y, from) => setItemMenuAt({ id, x, y, from })}
           />
           <MothCards
             selectedId={selected.length === 1 ? selected[0] : null}
@@ -1055,6 +1235,8 @@ export default function MothPage({ isActive = true, worldFactory }) {
             onOpenCard={(id) => views?.noteOpened(id)}
             onDropFile={dropFile}
             onNote={setNote}
+            size={{ w: local.card_w, h: local.card_h }}
+            onSize={(s) => setLocal({ card_w: s.w, card_h: s.h })}
           />
           {drag?.target && (
             <span className="moth-cursor-word" style={{ left: drag.x + 14, top: drag.y + 14 }} data-moth-cursor-word>
@@ -1081,34 +1263,34 @@ export default function MothPage({ isActive = true, worldFactory }) {
           </Suspense>
         </BoardBoundary>
       )}
+      {itemMenuAt && menuItems.length > 0 && (
+        <Menu x={itemMenuAt.x} y={itemMenuAt.y} items={menuItems} onClose={closeItemMenu} minWidth={240}
+          aria-label="Menu" data-moth-item-menu data-for={itemMenuAt.id}
+          onKeyDown={(e) => {
+            if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Home' && e.key !== 'End') return
+            const list = [...e.currentTarget.querySelectorAll('.ui-menu-item:not([disabled])')]
+            if (!list.length) return
+            e.preventDefault()
+            const at = list.indexOf(document.activeElement)
+            const next = e.key === 'Home' ? 0 : e.key === 'End' ? list.length - 1
+              : e.key === 'ArrowDown' ? (at + 1) % list.length : (at - 1 + list.length) % list.length
+            list[next].focus()
+          }} />
+      )}
+      {renaming && (
+        <MothRenameDialog name={renaming.name} isBoard={renaming.isBoard} onRename={renameFolder} onClose={() => setRenaming(null)} />
+      )}
       {newBoard && (
-        <Dialog
-          width="confirm"
-          title="New board"
-          onClose={() => { if (!newBoard.busy) setNewBoard(null) }}
-          busy={newBoard.busy}
-          footer={(
-            <>
-              <Button variant="ghost" onClick={() => setNewBoard(null)} disabled={newBoard.busy}>Cancel</Button>
-              <Button onClick={makeBoard} loading={newBoard.busy} loadingLabel="Making…" data-moth-board-make>Make the board</Button>
-            </>
-          )}
-        >
-          <label className="moth-field">
-            Name
-            <input
-              className="moth-search"
-              type="text"
-              value={newBoard.title}
-              maxLength={120}
-              placeholder="Board"
-              disabled={newBoard.busy}
-              onChange={(e) => { const title = e.target.value; setNewBoard((s) => (s ? { ...s, title, error: '' } : s)) }}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); makeBoard() } }}
-            />
-          </label>
-          {newBoard.error && <Banner tone="danger" data-moth-board-make-error>{newBoard.error}</Banner>}
-        </Dialog>
+        <MothNewBoard
+          islands={islands || []}
+          foldersOf={(pid) => catalogue.folders?.[pid] ?? []}
+          isBoard={(fid) => boardRows.has(String(fid))}
+          gateOf={boardGate}
+          start={newBoard.start}
+          localOnly={localOnly}
+          onMake={makeBoard}
+          onClose={() => setNewBoard(null)}
+        />
       )}
 
       {showHelpModal && (
@@ -1133,7 +1315,8 @@ export default function MothPage({ isActive = true, worldFactory }) {
         )}
       </Drawer>
       <Drawer open={settingsOpen} backdrop side="right" width="lg" label="Settings" title="M.O.T.H. settings" onClose={() => setSettingsOpen(false)} className="moth-settings-drawer">
-        <MothSettings appearance={appearance} onChange={setAppearance} calm={calm} available={viewSnap?.prefsAvailable !== false} />
+        <MothSettings appearance={appearance} onChange={setAppearance} calm={calm} available={viewSnap?.prefsAvailable !== false}
+          glide={!!local.glide} onGlide={(on) => setLocal({ glide: !!on })} />
       </Drawer>
       {(firstVisit || newView) && (
         <MothFirstVisit

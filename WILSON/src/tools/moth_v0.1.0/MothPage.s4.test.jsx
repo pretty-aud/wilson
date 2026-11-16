@@ -27,11 +27,13 @@ vi.mock('./board/BoardPanel.jsx', async () => {
   return { BoardPanel, default: BoardPanel }
 })
 
-import MothPage, { BOARD_DOT_COLOUR } from './MothPage.jsx'
+import MothPage, { BOARD_DOT_COLOUR, BOARD_LOOKING_BACK_WORDS } from './MothPage.jsx'
 import { keepLeaving, leavingOf, whoKey } from './board/boardPanelState.js'
-import { MothHelp } from './components/MothSettings.jsx'
+import { MothHelp, GLIDE_WORDS } from './components/MothSettings.jsx'
 import { BOARD_NEEDS_CLOUD } from './board/boardPanelState.js'
 import { FOLDERS_FAILED_SENTENCE } from './components/MothTrashView.jsx'
+import { boardPlaces, startPlace, TOP_WORDS, NO_PLACE_WORDS } from './components/MothNewBoard.jsx'
+import { itemMenu, renameGate, RENAME_WORDS } from './components/MothItemMenu.jsx'
 
 const island = (id, extra = {}) => ({
   id, title: `Project ${id}`, is_personal: false, is_mine: false, is_private: false, my_project_role: 'member', is_staffed: true, can_write: true, ...extra,
@@ -52,6 +54,7 @@ function fakeWorld() {
     setGraph(g, o) { w.graphs.push({ g, o }) }, relayout() {}, positions: () => ({}),
     setAppearance(a) { if (a && 'colourOf' in a) w.colourOf = a.colourOf },
     setReducedMotion() {}, setRules(r) { w.rules = r }, setActive(v) { w.active = v }, resize() {}, setSelection(s) { w.selection = s },
+    setCarry(v) { w.carry = v }, setGlide(v) { w.glide = v },
     flyTo(id) { w.flown.push(id); return true }, on(event, fn) { w.handlers[event] = fn },
     renderer: {
       hitTest: () => null,
@@ -357,8 +360,215 @@ describe('🚨 New board, in a folder\'s menu', () => {
   })
 })
 
+// MO5 item 3: a New board button always in sight, a dialog asking the name and where it goes, starting on the folder
+// selected; almost any folder may hold a board (0138), never another board's; where none may be made, it says why.
+describe('🚨 MO5 3: New board… in the strip, and where the board goes', () => {
+  const FOLDERS = [
+    { id: 'root', kind: 'root', parent_id: null, path: '', slug: 'p', label: 'Project' },
+    { id: 'assets', kind: 'category', parent_id: 'root', path: 'ASSETS', slug: 'ASSETS', label: 'ASSETS' },
+    { id: 'mira', kind: 'entity', parent_id: 'assets', path: 'ASSETS/mira', slug: 'mira', label: 'Mira' },
+    { id: 'bf', kind: 'custom', parent_id: 'root', path: 'plans', slug: 'plans', label: 'Plans' },
+    { id: 'inbf', kind: 'custom', parent_id: 'bf', path: 'plans/old', slug: 'old', label: 'Old' },
+  ]
+  it('the picker lists the top first, every folder under its parent, a thing\'s own among them, and never a board\'s', () => {
+    const places = boardPlaces(FOLDERS, (id) => id === 'bf')
+    expect(places.map((p) => [p.id, p.depth, p.label])).toEqual([[null, 0, TOP_WORDS], ['assets', 1, 'ASSETS'], ['mira', 2, 'Mira']])
+  })
+  it('round 1: two folders whose names differ by "-2" keep each one\'s own folders under it', () => {
+    const rows = [
+      { id: 'r2', kind: 'custom', label: 'Refs 2', path: 'refs-2', parent_id: null },
+      { id: 'old', kind: 'custom', label: 'Old', path: 'refs/old', parent_id: 'r1' },
+      { id: 'r1', kind: 'custom', label: 'Refs', path: 'refs', parent_id: null },
+    ]
+    expect(boardPlaces(rows).map((p) => p.id)).toEqual([null, 'r1', 'old', 'r2'])
+    // Round 2: names alike but for case are two folders, each with its own below it.
+    const cased = [
+      { id: 'lower', kind: 'custom', label: 'refs', path: 'refs', parent_id: null },
+      { id: 'upper-kid', kind: 'custom', label: 'Kid', path: 'Refs/kid', parent_id: 'upper' },
+      { id: 'upper', kind: 'custom', label: 'Refs', path: 'Refs', parent_id: null },
+      { id: 'lower-kid', kind: 'custom', label: 'Kid', path: 'refs/kid', parent_id: 'lower' },
+    ]
+    const order = boardPlaces(cased).map((p) => p.id)
+    expect(order.indexOf('upper-kid')).toBe(order.indexOf('upper') + 1)
+    expect(order.indexOf('lower-kid')).toBe(order.indexOf('lower') + 1)
+  })
+  it('it starts on the folder selected; a board\'s own folder (or one below it) starts on the folder that holds the board', () => {
+    const islands = [island('p1'), island('p2')]
+    const foldersOf = () => FOLDERS
+    const isBoard = (id) => id === 'bf'
+    expect(startPlace({ start: { projectId: 'p1', folderId: 'mira' }, islands, foldersOf, isBoard })).toEqual({ projectId: 'p1', folderId: 'mira' })
+    expect(startPlace({ start: { projectId: 'p1', folderId: 'inbf' }, islands, foldersOf, isBoard })).toEqual({ projectId: 'p1', folderId: null })
+    expect(startPlace({ start: { projectId: 'p1', folderId: 'root' }, islands, foldersOf, isBoard })).toEqual({ projectId: 'p1', folderId: null })
+    // Nothing selected: the first project a board may be made in.
+    expect(startPlace({ start: null, islands, foldersOf, isBoard, gateOf: (pid) => ({ allowed: pid === 'p2' }) })).toEqual({ projectId: 'p2', folderId: null })
+  })
+  it('the strip\'s button opens the question on the folder the list is inside, and makes the board there', async () => {
+    render(<MothPage worldFactory={fakeWorld} />)
+    await intoProject()
+    fireEvent.click(screen.getByRole('button', { name: /Refs/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'New board…' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByLabelText('Project').value).toBe('p1')
+    expect(within(dialog).getByLabelText('Where it goes').selectedOptions[0].textContent.trim()).toBe('Refs')
+    // A board's own folder is no place for another board.
+    expect([...within(dialog).getByLabelText('Where it goes').options].map((o) => o.textContent.trim())).toEqual([TOP_WORDS, 'Refs'])
+    fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: 'Moodboard' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Make the board' }))
+    await waitFor(() => expect(adapter.createBoard).toHaveBeenCalledWith('p1', 'f2', 'Moodboard'))
+    await waitFor(() => expect(panel()).toBeTruthy())
+  })
+  it('another place may be chosen; a project the person may not change is greyed with why, and nothing is made there', async () => {
+    adapter.listMothIslands = vi.fn(async () => [MINE, island('p1'), island('p3', { title: 'Look only', my_project_role: 'reviewer', can_write: false })])
+    render(<MothPage worldFactory={fakeWorld} />)
+    await intoProject()
+    fireEvent.click(screen.getByRole('button', { name: 'New board…' }))
+    const dialog = await screen.findByRole('dialog')
+    const project = within(dialog).getByLabelText('Project')
+    const looking = [...project.options].find((o) => o.value === 'p3')
+    expect(looking.disabled).toBe(true)
+    expect(looking.textContent).toMatch(/\(you may not change it\)$/)
+    fireEvent.change(project, { target: { value: 'me' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Make the board' }))
+    await waitFor(() => expect(adapter.createBoard).toHaveBeenCalledWith('me', null, null))
+  })
+  it('with no project to change, the button is greyed and says why', async () => {
+    adapter.listMothIslands = vi.fn(async () => [island('p1', { my_project_role: 'reviewer', can_write: false })])
+    render(<MothPage worldFactory={fakeWorld} />)
+    await intoProject()
+    expect(document.querySelector('[data-moth-new-board]').disabled).toBe(true)
+    expect(screen.getByTitle(NO_PLACE_WORDS).contains(document.querySelector('[data-moth-new-board]'))).toBe(true)
+  })
+})
+
+// MO5 item 8: a right-click (or Shift+F10 on a row) opens a menu with what the list's menus offer there and Rename;
+// WILSON's own folders keep their names, greyed with why.
+describe('🚨 MO5 8: an item\'s menu, and Rename', () => {
+  const words = (items) => items.map((i) => (i.header ? `# ${i.header}` : `${i.disabled ? '[x] ' : ''}${i.label}`))
+  const folders = {
+    root: { id: 'root', kind: 'root', parent_id: null, path: '' },
+    assets: { id: 'assets', kind: 'category', parent_id: 'root', label: 'ASSETS' },
+    mira: { id: 'mira', kind: 'entity', entity_type: 'asset', parent_id: 'assets', label: 'Mira' },
+    mine: { id: 'mine', kind: 'custom', parent_id: 'root', label: 'Mine' },
+    bf: { id: 'bf', kind: 'custom', parent_id: 'root', label: 'Plans' },
+  }
+  const ctx = (extra = {}) => ({
+    index: { rows: new Map(Object.values(folders).filter((f) => f.kind !== 'root').map((f) => [`folder:${f.id}`, { id: `folder:${f.id}`, kind: 'folder', rowId: f.id, projectId: 'p1', label: f.label }])
+      .concat([['project:p1', { id: 'project:p1', kind: 'project', rowId: 'p1', projectId: 'p1', label: 'Salt Hours' }],
+        ['file:a', { id: 'file:a', kind: 'file', rowId: 'a', projectId: 'p1', label: 'a.mov' }],
+        ['asset:x', { id: 'asset:x', kind: 'asset', rowId: 'x', projectId: 'p1', label: 'Mira' }]])) },
+    boardOf: (fid) => (fid === 'bf' ? { id: 'b1', folder_id: 'bf', project_id: 'p1' } : null),
+    underBoard: () => false,
+    folderOf: (_pid, fid) => folders[fid] ?? null,
+    fileOf: () => ({ id: 'a', managed: false }),
+    boardGate: () => ({ allowed: true }),
+    writeGate: () => ({ allowed: true }),
+    cloud: true,
+    jumpFor: (id) => (id === 'asset:x' ? { label: 'Open in R.A.B.B.I.T.' } : null),
+    open: vi.fn(), show: vi.fn(), openBoard: vi.fn(), newBoard: vi.fn(), moveFile: vi.fn(), deleteFile: vi.fn(), rename: vi.fn(), jump: vi.fn(),
+    ...extra,
+  })
+  it('WILSON\'s own folders keep their names, greyed with why; a person\'s own folder and a board are renamed', () => {
+    expect(words(itemMenu('folder:assets', ctx()))).toEqual(['# ASSETS', 'Open', 'New board here…', '[x] Rename…', `# ${RENAME_WORDS.kept}`])
+    expect(words(itemMenu('folder:mira', ctx()))).toEqual(['# Mira', 'Open', 'New board here…', '[x] Rename…', `# ${RENAME_WORDS.thing('asset')}`])
+    const c = ctx()
+    const mine = itemMenu('folder:mine', c)
+    expect(words(mine)).toEqual(['# Mine', 'Open', 'New board here…', 'Rename…'])
+    mine.find((i) => i.label === 'Rename…').onClick()
+    expect(c.rename).toHaveBeenCalledWith({ id: 'folder:mine', projectId: 'p1', folderId: 'mine', name: 'Mine' })
+    expect(words(itemMenu('folder:bf', ctx()))).toEqual(['# Plans', 'Open board', 'Rename board…'])
+  })
+  it('a project, a file and a thing are renamed in R.A.B.B.I.T.; a file moves and goes as the view panel says; a thing opens in its tool', () => {
+    expect(words(itemMenu('project:p1', ctx()))).toEqual(['# Salt Hours', 'Open', 'New board here…', '[x] Rename…', `# ${RENAME_WORDS.project}`])
+    expect(words(itemMenu('file:a', ctx()))).toEqual(['# a.mov', 'Show in the list', 'Move to…', 'Delete…', '[x] Rename…', `# ${RENAME_WORDS.elsewhere}`])
+    expect(words(itemMenu('asset:x', ctx()))).toEqual(['# Mira', 'Show in the list', '[x] Rename…', `# ${RENAME_WORDS.elsewhere}`, 'Open in R.A.B.B.I.T.'])
+  })
+  it('what the person may not do is greyed with its reason: looking back, a project not theirs, this computer alone', () => {
+    const back = ctx({ boardGate: () => ({ allowed: false, reason: 'Looking back changes nothing.' }), writeGate: () => ({ allowed: false, reason: 'Looking back changes nothing.' }) })
+    expect(words(itemMenu('folder:mine', back))).toEqual(['# Mine', 'Open', '[x] New board here…', '# Looking back changes nothing.', '[x] Rename…', '# Looking back changes nothing.'])
+    expect(words(itemMenu('file:a', back))).toEqual(['# a.mov', 'Show in the list', '[x] Move to…', '[x] Delete…', '# Looking back changes nothing.', '[x] Rename…', `# ${RENAME_WORDS.elsewhere}`])
+    expect(renameGate(folders.mine, { cloud: false })).toEqual({ allowed: false, reason: RENAME_WORDS.local })
+  })
+  it('right-click on a row opens its menu; Rename… asks the name and renames through the adapter, and says so', async () => {
+    adapter.renameFolder = vi.fn(async (fid, name) => ({ folder_id: fid, label: name, changed: true }))
+    adapter.listMothFolders = vi.fn(async (pid) => (pid === 'p1' ? [{ id: 'f2', kind: 'custom', label: 'Refs', slug: 'refs', path: 'refs', parent_id: null }] : []))
+    render(<MothPage worldFactory={fakeWorld} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Project p1' }))
+    const row = await screen.findByRole('button', { name: /Refs/ })
+    fireEvent.contextMenu(row, { clientX: 40, clientY: 50 })
+    const menu = document.querySelector('[data-moth-item-menu]')
+    expect(menu.dataset.for).toBe('folder:f2')
+    fireEvent.click(within(menu).getByRole('button', { name: 'Rename…' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByLabelText('Name').value).toBe('Refs')
+    fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: 'References' } })
+    fireEvent.keyDown(within(dialog).getByLabelText('Name'), { key: 'Enter' })
+    await waitFor(() => expect(adapter.renameFolder).toHaveBeenCalledWith('f2', 'References'))
+    expect(await screen.findByText(RENAME_WORDS.done('References'))).toBeTruthy()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+  it('from the keyboard: Shift+F10 on a row opens it with its first entry focused; Escape gives the focus back to the row', async () => {
+    render(<MothPage worldFactory={fakeWorld} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Project p1' }))
+    const row = await screen.findByRole('button', { name: /Refs/ })
+    row.focus()
+    fireEvent.keyDown(row, { key: 'F10', shiftKey: true })
+    await waitFor(() => expect(document.activeElement?.textContent).toBe('Open'))
+    fireEvent.keyDown(document.activeElement, { key: 'Escape' })
+    await waitFor(() => expect(document.querySelector('[data-moth-item-menu]')).toBeNull())
+    await waitFor(() => expect(document.activeElement).toBe(row))
+  })
+  it('round 1: a row is not announced as a menu button; Rename… from the keyboard, cancelled, gives the focus back to the row', async () => {
+    adapter.renameFolder = vi.fn(async () => ({}))
+    adapter.listMothFolders = vi.fn(async (pid) => (pid === 'p1' ? [{ id: 'f2', kind: 'custom', label: 'Refs', slug: 'refs', path: 'refs', parent_id: null }] : []))
+    render(<MothPage worldFactory={fakeWorld} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Project p1' }))
+    const row = await screen.findByRole('button', { name: /Refs/ })
+    expect(row.hasAttribute('aria-haspopup')).toBe(false)
+    row.focus()
+    fireEvent.keyDown(row, { key: 'F10', shiftKey: true })
+    await waitFor(() => expect(document.activeElement?.textContent).toBe('Open'))
+    fireEvent.click(within(document.querySelector('[data-moth-item-menu]')).getByRole('button', { name: 'Rename…' }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    await waitFor(() => expect(document.activeElement).toBe(row))
+  })
+  it('round 1: a menu let go of by a press elsewhere leaves the focus where it went', async () => {
+    render(<MothPage worldFactory={fakeWorld} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Project p1' }))
+    const row = await screen.findByRole('button', { name: /Refs/ })
+    fireEvent.contextMenu(row, { clientX: 40, clientY: 50 })
+    expect(document.querySelector('[data-moth-item-menu]')).toBeTruthy()
+    const find = screen.getByRole('searchbox', { name: 'Find and fly to' })
+    fireEvent.pointerDown(find)
+    fireEvent.mouseDown(find)
+    find.focus()
+    await waitFor(() => expect(document.querySelector('[data-moth-item-menu]')).toBeNull())
+    await new Promise((r) => setTimeout(r, 10))
+    expect(document.activeElement).toBe(find)
+  })
+  it('a refusal is said in the question, which stays', async () => {
+    adapter.renameFolder = vi.fn(async () => { throw Object.assign(new Error('folder not found or not writable'), { code: '42501' }) })
+    adapter.listMothFolders = vi.fn(async (pid) => (pid === 'p1' ? [{ id: 'f2', kind: 'custom', label: 'Refs', slug: 'refs', path: 'refs', parent_id: null }] : []))
+    render(<MothPage worldFactory={fakeWorld} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Project p1' }))
+    fireEvent.contextMenu(await screen.findByRole('button', { name: /Refs/ }), { clientX: 40, clientY: 50 })
+    fireEvent.click(within(document.querySelector('[data-moth-item-menu]')).getByRole('button', { name: 'Rename…' }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: 'Other' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Rename' }))
+    expect(await within(dialog).findByText(/^You cannot rename this folder\./)).toBeTruthy()
+  })
+})
+
 describe('🚨 on this computer alone', () => {
   beforeEach(() => { state.rabbit.adapterMode = 'local_server' })
+  it('MO5: the strip\'s New board… is greyed, and says boards need the cloud', async () => {
+    render(<MothPage worldFactory={fakeWorld} />)
+    await intoProject('Project p1 · On this computer only')
+    expect(document.querySelector('[data-moth-new-board]').disabled).toBe(true)
+    expect(screen.getByTitle(BOARD_NEEDS_CLOUD).contains(document.querySelector('[data-moth-new-board]'))).toBe(true)
+  })
   it('no board is asked for or offered, and the menu says why', async () => {
     render(<MothPage worldFactory={fakeWorld} />)
     await intoProject('Project p1 · On this computer only')
@@ -446,6 +656,160 @@ describe('Help', () => {
     render(<MothHelp />)
     expect(screen.getByText('Boards')).toBeTruthy()
     expect(screen.getByText(/Click it to open it in a frame over the map/)).toBeTruthy()
-    expect(screen.getByText(/choose New board from its menu\. Boards need the project in the cloud\./)).toBeTruthy()
+    expect(screen.getByText(/choose New board from a folder's menu\. Boards need the project in the cloud\./)).toBeTruthy()
+  })
+  it('says what MO5 added: New board at the top, renaming, the magnet, the glide, the right-click menu, lines from dots', () => {
+    render(<MothHelp />)
+    expect(screen.getByText(/choose New board at the top of the map, name it and choose where it goes/)).toBeTruthy()
+    expect(screen.getByText(/Click a board's name at its top to rename it\./)).toBeTruthy()
+    expect(screen.getByText(/Move what is joined along/)).toBeTruthy()
+    expect(screen.getByText(/glides a little before it stops; Settings can turn that off/)).toBeTruthy()
+    expect(screen.getByText(/Right-click a dot or a row of the list \(or press Shift\+F10\)/)).toBeTruthy()
+    expect(screen.getByText(/drag from one to draw a line tied there/)).toBeTruthy()
+    expect(screen.queryByText(/view panel/)).toBeNull()
+  })
+})
+
+// MO5 item 4.5: "when the user makes the board window small they should be able to move around the file viewer/web".
+describe('🚨 MO5 4.5: the map works round a board in its frame', () => {
+  it('in its frame the board\'s layer takes no press: only the frame does, and the map is dimmed, never blurred', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { resolve } = await import('node:path')
+    const css = readFileSync(resolve(__dirname, 'moth.css'), 'utf8')
+    expect(css).toContain('.moth-board-layer[data-size="framed"] { pointer-events: none; }')
+    expect(css).toMatch(/\.moth-board-layer\[data-size="framed"\] > \.moth-board,\s*\.moth-board-layer\[data-size="framed"\] \.moth-board-wait \{ pointer-events: auto; \}/)
+    const scrim = css.match(/\.moth-board-scrim \{[^}]*\}/)?.[0] ?? ''
+    expect(scrim).toContain('pointer-events: none;')
+    expect(scrim).not.toContain('backdrop-filter')
+  })
+  it('a dot picked on the map while the board is open is kept when it closes; the camera too', async () => {
+    render(<MothPage worldFactory={fakeWorld} />)
+    const w = await world()
+    await boardsRead(w)
+    act(() => { w.handlers.pick('folder:bf', {}) })
+    await waitFor(() => expect(panel()).toBeTruthy())
+    act(() => { w.handlers.pick('folder:f2', {}) })
+    w.cam = { x: 40, y: 60, k: 1 }
+    fireEvent.click(screen.getByRole('button', { name: 'Close the test board' }))
+    await waitFor(() => expect(panel()).toBeNull())
+    expect(w.renderer.setCamera).not.toHaveBeenCalled()
+    await waitFor(() => expect(w.selection).toEqual(['folder:f2']))
+  })
+  it('Ctrl+Z is the map\'s while the focus is outside a board in its frame, and the board\'s when it fills the view', async () => {
+    render(<MothPage worldFactory={fakeWorld} />)
+    const w = await world()
+    await boardsRead(w)
+    act(() => { w.handlers.pick('folder:bf', {}) })
+    await waitFor(() => expect(panel()).toBeTruthy())
+    const press = () => { const e = new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }); act(() => { document.body.dispatchEvent(e) }); return e }
+    // Not yet used the map: the key is still the board's (MO4's rule).
+    expect(press().defaultPrevented).toBe(false)
+    // Worked on the map round it: the map's.
+    act(() => { w.handlers.pick('folder:f2', {}) })
+    expect(press().defaultPrevented).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Fill the test board' }))
+    expect(press().defaultPrevented).toBe(false)
+  })
+  it('round 2: looking back from the bar round a framed board closes it, and says why', async () => {
+    adapter.fetchMothHistoryWindow = vi.fn(async () => [{ recording_since: new Date(Date.now() - 30 * 86400000).toISOString() }])
+    adapter.fetchMothHistory = vi.fn(async () => [])
+    render(<MothPage worldFactory={fakeWorld} />)
+    const w = await world()
+    await boardsRead(w)
+    act(() => { w.handlers.pick('folder:bf', {}) })
+    await waitFor(() => expect(panel()).toBeTruthy())
+    const range = await screen.findByLabelText('Look back')
+    fireEvent.change(range, { target: { value: String(Date.now() - 5 * 86400000) } })
+    await waitFor(() => expect(panel()).toBeNull())
+    expect(await screen.findByText(BOARD_LOOKING_BACK_WORDS)).toBeTruthy()
+  })
+})
+
+describe('🚨 MO5 6: the bar\'s switch that carries what is joined', () => {
+  it('is off at first, turns on with a press, tells the map, and is kept for this person', async () => {
+    localStorage.removeItem('wilson.moth.local.v1')
+    render(<MothPage worldFactory={fakeWorld} />)
+    const w = await world()
+    const sw = await screen.findByRole('button', { name: 'Move what is joined along' })
+    expect(sw.getAttribute('aria-pressed')).toBe('false')
+    expect(w.carry).toBe(false)
+    fireEvent.click(sw)
+    expect(sw.getAttribute('aria-pressed')).toBe('true')
+    expect(w.carry).toBe(true)
+    cleanup()
+    render(<MothPage worldFactory={fakeWorld} />)
+    const w2 = await world()
+    expect((await screen.findByRole('button', { name: 'Move what is joined along' })).getAttribute('aria-pressed')).toBe('true')
+    expect(w2.carry).toBe(true)
+    // Someone else on this computer has their own.
+    cleanup()
+    state.perms = { ...state.perms, userId: 'u2' }
+    render(<MothPage worldFactory={fakeWorld} />)
+    await world()
+    expect((await screen.findByRole('button', { name: 'Move what is joined along' })).getAttribute('aria-pressed')).toBe('false')
+    localStorage.removeItem('wilson.moth.local.v1')
+  })
+})
+
+describe('round 2: settings add up where nothing can be stored', () => {
+  it('the magnet then the glide: each change keeps the other', async () => {
+    const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => null)
+    const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked') })
+    try {
+      render(<MothPage worldFactory={fakeWorld} />)
+      const w = await world()
+      const magnet = await screen.findByRole('button', { name: 'Move what is joined along' })
+      fireEvent.click(magnet)
+      expect(w.carry).toBe(true)
+      fireEvent.click(await screen.findByRole('button', { name: 'M.O.T.H. settings' }))
+      fireEvent.click(await screen.findByRole('switch', { name: GLIDE_WORDS.label }))
+      expect(w.glide).toBe(false)
+      expect(w.carry).toBe(true)
+      expect(magnet.getAttribute('aria-pressed')).toBe('true')
+    } finally {
+      get.mockRestore()
+      set.mockRestore()
+    }
+  })
+})
+
+describe('🚨 MO5 5: the glide\'s switch in Settings', () => {
+  const settings = async () => {
+    fireEvent.click(await screen.findByRole('button', { name: 'M.O.T.H. settings' }))
+    return screen.findByRole('switch', { name: GLIDE_WORDS.label })
+  }
+  it('is on at first and tells the map; off, the map is told and it is kept for this person', async () => {
+    localStorage.removeItem('wilson.moth.local.v1')
+    render(<MothPage worldFactory={fakeWorld} />)
+    const w = await world()
+    const sw = await settings()
+    expect(sw.getAttribute('aria-checked')).toBe('true')
+    expect(w.glide).toBe(true)
+    expect(screen.getByText(GLIDE_WORDS.kept)).toBeTruthy()
+    fireEvent.click(sw)
+    expect(sw.getAttribute('aria-checked')).toBe('false')
+    expect(w.glide).toBe(false)
+    cleanup()
+    render(<MothPage worldFactory={fakeWorld} />)
+    const w2 = await world()
+    expect((await settings()).getAttribute('aria-checked')).toBe('false')
+    expect(w2.glide).toBe(false)
+    localStorage.removeItem('wilson.moth.local.v1')
+  })
+  it('while the computer asks for less motion it is off and cannot be turned on, and says why', async () => {
+    localStorage.removeItem('wilson.moth.local.v1')
+    const was = window.matchMedia
+    window.matchMedia = (q) => ({ matches: q.includes('reduce'), media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} })
+    try {
+      render(<MothPage worldFactory={fakeWorld} />)
+      const w = await world()
+      const sw = await settings()
+      expect(sw.getAttribute('aria-checked')).toBe('false')
+      expect(sw.disabled).toBe(true)
+      expect(screen.getByText(GLIDE_WORDS.calm)).toBeTruthy()
+      expect(w.glide).toBe(false)
+    } finally {
+      window.matchMedia = was
+    }
   })
 })

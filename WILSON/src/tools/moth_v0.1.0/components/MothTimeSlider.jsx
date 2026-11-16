@@ -6,18 +6,28 @@ const HOUR = 3600000
 const day = (t) => new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
 const when = (t) => new Date(t).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })
 
-export default function MothTimeSlider({ history }) {
+// MO5 (her item 2): `compact` is the bar's form: one line, the label said to a screen reader only, the sentence cut
+// short where the bar is narrow, with all of it in its tooltip.
+export default function MothTimeSlider({ history, compact = false }) {
   if (!history) return null
   if (history.available === false) {
-    return <p className="moth-quiet" data-moth-time-absent>{history.localOnly ? 'History is not recorded for projects kept only on this computer.' : 'History is not on this database yet.'}</p>
+    const words = history.localOnly ? 'History is not recorded for projects kept only on this computer.' : 'History is not on this database yet.'
+    return <p className={`moth-quiet${compact ? ' moth-time-says-short' : ''}`} title={compact ? words : undefined} data-moth-time-absent>{words}</p>
   }
   const now = history.now ?? Date.now()
   const known = history.floor != null
   const floor = Math.min(history.floor ?? now - 90 * 86400000, now)
   const value = history.at ?? now
+  const says = [
+    history.at ? `As it was ${when(history.at)}. Looking back changes nothing.` : 'Now.',
+    known ? `Not recorded before ${day(floor)}.` : 'Reading when the record begins…',
+    history.loading ? 'Reading…' : '',
+    history.error || '',
+    history.incomplete ? 'Only part of this period could be read.' : '',
+  ].filter(Boolean).join(' ')
   return (
-    <div className="moth-time" data-moth-time>
-      <label className="moth-label" htmlFor="moth-time-range">Look back</label>
+    <div className={`moth-time${compact ? ' moth-time-compact' : ''}`} data-moth-time title={compact ? says : undefined}>
+      <label className={compact ? 'moth-sr' : 'moth-label'} htmlFor="moth-time-range">Look back</label>
       <input
         id="moth-time-range"
         className="moth-time-range"
@@ -33,7 +43,7 @@ export default function MothTimeSlider({ history }) {
         }}
         data-moth-time-range
       />
-      <p className="moth-quiet" data-moth-time-says>
+      <p className={`moth-quiet${compact ? ' moth-time-says-short' : ''}`} data-moth-time-says>
         {history.at ? `As it was ${when(history.at)}. Looking back changes nothing.` : 'Now.'}
         {' '}{known ? `Not recorded before ${day(floor)}.` : 'Reading when the record begins…'}
         {history.loading ? ' Reading…' : ''}

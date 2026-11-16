@@ -157,8 +157,11 @@ SELECT is(public.t134_err($$SELECT public.board_create('aaaa1340-0000-0000-0000-
   '22023', 'nor a board named as a money or Legal folder at the top, refused before any folder is looked up');
 SELECT is(public.t134_err($$SELECT public.board_create('aaaa1340-0000-0000-0000-00000000000a', '13400000-0000-0000-0000-0000000000a4', 'Contracts')$$),
   '42501', 'nor under a Legal folder');
-SELECT is(public.t134_err($$SELECT public.board_create('aaaa1340-0000-0000-0000-00000000000a', '13400000-0000-0000-0000-0000000000a5', 'Looks')$$),
-  '22023', 'nor inside a thing''s own folder, which goes when the thing does');
+-- 0138: a thing's own folder may hold a board (the board goes to the project's top when the thing goes; suite 140).
+-- Made and undone in one step here, so the counts below stay this suite's own.
+SELECT is(public.t134_err($q$DO $d$ BEGIN PERFORM public.board_create('aaaa1340-0000-0000-0000-00000000000a', '13400000-0000-0000-0000-0000000000a5', 'Looks');
+                                           RAISE EXCEPTION 'made' USING ERRCODE = 'P0099'; END $d$$q$),
+  'P0099', 'and inside a thing''s own folder (0138)');
 SELECT is(public.t134_err($$SELECT public.board_create('aaaa1340-0000-0000-0000-00000000000a', '13400000-0000-0000-0000-0000000000b0', 'Other')$$),
   '42501', 'nor under another project''s folder');
 SELECT ok((public.board_create('aaaa1340-0000-0000-0000-00000000000c', NULL, 'Secret') ->> 'board_id') IS NOT NULL,

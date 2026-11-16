@@ -54,7 +54,10 @@ export const BOARD_WORDS = Object.freeze({
   style: 'That style is not one a board knows.',
   points: 'Those points are not a drawing a board knows.',
   nameLength: 'A board\'s name is at most 120 characters.',
-  entityChain: 'A board is made in the project\'s own folders, not inside a shot\'s, a scene\'s or an asset\'s.',
+  // 0138: moth_rename_folder's own words.
+  renameKept: 'WILSON made this folder, so its name stays.',
+  renameEmpty: 'A name cannot be empty.',
+  renameLength: 'A name is at most 120 characters.',
   projectBoards: 'A project holds at most 500 boards.',
   keptName: 'That name is kept for the project\'s own folders.',
   namesHere: 'Too many folders of that name here.',
@@ -82,7 +85,6 @@ export const BOARD_WORDS = Object.freeze({
   intoItself: 'A folder cannot go inside itself.',
   moveDeep: 'A folder with more than 2,000 folders below it cannot move in one step.',
   holdsLayout: 'This folder holds part of the project\'s own layout and stays.',
-  boardEntity: 'A board stays in the project\'s own folders, not inside a shot\'s, a scene\'s or an asset\'s.',
   officeMove: 'A folder holding files on the office server cannot move yet.',
   namesThere: 'Too many folders of that name there.',
 })
@@ -310,15 +312,8 @@ export function createBoardsFixtures(store, ctx) {
     background: b.background ?? 'dots',
     background_version: b.background_version ?? 0,
   })
-  // rabbit_private.folder_chain_has_entity.
-  const chainHasEntity = (folderId) => {
-    let node = folderOf(folderId)
-    for (let depth = 1; node && depth <= 64; depth += 1) {
-      if (node.kind === 'entity') return true
-      node = node.parent_id ? folderOf(node.parent_id) : null
-    }
-    return false
-  }
+  // 0138: a thing's own folder (and anything below one) may hold a board; rabbit_private.folder_chain_has_entity is no
+  // longer asked by board_create or moth_move_folders.
   // rabbit_private.folder_subtree: itself first, then by depth and id.
   const subtree = (folderId) => {
     const out = []
@@ -652,7 +647,6 @@ export function createBoardsFixtures(store, ctx) {
         if (sub.includes(destParent)) throw pgError('22023', W.intoItself)
         if (sub.length > 2000) throw pgError('54000', W.moveDeep)
         if (sub.some(x => folderOf(x)?.kind !== 'custom')) throw pgError('22023', W.holdsLayout)
-        if (S().boards.some(b => sub.includes(b.folder_id)) && chainHasEntity(destParent)) throw pgError('22023', W.boardEntity)
         const set = new Set(sub)
         if (store.files.some(x => set.has(x.folder_id) && !x.deleted_at && x.storage_provider === 'network_share' && !isMoneyFile(x))) {
           throw pgError('22023', W.officeMove)
@@ -704,7 +698,6 @@ export function createBoardsFixtures(store, ctx) {
         ? store.folders.find(f => f.project_id === projectId && f.kind === 'root' && f.workspace_id === workspaceId)
         : store.folders.find(f => f.id === parentFolderId && f.project_id === projectId && f.workspace_id === workspaceId)
       if (!parent || !mothMayChange('folder', parent.id)) throw pgError('42501', W.folderNotWritable)
-      if (chainHasEntity(parent.id)) throw pgError('22023', W.entityChain)
       if (S().boards.filter(b => b.project_id === projectId).length >= 500) throw pgError('54000', W.projectBoards)
       let base = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60)
       if (base === '') base = 'board'
@@ -816,6 +809,24 @@ export function createBoardsFixtures(store, ctx) {
       b.updated_by = userId
       busSay(topicName(b, false), 'board', { board: b.id, op: 'background', background, version: b.background_version })
       return { board_id: b.id, background, version: b.background_version, changed: true }
+    },
+    // moth_rename_folder (0138): a person's own folder only (a board's is one), through Moth's write gate; only the
+    // label changes; a board's new title is one `board` message on its database channel, with when it was set.
+    async renameFolder(folderId, label) {
+      const f = folderOf(folderId)
+      if (!f || f.workspace_id !== workspaceId || f.deleted_at || !mothMayChange('folder', f.id)) throw pgError('42501', W.folderNotWritable)
+      if (f.kind !== 'custom') throw pgError('22023', W.renameKept)
+      const name = String(label ?? '').replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/^ +| +$/g, '')
+      if (name === '') throw pgError('22023', W.renameEmpty)
+      if ([...name].length > 120) throw pgError('22023', W.renameLength)
+      const b = S().boards.find(x => x.folder_id === f.id) ?? null
+      if (f.label === name) return { folder_id: f.id, label: name, board_id: b?.id ?? null, changed: false }
+      f.label = name
+      f.updated_by = userId
+      f.updated_at = now()
+      const at = Date.now()
+      if (b) busSay(topicName(b, false), 'board', { board: b.id, op: 'title', title: name, at })
+      return { folder_id: f.id, label: name, board_id: b?.id ?? null, changed: true, at }
     },
 
     // The sticky's turn (0133), by the clock the page has.

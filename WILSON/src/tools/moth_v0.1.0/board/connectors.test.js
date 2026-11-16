@@ -2,8 +2,9 @@
 // each end's head; the label's place; the stored form the server keeps (0130: w, h never negative, 128 numbers).
 import { describe, it, expect } from 'vitest'
 import {
-  ANCHORS, anchorPoint, autoSide, centreOf, connectorEnds, connectorRecord, connectorsTouching, containsPoint,
-  endAngles, headInset, headShape, labelPoint, pickAnchor, routeBounds, routePoints, toBoard, toLocal, trimForHeads,
+  ANCHORS, anchorPoint, autoSide, centreOf, connectionDots, connectorEnds, connectorRecord, connectorsTouching, containsPoint,
+  elbowSlide, endAngles, headInset, headShape, labelPoint, pickAnchor, routeBounds, routePoints, sideSegment, toBoard, toLocal,
+  trimForHeads,
 } from './connectors.js'
 
 const box = (over = {}) => ({ id: 'a', kind: 'shape', shape: 'rectangle', x: 100, y: 100, w: 200, h: 100, rotation: 0, ...over })
@@ -127,7 +128,15 @@ describe('routes', () => {
     expect(r.points[2]).toBeGreaterThan(0)
     expect(r.points[4]).toBeLessThan(200) // the second arrives from the left
     expect(r.points[5]).toBe(100)
-    expect(routePoints(s, e, 'curved', [{ x: 10, y: 10 }])).toMatchObject({ bezier: false, tension: 0.5 })
+    // MO5 (her item 4.4): one bend is the curve's pull: still one cubic, and its middle passes through the bend.
+    const pulled = routePoints(s, e, 'curved', [{ x: 100, y: -60 }])
+    expect(pulled).toMatchObject({ bezier: true, tension: 0 })
+    expect(labelPoint(pulled).x).toBeCloseTo(100, 1)
+    expect(labelPoint(pulled).y).toBeCloseTo(-60, 1)
+    expect(pulled.points.slice(0, 2)).toEqual([0, 0])
+    expect(pulled.points.slice(-2)).toEqual([200, 100])
+    // Several bends (as older lines kept them): smoothed through them all.
+    expect(routePoints(s, e, 'curved', [{ x: 10, y: 10 }, { x: 50, y: 20 }])).toMatchObject({ bezier: false, tension: 0.5 })
   })
   it('elbow turns only square', () => {
     for (const [a, b] of [[s, e], [{ x: 0, y: 0, side: 'bottom', nx: 0, ny: 1 }, e], [{ x: 0, y: 0 }, { x: 300, y: -40 }], [s, { x: 50, y: 300, side: 'top', nx: 0, ny: -1 }]]) {
@@ -197,5 +206,46 @@ describe('the stored form', () => {
     ]
     expect([...connectorsTouching(els, ['b'])].sort()).toEqual(['c1', 'c3'])
     expect([...connectorsTouching(els, new Set(['q']))]).toEqual([])
+  })
+})
+
+// MO5 (her items 4.3 and 4.4): where a thing's connection dots sit, the side that is lit, and how square turns slide.
+describe('MO5: dots, the lit side, the elbow\'s slide', () => {
+  it('a dot beyond each side\'s middle, out along its face, turned with the thing', () => {
+    const dots = connectionDots(box(), 10)
+    expect(dots.map((d) => d.side)).toEqual(['top', 'right', 'bottom', 'left'])
+    close(dots[0], { x: 200, y: 90 })
+    close(dots[1], { x: 310, y: 150 })
+    close(dots[2], { x: 200, y: 210 })
+    close(dots[3], { x: 90, y: 150 })
+    const turned = connectionDots(box({ rotation: 90 }), 10)
+    close(turned[0], { x: 110, y: 200 }) // turned about its corner, the top's middle is at (100, 200) and faces right
+  })
+  it('the lit stretch is the whole side of a box, the middle half of a round one\'s, none for the centre', () => {
+    const top = sideSegment(box(), 'top')
+    close(top[0], { x: 100, y: 100 })
+    close(top[1], { x: 300, y: 100 })
+    const round = sideSegment({ kind: 'shape', shape: 'circle', x: 0, y: 0, w: 80, h: 80 }, 'left')
+    close(round[0], { x: 0, y: 20 })
+    close(round[1], { x: 0, y: 60 })
+    expect(sideSegment(box(), 'center')).toBeNull()
+    expect(sideSegment(box(), 'nowhere')).toBeNull()
+  })
+  it('square turns slide in x when both ends leave sideways, in y when both leave up or down, not as an L', () => {
+    const right = { x: 0, y: 0, side: 'right', nx: 1, ny: 0 }
+    const left = { x: 200, y: 100, side: 'left', nx: -1, ny: 0 }
+    const top = { x: 200, y: 200, side: 'top', nx: 0, ny: -1 }
+    const bottom = { x: 0, y: 0, side: 'bottom', nx: 0, ny: 1 }
+    expect(elbowSlide(right, left)).toBe('x')
+    expect(elbowSlide(bottom, top)).toBe('y')
+    expect(elbowSlide(right, top)).toBeNull()
+    // Slid: its upright middle stands where the bend's x says.
+    const p = routePoints(right, left, 'elbow', [{ x: 150, y: 999 }]).points
+    const xs = []
+    for (let i = 2; i < p.length; i += 2) if (Math.abs(p[i] - p[i - 2]) < 0.01 && Math.abs(p[i + 1] - p[i - 1]) > 0.01) xs.push(p[i])
+    expect(xs).toEqual([150])
+    // Not slid: halfway, as before.
+    const q = routePoints(right, left, 'elbow').points
+    expect(q).toContain(100)
   })
 })

@@ -6,9 +6,9 @@
 // drawing order through onStack ('forward', 'backward', 'front', 'back'), and Delete removes the selection.
 // "Frame selection" (onFrame) is offered when something selected is not a line tied at an end, and "Remove the frame only"
 // (onFrameOnly) when every selected thing is a frame.
-import { ArrowDown, ArrowUp, BringToFront, SendToBack, Trash2, AlignLeft, AlignCenter, AlignRight, Frame, Ungroup } from 'lucide-react'
+import { ArrowDown, ArrowUp, BringToFront, SendToBack, Trash2, AlignLeft, AlignCenter, AlignRight, Frame, Ungroup, MoveRight } from 'lucide-react'
 import { IconButton, Select } from '../../../ui'
-import { SHAPES, SHAPE_LABELS, styleKeysFor, resolveStyle } from './shapes.js'
+import { SHAPES, SHAPE_LABELS, styleKeysFor, resolveStyle, takesCorner, cornerDrawn } from './shapes.js'
 import { isTied } from './frames.js'
 
 export const SWATCHES = [
@@ -101,8 +101,23 @@ function Row({ label, children }) {
   )
 }
 
-export default function StylePanel({ elements = [], canWrite = false, inputMode = 'mouse', onStyle, onShape, onStack, onRemove, onFrame, onFrameOnly }) {
+export default function StylePanel({ elements = [], canWrite = false, inputMode = 'mouse', onStyle, onShape, onStack, onRemove, onFrame, onFrameOnly, onStraighten, editing = false, onLeave }) {
   if (!canWrite || !elements.length) return null
+  // MO5 (her item 4.2): while words are typed the panel stays (the text tool's words take their size and colour as they
+  // are written). A press on a style's button keeps the typing going (its mousedown never takes the focus); Arrange's
+  // buttons end the words first, as they did, so a frame or a delete never acts under an open box. A field of the
+  // panel may take the focus; the words end when the focus leaves both the panel and the box.
+  const keepTyping = (e) => {
+    if (!editing) return
+    const button = e.target?.closest?.('button')
+    if (button && !button.closest('[data-style-arrange]')) e.preventDefault()
+  }
+  const leave = (e) => {
+    if (!editing) return
+    const to = e.relatedTarget
+    if (to && (e.currentTarget.contains(to) || to.closest?.('[data-moth-board-editor]'))) return
+    onLeave?.()
+  }
   // Frame selection needs something that is not a line tied at an end (a free line is framed as any thing);
   // "Remove the frame only" needs every one a frame.
   const canFrame = elements.some((el) => !isTied(el))
@@ -119,14 +134,23 @@ export default function StylePanel({ elements = [], canWrite = false, inputMode 
   const fillNone = !kinds.has('sticky')
   const lineNone = !kinds.has('pen') && !kinds.has('connector')
   const opacity = v('opacity')
-  const corner = v('corner')
+  // MO5 (her item 4.1): Corners only where every selected thing has corners to round (never an oval or a circle), at
+  // the corner each is drawn with (a rounded rectangle's natural one included); blank when they differ.
+  const cornered = elements.every(takesCorner)
+  const corners = elements.map(cornerDrawn)
+  const corner = corners.every((c) => c === corners[0]) ? corners[0] : undefined
+  // MO5 (her item 4.4): Straighten, beside Path, while a selected line has bends (a pull, a slid middle) to let go.
+  const bent = elements.some((el) => el.kind === 'connector' && Array.isArray(el.points) && el.points.length > 4)
 
   return (
     <aside
       className="moth-board-style"
       data-moth-board-style
       data-input={inputMode}
+      data-editing={editing ? 'true' : undefined}
       aria-label="Style"
+      onMouseDown={keepTyping}
+      onBlur={leave}
       style={{
         position: 'absolute', top: 12, right: 12, zIndex: 3, width: touch ? 260 : 220, maxHeight: 'calc(100% - 24px)',
         overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: touch ? 14 : 10, padding: touch ? 14 : 10,
@@ -137,7 +161,9 @@ export default function StylePanel({ elements = [], canWrite = false, inputMode 
       {/* First, so what acts on the selection (its order, a frame around it, Delete) is in view however long the
           rows of style below grow: on a small board the panel scrolls, and these were under its fold. */}
       <Row label="Arrange">
-        <div style={{ display: 'flex', gap: 2 }}>
+        {/* Reached by the keyboard while words are typed, Arrange ends the words first, as a press on it does (round 2:
+            Shift+Tab to Delete or Frame selection acted under the open box, and a sticky lost its last words). */}
+        <div style={{ display: 'flex', gap: 2 }} data-style-arrange onFocus={() => { if (editing) onLeave?.() }}>
           <IconButton size={size} Icon={ArrowUp} title="Bring forward" onClick={() => onStack?.('forward')} />
           <IconButton size={size} Icon={ArrowDown} title="Send backward" onClick={() => onStack?.('backward')} />
           <IconButton size={size} Icon={BringToFront} title="Bring to front" onClick={() => onStack?.('front')} />
@@ -189,7 +215,12 @@ export default function StylePanel({ elements = [], canWrite = false, inputMode 
       )}
       {has('route') && (
         <Row label="Path">
-          <Select aria-label="Path" size={size} value={v('route') ?? ''} placeholder={v('route') === undefined ? 'Mixed' : null} options={ROUTE_OPTIONS} onChange={(r) => { if (r) set('route', r) }} />
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <Select aria-label="Path" size={size} value={v('route') ?? ''} placeholder={v('route') === undefined ? 'Mixed' : null} options={ROUTE_OPTIONS} onChange={(r) => { if (r) set('route', r) }} />
+            </div>
+            {bent && <IconButton size={size} Icon={MoveRight} title="Straighten: let go of the bends" data-style-straighten onClick={() => onStraighten?.()} />}
+          </div>
         </Row>
       )}
       {(has('start_head') || has('end_head')) && (
@@ -239,7 +270,7 @@ export default function StylePanel({ elements = [], canWrite = false, inputMode 
           />
         </Row>
       )}
-      {has('corner') && (
+      {has('corner') && cornered && (
         <Row label="Corners">
           <input type="range" aria-label="Corners" min="0" max="64" step="1" value={Math.min(64, corner ?? 0)} onChange={(e) => set('corner', Number(e.target.value))} />
         </Row>

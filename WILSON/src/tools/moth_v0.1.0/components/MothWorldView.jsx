@@ -6,8 +6,8 @@ import { useEffect, useRef } from 'react'
 import { createMothWorld } from '../state/mothWorld.js'
 
 export default function MothWorldView({
-  graph, layout, saved, savedKey, active, appearance, reducedMotion, selection, rules, flyTo,
-  onPick, onOpen, onHover, onBloom, onDrop, onArranged, onDrag, onSettled, onFrame, onDropFile, worldRef,
+  graph, layout, saved, savedKey, active, appearance, reducedMotion, selection, rules, flyTo, carry = false, glide = false,
+  onPick, onOpen, onHover, onBloom, onDrop, onArranged, onDrag, onSettled, onFrame, onDropFile, onMenu, worldRef,
   createWorld = createMothWorld,
 }) {
   const boxRef = useRef(null)
@@ -15,7 +15,7 @@ export default function MothWorldView({
   const glowRef = useRef(null)
   const world = useRef(null)
   const handlers = useRef({})
-  handlers.current = { onPick, onOpen, onHover, onBloom, onDrop, onArranged, onDrag, onSettled, onFrame, onDropFile }
+  handlers.current = { onPick, onOpen, onHover, onBloom, onDrop, onArranged, onDrag, onSettled, onFrame, onDropFile, onMenu }
 
   // The world, once. Its listeners read the newest handlers, so a re-render never rebinds the pointer.
   useEffect(() => {
@@ -31,6 +31,7 @@ export default function MothWorldView({
     w.on('drag', (d) => handlers.current.onDrag?.(d))
     w.on('settled', () => handlers.current.onSettled?.())
     w.on('frame', (f) => handlers.current.onFrame?.(f))
+    w.on('menu', (m) => handlers.current.onMenu?.(m))
     const box = boxRef.current
     const size = () => {
       const r = box.getBoundingClientRect()
@@ -67,6 +68,8 @@ export default function MothWorldView({
   useEffect(() => { world.current?.setSelection(selection) }, [selection])
   useEffect(() => { if (rules) world.current?.setRules(rules) }, [rules])
   useEffect(() => { if (flyTo?.id) world.current?.flyTo(flyTo.id) }, [flyTo])
+  useEffect(() => { world.current?.setCarry?.(carry) }, [carry])
+  useEffect(() => { world.current?.setGlide?.(glide) }, [glide])
 
   // A file dragged from a card onto a dot of the graph.
   const FILE_DRAG = 'application/x-wilson-moth-file'

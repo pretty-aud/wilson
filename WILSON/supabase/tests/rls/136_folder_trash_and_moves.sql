@@ -269,8 +269,11 @@ SELECT is(public.t136_err($$SELECT public.moth_move_folders(ARRAY['13600000-0000
   '42501', 'never into a money folder');
 SELECT is(public.t136_words($$SELECT public.moth_move_folders(ARRAY['13600000-0000-0000-0000-0000000000a3']::uuid[], '13600000-0000-0000-0000-0000000000b0')$$),
   'cross_project', 'another project is the move between projects''');
-SELECT is(public.t136_words($$SELECT public.moth_move_folders(ARRAY['13600000-0000-0000-0000-0000000000a5']::uuid[], '13600000-0000-0000-0000-0000000000ac')$$),
-  'A board stays in the project''s own folders, not inside a shot''s, a scene''s or an asset''s.', 'a board never into a thing''s own folder');
+-- 0138: a board may go into a thing's own folder (suite 140). Moved and undone in one step here, so what follows
+-- finds the board where it was.
+SELECT is(public.t136_err($q$DO $d$ BEGIN PERFORM public.moth_move_folders(ARRAY['13600000-0000-0000-0000-0000000000a5']::uuid[], '13600000-0000-0000-0000-0000000000ac');
+                                           RAISE EXCEPTION 'moved' USING ERRCODE = 'P0099'; END $d$$q$),
+  'P0099', 'a board may go into a thing''s own folder (0138)');
 SELECT is(public.t136_words($$SELECT public.moth_move_folders(ARRAY['13600000-0000-0000-0000-0000000000a8']::uuid[], '13600000-0000-0000-0000-0000000000a6')$$),
   'A folder holding files on the office server cannot move yet.', 'nor a folder holding office-server files');
 SELECT is(public.t136_words($$SELECT public.moth_move_folders(ARRAY['13600000-0000-0000-0000-0000000000ad']::uuid[], '13600000-0000-0000-0000-0000000000a0', true)$$),

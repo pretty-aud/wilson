@@ -11,9 +11,9 @@ vi.mock('../../../cloud/auth/supabaseClient.js', () => ({
 
 const {
   supabaseAdapter, resetSupabaseAdapter, boardElementsForSave, stickyFileName,
-  BOARDS_ABSENT, BOARD_COLUMNS, STICKY_GONE, STICKY_MOVED, STICKY_S3_OFF, BOARD_FILE_GONE, BOARD_NEEDS_FILE,
+  BOARDS_ABSENT, BOARD_COLUMNS, STICKY_GONE, STICKY_MOVED, STICKY_S3_OFF, BOARD_FILE_GONE, BOARD_NEEDS_FILE, RENAME_ABSENT,
 } = await import('./supabaseAdapter')
-const { localServerAdapter, BOARDS_LOCAL, FOLDERS_LOCAL } = await import('./localServerAdapter')
+const { localServerAdapter, BOARDS_LOCAL, FOLDERS_LOCAL, RENAME_LOCAL } = await import('./localServerAdapter')
 const { fixtureBoardElementsForSave, fixtureStickyFileName, FIXTURE_STICKY_GONE, FIXTURE_STICKY_MOVED, BOARD_WORDS } = await import('../../../dev/fixtures/boardsFixtures')
 
 const ME = 'u-mara'
@@ -300,6 +300,23 @@ describe('a board\'s saves', () => {
     globalThis.__testSupabase = makeClient()
     resetSupabaseAdapter()
     await expect(adapter.setBoardBackground(BOARD, 'dots')).rejects.toMatchObject({ code: 'boards_absent', message: BOARDS_ABSENT })
+  })
+
+  it('MO5: renameFolder calls moth_rename_folder (0138) by its own names, keeps its refusals, and says so where it is absent', async () => {
+    const client = makeClient({ rpc: {
+      moth_rename_folder: (args, n) => (n < 1
+        ? { data: { folder_id: args.p_folder, label: 'Story board', board_id: BOARD, changed: true, at: 1 }, error: null }
+        : pgError('22023', 'WILSON made this folder, so its name stays.')),
+    } })
+    globalThis.__testSupabase = client
+    expect(await adapter.renameFolder('f1', '  Story board ')).toEqual({ folder_id: 'f1', label: 'Story board', board_id: BOARD, changed: true, at: 1 })
+    expect(rpcCalls(client, 'moth_rename_folder')).toEqual([{ p_folder: 'f1', p_label: '  Story board ' }])
+    await expect(adapter.renameFolder('cat', 'Things')).rejects.toMatchObject({ code: '22023', message: 'WILSON made this folder, so its name stays.' })
+    // Never the folders table by hand: Moth's write gate is the function's.
+    expect(client.calls.filter(c => c.table)).toEqual([])
+    globalThis.__testSupabase = makeClient()
+    resetSupabaseAdapter()
+    await expect(adapter.renameFolder('f1', 'x')).rejects.toMatchObject({ code: 'rename_absent', message: RENAME_ABSENT })
   })
 })
 
@@ -729,6 +746,7 @@ describe('the Local Server adapter: a board needs the cloud', () => {
     const local = localServerAdapter()
     for (const m of BOARD_METHODS) await expect(local[m](), m).rejects.toMatchObject({ code: 'boards_absent', message: BOARDS_LOCAL })
     for (const m of FOLDER_METHODS) await expect(local[m](), m).rejects.toMatchObject({ code: 'boards_absent', message: FOLDERS_LOCAL })
+    await expect(local.renameFolder()).rejects.toMatchObject({ code: 'boards_absent', message: RENAME_LOCAL })
     expect(() => local.openBoardChannels({ topic: 't', live_topic: 'l' }, {})).toThrow(BOARDS_LOCAL)
     expect(await local.listTrashedFolders()).toEqual([])
     expect(BOARDS_LOCAL).toBe('Boards need this project in the cloud.')
@@ -736,7 +754,7 @@ describe('the Local Server adapter: a board needs the cloud', () => {
 
   it('the three adapters have the same board surface', async () => {
     const { buildDevFixtures } = await import('../../../dev/fixtures/install')
-    const all = [...BOARD_METHODS, ...FOLDER_METHODS, 'listTrashedFolders', 'openBoardChannels']
+    const all = [...BOARD_METHODS, ...FOLDER_METHODS, 'renameFolder', 'listTrashedFolders', 'openBoardChannels']
     const fx = buildDevFixtures().rabbitAdapter()
     for (const a of [adapter, localServerAdapter(), fx]) expect(all.filter(m => typeof a[m] !== 'function')).toEqual([])
   })

@@ -5341,3 +5341,158 @@ word *"Yes, fix it here"* (2026-11-13). What is below was left.
     stored session's person (`bootOwnerRef`) is not handed to it. Fix shape: the generation queue keeps the person
     it started for and stops when they go; App hands the agent the stored session's person until the permissions
     answer.
+
+## MO5 (2026-11-16, M.O.T.H. polish on `po/mo5-moth-polish`; 0138, suite 140) — left open
+
+Her eight asks of 2026-11-16, built item by item (walkthrough 99). Two review rounds on Opus 5.5 (seven reviewers,
+then four); what broke something that worked, could lose work, or kept an item from doing what it says was fixed in
+`ddcdf9fa` and `36842ad0`. The rest is here, by PLAN_TO_1_0 §0's rule, numbered by area, not by finding order. None
+is a security finding.
+
+**Boards (items 4.1 to 4.5, 7)**
+
+- **MO5-01 · Lines on a board are drawn and bent with a pointer only.** MEASURED by reading `BoardCanvas.jsx`: the
+  connection dots, the lit side and the bend handles are drawn on the canvas, as MO4's end handles are; no key draws
+  a line between two things or bends one (Path and Straighten in the style panel do take keys). Fix shape: with a
+  thing selected, a key that starts a line from a side and Tab through the other things to tie it; a line's bends as
+  a list in the style panel that takes arrow keys.
+- **MO5-02 · A line tied to a rounded corner can end short of the outline.** MEASURED by reading `connectors.js`:
+  anchors sit at the middles of the box's sides, which are vertices on a decision, a diamond, a triangle's top and
+  the arrows' tips; Corners (item 4.1) cuts those vertices away, so a line tied there ends up to about 15 pixels
+  short. Fix shape: anchor points on the drawn outline (the rounded path's own point at that side).
+- **MO5-03 · A curve's pull, or square turns slid far, can run the line back across the thing it leaves.** MEASURED
+  by reading `routePoints` and `bendsAt`: the pull moves both control points by the same step, and the elbow's slide
+  is not held beyond the stubs. Fix shape: clamp the slide to the stubs; for the pull, keep each control point on its
+  side's face and move only its reach.
+- **MO5-04 · Square turns slide only when both ends leave the same way; an L shows no handle.** MEASURED by reading
+  `elbowSlide`. Fix shape: if she asks, the L's corner becomes a handle that makes it a Z.
+- **MO5-05 · A bent line with one end moving keeps its bends where they are.** MEASURED by reading `bentAlong`: a
+  line moves whole only when both its tied ends move together. Fix shape: bends kept relative to the line's ends,
+  only if she finds it wrong.
+- **MO5-06 · The board's keys stay live while a style button has the focus during typing.** INFERRED (round 1):
+  Shift+Tab out of a words box onto the panel's buttons, then Backspace or a letter acts on the board under the open
+  box (Backspace removes the text being typed). Fix shape: `key()` ignores keys while an editor is open and the
+  focus is in the style panel.
+- **MO5-07 · Typing then using the style panel works with the mouse, not by keyboard alone.** INFERRED (round 1): a
+  keyboard press on a panel button moves the focus out of the words box and ends the words. Fix shape: the panel's
+  buttons hand the focus back to the words box after acting while it is open.
+- **MO5-08 · Old boards change look: Corners already stored on a triangle or a star now rounds it.** MEASURED by
+  reading 4.1's change: the slider was offered on every shape before and did nothing on these. Fix shape: none
+  unless she sees it; a stored corner is what someone chose.
+- **MO5-09 · A board's re-read can put an old title back for a moment.** INFERRED (round 1): `load()` takes the read's
+  title with no check against the last title heard (the background has that check). Fix shape: the same version
+  check as the background's.
+- **MO5-10 · A refused rename of a board says the server's words** ("folder not found or not writable"), where the
+  map's Rename says a plain sentence. MEASURED by reading `boardStore.js`. Fix shape: the same words as the map's.
+- **MO5-11 · Escape after a failed board rename may close the board.** INFERRED (round 1): the title field is
+  disabled while the rename is asked; in Chromium the focus can fall to the page, and Escape then reaches the board.
+  Fix shape: the field takes the focus back when the refusal is shown.
+- **MO5-12 · The pet sits over the foot of a long style panel** (the Corners slider) when the board fills the view.
+  MEASURED in the pictures. Fix shape: the panel's bottom padding leaves the pet's corner free.
+- **MO5-29 · A line's end let go just outside a thing that sits in a frame ties to the frame.** MEASURED by reading
+  `dropTarget` (round 2): the thing under the pointer, a frame or a larger thing included, wins before the "near a
+  thing's dots" check; the lit outline shows the frame, so nothing is hidden. Fix shape: things before frames, and
+  the near check before a frame.
+- **MO5-30 · When one end of a line is dragged, its other end, left to choose its side, keeps the old side until the
+  release.** MEASURED by reading `drawConnector` (round 2; so at af95e905 too): round 1 fixed this for bends only.
+  And a bend let go keeps a tied end's stored point from the old bends, which shows only if that thing is deleted.
+  Fix shape: the same `shaped` ends for a dragged end and for the bend's save.
+- **MO5-31 · A sticky's words saving at that very moment, then Delete pressed on it with the mouse, can lose the last
+  words.** INFERRED (round 2, about even odds): the end of the words waits behind the save in flight, and the delete
+  has by then let the turn go. Fix shape: the delete awaits the words' end.
+- **MO5-13 · The hover's dots can stay on a thing the pointer has left**, after a wheel zoom or a gesture that ended
+  off the board, until the pointer moves; and a line just drawn whose bend is grabbed before the server answers its
+  id loses that bend. MEASURED by reading (`onHostLeave`, `renamed()`). Fix shape: hover read again on wheel and at a
+  gesture's end; `renamed()` follows `bendDrag`.
+
+**The map, the bar and the cards (items 1, 2, 5, 6)**
+
+- **MO5-14 · The cards' size and the two switches are kept on one computer, not with the person.** MEASURED by reading
+  0123's `set_moth_prefs`: it keeps four appearance keys and refuses any other, so the cards' size, the glide and the
+  magnet are kept in this browser (`wilson.moth.local.v1`, per person and company); before the permissions answer,
+  the key is `|`, shared by everyone on that computer (nothing is saved in that moment unless a card's edge is let
+  go). Fix shape: one migration that lets `set_moth_prefs` keep `card_w`, `card_h`, `glide` and `carry`.
+- **MO5-15 · A carried drop restarts the layout with every dot; a carried drag builds a batch every move.** INFERRED
+  (round 1): on a map of many thousands of dots, a drop of a large folder may pause the page for a moment. Fix shape:
+  a worker message that places given dots without a new run.
+- **MO5-16 · A glide keeps its place for up to 0.6 seconds before it is noted in the view.** INFERRED (round 1): a view
+  switched within that time takes the glided place; a window closed mid-glide loses that one drop. Fix shape: the
+  place noted at the release and corrected at the stop.
+- **MO5-32 · Round a framed board, the map's notices are under the frame**, and on a narrow window the bar's second
+  row too. MEASURED by reading `moth.css` (round 2): the board layer is z-index 5. Before 4.5 the board covered the
+  map whole, so nothing that worked is lost, but a move refused or "Renamed to…" is said where it cannot be seen. Fix
+  shape: while a board is framed, the notices go below its frame.
+- **MO5-33 · A board renamed in its window keeps its old name in the map's list and dot until it closes.** MEASURED
+  by reading (round 2): the rename reaches the board's people on its channel, not the page. Fix shape: the panel
+  tells the page the new title, and the page reads the project again.
+- **MO5-34 · Reduced motion is read when M.O.T.H. opens and heard only while it is in front.** MEASURED by reading
+  `MothPage.jsx` (round 2; since MO2): turned on while another tool is in front, the glide stays on until M.O.T.H.
+  is opened again. Fix shape: read it again whenever the page comes to the front.
+- **MO5-35 · A refused pin clears the layout's busy mark while its run still ticks.** INFERRED (round 2, by reading
+  `layoutClient.js`): a carried drop in that moment starts the layout again at once, which freezes a layout still
+  forming (what round 1 removed). Rare: it needs a refused pin then. Fix shape: a refused pin leaves busy as it was.
+- **MO5-17 · A dot joined to a folder carries the folder without its contents.** MEASURED by reading `carriedBy`: one
+  step out, by her words and the reading in the walkthrough. Fix shape: if she asks, a carried container takes its
+  contents too.
+- **MO5-18 · The bar's smaller gaps.** MEASURED by reading: the Look back tooltip leaves out the MO3 sentences about
+  notes, typed tags and links; "This view lasts for this visit only" is said only inside the view's menu; a greyed
+  icon-only Move to, Delete or Save as shows no tooltip in Chrome (a disabled button's title is not shown). Fix shape:
+  the tooltip from the same sentences; the visit sentence beside the view's name; the reasons as visible words under
+  the bar while greyed.
+- **MO5-19 · The cards' edges.** MEASURED by reading: 8-pixel targets (16 for touch, clipped by 2 to 4 pixels at the
+  strip's edge), two Tab stops on every card that all change one shared size, a tooltip that names only dragging;
+  and a card at the room's full width in a scrolling strip loses its right 8 pixels under the strip's scrollbar.
+  Fix shape: one pair of edges for the strip, not each card; the arrow keys named in the tooltip; the scrollbar
+  counted in the room.
+
+**The menus and New board (items 3, 8)**
+
+- **MO5-20 · Greyed entries and their reasons cannot be reached with the keys.** MEASURED by reading: the arrow keys
+  move between usable entries only, each reason is a plain line (on a file, Move to's reason sits after Delete),
+  the menu has no role and its name sits on an element a screen reader ignores; greyed *New board…* is inert with
+  its reason on a wrapper (the app's GatedAction pattern). MO4's folder menu is the same. Fix shape: the kit's Menu
+  with menu and menuitem roles, greyed entries focusable with `aria-disabled` and their reason as a description.
+- **MO5-21 · After Open or Show in the list from the menu, the focus is on the page.** MEASURED by reading: the
+  entries that open a question give the focus back to the row (round 1); these two lead elsewhere and leave it.
+  Fix shape: the focus to the list's new first row.
+- **MO5-22 · Some greyed reasons are not right for what they are on.** MEASURED by reading `MothItemMenu.jsx`:
+  *Rename this in R.A.B.B.I.T.* on a note, a typed tag or a file in a person's own space, none of which R.A.B.B.I.T.
+  opens; *A project is renamed in R.A.B.B.I.T.* on *My personal space*; *Show in the list* on a note, which the
+  list never shows; while looking back, Rename on a folder that is gone now is greyed with no words; a right-click
+  on a file tag's dot opens nothing. Fix shape: a reason for each kind.
+- **MO5-23 · The menu's smaller gaps.** MEASURED by reading: Tab or a zoom leaves it open; Move to and Delete from it
+  replace the person's ticked files, and Cancel does not put them back; for a board, *New board here…* is left out
+  rather than greyed; a pen's barrel button is not told from a right-click; a question asked from a map dot's menu
+  (no row to go back to) leaves the focus on the page when it closes. Fix shape: close on focus-out and camera
+  change; keep the ticks and act on the one item; the focus back to the map.
+- **MO5-28 · On a Windows touchscreen a long press on a dot may open it, then its menu.** INFERRED (round 2):
+  round 1 makes the menu end the press only when `contextmenu` comes before `pointerup` (Android's order, the
+  test's); Chromium on Windows may send it at the lift. Not run on a device. Fix shape: no pick for a touch or pen
+  press held past the long-press time.
+
+**The database and R.A.B.B.I.T. (item 3)**
+
+- **MO5-24 · A shot whose folder holds a board cannot be filed under another scene; one in the trash is not seen.**
+  MEASURED: 0130's guard refuses moving a folder that holds a board unless the move is Moth's own, so R.A.B.B.I.T.'s
+  re-filing stops first and says why (`SHOT_HOLDS_BOARD`); a failed read is now no answer (round 1). INFERRED (round
+  1): a board in the trash is invisible to that read (row security), so the re-filing goes ahead and is refused at
+  its end, leaving the shot's files at their new keys and its folder where it was, until the board is restored or
+  purged. Fix shape: a definer check of the folder's subtree (the guard's own), and the re-file's folder move through
+  `moth_move_folders`.
+- **MO5-25 · The rescue's locks: a deadlock it can now meet, and a purge that holds them.** INFERRED (rounds 1 and 2,
+  by reading 0138 §2 against `board_create`, `moth_move_folders` and `purge_soft_deleted`): deleting a thing's folder
+  holds its row, then asks the company's folder lock and the project's board lock (since round 1 always, not only
+  when a board is below); `board_create` or `moth_move_folders` aiming at that folder holds a lock and then asks the
+  row. Postgres finds the deadlock and one side gets 40P01: the scene delete or the board's make fails and can be
+  tried again; nothing is lost (0138's header names only the other two outcomes). And the nightly purge, one
+  transaction, now holds both locks for every company and project with a thing purged that night, so a Moth move, a
+  trash, a board's make or a thing's delete there waits for it (PostgREST's statement timeout is 8 s); a purge over
+  some thousands of projects would also fill the shared lock table. Fix shape, in a file after 0138: the rescue
+  returns before the locks when the folder has no child folder and no board (a board made in it locks its row, so
+  the delete waits and then sees it); the purge takes them once per company.
+- **MO5-26 · The dev stand-in disagrees with the cloud on shots and scenes.** MEASURED by reading
+  `rabbitFixturesAdapter.js`: its re-filing moves a shot folder that holds a board (the cloud refuses), and deleting
+  a scene or a shot leaves their folders (the cloud's rescue moves the boards to the top). Fix shape: the stand-in
+  follows the cloud.
+- **MO5-27 · Probes still owed.** `shotRefilingCloud.test.js` does not assert that no object moved for a refused shot
+  of the board case, and no test runs the trashed-board case of MO5-24.

@@ -24,6 +24,48 @@ export function normalizeAppearance(raw) {
   }
 }
 
+// MO5: what this person keeps on this computer, per person and company: the folder cards' size, whether a dot let go
+// glides on, and whether a dragged dot carries what is joined to it. The server's own settings (set_moth_prefs, 0123)
+// take only the four above, so these stay here. Read back as untrusted; a browser that keeps nothing keeps the
+// defaults for the visit.
+export const CARD_LIMITS = Object.freeze({ minW: 200, minH: 140, maxW: 640, maxH: 900 })
+export const DEFAULT_LOCAL = Object.freeze({ card_w: 280, card_h: 320, glide: true, carry: false })
+const LOCAL_KEY = 'wilson.moth.local.v1'
+const LOCAL_SCOPES = 10
+const storageOf = () => { try { return typeof window !== 'undefined' ? window.localStorage ?? null : null } catch { return null } }
+const whole = (v, lo, hi, d) => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, Math.round(v))) : d)
+
+/** One person's own, each value only in its own shape, else the default. */
+export function normalizeLocal(raw) {
+  const r = raw && typeof raw === 'object' ? raw : {}
+  return {
+    card_w: whole(r.card_w, CARD_LIMITS.minW, CARD_LIMITS.maxW, DEFAULT_LOCAL.card_w),
+    card_h: whole(r.card_h, CARD_LIMITS.minH, CARD_LIMITS.maxH, DEFAULT_LOCAL.card_h),
+    glide: typeof r.glide === 'boolean' ? r.glide : DEFAULT_LOCAL.glide,
+    carry: typeof r.carry === 'boolean' ? r.carry : DEFAULT_LOCAL.carry,
+  }
+}
+
+/** This person's own (scope: `${userId}|${companyId}`). */
+export function readLocalPrefs(scope, storage = storageOf()) {
+  let all = null
+  try { all = JSON.parse(storage?.getItem(LOCAL_KEY) ?? 'null') } catch { all = null }
+  return normalizeLocal(all && typeof all === 'object' ? all[scope] : null)
+}
+
+/** Kept for the next visit, the newest ten people-and-companies; what cannot be kept is kept for this visit only. */
+export function writeLocalPrefs(scope, patch, storage = storageOf()) {
+  const next = normalizeLocal({ ...readLocalPrefs(scope, storage), ...patch })
+  try {
+    let all = JSON.parse(storage?.getItem(LOCAL_KEY) ?? 'null')
+    if (!all || typeof all !== 'object' || Array.isArray(all)) all = {}
+    all[scope] = { ...next, at: Date.now() }
+    const kept = Object.entries(all).sort((a, b) => (Number(b[1]?.at) || 0) - (Number(a[1]?.at) || 0)).slice(0, LOCAL_SCOPES)
+    storage?.setItem(LOCAL_KEY, JSON.stringify(Object.fromEntries(kept)))
+  } catch { /* a browser that keeps nothing */ }
+  return next
+}
+
 // Pale tints that read on the dark world and never on orange: colour by never uses the kit's signal colour, which
 // is the selection's.
 const TINTS = Object.freeze(['#ffd28a', '#9fd3ff', '#b8f2d0', '#ffb3c7', '#d7c4ff', '#fff1a8', '#a8f0ec', '#ffc8a8', '#c9e7a8', '#e0c8b0'])

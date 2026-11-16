@@ -757,3 +757,93 @@ describe('🚨 the corners resize', () => {
     expect(panel().style.width).toBe(`${F.w}px`)
   })
 })
+
+// MO5 item 7: the board's title is edited where it is. Enter keeps it, Escape puts it back and the board stays open,
+// a refusal is said, someone who may only look has nothing to press, and a new name heard from the server shows.
+describe('🚨 MO5 7: the title, renamed in the board window', () => {
+  const renaming = (impl) => {
+    h.makeStore = (opts) => {
+      const s = fakeStore({ board: { id: 'b1', folder_id: 'f1', title: 'Plans', can_write: true } })
+      s.renameBoard = vi.fn(impl ?? (async (name) => { s.board = { ...s.board, title: name }; s.emit({ type: 'board' }); return name }))
+      s.opts = opts
+      h.stores.push(s)
+      return s
+    }
+  }
+  it('pressed, it becomes a field; Enter keeps the new name, through the store, and the title shows it', async () => {
+    renaming()
+    const { onClose } = await open()
+    fireEvent.click(screen.getByRole('button', { name: /^Board name: Plans\. Rename this board$/ }))
+    const field = screen.getByRole('textbox', { name: 'Board name' })
+    expect(document.activeElement).toBe(field)
+    fireEvent.change(field, { target: { value: '  Lighthouse moodboard ' } })
+    fireEvent.keyDown(field, { key: 'Enter' })
+    await waitFor(() => expect(h.stores[0].renameBoard).toHaveBeenCalledWith('Lighthouse moodboard'))
+    await screen.findByRole('button', { name: /^Board name: Lighthouse moodboard\./ })
+    expect(screen.getByRole('region', { name: 'Board: Lighthouse moodboard' })).toBeTruthy()
+    expect(onClose).not.toHaveBeenCalled()
+  })
+  it('Escape puts the name back and leaves the board open; F2 on the title starts it too', async () => {
+    renaming()
+    const { onClose } = await open()
+    const title = screen.getByRole('button', { name: /Rename this board/ })
+    fireEvent.keyDown(title, { key: 'F2' })
+    const field = screen.getByRole('textbox', { name: 'Board name' })
+    fireEvent.change(field, { target: { value: 'Nope' } })
+    fireEvent.keyDown(field, { key: 'Escape' })
+    expect(screen.queryByRole('textbox', { name: 'Board name' })).toBeNull()
+    expect(screen.getByRole('button', { name: /^Board name: Plans\./ })).toBeTruthy()
+    expect(h.stores[0].renameBoard).not.toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
+    // The next Escape, with nothing being edited, is the board's own: back to the map.
+    escape()
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+  it('a refusal is said, in the server\'s words, and the field stays to try again', async () => {
+    renaming(async () => { throw new Error('WILSON made this folder, so its name stays.') })
+    await open()
+    fireEvent.click(screen.getByRole('button', { name: /Rename this board/ }))
+    const field = screen.getByRole('textbox', { name: 'Board name' })
+    fireEvent.change(field, { target: { value: 'Other' } })
+    fireEvent.keyDown(field, { key: 'Enter' })
+    expect((await screen.findByRole('alert')).textContent).toBe('WILSON made this folder, so its name stays.')
+    expect(screen.getByRole('textbox', { name: 'Board name' })).toBeTruthy()
+  })
+  it('the same name, or none, changes nothing and asks nothing', async () => {
+    renaming()
+    await open()
+    fireEvent.click(screen.getByRole('button', { name: /Rename this board/ }))
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Board name' }), { key: 'Enter' })
+    fireEvent.click(screen.getByRole('button', { name: /Rename this board/ }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Board name' }), { target: { value: '   ' } })
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Board name' }), { key: 'Enter' })
+    expect(h.stores[0].renameBoard).not.toHaveBeenCalled()
+  })
+  it('someone who may only look sees the name, with nothing to press', async () => {
+    h.makeStore = (opts) => { const s = fakeStore({ board: { id: 'b1', title: 'Plans', can_write: false } }); s.renameBoard = vi.fn(); s.opts = opts; h.stores.push(s); return s }
+    await open()
+    expect(screen.queryByRole('button', { name: /Rename this board/ })).toBeNull()
+    expect(document.querySelector('[data-moth-board-title]').textContent).toBe('Plans')
+  })
+  it('a new name heard from the server (another person\'s rename) shows at once', async () => {
+    renaming()
+    await open()
+    act(() => { h.stores[0].board = { ...h.stores[0].board, title: 'Renamed elsewhere' }; h.stores[0].emit({ type: 'board' }) })
+    expect(await screen.findByRole('button', { name: /^Board name: Renamed elsewhere\./ })).toBeTruthy()
+  })
+})
+
+// MO5 item 4.5: the map works round a board in its frame; an Escape typed in one of the map's own fields is that
+// field's, and the board stays.
+describe('🚨 MO5 4.5: Escape in a field of the map is not the board\'s', () => {
+  it('an Escape from the list\'s search leaves the board open; one from the page closes it', async () => {
+    const field = document.createElement('input')
+    document.body.appendChild(field)
+    const { onClose } = await open()
+    fireEvent.keyDown(field, { key: 'Escape' })
+    expect(onClose).not.toHaveBeenCalled()
+    escape(document.body)
+    expect(onClose).toHaveBeenCalledTimes(1)
+    field.remove()
+  })
+})

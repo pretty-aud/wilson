@@ -53,6 +53,9 @@ export const BOARD_WORDS = Object.freeze({
 })
 
 /** The words a refusal carries, without an adapter's "[supabase] " tag; a P0001's DETAIL when it has one. */
+// MO5 (her item 7): the words a rename says when the server gives none, or where it cannot be asked.
+export const RENAME_FAILED = 'The board could not be renamed just now.'
+export const RENAME_UNAVAILABLE = 'This board cannot be renamed here.'
 export function wordsOf(err, fallback = '') {
   const raw = err?.words || (err?.code === 'P0001' && (err?.details || err?.detail)) || err?.message || ''
   const words = String(raw).replace(/^\[[^\]]*\]\s*/, '').trim()
@@ -834,9 +837,41 @@ export function createBoardStore({ adapter, boardId, now = Date.now, delay = DEB
     return bgSaving
   }
 
-  /** A `board` message from the board's channel: { board, op: 'background', background, version }. */
+  // ── MO5 (her item 7): the board's title, which is its folder's name (0138's moth_rename_folder) ──────────────────
+  // A rename's answer and the channel's `title` message each carry when it was set ('at', the server's clock); the
+  // latest is kept, whatever road it came by. A read carries no time: it is what the server has now, and is taken.
+  let titleAt = null
+  function heardTitle(title, at) {
+    if (!board || typeof title !== 'string' || !title) return
+    const t = Number(at)
+    if (Number.isFinite(t) && titleAt != null && t <= titleAt) return
+    if (Number.isFinite(t)) titleAt = t
+    if (board.title === title) return
+    board = { ...board, title }
+    emit({ type: 'board' })
+  }
+  /**
+   * Rename the board: its folder's name, through the server, which asks Moth's write gate. Answers the name kept; a
+   * refusal is thrown in the server's words (WILSON's own words when it gives none).
+   */
+  async function renameBoard(title) {
+    if (!board || board.can_write === false) throw Object.assign(new Error(BOARD_WORDS.readOnly), { code: '42501' })
+    if (typeof adapter?.renameFolder !== 'function' || !board.folder_id) throw new Error(RENAME_UNAVAILABLE)
+    let answer
+    try {
+      answer = await adapter.renameFolder(board.folder_id, title)
+    } catch (err) {
+      throw Object.assign(new Error(isRefusal(err) ? wordsOf(err, RENAME_FAILED) : RENAME_FAILED), { code: err?.code })
+    }
+    if (closing) return answer?.label ?? title
+    heardTitle(typeof answer?.label === 'string' ? answer.label : title, answer?.at)
+    return board?.title ?? title
+  }
+
+  /** A `board` message from the board's channel: { board, op: 'background', background, version } or { op: 'title', title, at }. */
   function applyBoard(payload) {
     if (!payload || closing || (payload.board && payload.board !== boardId)) return
+    if (payload.op === 'title') { heardTitle(payload.title, payload.at); return }
     if (payload.op != null && payload.op !== 'background') return
     if (!BACKGROUNDS.includes(payload.background)) return
     backgroundTurn(() => heardBackground(payload.background, payload.version, { channel: true }))
@@ -955,6 +990,7 @@ export function createBoardStore({ adapter, boardId, now = Date.now, delay = DEB
     canSetBackground,
     setBackground,
     applyBoard,
+    renameBoard,
     preview,
     dropPreviews,
     adopt,

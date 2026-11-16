@@ -25,7 +25,7 @@ vi.mock('../../../lib/localData', () => ({
   hasLocalServer: () => globalThis.__testLocalServer === true,
 }))
 
-const { supabaseAdapter, resetSupabaseAdapter, REKEY_ABSENT } = await import('./supabaseAdapter')
+const { supabaseAdapter, resetSupabaseAdapter, REKEY_ABSENT, SHOT_HOLDS_BOARD } = await import('./supabaseAdapter')
 const { registerStorageProvider, FILE_PROVIDERS } = await import('../storage')
 
 const PID = 'aaaa1111-0000-0000-0000-000000000001'
@@ -100,6 +100,7 @@ function makeClient({ tables, objects, failMove = () => null, failUpdate = () =>
       limit() { return b },
       range(from, to) { state.range = [from, to]; return b },
       eq(col, v) { state.filters.push(r => String(r[col]) === String(v)); return b },
+      in(col, list) { const set = new Set((list || []).map(String)); state.filters.push(r => set.has(String(r[col]))); return b },
       is(col, v) { state.filters.push(r => r[col] === v); return b },
       like(col, pattern) { const re = likeToRegExp(pattern); state.filters.push(r => typeof r[col] === 'string' && re.test(r[col])); return b },
       // PostgREST's `or=(a.like.x,b.like.y)` as supabase-js sends it; only
@@ -393,6 +394,28 @@ describe('refileShotFolders: the happy path and its order', () => {
     const again = await run(client)
     expect(again).toEqual({ moved: [], left: [], removedShotsCategory: false })
     expect(client.log.filter(e => e[0] === 'move' || e[0] === 'update' || e[0].startsWith('rekey') || e[0] === 'delete')).toEqual([])
+  })
+
+  it('MO5 (0138): a shot whose folder holds a board (below a folder of its own too) stays where it is, and says why', async () => {
+    const { tables, objects } = fixture()
+    tables.folders.push(folder('f-in', 'custom', `${tables.folders.find(f => f.id === 'f-sh1').path}/refs`, 'f-sh1'))
+    tables.boards = [{ id: 'b1', folder_id: 'f-in' }]
+    const client = makeClient({ tables, objects })
+    const res = await run(client)
+    expect(res.left.map(l => l.reason)).toEqual([SHOT_HOLDS_BOARD])
+    expect(res.moved).toHaveLength(1)
+    expect(tables.folders.find(f => f.id === 'f-sh1').parent_id).toBe('c-shots')
+    expect(res.removedShotsCategory).toBe(false)
+  })
+
+  it('MO5 round 1: a read of the boards that fails is no answer, so the shot stays and nothing of it moves', async () => {
+    const { tables, objects } = fixture()
+    tables.boards = []
+    const client = makeClient({ tables, objects, failRead: (name) => (name === 'boards' ? 'the connection dropped' : null) })
+    const res = await run(client)
+    expect(res.moved).toHaveLength(0)
+    expect(res.left.every(l => /could not check for a board/.test(l.reason))).toBe(true)
+    expect(client.log.filter(e => e[0] === 'move' || e[0].startsWith('rekey'))).toEqual([])
   })
 
   it('keeps SHOTS while a shot with no scene still has a folder under it', async () => {
