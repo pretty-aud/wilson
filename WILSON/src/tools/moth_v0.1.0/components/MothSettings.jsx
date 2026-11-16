@@ -76,10 +76,13 @@ export function MothHelp() {
       <p>Drag empty space to move, scroll or pinch to zoom. Click a dot to select it; Shift-click to select more. Double-click a folder to open it. The list on the right does all of this from the keyboard.</p>
       <h3 className="moth-label">Moving and linking</h3>
       <p>Drag a dot onto a folder and the folder opens wider: let go to move the file into it. Drag it near another dot and that dot glows: linking comes with the next update of M.O.T.H., so for now the dot goes back. A word by the pointer says which. Press Escape to cancel. Letting go in empty space only changes the picture.</p>
-      <p>Move to, in the view panel, does the same without dragging. Every move and delete can be undone.</p>
+      <p>Move to, on the bar along the top, does the same without dragging. Every move and delete can be undone.</p>
+      <p>The magnet at the end of the bar, Move what is joined along, makes a drag take what is joined to the dot: what a line joins to it, and for a folder everything inside it. Let go with a flick and a dot glides a little before it stops; Settings can turn that off.</p>
+      <p>Right-click a dot or a row of the list (or press Shift+F10) for what you can do with it, Rename included. A folder WILSON made keeps its name.</p>
       <h3 className="moth-label">Boards</h3>
       <p>A board is a folder of its own, drawn as a dot of its own colour. Click it to open it in a frame over the map; the buttons at its top fill the view or the whole of M.O.T.H. Back to the map, or Escape, closes it. In the frame, drag a corner to resize it, or pull an edge outward and let go to put the board back into its dot.</p>
-      <p>To make one, open a project or a folder in the list and choose New board from its menu. Boards need the project in the cloud.</p>
+      <p>To make one, choose New board at the top of the map, name it and choose where it goes; or choose New board from a folder's menu. Boards need the project in the cloud. Click a board's name at its top to rename it.</p>
+      <p>On a board, point at a thing to see a dot on each side: drag from one to draw a line tied there, and let go on another thing's lit side. Select a line to bend it: drag its handles, or choose Straighten to let the bends go.</p>
       <p>To put a board in the trash, open it and choose Put in the trash at its top. Its notes and pictures go with it, and you can bring it back from the trash for 30 days.</p>
       <h3 className="moth-label">Views</h3>
       <p>A view chooses what shows as dots, which lines join them and how they are laid out. Save one for yourself, or for everyone on a project. Where you put the dots is kept with the view.</p>

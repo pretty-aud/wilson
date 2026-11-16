@@ -608,7 +608,17 @@ describe('Help', () => {
     render(<MothHelp />)
     expect(screen.getByText('Boards')).toBeTruthy()
     expect(screen.getByText(/Click it to open it in a frame over the map/)).toBeTruthy()
-    expect(screen.getByText(/choose New board from its menu\. Boards need the project in the cloud\./)).toBeTruthy()
+    expect(screen.getByText(/choose New board from a folder's menu\. Boards need the project in the cloud\./)).toBeTruthy()
+  })
+  it('says what MO5 added: New board at the top, renaming, the magnet, the glide, the right-click menu, lines from dots', () => {
+    render(<MothHelp />)
+    expect(screen.getByText(/choose New board at the top of the map, name it and choose where it goes/)).toBeTruthy()
+    expect(screen.getByText(/Click a board's name at its top to rename it\./)).toBeTruthy()
+    expect(screen.getByText(/Move what is joined along/)).toBeTruthy()
+    expect(screen.getByText(/glides a little before it stops; Settings can turn that off/)).toBeTruthy()
+    expect(screen.getByText(/Right-click a dot or a row of the list \(or press Shift\+F10\)/)).toBeTruthy()
+    expect(screen.getByText(/drag from one to draw a line tied there/)).toBeTruthy()
+    expect(screen.queryByText(/view panel/)).toBeNull()
   })
 })
 
