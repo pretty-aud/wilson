@@ -12,6 +12,8 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
+import { useRabbitOnline } from '../../tools/rabbit_v0.1.0/state/rabbitLive'
+import { projectBudgetSettings, lineMoney } from './budgetMath'
 
 // ── Sheets that budget lines belong to ──
 export const BUDGET_SHEETS = {
@@ -20,18 +22,9 @@ export const BUDGET_SHEETS = {
   expenses_travel: 'expenses_travel',
 }
 
-// ── Default department groupings for crew sheet ──
-export const DEFAULT_CREW_DEPARTMENTS = [
-  'Production',
-  'Creative',
-  'Studio/Art',
-  'Post-Production',
-  'Development',
-]
-
 // ── Column mode options ──
 export const COLUMN_MODES = [
-  { value: 'fortnightly', label: 'Bi-Weekly (2-week periods)' },
+  { value: 'fortnightly', label: 'Bi-weekly (2-week periods)' },
   { value: 'weekly',      label: 'Weekly' },
   { value: 'count',       label: 'Numbered (no dates)' },
 ]
@@ -43,7 +36,11 @@ export function useBudgetLines() {
   const project       = rabbit?.project
   const projectId     = project?.id
   const adapterMode   = rabbit?.adapterMode
-  const adapterStatus = rabbit?.adapterStatus
+  // F4: the adapter's `online`, one word from a context of its own, and not
+  // the status object off the value (rabbitLive.js). The load below runs
+  // again when it flips, as before; a new status that says the same thing
+  // does not draw this hook's host.
+  const adapterOnline = useRabbitOnline(rabbit)
 
   const [lines, setLines]       = useState([])
   const [actuals, setActuals]   = useState([])
@@ -51,7 +48,15 @@ export function useBudgetLines() {
   const [error, setError]       = useState(null)
 
   const mountedRef = useRef(true)
-  useEffect(() => () => { mountedRef.current = false }, [])
+  // Set true in the effect, not only by useRef: StrictMode (dev) runs the
+  // cleanup once between two mounts, and a guard that only ever goes false
+  // drops every later load — the Talent tab said "Loading talent..." for
+  // ever and the Expenses tab showed nothing (B5; B4c's FileAuditDrawer had
+  // the same). A production build mounts once and is unchanged.
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
 
   // ── Load ─────────────────────────────────────────────────
   const loadAll = useCallback(async () => {
@@ -78,7 +83,7 @@ export function useBudgetLines() {
 
   useEffect(() => {
     loadAll()
-  }, [loadAll, adapterMode, adapterStatus?.online])
+  }, [loadAll, adapterMode, adapterOnline])
 
   // ── Budget Lines CRUD ────────────────────────────────────
   const addLine = useCallback(async (data) => {
@@ -226,10 +231,12 @@ export function useBudgetLines() {
   }, [actuals])
 
   // ── Computed: line subtotals and bid totals ──────────────
+  // The project's settings and each line's fees are budgetMath's (F2): the
+  // project's agency fee (crew + talent + expenses unless the line opts out,
+  // 20% when switched on with none typed) and a talent line's own
+  // representation fee stack additively on the subtotal.
+  const settings = useMemo(() => projectBudgetSettings(project), [project])
   const lineComputations = useMemo(() => {
-    const agencyPct    = Number(project?.budget_agency_pct ?? 0) / 100
-    const agencyOn     = project?.budget_agency_enabled === true
-
     const map = {}
     for (const line of lines) {
       if (line.is_section_header) continue
@@ -243,19 +250,7 @@ export function useBudgetLines() {
         ? cost * (line.is_na_days ? 1 : days) * (line.is_na_qty ? 1 : qty)
         : rate * days * qty
 
-      // Agency fee — global project agency fee and per-row talent rep fee
-      // are separate concerns and apply additively.
-      let agencyFee = 0
-      // Global project agency fee (applies to crew + talent + expenses unless opted out)
-      if (agencyOn && !line.agency_opt_out) {
-        agencyFee += subtotal * agencyPct
-      }
-      // Per-row talent agent representation fee (in addition to global)
-      if (line.sheet === 'talent' && line.talent_agency_fee_pct != null) {
-        agencyFee += subtotal * (Number(line.talent_agency_fee_pct) / 100)
-      }
-
-      const bidTotal = subtotal + agencyFee
+      const { agencyFee, bidTotal } = lineMoney(subtotal, line, settings)
 
       // Actual total from actuals
       const lineActuals = actualsByLine[line.id] || []
@@ -266,7 +261,7 @@ export function useBudgetLines() {
       map[line.id] = { subtotal, agencyFee, bidTotal, actualTotal, variance }
     }
     return map
-  }, [lines, actualsByLine, project?.budget_agency_pct, project?.budget_agency_enabled])
+  }, [lines, actualsByLine, settings])
 
   // ── Computed: lines grouped by sheet + department ────────
   const linesBySheet = useMemo(() => {

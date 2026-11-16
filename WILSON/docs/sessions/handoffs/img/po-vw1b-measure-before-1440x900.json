@@ -1,0 +1,462 @@
+{
+  "tasks": {
+    "toolbar": {
+      "h": 45,
+      "slots": [
+        {
+          "x": 24,
+          "w": 733.3,
+          "right": 757.3
+        },
+        {
+          "x": 807.5,
+          "w": 608.5,
+          "right": 1416
+        }
+      ],
+      "gapBetween": 50.2
+    },
+    "headers": [
+      [
+        "(check)",
+        36
+      ],
+      [
+        "Title",
+        350
+      ],
+      [
+        "Status",
+        148
+      ],
+      [
+        "Priority",
+        88
+      ],
+      [
+        "Asset",
+        161.3
+      ],
+      [
+        "Phase",
+        135.3
+      ],
+      [
+        "Assignee",
+        135.3
+      ],
+      [
+        "Start",
+        144
+      ],
+      [
+        "End",
+        144
+      ],
+      [
+        "Bid",
+        64
+      ]
+    ],
+    "scroller": {
+      "clientW": 1430,
+      "scrollW": 1430,
+      "scrollLeft": 0,
+      "sideways": false
+    },
+    "sticky": null
+  },
+  "two-assets": {
+    "(check)": {
+      "words": "",
+      "name": "Select \"Glass and rain rig test\"",
+      "left": 12
+    },
+    "Title": {
+      "words": "Glass and rain rig test",
+      "name": "Open Glass and rain rig test",
+      "left": 48
+    },
+    "Status": {
+      "words": "Waiting to startIn progressPending reviewNeeds revisionsAppr",
+      "name": "Status",
+      "left": 398
+    },
+    "Priority": {
+      "words": "LowMediumHighUrgent",
+      "name": "Priority",
+      "left": 546
+    },
+    "Asset": {
+      "words": "Lighthouse Interior, Sea Spray Comp",
+      "name": "Lighthouse Interior, Sea Spray Comp",
+      "left": 634
+    },
+    "Phase": {
+      "words": "—DevelopmentPre-productionProductionPost-productionDelivery",
+      "name": "Phase",
+      "left": 795.3
+    },
+    "Assignee": {
+      "words": "—Dev PatelJonah BeckKenji MorimotoLena FischerMara OkonkwoPr",
+      "name": "Assignee",
+      "left": 930.7
+    },
+    "Start": {
+      "words": "",
+      "name": "Start date",
+      "left": 1066
+    },
+    "End": {
+      "words": "",
+      "name": "End date",
+      "left": 1210
+    },
+    "Bid": {
+      "words": "",
+      "name": "Bid days",
+      "left": 1354
+    }
+  },
+  "by-asset": [
+    "Shooting Script v4 (3)",
+    "Treatment (2)",
+    "Lookbook (2)",
+    "Storyboards (4)",
+    "Mara (3)",
+    "Mara's Father (2)",
+    "Lighthouse Interior (4)",
+    "Cliff Path (4)",
+    "Harbour Café (2)",
+    "Brass Compass (2)",
+    "Storm Lantern (2)",
+    "Sea Spray Comp (2)",
+    "Sky Replacement (2)",
+    "Score & Foley (3)",
+    "Festival DCP (4)",
+    "Lighthouse Interior, Sea Spray Comp (1)"
+  ],
+  "scrolled": {
+    "table": {
+      "toolbar": {
+        "h": 45,
+        "slots": [
+          {
+            "x": 24,
+            "w": 733.3,
+            "right": 757.3
+          },
+          {
+            "x": 807.5,
+            "w": 608.5,
+            "right": 1416
+          }
+        ],
+        "gapBetween": 50.2
+      },
+      "headers": [
+        [
+          "(check)",
+          36
+        ],
+        [
+          "Title",
+          350
+        ],
+        [
+          "Status",
+          148
+        ],
+        [
+          "Priority",
+          88
+        ],
+        [
+          "Asset",
+          161.3
+        ],
+        [
+          "Phase",
+          135.3
+        ],
+        [
+          "Assignee",
+          135.3
+        ],
+        [
+          "Start",
+          144
+        ],
+        [
+          "End",
+          144
+        ],
+        [
+          "Bid",
+          64
+        ]
+      ],
+      "scroller": {
+        "clientW": 1430,
+        "scrollW": 1430,
+        "scrollLeft": 0,
+        "sideways": false
+      },
+      "sticky": null
+    },
+    "row": {
+      "(check)": {
+        "words": "",
+        "name": "Select \"Glass and rain rig test\"",
+        "left": 12
+      },
+      "Title": {
+        "words": "Glass and rain rig test",
+        "name": "Open Glass and rain rig test",
+        "left": 48
+      },
+      "Status": {
+        "words": "Waiting to startIn progressPending reviewNeeds revisionsAppr",
+        "name": "Status",
+        "left": 398
+      },
+      "Priority": {
+        "words": "LowMediumHighUrgent",
+        "name": "Priority",
+        "left": 546
+      },
+      "Asset": {
+        "words": "Lighthouse Interior, Sea Spray Comp",
+        "name": "Lighthouse Interior, Sea Spray Comp",
+        "left": 634
+      },
+      "Phase": {
+        "words": "—DevelopmentPre-productionProductionPost-productionDelivery",
+        "name": "Phase",
+        "left": 795.3
+      },
+      "Assignee": {
+        "words": "—Dev PatelJonah BeckKenji MorimotoLena FischerMara OkonkwoPr",
+        "name": "Assignee",
+        "left": 930.7
+      },
+      "Start": {
+        "words": "",
+        "name": "Start date",
+        "left": 1066
+      },
+      "End": {
+        "words": "",
+        "name": "End date",
+        "left": 1210
+      },
+      "Bid": {
+        "words": "",
+        "name": "Bid days",
+        "left": 1354
+      }
+    }
+  },
+  "game": {
+    "toolbar": {
+      "h": 45,
+      "slots": [
+        {
+          "x": 24,
+          "w": 733.3,
+          "right": 757.3
+        },
+        {
+          "x": 807.5,
+          "w": 608.5,
+          "right": 1416
+        }
+      ],
+      "gapBetween": 50.2
+    },
+    "headers": [
+      [
+        "(check)",
+        36
+      ],
+      [
+        "Title",
+        350
+      ],
+      [
+        "Status",
+        148
+      ],
+      [
+        "Priority",
+        88
+      ],
+      [
+        "Asset",
+        161.3
+      ],
+      [
+        "Phase",
+        135.3
+      ],
+      [
+        "Assignee",
+        135.3
+      ],
+      [
+        "Start",
+        144
+      ],
+      [
+        "End",
+        144
+      ],
+      [
+        "Bid",
+        64
+      ]
+    ],
+    "scroller": {
+      "clientW": 1430,
+      "scrollW": 1430,
+      "scrollLeft": 0,
+      "sideways": false
+    },
+    "sticky": null
+  },
+  "game-scrolled": {
+    "table": {
+      "toolbar": {
+        "h": 45,
+        "slots": [
+          {
+            "x": 24,
+            "w": 733.3,
+            "right": 757.3
+          },
+          {
+            "x": 807.5,
+            "w": 608.5,
+            "right": 1416
+          }
+        ],
+        "gapBetween": 50.2
+      },
+      "headers": [
+        [
+          "(check)",
+          36
+        ],
+        [
+          "Title",
+          350
+        ],
+        [
+          "Status",
+          148
+        ],
+        [
+          "Priority",
+          88
+        ],
+        [
+          "Asset",
+          161.3
+        ],
+        [
+          "Phase",
+          135.3
+        ],
+        [
+          "Assignee",
+          135.3
+        ],
+        [
+          "Start",
+          144
+        ],
+        [
+          "End",
+          144
+        ],
+        [
+          "Bid",
+          64
+        ]
+      ],
+      "scroller": {
+        "clientW": 1430,
+        "scrollW": 1430,
+        "scrollLeft": 0,
+        "sideways": false
+      },
+      "sticky": null
+    },
+    "row": {
+      "(check)": {
+        "words": "",
+        "name": "Select \"Glass and rain rig test\"",
+        "left": 12
+      },
+      "Title": {
+        "words": "Glass and rain rig test",
+        "name": "Open Glass and rain rig test",
+        "left": 48
+      },
+      "Status": {
+        "words": "Waiting to startIn progressPending reviewNeeds revisionsAppr",
+        "name": "Status",
+        "left": 398
+      },
+      "Priority": {
+        "words": "LowMediumHighUrgent",
+        "name": "Priority",
+        "left": 546
+      },
+      "Asset": {
+        "words": "Lighthouse Interior, Sea Spray Comp",
+        "name": "Lighthouse Interior, Sea Spray Comp",
+        "left": 634
+      },
+      "Phase": {
+        "words": "—DevelopmentPre-productionProductionPost-productionDelivery",
+        "name": "Phase",
+        "left": 795.3
+      },
+      "Assignee": {
+        "words": "—Dev PatelJonah BeckKenji MorimotoLena FischerMara OkonkwoPr",
+        "name": "Assignee",
+        "left": 930.7
+      },
+      "Start": {
+        "words": "",
+        "name": "Start date",
+        "left": 1066
+      },
+      "End": {
+        "words": "",
+        "name": "End date",
+        "left": 1210
+      },
+      "Bid": {
+        "words": "",
+        "name": "Bid days",
+        "left": 1354
+      }
+    }
+  },
+  "levels": {
+    "row": {
+      "assets": "0",
+      "tasks": "1"
+    },
+    "window": {
+      "lists": [
+        "Assets (2)",
+        "Tasks (1)",
+        "Files (0)"
+      ],
+      "linked": "Linked counts0 assets / 1 tasks / 0 file"
+    }
+  }
+}

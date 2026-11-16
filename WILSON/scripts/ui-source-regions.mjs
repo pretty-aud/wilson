@@ -1,0 +1,167 @@
+#!/usr/bin/env node
+/**
+ * UI overhaul — the regions of a source file the codemod must NOT rewrite.
+ *
+ * A Tailwind class name is a string of characters, and the same characters
+ * appear in three places where rewriting them is wrong or actively harmful:
+ *
+ *  1. **Embedded CSS.** `dogHelpContent.jsx` carries a light-theme override
+ *     sheet as a template literal — `.help-light h3.text-sm { color: … }`.
+ *     Rewriting `text-sm` there does not restyle anything; it unhooks the
+ *     override from the element it was written to catch, and the help page
+ *     silently loses its light theme. D.O.G. has two more `<style>` blocks and
+ *     R.A.B.B.I.T.'s client tab has the print sheet.
+ *
+ *  2. **Comments.** `Home.jsx` explains its own conversion in a comment that
+ *     quotes the old classes: "`font-bold text-sm tracking-widest uppercase`
+ *     became `text-h2`". A pass that rewrites that turns a record of what
+ *     happened into a claim that never was.
+ *
+ *  3. **Class-name *fragments* used as data** — selectors built at runtime.
+ *     Rarer; the CSS rule above catches most of them.
+ *
+ * Over-protecting is safe: the site simply is not converted, the audit still
+ * counts it, and it lands in the hand-off as residue for T1–T3. Under-
+ * protecting corrupts a stylesheet invisibly. So every ambiguous case here
+ * resolves toward protection.
+ */
+
+const BACKTICK = String.fromCharCode(96);
+
+/**
+ * Scan a source file and return sorted, non-overlapping [start, end) ranges
+ * that the codemod must leave alone.
+ */
+export function protectedRanges(src) {
+  const ranges = [];
+  const templates = [];
+  let i = 0;
+  const n = src.length;
+
+  while (i < n) {
+    const c = src[i];
+    const c2 = src[i + 1];
+
+    /* Line comment */
+    if (c === '/' && c2 === '/') {
+      const end = src.indexOf('\n', i);
+      ranges.push([i, end < 0 ? n : end]);
+      i = end < 0 ? n : end;
+      continue;
+    }
+    /* Block comment */
+    if (c === '/' && c2 === '*') {
+      const end = src.indexOf('*/', i + 2);
+      ranges.push([i, end < 0 ? n : end + 2]);
+      i = end < 0 ? n : end + 2;
+      continue;
+    }
+    /* Ordinary string — skipped, not protected: className="…" lives here.
+       🚨 An apostrophe in JSX TEXT ("don't", "Audrey's") is not a string
+       opener, and treating it as one makes the scanner skip forward to the
+       next apostrophe — swallowing real code, and with it any `//` that
+       started a comment further down. One comment in RateCardPage.jsx came
+       back unprotected for exactly this reason. A quote that opens a string
+       never directly follows a letter or a digit; one in prose almost always
+       does. */
+    if (c === '"' || c === "'") {
+      let k = i - 1;
+      while (k >= 0 && (src[k] === ' ' || src[k] === '\t')) k--;
+      const prev = k >= 0 ? src[k] : '';
+      if (c === "'" && /[A-Za-z0-9]/.test(prev)) { i++; continue; }  // prose
+      i++;
+      while (i < n && src[i] !== c) { if (src[i] === '\\') i++; i++; }
+      i++;
+      continue;
+    }
+    /* Template literal — recorded, then judged on its content below. */
+    if (c === BACKTICK) {
+      const start = i;
+      i++;
+      let depth = 0;
+      while (i < n) {
+        if (src[i] === '\\') { i += 2; continue; }
+        if (src[i] === '$' && src[i + 1] === '{') { depth++; i += 2; continue; }
+        if (depth > 0 && src[i] === '}') { depth--; i++; continue; }
+        if (depth === 0 && src[i] === BACKTICK) break;
+        i++;
+      }
+      templates.push([start, Math.min(i + 1, n)]);
+      i++;
+      continue;
+    }
+    i++;
+  }
+
+  /* A template literal is CSS when it carries a declaration block: a `{` with
+     a `property: value;` inside, or an at-rule. `className={`…`}` never does —
+     its interpolations are ${…}, which the scanner already stepped over. */
+  const CSS_SHAPE = /\{[^{}]*[a-z-]+\s*:\s*[^{};]+;/i;
+  const AT_RULE = /@(?:media|keyframes|supports|font-face|page)\b/i;
+  for (const [s, e] of templates) {
+    const body = src.slice(s, e);
+    if (CSS_SHAPE.test(body) || AT_RULE.test(body)) ranges.push([s, e]);
+  }
+
+  /* <style> … </style>, whatever the content shape.
+   *
+   * 🚨 TWO RULES HERE, AND THE FIRST DRAFT HAD NEITHER.
+   *
+   * 1. An UNMATCHED `<style>` protects NOTHING. It used to protect to end of
+   *    file, and that is catastrophic rather than merely conservative: a `//`
+   *    comment in `NotesView.jsx` reads "Those rules lived in a `<style>`
+   *    element inside NoteEditor", there is no `</style>` anywhere in the
+   *    file, and the result was **787 of its 821 lines invisible** — to the
+   *    passes AND to the guard. An 820-line component silently sat out the
+   *    whole codemod and no assertion could see it.
+   * 2. The scan runs over a source with comments and strings BLANKED, so a
+   *    `<style>` merely mentioned in prose is not a tag. That is the same
+   *    comment, and it is why rule 1 alone is not enough.
+   *
+   * Over-protecting is normally the safe direction, which is what made this
+   * one dangerous: it failed silently and in the safe-looking direction. */
+  const blanked = blankOut(src, ranges);
+  const styleRe = /<style\b[^>]*>/gi;
+  let m;
+  while ((m = styleRe.exec(blanked))) {
+    const close = blanked.toLowerCase().indexOf('</style>', m.index);
+    if (close < 0) continue;                       // not a tag, or never closed
+    ranges.push([m.index, close + 8]);
+  }
+
+  return merge(ranges);
+}
+
+/** Replace every already-protected range with spaces, preserving offsets, so a
+ *  later scan cannot mistake commented-out prose for markup. */
+function blankOut(src, ranges) {
+  if (!ranges.length) return src;
+  const out = src.split('');
+  for (const [s, e] of merge(ranges)) for (let i = s; i < e && i < out.length; i++) out[i] = ' ';
+  return out.join('');
+}
+
+function merge(ranges) {
+  if (!ranges.length) return [];
+  const sorted = ranges.slice().sort((a, b) => a[0] - b[0]);
+  const out = [sorted[0]];
+  for (const r of sorted.slice(1)) {
+    const last = out[out.length - 1];
+    if (r[0] <= last[1]) last[1] = Math.max(last[1], r[1]);
+    else out.push(r.slice());
+  }
+  return out;
+}
+
+/** Is `idx` inside any protected range? */
+export function isProtected(ranges, idx) {
+  let lo = 0, hi = ranges.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const [s, e] = ranges[mid];
+    if (idx < s) hi = mid - 1;
+    else if (idx >= e) lo = mid + 1;
+    else return true;
+  }
+  return false;
+}

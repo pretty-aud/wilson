@@ -1,0 +1,281 @@
+// =============================================================================
+// hardening.test.mjs — GW4 item 5 (and item 4's facts): the hardening guide
+// (docs/gateway/HARDENING.md) and the two install stories (gatewayWords.js)
+// held to the gateway's own code and to the designs they quote, as GW2's
+// docs.test.mjs holds walkthrough 61: a sentence quoted must be the sentence,
+// a config line given must parse to what it says, a name must be the name the
+// installer, the updater, the workflow or the image uses.
+// =============================================================================
+
+import { describe, it, expect } from 'vitest';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { parseConfig, DEFAULT_CONFIG } from '../src/config.mjs';
+import { FIREWALL_RULE } from '../updater/updater.mjs';
+import { RELEASE_HOSTS } from '../src/update/releaseFetch.mjs';
+import { LETS_ENCRYPT_DIRECTORY } from '../src/acme/client.mjs';
+import { renewAt } from '../src/acme/manager.mjs';
+import { outsideCertificateWarning, CHANNEL_QUIET_MS } from '../src/rules/health.mjs';
+import { CONTAINER_IMAGE, RELEASE_REPOSITORY, RELEASE_KEYS_WIRE } from '../src/update/manifest.mjs';
+import { SKEW_S } from '../src/wire/ticket.mjs';
+import { SMARTSCREEN_SUMMARY } from '../src/installer.mjs';
+import { msiName } from '../pipeline/lib.mjs';
+import { containerRootFor } from '../src/rules/mountRule.mjs';
+import { makeRoot, makeLeaf } from '../src/certs/x509.mjs';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const WILSON = path.join(HERE, '..', '..');
+const read = (...p) => fs.readFileSync(path.join(...p), 'utf8').replace(/\r\n/g, '\n');
+const flat = (s) => s.replace(/^>\s?/gm, '').replace(/\s+/g, ' ').trim();
+const guide = read(WILSON, 'docs', 'gateway', 'HARDENING.md');
+const design = read(WILSON, 'docs', 'design', 'GATEWAY_DESIGN.md');
+const storage = read(WILSON, 'docs', 'NETWORK_STORAGE_DESIGN.md');
+const wxs = read(WILSON, 'gateway', 'windows', 'wix', 'Package.wxs');
+const host = read(WILSON, 'gateway', 'windows', 'host', 'WilsonGatewayHost.cs');
+const dockerfile = read(WILSON, 'gateway', 'container', 'Dockerfile');
+const pipeline = read(WILSON, 'gateway', 'pipeline', 'cli.mjs');
+const W = await import(pathToFileURL(path.join(WILSON, 'src', 'components', 'settings', 'gatewayWords.js')).href);
+const story = (s) => [s.intro, ...s.steps.flatMap((st) => [`${st.lead} ${st.text}`, ...(st.items || []).map((i) => `${i.lead} ${i.text}`)]), ...s.after.map((a) => `${a.lead} ${a.text}`)].join(' ');
+const nas = story(W.NAS_STORY);
+const win = story(W.WINDOWS_STORY);
+
+describe('the hardening guide quotes its sources word for word', () => {
+  it('the design\'s closing sentence block (§10), verbatim', () => {
+    const block = design.split('\n').find((l) => l.startsWith('> A person who may view a clip can save what they view'));
+    expect(block).toBeTruthy();
+    expect(guide).toContain(block);
+  });
+  it('the four TS-2 conditions of the storage design (§4b), verbatim', () => {
+    const at = storage.indexOf('1. **Off by default.**');
+    const conditions = storage.slice(at, storage.indexOf('Recording it this way', at)).trim();
+    const quoted = guide.slice(guide.indexOf('> 1. **Off by default.**'), guide.indexOf('How the built gateway keeps them'));
+    expect(flat(quoted)).toBe(flat(conditions));
+    expect(flat(conditions)).toMatch(/^1\. \*\*Off by default\.\*\*.+4\. \*\*The gateway does not weaken the LAN path\.\*\*.+does not exist\.$/);
+  });
+  it('is the page Help links to, and it names itself as the published hardening guidance TPN asks for', () => {
+    expect(guide.split('\n')[0]).toBe('# The WILSON file gateway: the hardening guide');
+    expect(W.HARDENING_GUIDE_URL).toBe(`https://github.com/${RELEASE_REPOSITORY}/blob/main/WILSON/docs/gateway/HARDENING.md`);
+    expect(guide).toContain('published hardening guidance');
+    expect((guide.match(/<!--/g) || []).length).toBe(0);
+  });
+});
+
+describe('every setting it gives parses to what it says (config.mjs)', () => {
+  const lines = [...guide.matchAll(/`(\{? ?"(?:outside|inside|connect_without_login)"[^`]*)`/g)].map((m) => m[1]);
+  it('finds the five lines', () => {
+    expect(lines.length).toBeGreaterThanOrEqual(5);
+  });
+  const parse = (line) => parseConfig(line.startsWith('{') ? line : `{ ${line} }`);
+  it('the NAS\'s reverse proxy: the outside door on loopback, and the free certificate off behind it', () => {
+    const r = parse(lines.find((l) => l.includes('behind_local_proxy')));
+    expect(r.problems).toEqual([]);
+    expect(r.config.outside.behind_local_proxy).toBe(true);
+  });
+  it('a tunnel: the declared proxy, by one of the names the cloud keeps', () => {
+    const r = parse(lines.find((l) => l.includes('declared_proxy')));
+    expect(r.problems).toEqual([]);
+    expect(r.config.outside.declared_proxy).toEqual({ addresses: ['127.0.0.1'], name: 'cloudflare' });
+    const sql = read(WILSON, 'supabase', 'migrations', fs.readdirSync(path.join(WILSON, 'supabase', 'migrations')).find((f) => f.startsWith('0093_')));
+    for (const name of ['cloudflare', 'tailscale', 'ngrok']) { expect(sql, name).toContain(`'${name}'`); expect(guide).toContain(`\`${name}\``); }
+  });
+  it('the company\'s own certificate for either door, and a domain\'s servers', () => {
+    expect(parse(lines.find((l) => l.startsWith('"outside": { "certificate"'))).config.outside.certificate).toEqual({ cert: 'outside.pem', key: 'outside-key.pem' });
+    // P8 (TPN-ENC-013): the guide's first `"inside"` snippet is now ip_sans (§4 point 8); the certificate's is found by name.
+    const inside = parse(lines.find((l) => l.startsWith('"inside": { "certificate"')).replace(/…/g, 'x.pem'));
+    expect(inside.config.inside.certificate).toEqual({ cert: 'x.pem', key: 'x.pem' });
+    const ipSans = parse(lines.find((l) => l.startsWith('"inside": { "ip_sans"')));
+    expect(ipSans.problems).toEqual([]);
+    expect(ipSans.config.inside.ip_sans).toBe(true);
+    const domain = parse(lines.find((l) => l.startsWith('"connect_without_login"')));
+    expect(domain.problems).toEqual([]);
+    expect(domain.config.connect_without_login).toEqual(['nas']);
+    expect(guide).toContain('at most 16 servers');
+    expect(parseConfig(JSON.stringify({ connect_without_login: Array.from({ length: 17 }, (_, i) => `s${i}`) })).problems.join()).toContain('at most 16');
+  });
+  it('the doors\' ports are the defaults', () => {
+    expect(DEFAULT_CONFIG.inside.port).toBe(8443);
+    expect(DEFAULT_CONFIG.outside.port).toBe(8444);
+  });
+});
+
+describe('every name it gives is the code\'s', () => {
+  it('the services, their accounts, the firewall\'s two rules, the logs', () => {
+    expect(wxs).toContain('Account="NT SERVICE\\WilsonGateway"');
+    expect(wxs).toContain('Name="WilsonGatewayUpdater"');
+    expect(wxs).toContain('Account="LocalSystem"');
+    expect(wxs).toContain('Name="WILSON Gateway office door" Port="8443" Protocol="tcp" Scope="localSubnet"');
+    expect(guide).toContain('*WILSON Gateway office door*: inbound TCP 8443, local subnet only');
+    expect(FIREWALL_RULE).toBe('WILSON Gateway outside door');
+    expect(guide).toContain(`*${FIREWALL_RULE}*`);
+    expect(host).toContain('Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "WILSON Gateway", "logs")');
+    expect(host).toContain('ServiceName + ".log"');
+    expect(host).toContain('for (int i = 4; i >= 1; i--)');
+    expect(guide).toContain('`C:\\ProgramData\\WILSON Gateway\\logs\\WilsonGateway.log` and `WilsonGatewayUpdater.log` (the current file and five earlier ones of 5 MB each)');
+  });
+  it('the container\'s user and image, and the mount rule\'s worked example', () => {
+    expect(dockerfile).toMatch(/^USER 65532:65532$/m);
+    expect(guide).toContain('uid 65532');
+    expect(nas).toContain('uid 65532');
+    // P8 (TPN-ENC-014): the container seals its secrets under the operator's key, which the NAS story sets before the token.
+    expect(guide).toContain('sealed (AES-256-GCM) under a key the operator provides, `WILSON_GATEWAY_SECRETS_KEY`');
+    expect(guide).toContain('**Never a plain file**');
+    expect(nas).toContain('WILSON_GATEWAY_SECRETS_KEY = 32 random bytes in base64');
+    expect(nas.indexOf('WILSON_GATEWAY_SECRETS_KEY')).toBeLessThan(nas.indexOf('WILSON_ENROL_TOKEN'));
+    expect(guide).toContain(`${CONTAINER_IMAGE}@sha256:`);
+    expect(containerRootFor('\\\\nas\\footage')).toBe('/locations/nas/footage');
+    expect(nas).toContain('/volume1/footage → /locations/nas/footage');
+  });
+  it('the release hosts, the free certificate\'s host, the releases page and its SHA256SUMS', () => {
+    for (const h of RELEASE_HOSTS) expect(guide, h).toContain(`\`${h}\``);
+    expect(guide).toContain(`\`${new URL(LETS_ENCRYPT_DIRECTORY).hostname}\``);
+    expect(guide).toContain(`github.com/${RELEASE_REPOSITORY}/releases`);
+    expect(pipeline).toContain("files.set('SHA256SUMS'");
+    expect(guide).toContain('`SHA256SUMS`');
+  });
+  it('the numbers: 30 s of skew, the free certificate renewed a third of its life before its end, the warnings from 30 days and red from 7', () => {
+    expect(SKEW_S).toBe(30);
+    expect(guide).toContain('with 30 seconds of skew allowed');
+    expect(renewAt({ notBefore: 0, notAfter: 90 })).toBe(60);
+    expect(guide).toContain('renews it by itself a third of its life before it ends');
+    const now = Date.parse('2026-10-11T00:00:00Z');
+    const own = (d) => outsideCertificateWarning({ kind: 'own', until: now + d * 86_400_000 }, now);
+    expect(own(31)).toBeNull();
+    expect(own(30).tone).toBe('amber');
+    expect(own(7).tone).toBe('red');
+    expect(guide).toContain('warns 30 days before it ends, and turns red at 7');
+  });
+});
+
+describe('the install stories say what the code does (GW4 item 4)', () => {
+  it('the MSI\'s name is the pipeline\'s, and the summary\'s SmartScreen sentence agrees with the story\'s', () => {
+    expect(msiName('<version>')).toBe('WILSON-Gateway-Setup-<version>.msi');
+    expect(win).toContain(msiName('<version>'));
+    expect(SMARTSCREEN_SUMMARY).toContain('More info, then Run anyway');
+    expect(win).toContain('choose More info, then Run anyway');
+    expect(SMARTSCREEN_SUMMARY).toContain('a signed build will stop the warning later');
+    expect(win).toContain('A signed build will stop that warning later.');
+    // D14: Petal never says the gateway is signed until it is.
+    for (const text of [guide, win, nas, SMARTSCREEN_SUMMARY]) expect(text).not.toMatch(/\bis signed\b|signed by Petal/i);
+  });
+  it('the commands it names exist (cli.mjs), and the reverse proxy and tunnel point at the outside door on loopback', () => {
+    const cli = read(WILSON, 'gateway', 'src', 'cli.mjs');
+    for (const c of ['share-login', 'doctor', 'rollback']) { expect(cli, c).toContain(`case '${c}'`); expect(win, c).toContain(`wilson-gateway ${c}`); }
+    expect(nas).toContain('https://127.0.0.1:8444');
+    expect(guide).toContain('`https://127.0.0.1:8444`');
+  });
+  it('the environment the container is given is the names the gateway reads', () => {
+    const runtime = read(WILSON, 'gateway', 'src', 'runtime.mjs');
+    for (const v of ['WILSON_ENROL_TOKEN', 'WILSON_CLOUD_URL']) { expect(runtime, v).toContain(`env.${v}`); expect(nas, v).toContain(v); }
+  });
+});
+
+describe('what the guide tells an admin to check or do is the code\'s', () => {
+  it('docker inspect\'s user is the Dockerfile\'s USER', () => {
+    const user = /^USER (\d+:\d+)$/m.exec(dockerfile)?.[1];
+    expect(user).toBe('65532:65532');
+    expect(guide).toContain(`\`docker inspect\` shows \`"User": "${user}"\``);
+  });
+  it('the NAS\'s reverse proxy and a tunnel forward to the OUTSIDE door on loopback, never to the office door', () => {
+    const outside = `\`https://127.0.0.1:${DEFAULT_CONFIG.outside.port}\``;
+    const s7 = guide.slice(guide.indexOf('## 7. '), guide.indexOf('## 8. '));
+    const rows = s7.split('\n').filter((l) => /^\| \*\*(The NAS's reverse proxy|A tunnel)\*\*/.test(l));
+    expect(rows).toHaveLength(2);
+    for (const row of rows) expect(row).toContain(outside);
+    expect(guide).not.toContain(`127.0.0.1:${DEFAULT_CONFIG.inside.port}`);
+  });
+  it('the incident procedure: Forget and Cancel are the card\'s own buttons, the floors the version list\'s, the key as the slots allow', () => {
+    const card = read(WILSON, 'src', 'components', 'settings', 'GatewaySettings.jsx');
+    const s9 = guide.slice(guide.indexOf('## 9. '), guide.indexOf('## 10. '));
+    expect(card).toMatch(/onClick=\{\(\) => onForget\(gw\)\}[^>]*>\s*Forget\s*<\/Button>/);
+    expect(card).toContain('onClick={() => cancelToken(t.id)}>Cancel</Button>');
+    expect(s9).toContain('| **Forget** it on the card at once:');
+    expect(s9).toContain('| **Cancel** it on the card before it is used.');
+    const floors = JSON.parse(read(WILSON, 'gateway', 'pipeline', 'floors.json'));
+    expect(Object.keys(floors)).toEqual(expect.arrayContaining(['minimum_version', 'hard_minimum_version']));
+    expect(s9).toContain('publishes a fixed release whose version list sets the minimum and hard minimum above the bad version');
+    // One key is built in and the second slot is empty, so the procedure cannot "sign with the second key".
+    expect(RELEASE_KEYS_WIRE).toHaveLength(1);
+    expect(guide).not.toMatch(/signs with the second release key/);
+    expect(s9).toContain('for a stolen key, ships a new release key inside a release signed by the old one and asks each company to reinstall the MSI, which carries the updater (the second slot is empty today, §10)');
+    expect(guide).toContain('- **One release key is built in today.** The second slot is empty');
+    // P8 (TPN-ENC-016): the successor's steps, in §10, §9 and §11, and the three-year root in §4.
+    expect(guide).toContain('**Rotating the release key** (P8, TPN-ENC-016), planned or after a theft, in this order: (1) `node gateway/pipeline/cli.mjs make-key --out <a folder outside the repository>`');
+    expect(guide).toContain('replace the `GATEWAY_RELEASE_SIGNING_KEY` repository secret with the new file\'s line and publish the next release signed by the NEW key');
+    expect(s9).toContain('by the steps under *Rotating the release key* in §10');
+    expect(guide).toContain('| AS-2.5 (keys) | DPAPI, or in the container a seal under the operator\'s key (§3), for every private key, never a plain file; the office root lasts three years with its successor made a year ahead (P8, TPN-ENC-016)');
+    expect(guide).toContain('the root lasts three years, P8 TPN-ENC-016');
+    // P8 round 1 (finding 5): the checked mark and its two bounds, in §5 and §11.
+    expect(guide).toContain('- **Never assume a withdrawn check stops the gateway at once** (P8, TPN-AUTH-012)');
+    expect(guide).toContain('within ten minutes while the gateway reaches the cloud, within 24 hours on the office door while it does not');
+    expect(guide).toContain('| TS-1.7 (content access by approval) |');
+  });
+  it('the TPN controls it touches, in the framework\'s numbering, each once and in order', () => {
+    const s11 = guide.slice(guide.indexOf('## 11. '));
+    const ids = [...s11.matchAll(/^\| ([A-Z]{2}-\d+(?:\.\d+)?(?:, [A-Z]{2}-\d+(?:\.\d+)?)*) \(/gm)].map((m) => m[1]);
+    // P8 round 1 (finding 5): TS-1.7, the checked mark, joins the table.
+    expect(ids).toEqual(['TS-2', 'TS-1.7', 'AS-3.7', 'AS-2.3', 'AS-2.5', 'TS-1.5, AS-2.9', 'AS-3.14', 'AS-1.0, TS-4.0', 'OR-1.1', 'OR-3.4']);
+    expect(s11).toContain('| TS-2 (segmentation, default deny) |');
+  });
+  // P8 (TPN-ENC-013): the signal is retired by default — the office certificate
+  // names the host alone; the addresses only on request, said in amber.
+  it('P8 (TPN-ENC-013): §10 says the office certificate names the host, not its addresses, and §4 says what must resolve the name', () => {
+    const s10 = guide.slice(guide.indexOf('## 10. '), guide.indexOf('## 11. '));
+    expect(s10).toContain("- **The office door's certificate names the host, not its addresses — unless told to.** TPN's list of prohibited signals includes private (RFC 1918) addresses in certificates. Since P8 (TPN-ENC-013)");
+    expect(s10).not.toContain("- **The office door's certificate names private addresses.**");
+    const s4 = guide.slice(guide.indexOf('## 4. '), guide.indexOf('## 5. '));
+    expect(s4).toContain('**And the office computers must resolve the gateway\'s name** (P8, TPN-ENC-013)');
+    expect(s4).toContain('`"inside": { "ip_sans": true }`');
+    // The primitive still takes addresses (the store passes none by default: certs.test.mjs).
+    const root = makeRoot({ hostname: 'studio-pc', insideAddresses: ['192.168.1.173'] });
+    const named = makeLeaf({ rootCertPem: root.certPem, rootKeyPem: root.keyPem, hostname: 'studio-pc', insideAddresses: [] });
+    expect(new crypto.X509Certificate(named.certPem).subjectAltName).toBe('DNS:studio-pc, DNS:studio-pc.local');
+    const withAddress = makeLeaf({ rootCertPem: root.certPem, rootKeyPem: root.keyPem, hostname: 'studio-pc', insideAddresses: ['192.168.1.173'] });
+    expect(new crypto.X509Certificate(withAddress.certPem).subjectAltName).toContain('IP Address:192.168.1.173');
+  });
+});
+
+describe('review round 1\'s corrections, in the guide\'s words', () => {
+  const wt63 = read(WILSON, 'docs', 'walkthroughs', '63_file_gateway_release_and_rehearsal.md');
+  it('what SHA256SUMS proves: a download whole, not who made it; the version list names the installer (finding 3)', () => {
+    expect(guide).not.toMatch(/is the check/);
+    expect(guide).toContain('that proves the download whole and the file the release holds, not who made the release');
+    expect(guide).toContain('`SHA256SUMS` proves a download whole, not its origin');
+    expect(read(WILSON, 'gateway', 'pipeline', 'lib.mjs')).toContain('installer: { url: installerUrl, sha256:');
+    expect(guide).toContain('the release\'s signed version list protects a gateway\'s updates, not a first install');
+    expect(wt63).not.toMatch(/is the check/);
+  });
+  it('the floors stay in force: the pipeline publishes only above the latest release (finding 1)', () => {
+    expect(guide).toContain('so the floors a release sets stay in force until a higher release replaces them.');
+    expect(pipeline).toContain('is not above the highest gateway release');
+  });
+  it('the updater keeps the keys it was installed with, and the incident row says what that asks (note 6)', () => {
+    expect(guide).toContain('And the updater, which only the MSI installs, keeps the keys it was installed with: a release signed only with a new key is refused at its swap until that gateway\'s MSI is reinstalled');
+    expect(guide).toContain('asks each company to reinstall the MSI, which carries the updater');
+  });
+});
+
+describe('review round 2\'s corrections, in the guide\'s words', () => {
+  it('the updater\'s pipe: every request it takes is named, and who holds its key (note 11)', () => {
+    const updater = read(WILSON, 'gateway', 'updater', 'updater.mjs');
+    const cases = [...updater.matchAll(/^ {8}case '([a-z_]+)':/gm)].map((m) => m[1]);
+    expect(cases).toEqual(['swap', 'rollback', 'firewall_open', 'firewall_close', 'smb_dialects']);
+    const row = guide.split('\n').find((l) => l.startsWith('| The updater on Windows |'));
+    for (const said of ['swapping a verified release', 'putting the previous version back (rollback)', 'adding or removing the outside door\'s firewall rule', 'reading which SMB dialect each share connection uses', 'the gateway\'s own service account holds that key too']) expect(row, said).toContain(said);
+    expect(row).not.toContain('three things only');
+  });
+  it('no check an administrator cannot make: the signed list protects updates, not a first install (finding 6)', () => {
+    expect(guide).not.toContain('names the installer\'s SHA-256');
+    expect(guide).toContain('the release\'s signed version list protects a gateway\'s updates, not a first install');
+  });
+  it('the floors\' rules and the channel\'s trouble, as the code keeps them (findings 1 to 4)', () => {
+    expect(guide).toContain('The release pipeline publishes a version only above every gateway release already published');
+    expect(guide).toContain('a gateway never takes a version list lower than the last one it took');
+    expect(guide).toContain('the repair is a new, higher release');
+    expect(guide).toContain('- **The channel is the repository\'s Latest release.**');
+    expect(guide).toContain('*updates: not checked since …*');
+    expect(CHANNEL_QUIET_MS).toBe(48 * 3_600_000);
+    expect(guide).toContain('after two days of trying');
+  });
+});

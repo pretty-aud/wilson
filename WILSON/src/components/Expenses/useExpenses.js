@@ -11,6 +11,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
+import { useRabbitOnline } from '../../tools/rabbit_v0.1.0/state/rabbitLive'
 
 const MAX_HISTORY = 10
 
@@ -20,7 +21,11 @@ export function useExpenses() {
   const project     = rabbit?.project
   const projectId   = project?.id
   const adapterMode = rabbit?.adapterMode
-  const adapterStatus = rabbit?.adapterStatus
+  // F4: the adapter's `online`, one word from a context of its own, and not
+  // the status object off the value (rabbitLive.js). The load below runs
+  // again when it flips, as before; a new status that says the same thing
+  // does not draw this hook's host.
+  const adapterOnline = useRabbitOnline(rabbit)
 
   const [expenses, setExpenses] = useState([])
   const [loading, setLoading]   = useState(false)
@@ -60,7 +65,15 @@ export function useExpenses() {
 
   // ── Mounted guard ────────────────────────────────────────
   const mountedRef = useRef(true)
-  useEffect(() => () => { mountedRef.current = false }, [])
+  // Set true in the effect, not only by useRef: StrictMode (dev) runs the
+  // cleanup once between two mounts, and a guard that only ever goes false
+  // drops every later load — the Talent tab said "Loading talent..." for
+  // ever and the Expenses tab showed nothing (B5; B4c's FileAuditDrawer had
+  // the same). A production build mounts once and is unchanged.
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
 
   // ── Load ─────────────────────────────────────────────────
   const loadExpenses = useCallback(async () => {
@@ -86,7 +99,7 @@ export function useExpenses() {
 
   useEffect(() => {
     loadExpenses()
-  }, [loadExpenses, adapterMode, adapterStatus?.online])
+  }, [loadExpenses, adapterMode, adapterOnline])
 
   // ── Add ──────────────────────────────────────────────────
   const addExpense = useCallback(async (data) => {

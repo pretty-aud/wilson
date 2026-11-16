@@ -2,18 +2,23 @@
 // IntakePrepare — consolidated step 1 of the intake wizard
 // ============================================================
 //
-// Midcentury-modern typography:
-//   DISPLAY / BODY  → geometric sans-serif (Century Gothic → Futura → system)
-//   DATA            → monospace (for file names, sizes, technical info)
+// UI overhaul, Wave 1 bundle T2 (2026-09-22): this screen carried 84 of the
+// app's 191 inline type declarations — more than any other file by a factor of
+// four — and every one of them is now a scale step from `@theme`. The steps
+// were not chosen here: `scripts/ui-inline-type.mjs` reconstructs the evidence
+// `classifySite` expects and asks T0's map, so `node scripts/ui-inline-type.mjs
+// IntakePrepare` re-derives every decision on this screen from the source.
 //
-// The warm orange palette (#fb923c, #ea580c) leans into midcentury
-// burnt-copper tones. Wide letter-spacing on labels, generous
-// whitespace, and confident type hierarchy.
+// The warm orange palette (#fb923c, #ea580c) stays; §3.2's ink and signal
+// ladder is lane B's, not Wave 1's.
 
 import { useCallback, useRef, useState } from 'react'
 import { Upload, AlertCircle, AlertTriangle, Layers, Boxes, ListChecks, Film, FileText, Plus } from 'lucide-react'
 import ProjectFilesTable, { detectDocumentKind } from '../../components/ProjectFilesTable'
 import { PERSONA_LIST } from '../../intake/personas'
+import '../../rabbitShell.css'
+import { Chip } from '../../../../ui/Chip'
+import { Button } from '../../../../ui/Button'
 
 /* ── constants ─────────────────────────────────────────────── */
 
@@ -50,10 +55,23 @@ const GENERATION_ITEMS = [
   { key: 'generate_scenes', label: 'Scene Breakdown', icon: Film, desc: 'Scene-by-scene analysis' },
 ]
 
-/* ── typography — midcentury modern ────────────────────────── */
+/* ── typography ─────────────────────────────────────────────── */
 
-const SANS = "'Century Gothic', 'Futura', 'Avenir', system-ui, -apple-system, sans-serif"
-const DATA = "ui-monospace, 'SF Mono', 'Cascadia Code', monospace"
+// UI overhaul F1 (2026-09-11) replaced the private Century Gothic → Futura
+// stack with `SANS = 'var(--font-sans)'` and left `DATA` — a fourth hard-coded
+// mono stack — for Wave 1. T2 (2026-09-22) removes BOTH consts rather than
+// re-pointing them:
+//
+//   · SANS was applied 23 times and `html { font-family: var(--font-sans) }`
+//     in index.css already says the same thing. 23 declarations that restate
+//     the default are 23 places a future edit can disagree with it.
+//   · DATA was applied twice. One of those two sites is data by T0's mono map
+//     (`{coreCount} core · {n} reference` — a count) and now says so with
+//     `font-mono`; the other is the drop zone's accepted-extension hint, which
+//     is inside a <button>, and §3.1 gives every control to the sans.
+//
+// So there is no type constant on this screen any more. The class is the
+// declaration.
 
 /* ── main component ────────────────────────────────────────── */
 
@@ -97,7 +115,9 @@ export default function IntakePrepare({
         const dataUrl = await readDataUrl(f)
         accepted.push({
           id: `intake_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-          name: f.name, size: f.size, mimeType: f.type, dataUrl, ext,
+          // `size_bytes`, the `files` column's name: ProjectFilesTable reads
+          // one field for all four of its callers (B4). Nothing else reads it.
+          name: f.name, size_bytes: f.size, mimeType: f.type, dataUrl, ext,
           document_kind: detectDocumentKind(f.name),
           is_core_definer: true, description: '',
           created_at: new Date().toISOString(),
@@ -132,69 +152,87 @@ export default function IntakePrepare({
   /* ── render ──────────────────────────────────────────────── */
 
   return (
-    <div className="h-full flex flex-col" style={{ backgroundColor: '#1c1917' }}>
+    <div className="h-full flex flex-col" style={{ backgroundColor: 'var(--color-paper)' }}>
 
       <div className="flex-1 overflow-auto">
         <div style={{ maxWidth: 760, margin: '0 auto', padding: '32px 36px 28px' }}>
 
           {/* ── Title row ──────────────────────────────────────── */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <h2 style={{
-              fontSize: 20, fontFamily: SANS, fontWeight: 600,
-              textTransform: 'uppercase', letterSpacing: '0.18em', color: '#fb923c',
-              margin: 0,
-            }}>
-              Prepare Intake
+            {/* An `uppercase` heading TAG is a heading, at h1/h2/h3 by its own
+                px — not a label at the 11px floor. 20px clears the map's cliff
+                at 18, so: text-h1, sentence case, +0.01em from the token. */}
+            <h2 className="text-h1" style={{ color: 'var(--color-ink)', margin: 0 }}>
+              Prepare intake
             </h2>
             {onNewProject && (
-              <button type="button" onClick={onNewProject}
-                className="flex items-center gap-1.5 rounded transition-colors"
-                style={{
-                  padding: '7px 16px', fontSize: 11, fontFamily: SANS,
-                  fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em',
-                  color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c',
-                  cursor: 'pointer',
-                }}>
-                <Plus size={13} />
-                New Project
-              </button>
+              <Button variant="primary" size="sm" Icon={Plus} onClick={onNewProject}>
+                New project
+              </Button>
             )}
           </div>
-          <p style={{ fontSize: 13, fontFamily: SANS, color: '#78716c', margin: '0 0 24px', lineHeight: 1.6, fontWeight: 400 }}>
+          <p className="text-dense" style={{ color: 'var(--color-ink-3)', margin: '0 0 24px' }}>
             Upload source documents, classify them, and configure what the system should generate.
           </p>
 
           {/* ── Upload zone ──────────────────────────────────── */}
           {!hasFiles ? (
             <button type="button" onClick={() => inputRef.current?.click()} {...dropProps}
+              className="rb-dropzone" data-dragging={dragging ? 'true' : undefined}
               style={{
                 width: '100%', display: 'flex', flexDirection: 'column',
                 alignItems: 'center', justifyContent: 'center', gap: 12,
-                padding: '48px 24px', borderRadius: 6, cursor: 'pointer',
-                backgroundColor: dragging ? '#292524' : 'transparent',
-                border: `2px dashed ${dragging ? '#ea580c' : '#3a3733'}`,
-                transition: 'all 0.15s ease',
+                padding: '48px 24px', borderRadius: 'var(--radius-control)', cursor: 'pointer',
               }}>
-              <Upload size={30} style={{ color: dragging ? '#fb923c' : '#57534e', strokeWidth: 1.5 }} />
-              <span style={{ fontSize: 14, fontFamily: SANS, color: '#a8a29e', letterSpacing: '0.12em', textTransform: 'uppercase', fontWeight: 500 }}>
+              <Upload size={30} className="rb-dropzone-icon" style={{ strokeWidth: 1.5 }} />
+              {/* 🚨 A CONTROL IS A CONTROL EVEN WHEN ITS COPY IS IN A CHILD.
+                  T0's rule 0 keys on the element's own tag, which is right for
+                  the 241 uppercase sites that sit ON a <button>. This drop zone
+                  IS the button and puts its copy in spans, so the tag rule saw
+                  <span>, the uppercase rule fired, and the primary call to
+                  action on the screen would have gone to the 11px floor while
+                  the same copy on any other button in the app goes to 13 or 14.
+                  §3.1's Label list — table headers, field labels, eyebrows,
+                  Kbd, status badges — has no control on it. */}
+              <span className="text-body" style={{ color: 'var(--color-ink-2)' }}>
                 {dragging ? 'Drop to add' : 'Drop files or click to browse'}
               </span>
-              <span style={{ fontSize: 11, fontFamily: DATA, color: '#44403c', letterSpacing: '0.04em' }}>
+              {/* 🚨 CAPTION, AND THE REASON IS THE PAIR RATHER THAN THE INK.
+                  The map put this on Dense, which left the drop zone's call to
+                  action at 14px directly over its hint at 13 — one step apart,
+                  same family, separated by nothing but a very dim pair of
+                  greys. Caption restores the two-step gap the pair had before.
+
+                  An earlier draft argued it from the INK: below 12.5px the map
+                  promotes to Caption on a muted ink, `META_INK` lists the three
+                  the F1 ladder replaces (`#78716c`, `#8d8986`, `#57534e`), and
+                  this is `#44403c` — not an ink at all, but the old border
+                  grey, which the ladder has not reached. True, and it does not
+                  stop here: a reviewer found three sibling `#44403c` sites in
+                  this same file. Two of them are `<p>` (`:343`, `:354`) and are
+                  Dense by a rule that OUTRANKS the ink — T0's `DENSE_TAGS`
+                  fires before `META_INK`, because a prose tag says what the
+                  content IS. The third (`:294`, "No files uploaded yet") is an
+                  empty state, not a hint, and §3.1 gives Caption "metadata,
+                  hints, counts, timestamps".
+                  So the ink observation is real but it is not the argument.
+                  The argument is that a CTA and its own hint may not be one
+                  step apart, and that does not generalise past this pair. */}
+              <span className="text-caption" style={{ color: 'var(--color-ink-3)' }}>
                 {[...ACCEPTED_EXTS].join('  ·  ')}
               </span>
             </button>
           ) : (
             <button type="button" onClick={() => inputRef.current?.click()} {...dropProps}
+              className="rb-dropzone" data-size="compact" data-dragging={dragging ? 'true' : undefined}
               style={{
                 width: '100%', display: 'flex', alignItems: 'center',
                 justifyContent: 'center', gap: 8,
-                padding: '10px 16px', borderRadius: 4, cursor: 'pointer',
-                backgroundColor: dragging ? '#292524' : 'transparent',
-                border: `1px dashed ${dragging ? '#ea580c' : '#3a3733'}`,
-                marginBottom: 16, transition: 'all 0.15s ease',
+                padding: '10px 16px', borderRadius: 'var(--radius-control)', cursor: 'pointer',
+                marginBottom: 16,
               }}>
-              <Upload size={14} style={{ color: '#57534e' }} />
-              <span style={{ fontSize: 12, fontFamily: SANS, color: '#57534e', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 500 }}>
+              <Upload size={14} style={{ color: 'var(--color-ink-3)' }} />
+              <span className="text-dense" style={{ color: 'var(--color-ink-3)' }}>
                 Add more files
               </span>
             </button>
@@ -205,7 +243,7 @@ export default function IntakePrepare({
             style={{ display: 'none' }} />
 
           {error && (
-            <div className="flex items-start gap-2" style={{ padding: '8px 0', fontSize: 12, fontFamily: SANS, color: '#fca5a5' }}>
+            <div className="flex items-start gap-2 text-dense" style={{ padding: '8px 0', color: 'var(--color-danger)' }}>
               <AlertCircle size={14} className="flex-shrink-0 mt-0.5" />
               {error}
             </div>
@@ -219,10 +257,25 @@ export default function IntakePrepare({
                   display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
                   marginBottom: 10,
                 }}>
-                  <span style={{ fontSize: 11, fontFamily: SANS, color: '#fb923c', textTransform: 'uppercase', letterSpacing: '0.14em', fontWeight: 600 }}>
+                  <span className="text-label uppercase" style={{ color: 'var(--color-ink)' }}>
                     {files.length} file{files.length !== 1 ? 's' : ''}
                   </span>
-                  <span style={{ fontSize: 11, fontFamily: DATA, color: '#57534e' }}>
+                  {/* 🚨 SANS, AGAINST `classifyMono`, AND THE REASON IS ITS
+                      OWN TWIN. The map returns KEEP here — `coreCount` and
+                      `.length` are figures — and it returns KEEP for the
+                      sticky footer's `{coreCount} core file(s) · {n}
+                      persona(s)` too, which is the same kind of string at the
+                      same Caption step, visible on the same screen at the same
+                      time. That one was never asked, because the inventory
+                      asks `classifyMono` only of sites that ALREADY carry
+                      mono, and it was written in the sans.
+                      So the mechanical answer was one of two identical
+                      sentences in Geist Mono and the other in Geist. §3.1's
+                      mono list says "numeric table cells"; neither of these is
+                      a cell — both are a count set in a sentence — and T0's
+                      own default is DROP, with keeping to be earned. Neither
+                      earns it, so neither gets it. */}
+                  <span className="text-caption" style={{ color: 'var(--color-ink-3)' }}>
                     {coreCount} core · {files.length - coreCount} reference
                   </span>
                 </div>
@@ -232,18 +285,18 @@ export default function IntakePrepare({
                   onDelete={removeFile}
                   maxHeight={280}
                 />
-                <p style={{ fontSize: 11, fontFamily: SANS, color: '#57534e', margin: '10px 0 0', lineHeight: 1.6 }}>
-                  The system analyzes all <span style={{ color: '#fb923c', fontWeight: 500 }}>core files</span> to generate the project estimation.
+                <p className="text-dense" style={{ color: 'var(--color-ink-3)', margin: '10px 0 0' }}>
+                  The system analyzes all <span style={{ color: 'var(--color-ink)' }}>core files</span> to generate the project estimation.
                   Uncheck core to keep a file as reference only.
                 </p>
               </>
             ) : (
               <div style={{
                 display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                padding: '28px 16px', borderRadius: 5, border: '1px solid #292524',
+                padding: '28px 16px', borderRadius: 'var(--radius-control)', border: '1px solid var(--color-rule)',
               }}>
-                <FileText size={22} style={{ color: '#3a3733', marginBottom: 10 }} />
-                <span style={{ fontSize: 12, fontFamily: SANS, color: '#44403c', letterSpacing: '0.04em' }}>
+                <FileText size={22} style={{ color: 'var(--color-ink-3)', marginBottom: 10 }} />
+                <span className="text-dense" style={{ color: 'var(--color-ink-3)' }}>
                   No files uploaded yet
                 </span>
               </div>
@@ -255,39 +308,35 @@ export default function IntakePrepare({
 
             {/* Divider with label */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}>
-              <div style={{ flex: 1, height: 1, backgroundColor: '#3a3733' }} />
-              <span style={{ fontSize: 11, fontFamily: SANS, textTransform: 'uppercase', letterSpacing: '0.2em', color: '#57534e', fontWeight: 500 }}>
+              <div style={{ flex: 1, height: 1, backgroundColor: 'var(--color-rule)' }} />
+              <span className="text-label uppercase" style={{ color: 'var(--color-ink-3)' }}>
                 Configuration
               </span>
-              <div style={{ flex: 1, height: 1, backgroundColor: '#3a3733' }} />
+              <div style={{ flex: 1, height: 1, backgroundColor: 'var(--color-rule)' }} />
             </div>
 
             {/* ── Personas ───────────────────────────────────── */}
             <div style={{ marginBottom: 24 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 10 }}>
-                <span style={{ fontSize: 11, fontFamily: SANS, textTransform: 'uppercase', letterSpacing: '0.14em', color: '#78716c', fontWeight: 600, width: 84, flexShrink: 0 }}>
+                <span className="text-label uppercase" style={{ color: 'var(--color-ink-3)', width: 84, flexShrink: 0 }}>
                   Personas
                 </span>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   {PERSONA_LIST.map(p => {
                     const on = enabledPersonas.includes(p.id)
+                    /* The kit's Chip (B1): a persona is a toggle filter,
+                       and the Chip's one active treatment replaces the
+                       orange fill under 13px text (C6: the walk counted all
+                       three enabled personas). Same click, same toggle. */
                     return (
-                      <button key={p.id} type="button" onClick={() => togglePersona(p.id)}
-                        style={{
-                          padding: '7px 16px', fontSize: 12, fontFamily: SANS,
-                          borderRadius: 4, cursor: 'pointer', transition: 'all 0.15s ease',
-                          fontWeight: on ? 600 : 400, letterSpacing: '0.04em',
-                          color: on ? '#fff7ed' : '#78716c',
-                          backgroundColor: on ? '#ea580c' : 'transparent',
-                          border: `1px solid ${on ? '#c2410c' : '#3a3733'}`,
-                        }}>
+                      <Chip key={p.id} active={on} onClick={() => togglePersona(p.id)}>
                         {p.label}
-                      </button>
+                      </Chip>
                     )
                   })}
                 </div>
               </div>
-              <p style={{ fontSize: 11, fontFamily: SANS, color: '#44403c', margin: 0, paddingLeft: 100, lineHeight: 1.5 }}>
+              <p className="text-dense" style={{ color: 'var(--color-ink-3)', margin: 0, paddingLeft: 100 }}>
                 Each enabled persona biases the system's analysis of your documents.
               </p>
             </div>
@@ -295,10 +344,10 @@ export default function IntakePrepare({
             {/* ── Generation options ─────────────────────────── */}
             <div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 16, marginBottom: 12 }}>
-                <span style={{ fontSize: 11, fontFamily: SANS, textTransform: 'uppercase', letterSpacing: '0.14em', color: '#78716c', fontWeight: 600, width: 84, flexShrink: 0 }}>
+                <span className="text-label uppercase" style={{ color: 'var(--color-ink-3)', width: 84, flexShrink: 0 }}>
                   Generate
                 </span>
-                <p style={{ fontSize: 11, fontFamily: SANS, color: '#44403c', margin: 0, lineHeight: 1.5 }}>
+                <p className="text-dense" style={{ color: 'var(--color-ink-3)', margin: 0 }}>
                   Select what the system should produce from the uploaded documents.
                 </p>
               </div>
@@ -310,26 +359,23 @@ export default function IntakePrepare({
                   const disabled = item.key === 'generate_scenes' && !scenesEnabled
                   return (
                     <label key={item.key}
+                      className="rb-gen"
+                      data-state={disabled ? 'disabled' : checked ? 'on' : 'off'}
                       style={{
                         display: 'flex', alignItems: 'flex-start', gap: 10,
-                        padding: '11px 16px', borderRadius: 5,
-                        cursor: disabled ? 'not-allowed' : 'pointer',
-                        opacity: disabled ? 0.3 : 1,
-                        backgroundColor: checked && !disabled ? '#292524' : 'transparent',
-                        border: `1px solid ${checked && !disabled ? '#44403c' : '#3a3733'}`,
-                        transition: 'all 0.15s ease',
+                        padding: '11px 16px', borderRadius: 'var(--radius-control)',
                       }}>
                       <input type="checkbox" checked={checked} disabled={disabled}
                         onChange={() => !disabled && toggleGen(item.key)}
-                        className="accent-orange-500" style={{ width: 15, height: 15, marginTop: 2 }} />
+                        className="accent-signal" style={{ width: 15, height: 15, marginTop: 2 }} />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                          <Icon size={14} style={{ color: checked && !disabled ? '#fb923c' : '#57534e', strokeWidth: 1.8 }} />
-                          <span style={{ fontSize: 13, fontFamily: SANS, fontWeight: 600, color: checked && !disabled ? '#d6d3d1' : '#78716c' }}>
+                          <Icon size={14} className="rb-gen-icon" style={{ strokeWidth: 1.8 }} />
+                          <span className="rb-gen-label text-dense font-semibold">
                             {item.label}
                           </span>
                         </div>
-                        <span style={{ fontSize: 11, fontFamily: SANS, color: '#57534e', marginTop: 3, display: 'block', lineHeight: 1.4 }}>
+                        <span className="text-caption" style={{ color: 'var(--color-ink-3)', marginTop: 3, display: 'block' }}>
                           {disabled ? 'Enable scenes in project settings' : item.desc}
                         </span>
                       </div>
@@ -343,26 +389,26 @@ export default function IntakePrepare({
 
           {/* ── Overwrite warning ────────────────────────────── */}
           {hasExistingData && (
-            <div style={{ marginTop: 28, padding: '16px 20px', borderRadius: 5, backgroundColor: '#292524', borderLeft: '3px solid #f97316' }}>
+            <div style={{ marginTop: 28, padding: '16px 20px', borderRadius: 'var(--radius-control)', backgroundColor: 'var(--color-paper-raised)', border: '1px solid var(--color-rule)' }}>
               <div className="flex items-start gap-3">
-                <AlertTriangle size={17} className="flex-shrink-0 mt-0.5" style={{ color: '#f97316' }} />
+                <AlertTriangle size={17} className="flex-shrink-0 mt-0.5" style={{ color: 'var(--color-ink)' }} />
                 <div className="flex-1">
-                  <p style={{ fontSize: 13, fontFamily: SANS, color: '#a8a29e', lineHeight: 1.7, margin: 0 }}>
+                  <p className="text-dense" style={{ color: 'var(--color-ink-2)', margin: 0 }}>
                     This project already has{' '}
-                    <span style={{ color: '#d6d3d1', fontWeight: 500 }}>
+                    <span style={{ color: 'var(--color-ink)' }}>
                       {[
                         existingDataCounts.phases > 0 && `${existingDataCounts.phases} phase${existingDataCounts.phases !== 1 ? 's' : ''}`,
                         existingDataCounts.assets > 0 && `${existingDataCounts.assets} asset${existingDataCounts.assets !== 1 ? 's' : ''}`,
                         existingDataCounts.tasks > 0 && `${existingDataCounts.tasks} task${existingDataCounts.tasks !== 1 ? 's' : ''}`,
                       ].filter(Boolean).join(', ')}
                     </span>.
-                    Running intake will <span style={{ color: '#fca5a5', fontWeight: 600 }}>permanently rewrite</span> all existing phases, assets, and tasks.
+                    Running intake will <span className="font-semibold" style={{ color: 'var(--color-danger)' }}>permanently rewrite</span> all existing phases, assets, and tasks.
                   </p>
                   <label className="flex items-center gap-2.5 mt-3 cursor-pointer">
                     <input type="checkbox" checked={overwriteConfirmed}
                       onChange={e => onOverwriteConfirmedChange(e.target.checked)}
-                      className="accent-orange-500" style={{ width: 15, height: 15 }} />
-                    <span style={{ fontSize: 13, fontFamily: SANS, color: '#d6d3d1', fontWeight: 600 }}>
+                      className="accent-signal" style={{ width: 15, height: 15 }} />
+                    <span className="text-dense font-semibold" style={{ color: 'var(--color-ink)' }}>
                       I understand and want to proceed
                     </span>
                   </label>
@@ -377,23 +423,19 @@ export default function IntakePrepare({
       {/* ── Sticky footer ──────────────────────────────────── */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '14px 36px', borderTop: '1px solid #292524', backgroundColor: '#1c1917',
+        padding: '14px 36px', borderTop: '1px solid var(--color-rule)', backgroundColor: 'var(--color-paper)',
       }}>
-        <span style={{ fontSize: 12, fontFamily: SANS, color: '#57534e', letterSpacing: '0.02em' }}>
+        <span className="text-caption" style={{ color: 'var(--color-ink-3)' }}>
           {hasFiles
             ? `${coreCount} core file${coreCount === 1 ? '' : 's'} · ${enabledPersonas.length} persona${enabledPersonas.length === 1 ? '' : 's'}`
             : 'Upload files to begin'}
         </span>
-        <button type="button" onClick={onRun} disabled={!canRun}
-          style={{
-            padding: '10px 24px', fontSize: 13, fontFamily: SANS,
-            fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.12em',
-            borderRadius: 4, cursor: canRun ? 'pointer' : 'default',
-            color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c',
-            opacity: canRun ? 1 : 0.25, transition: 'opacity 0.15s ease',
-          }}>
-          Run Intake →
-        </button>
+        {/* The kit's primary Button: signal-fill with white, 5.18:1 at any
+            size (C6). The "→" was one of the glyphs Geist's Latin subset does
+            not draw (V1-01), and the button says what it does without it. */}
+        <Button variant="primary" onClick={onRun} disabled={!canRun}>
+          Run intake
+        </Button>
       </div>
     </div>
   )

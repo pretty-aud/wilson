@@ -1,4 +1,9 @@
-import { createContext, useContext, useState, useCallback, useRef, useMemo, useEffect } from 'react'
+import { createContext, useContext, useState, useCallback, useRef, useMemo, useEffect, useLayoutEffect } from 'react'
+import { callAI, isRetryableAIError } from '../cloud/aiProxy'
+import { textFromMessage } from '../cloud/anthropicStream'
+import { loadAgentSkills } from '../lib/localData'
+import { modelFor } from '../lib/activeModel'
+import { otterFetch } from '../tools/otter_v0.3.1/adapters'
 import DiffView from './DiffView'
 import LessonOutlinePopup from './LessonOutlinePopup'
 import { AGENT_SYSTEM_PROMPT, AGENT_EDIT_CONTEXT } from './agentPrompts'
@@ -6,18 +11,25 @@ import { getEffectivePrompt } from '../components/settings/agentSkillRegistry'
 
 const AgentContext = createContext(null)
 
-// Tool names known to the multi-tool agent. Adding a new tool means
-// adding its slug here AND wiring its handlers via registerTool().
-export const AGENT_TOOLS = ['otter', 'rabbit']
-
 export function useAgent() {
   return useContext(AgentContext)
+}
+
+// F4 (2026-11-13): the text being typed to the agent, in a context of its own.
+// It was a field of the one value, so each character was a new value for every
+// reader of it: O.T.T.E.R., R.A.B.B.I.T., Settings and the pet. Only the pet's
+// field shows the text (App.jsx's PetCompanionWithAgent), and only it reads
+// this. Sending still reads agentInputRef, as it always did.
+const AgentInputContext = createContext('')
+
+export function useAgentInput() {
+  return useContext(AgentInputContext)
 }
 
 // ── Toast notification component ──
 function AgentToast({ message, onDone }) {
   return (
-    <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 bg-stone-800 border border-orange-500 text-orange-400 px-4 py-2 rounded-sm text-xs font-mono shadow-lg animate-fade-in-up"
+    <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 bg-stone-800 border border-orange-500 text-orange-400 px-4 py-2 rounded-float text-dense shadow-float animate-fade-in-up"
       onAnimationEnd={onDone}>
       {message}
     </div>
@@ -44,7 +56,7 @@ function AgentToast({ message, onDone }) {
  * unchanged because (a) Otter passes 'otter' as the first arg now and
  * (b) lockedSubjects is a backward-compat alias for lockedEntities.otter.
  */
-export default function AgentProvider({ children, apiKey }) {
+export default function AgentProvider({ children, person }) {
   // Agent mode state
   const [agentEnabled, setAgentEnabled] = useState(true)
   const [agentMode, setAgentMode] = useState(false) // false = chat, true = agent/work
@@ -64,8 +76,9 @@ export default function AgentProvider({ children, apiKey }) {
 
   const refreshPromptOverrides = useCallback(async () => {
     try {
-      const res = await fetch('/api/agent-skills')
-      const data = await res.json().catch(() => ({}))
+      // localData routes to the local server in Electron and localStorage on
+      // the web (Session 12 — the raw fetch 404'd in a browser).
+      const data = await loadAgentSkills()
       if (data && typeof data === 'object') setPromptOverrides(data)
     } catch {
       /* best effort */
@@ -90,6 +103,50 @@ export default function AgentProvider({ children, apiKey }) {
 
   // Unified proposal popup state (replaces outlineData + subjectOutlineData)
   const [proposalData, setProposalData] = useState(null)
+
+  // 🚨 F4 (OUTSTANDING F4-08): THE CONVERSATION LEAVES WITH ITS PERSON. App
+  // hands down who is signed in as it draws (`person`: undefined until the
+  // permissions resolve, then the user's id, null signed out). Nothing cleared
+  // the agent on a sign-out or when another person signed in over the first
+  // (a second tab), so the next person's pet in agent mode showed the last
+  // person's words and sent them to the model as the next person's history; an
+  // open diff, a bulk queue, a proposal or the undo list of the last person's
+  // edits was the next person's to apply; and "apply every edit without
+  // asking" carried over to them. When the person changes from one App has
+  // already named, all of that goes before the next frame is drawn (a layout
+  // effect), and the count moves: an answer, a context still being read or an
+  // edit still being applied for the leaving person is dropped where it lands
+  // (sendAgentMessage, applyEdit and the handlers of the diff and the undo).
+  // The first person App names (undefined to someone) and the same person
+  // confirmed again clear nothing, and nor does a moment of undefined between
+  // (the permissions can go back to not ready while a sign-in held at an
+  // offline launch is confirmed): App keeps its last person then, and so does
+  // this. The system prompt edited in Settings goes back to the default (it is
+  // the leaving person's words). The locks, the mode and the prompt overrides
+  // stay: they are this device's agent, not the conversation (OUTSTANDING
+  // F4-10 has the overrides). The pet's own chat does the same in App.jsx
+  // (PetHost's handle). AgentProvider.rerender.test.jsx.
+  const personSeenRef = useRef(person)
+  const personChangesRef = useRef(0)
+  useLayoutEffect(() => {
+    if (person === undefined) return
+    const was = personSeenRef.current
+    personSeenRef.current = person
+    if (was === undefined || was === person) return
+    personChangesRef.current += 1
+    agentInputRef.current = ''
+    setAgentInput('')
+    setAgentMessages([])
+    setAgentLoading(false)
+    setDiffData(null)
+    setBulkEdits(null)
+    setBulkIndex(0)
+    setProposalData(null)
+    setUndoStack([])
+    setToast(null)
+    setAutoApprove('always_ask')
+    setAgentSystemPrompt(AGENT_SYSTEM_PROMPT)
+  }, [person])
 
   // Register / unregister a tool's interface.
   // Signature: registerTool(toolName, toolInterface)
@@ -168,14 +225,21 @@ export default function AgentProvider({ children, apiKey }) {
       return false
     }
 
+    // F4-08: an edit made for the person signed in when it started. Once they
+    // have gone (personChangesRef), it writes nothing more for the next one,
+    // leaves no undo entry and says nothing.
+    const startedFor = personChangesRef.current
+    const theyLeft = () => personChangesRef.current !== startedFor
     try {
       // Store undo data
       const subjectData = await tool.getSubjectData(target.subject_slug)
+      if (theyLeft()) return false
       if (subjectData) {
         setUndoStack(prev => [...prev.slice(-5), { subjectSlug: target.subject_slug, previousData: JSON.parse(JSON.stringify(subjectData)) }])
       }
 
       await tool.applyChange(target, changes)
+      if (theyLeft()) return false
 
       // Save correction
       for (const change of changes) {
@@ -190,11 +254,13 @@ export default function AgentProvider({ children, apiKey }) {
           category: correction_category || 'other',
         }
         await tool.saveCorrection(correction)
+        if (theyLeft()) return false
       }
 
       showToast(`Updated lesson in ${target.subject_slug}`)
       return true
     } catch (e) {
+      if (theyLeft()) return false
       showToast(`Error applying changes: ${e.message}`)
       return false
     }
@@ -249,8 +315,17 @@ export default function AgentProvider({ children, apiKey }) {
   // Send message to agent
   const sendAgentMessage = useCallback(async (overrideInput) => {
     const currentInput = overrideInput || agentInputRef.current
-    if (!currentInput.trim() || !apiKey) return
+    // AI rides the authenticated ai-proxy (locked #21) — callAI surfaces a
+    // friendly "sign in" error below if there is no session.
+    if (!currentInput.trim()) return
 
+    // F4-08: a question is its asker's. If they leave while the context is read
+    // or the answer is on its way, it is not sent (the call would go out under
+    // the next person's session), and an answer or an error that lands after
+    // is dropped: the next person is not shown it, it opens no diff for them,
+    // and it is not their history.
+    const askedFor = personChangesRef.current
+    const askerLeft = () => personChangesRef.current !== askedFor
     const userMsg = { role: 'user', content: currentInput }
     const newMessages = [...agentMessages, userMsg]
     setAgentMessages(newMessages)
@@ -363,38 +438,27 @@ export default function AgentProvider({ children, apiKey }) {
       let lastError
       for (let attempt = 0; attempt < 3; attempt++) {
         if (attempt > 0) await new Promise(r => setTimeout(r, 2000 * attempt))
+        if (askerLeft()) return
         try {
-          const res = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'x-api-key': apiKey,
-              'anthropic-version': '2023-06-01',
-              'anthropic-dangerous-direct-browser-access': 'true',
-            },
-            body: JSON.stringify({
-              model: 'claude-sonnet-4-20250514',
-              max_tokens: 4096,
-              system: systemPrompt,
-              messages: trimmedMessages,
-            }),
+          data = await callAI({
+            model: modelFor('agent.chat'),
+            max_tokens: 4096,
+            system: systemPrompt,
+            messages: trimmedMessages,
+            tool: 'agent',
           })
-          data = await res.json()
-          if (data.error) {
-            const errMsg = data.error?.message || JSON.stringify(data.error)
-            const isRetryable = res.status === 429 || res.status === 529 || res.status === 503 || /overloaded|rate.?limit|capacity/i.test(errMsg)
-            if (isRetryable && attempt < 2) { lastError = errMsg; continue }
-            throw new Error(errMsg)
-          }
           break
         } catch (fetchErr) {
           lastError = fetchErr.message || 'Network error'
-          if (attempt < 2 && !/invalid|auth|key|permission/i.test(lastError)) continue
+          const authish = /invalid|auth|key|permission|sign in/i.test(lastError) && !isRetryableAIError(fetchErr)
+          if (attempt < 2 && !authish) continue
           throw fetchErr
         }
       }
 
-      const replyText = data.content?.[0]?.text || 'Sorry, I had trouble processing that.'
+      if (askerLeft()) return
+      // S30: a thinking block can occupy content[0]; find the text block.
+      const replyText = textFromMessage(data) || 'Sorry, I had trouble processing that.'
       const parsed = parseAgentResponse(replyText)
 
       // Show the message part in chat
@@ -406,12 +470,15 @@ export default function AgentProvider({ children, apiKey }) {
         handleAgentAction(parsed.action)
       }
     } catch (e) {
+      if (askerLeft()) return
       const msg = e.message || 'Unknown error'
       setAgentMessages(prev => [...prev, { role: 'assistant', content: `Error: ${msg}` }])
     } finally {
-      setAgentLoading(false)
+      // Once its asker has gone the change of person lowered this, and the
+      // next person's own question may have raised it again.
+      if (!askerLeft()) setAgentLoading(false)
     }
-  }, [agentMessages, apiKey, agentSystemPrompt, promptOverrides, lockedEntities, activeTool, handleAgentAction])
+  }, [agentMessages, agentSystemPrompt, promptOverrides, lockedEntities, activeTool, handleAgentAction])
 
   // Undo last edit (Otter scope — RABBIT will own its own undo path).
   const undoLastEdit = useCallback(async () => {
@@ -420,16 +487,23 @@ export default function AgentProvider({ children, apiKey }) {
     if (!tool) return
 
     const last = undoStack[undoStack.length - 1]
+    // F4-08: the change of person empties the list; an undo already on its way
+    // says nothing to the next person.
+    const startedFor = personChangesRef.current
     try {
-      // Re-save the previous subject data
-      await fetch(`/api/software/${tool.currentContext.activeSoftwareSlug}/subjects`, {
+      // Re-save the previous subject data — through the adapter seam, so the
+      // write lands in Supabase in cloud mode / on the web (Session 12; the
+      // raw fetch silently 404'd outside Electron-local).
+      await otterFetch(`/api/software/${tool.currentContext.activeSoftwareSlug}/subjects`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(last.previousData),
       })
+      if (personChangesRef.current !== startedFor) return
       setUndoStack(prev => prev.slice(0, -1))
       showToast('Reverted last change')
     } catch (e) {
+      if (personChangesRef.current !== startedFor) return
       showToast(`Undo failed: ${e.message}`)
     }
   }, [undoStack, showToast])
@@ -437,6 +511,8 @@ export default function AgentProvider({ children, apiKey }) {
   // Diff view handlers
   const handleDiffApply = useCallback(async () => {
     if (!diffData) return
+    // F4-08: applyEdit answers false once its person has gone, so the next
+    // edit of the leaving person's queue is never opened for the next one.
     const success = await applyEdit(diffData.edit)
     if (success && bulkEdits) {
       // Move to next bulk edit
@@ -490,9 +566,14 @@ export default function AgentProvider({ children, apiKey }) {
 
   const handleApplyAllRemaining = useCallback(async () => {
     if (!bulkEdits) return
+    // F4-08: this loop holds the queue it was started with; once its person
+    // has gone it applies none of the rest for the next one.
+    const startedFor = personChangesRef.current
     for (let i = bulkIndex; i < bulkEdits.length; i++) {
+      if (personChangesRef.current !== startedFor) return
       await applyEdit(bulkEdits[i])
     }
+    if (personChangesRef.current !== startedFor) return
     setBulkEdits(null)
     setBulkIndex(0)
     setDiffData(null)
@@ -546,12 +627,19 @@ export default function AgentProvider({ children, apiKey }) {
     setAgentInput(val)
   }, [])
 
-  const value = {
+  // F4 (2026-11-13): ONE object for as long as none of its fields changes. It
+  // was built new on every render of this provider, so every reader ran on
+  // every render of it, and an effect keyed on the value ran every time:
+  // O.T.T.E.R. unregistered and registered its tool again on each character
+  // typed to the agent (AgentProvider.rerender.test.jsx holds the count). The
+  // text being typed is not a field any more (useAgentInput, above). The
+  // diff, the proposal and the toast never were, and are drawn below.
+  const value = useMemo(() => ({
     // State
     agentEnabled, setAgentEnabled,
     agentMode, setAgentMode,
     agentMessages, setAgentMessages,
-    agentInput, handleAgentInputChange,
+    handleAgentInputChange,
     agentLoading,
     autoApprove, setAutoApprove,
     lockedSubjects, setLockedSubjects,                  // Otter back-compat
@@ -570,11 +658,19 @@ export default function AgentProvider({ children, apiKey }) {
     isEntityLocked,
     showToast,
     undoStack,
-  }
+  }), [
+    agentEnabled, agentMode, agentMessages, handleAgentInputChange, agentLoading, autoApprove,
+    lockedSubjects, setLockedSubjects, lockedEntities, setLockedEntitiesForTool,
+    agentSystemPrompt, promptOverrides, refreshPromptOverrides,
+    registerTool, unregisterTool, activeTool,
+    sendAgentMessage, undoLastEdit, isSubjectLocked, isEntityLocked, showToast, undoStack,
+  ])
 
   return (
     <AgentContext.Provider value={value}>
-      {children}
+      <AgentInputContext.Provider value={agentInput}>
+        {children}
+      </AgentInputContext.Provider>
 
       {/* Diff View Modal */}
       {diffData && (

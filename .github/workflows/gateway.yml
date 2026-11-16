@@ -1,0 +1,293 @@
+# =============================================================================
+# .github/workflows/gateway.yml — the WILSON file gateway (WILSON/gateway/, GW2).
+#
+#   tests      the gateway's own suite (npx vitest run gateway) on Windows and
+#              Ubuntu, Node 24
+#   msi        "WILSON Gateway Setup.msi" built on Windows from source: the
+#              service host by csc.exe, node.exe from the official zip checked
+#              against its pinned SHA-256, WiX 5.0.2 as a dotnet LOCAL tool;
+#              its tables read back (the services' accounts, the custom
+#              actions' order, the office door's firewall rule); kept as an
+#              artifact for seven days. Unsigned (D14: ship unsigned for now;
+#              the release workflow, gateway-release.yml, has the signing step
+#              in place). Nothing is installed on the runner.
+#   container  the image built and run on Ubuntu twice, against the fake cloud
+#              (gateway/test/fakeCloud.mjs) on the runner:
+#                1  on Docker's default bridge: the office door stays closed
+#                   and the log says why (D24)
+#                2  on the host's network: enrolled, the switch turned on, a
+#                   Range read through the outside door from the runner's own
+#                   LAN address, served, with that real address in the log;
+#                   the office door closes the same host before TLS; the
+#                   switch turned off closes the outside port
+#              Each step sources gateway/test/e2e/containerChecks.sh (FX5): a
+#              check reads the container's log from a file, never through a
+#              pipe, and a failure leaves public annotations saying what
+#              failed, with the step's, the container's and the fake cloud's
+#              last lines (a job's log needs admin rights to read).
+#   acme       the outside door's free certificate (GW4) against Pebble, Let's
+#              Encrypt's test server, and its DNS (both pinned by digest), on
+#              the runner's loopback: Pebble checks TLS-ALPN-01 on the port the
+#              outside door listens on; issued, renewed on a 90-second
+#              lifetime, refused for a name pointed where nothing answers and
+#              for a name on its block list (test/e2e/acmePebble.mjs). It needs
+#              nothing of the tests job, so a flaky test hides nothing here.
+# =============================================================================
+
+name: Gateway
+
+on:
+  push:
+    branches:
+      - 'po/**'
+      - 'feat/**'
+    paths:
+      - 'WILSON/gateway/**'
+      - 'WILSON/vitest.config.js'
+      - '.github/workflows/gateway.yml'
+  pull_request:
+    paths:
+      - 'WILSON/gateway/**'
+      - '.github/workflows/gateway.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Gateway tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: WILSON
+    steps:
+      - uses: actions/checkout@v4
+      # The repository's lockfile is kept with npm 10 (POST_OVERHAUL_PLAN §4.7);
+      # the install runs on Node 22's npm, as rls.yml's unit job does, and the
+      # tests then run on Node 24, the gateway's own runtime.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: WILSON/package-lock.json
+      - name: Install dependencies (vitest)
+        shell: bash
+        run: |
+          # `shell: bash` is -eo pipefail: a failed npm ci must be caught by `||`,
+          # or the step exits before its echo (FX5's review). Ten lines: the
+          # runner keeps a step's first ten error annotations.
+          s=0; npm ci --ignore-scripts 2>&1 | tee "$RUNNER_TEMP/npm.log" || s=${PIPESTATUS[0]}
+          if [ "$s" -ne 0 ]; then tail -10 "$RUNNER_TEMP/npm.log" | sed 's/^/::error::npm ci: /'; exit "$s"; fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: The gateway's tests (Node 24)
+        shell: bash
+        run: |
+          node --version
+          # The certificate tests read the constraints back with OpenSSL; in CI
+          # they must run, never skip (review round 1, finding 6).
+          openssl version
+          npx vitest run gateway
+
+  msi:
+    name: Windows installer (unsigned)
+    needs: tests
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build the MSI
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'gateway-msi'
+          $logFile = Join-Path $env:RUNNER_TEMP 'msi.log'
+          try {
+            & WILSON/gateway/windows/wix/build.ps1 -Out $out *>&1 | Tee-Object -FilePath $logFile
+          } catch {
+            if (Test-Path $logFile) { Get-Content $logFile -Tail 25 | ForEach-Object { "::error::msi: $_" } }
+            "::error::msi: $($_.Exception.Message)"
+            exit 1
+          }
+          Get-ChildItem $out -Filter *.msi | Format-Table Name, Length
+      - name: Read the MSI's tables back (nothing installed)
+        shell: pwsh
+        run: |
+          # A plain string: COM refuses the wrapped object Join-Path returns (DISP_E_TYPEMISMATCH).
+          $msi = [string](Join-Path $env:RUNNER_TEMP 'gateway-msi\WILSON Gateway Setup.msi')
+          $installer = New-Object -ComObject WindowsInstaller.Installer
+          $db = $installer.GetType().InvokeMember('OpenDatabase', 'InvokeMethod', $null, $installer, @($msi, 0))
+          function Q($sql) {
+            $view = $db.GetType().InvokeMember('OpenView', 'InvokeMethod', $null, $db, @($sql))
+            $view.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $view, $null) | Out-Null
+            $rows = @()
+            while ($true) {
+              $rec = $view.GetType().InvokeMember('Fetch', 'InvokeMethod', $null, $view, $null)
+              if ($rec -eq $null) { break }
+              $n = $rec.GetType().InvokeMember('FieldCount', 'GetProperty', $null, $rec, $null)
+              $vals = @(); for ($i = 1; $i -le $n; $i++) { $vals += $rec.GetType().InvokeMember('StringData', 'GetProperty', $null, $rec, @($i)) }
+              $rows += ($vals -join '|')
+            }
+            return $rows
+          }
+          $svc = Q 'SELECT `Name`,`StartName`,`Arguments` FROM `ServiceInstall`'
+          $svc
+          if (-not ($svc -contains 'WilsonGateway|NT SERVICE\WilsonGateway|WilsonGateway')) { throw 'the gateway service is not the virtual service account' }
+          if (-not ($svc -contains 'WilsonGatewayUpdater|LocalSystem|WilsonGatewayUpdater')) { throw 'the updater service is not LocalSystem' }
+          $seq = Q 'SELECT `Action`,`Sequence` FROM `InstallExecuteSequence`'
+          $at = @{}; foreach ($r in $seq) { $p = $r.Split('|'); $at[$p[0]] = [int]$p[1] }
+          if (-not ($at['InstallServices'] -lt $at['CheckState'] -and $at['CheckState'] -lt $at['SetStateOwner'] -and $at['SetStateOwner'] -lt $at['SetStateAcl'] -and $at['SetStateAcl'] -lt $at['FreshPipeKey'] -and $at['FreshPipeKey'] -lt $at['WriteEnrolFile'] -and $at['WriteEnrolFile'] -lt $at['StartServices'] -and $at['StartServices'] -lt $at['WriteSummary'])) { throw 'custom actions out of order' }
+          $ca = Q 'SELECT `Action`,`Target` FROM `CustomAction`'
+          if (-not ($ca | Where-Object { $_ -like 'SetSetStateOwner|*/setowner `*S-1-5-32-544 /T /C /Q' })) { throw 'the state folder is not given to Administrators before its ACL is set' }
+          if (-not ($ca | Where-Object { $_ -like 'SetFreshPipeKey|*installer.mjs" fresh-pipe-key *' })) { throw 'the pipe key is not made fresh at install' }
+          if (-not ($ca | Where-Object { $_ -like 'SetCheckState|*installer.mjs" check-state *' })) { throw 'the state folder is not checked before the recursive owner and ACL steps' }
+          $hidden = Q 'SELECT `Value` FROM `Property` WHERE `Property` = ''MsiHiddenProperties'''
+          if (-not ($hidden -match 'ENROLTOKEN')) { throw 'the token is not hidden from the log' }
+          $fw = Q 'SELECT `Name`,`RemoteAddresses`,`Port`,`Protocol` FROM `Wix5FirewallException`'
+          $fw
+          if (-not ($fw -contains 'WILSON Gateway office door|LocalSubnet|8443|6')) { throw 'the office door rule is not TCP 8443, local subnet' }
+          'MSI tables: as designed'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wilson-gateway-msi-unsigned
+          path: ${{ runner.temp }}/gateway-msi/WILSON Gateway Setup.msi
+          retention-days: 7
+
+  container:
+    name: Container (bridge, then host network)
+    needs: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Build the image
+        run: |
+          set -euo pipefail
+          . WILSON/gateway/test/e2e/containerChecks.sh build
+          docker build -f WILSON/gateway/container/Dockerfile -t wilson-gateway:ci WILSON/gateway
+
+      - name: 1. On Docker's default bridge, the office door stays closed and says why
+        run: |
+          set -euo pipefail
+          . WILSON/gateway/test/e2e/containerChecks.sh bridge gw-bridge
+          mkdir -p /tmp/data-bridge && sudo chown 65532:65532 /tmp/data-bridge
+          # P8 (TPN-ENC-014): the container seals its secrets under a key the operator provides; a throwaway here.
+          docker run -d --name gw-bridge -e WILSON_GATEWAY_SECRETS_KEY="$(openssl rand -base64 32)" -v /tmp/data-bridge:/data wilson-gateway:ci
+          for i in $(seq 1 30); do has 'Certificate fingerprint' && break; sleep 1; done
+          has 'Certificate fingerprint' || fail 'the gateway did not start: no fingerprint in its log after 30 s'
+          head -20 /tmp/gw-bridge.log
+          has "is on a bridge network, so it cannot see browsers" || fail 'no bridge sentence'
+          head -5 /tmp/gw-bridge.log > /tmp/gw-bridge.first
+          grep -q 'Certificate fingerprint (SHA-256): ' /tmp/gw-bridge.first || fail 'no fingerprint on the first lines'
+          docker rm -f gw-bridge
+
+      - name: 2. On the host's network, a Range read from the runner's LAN address, with that address in the log
+        run: |
+          set -euo pipefail
+          . WILSON/gateway/test/e2e/containerChecks.sh host gw-host /tmp/fc
+          LAN=$(hostname -I | awk '{print $1}')
+          echo "the runner's LAN address: $LAN"
+          mkdir -p /tmp/fc /tmp/data-host /tmp/share
+          head -c 1048576 /dev/urandom > /tmp/share/clip.mp4
+          node WILSON/gateway/test/fakeCloud.mjs --port 9443 --dir /tmp/fc > /tmp/fc/out.json 2> /tmp/fc/err.log &
+          for i in $(seq 1 30); do [ -s /tmp/fc/out.json ] && break; sleep 0.5; done
+          cat /tmp/fc/out.json
+          C=https://127.0.0.1:9443/_control
+          post() { curl -sk -X POST "$C/$1" -H 'content-type: application/json' -d "$2"; }
+          LOC=aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee; CLIP=99999999-8888-4777-b666-555555555555; SUB=11111111-2222-4333-8444-555555555555
+          post location "{\"id\":\"$LOC\",\"unc_path\":\"\\\\\\\\nas\\\\footage\",\"name\":\"Footage\"}"
+          post clip "{\"id\":\"$CLIP\",\"loc\":\"$LOC\",\"path\":\"clip.mp4\",\"mt\":\"video/mp4\"}"
+          post member "{\"sub\":\"$SUB\"}"
+          post state "{\"switch_on\":true,\"outside_address\":{\"host\":\"$LAN\",\"port\":8444}}"
+          TOKEN=$(post token '{}' | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).token))')
+          sudo chown -R 65532:65532 /tmp/data-host
+          docker run -d --name gw-host --network host \
+            -e WILSON_GATEWAY_SECRETS_KEY="$(openssl rand -base64 32)" \
+            -e WILSON_ENROL_TOKEN="$TOKEN" -e WILSON_CLOUD_URL=https://127.0.0.1:9443/functions/v1 \
+            -e NODE_EXTRA_CA_CERTS=/ca/fake-cloud-root.pem \
+            -v /tmp/fc:/ca:ro -v /tmp/data-host:/data -v /tmp/share:/locations/nas/footage:ro \
+            wilson-gateway:ci
+          for i in $(seq 1 60); do has 'outside_open' && break; sleep 1; done
+          head -30 /tmp/gw-host.log
+          has 'outside_open' || fail 'the outside door did not open'
+          TICKET=$(post mint "{\"clip\":\"$CLIP\",\"sub\":\"$SUB\"}" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).ticket))')
+          CODE=$(curl -sk -o /tmp/got.bin -w '%{http_code}' -H 'Range: bytes=0-1023' "https://$LAN:8444/v1/clips/$CLIP?t=$TICKET" || true)
+          echo "outside door answered $CODE with $(stat -c %s /tmp/got.bin 2>/dev/null || echo no) bytes"
+          [ "$CODE" = 206 ] || fail "the outside door answered $CODE to the Range read, not 206"
+          [ "$(stat -c %s /tmp/got.bin)" = 1024 ] || fail 'the outside door did not serve the 1,024 bytes asked for'
+          cmp -n 1024 /tmp/got.bin /tmp/share/clip.mp4 || fail 'the bytes served are not the clip'
+          for i in $(seq 1 10); do has 'clip_served' && break; sleep 1; done
+          grep 'clip_served' /tmp/gw-host.log > /tmp/gw-host.served || fail 'no clip_served line in the log'
+          tail -1 /tmp/gw-host.served
+          grep -q "\"peer\":\"$LAN\"" /tmp/gw-host.served || fail 'the real peer address is not in the log'
+          if curl -sk --max-time 5 "https://$LAN:8443/" -o /dev/null; then fail 'the office door served its own host'; else echo "the office door closed this host's own address before TLS (curl exit $?)"; fi
+          post state '{"switch_on":false}'
+          for i in $(seq 1 30); do has 'outside_closed {"reason":"closed_switch_off"' && break; sleep 1; done
+          has 'outside_closed {"reason":"closed_switch_off"' || fail 'the outside door did not close in 30 s with the switch off'
+          grep 'outside_closed' /tmp/gw-host.log | tail -1
+          if curl -sk --max-time 5 "https://$LAN:8444/v1/health" -o /dev/null; then fail 'the outside door still answers with the switch off'; else echo "switch off: the outside port refuses (curl exit $?)"; fi
+          docker rm -f gw-host
+  acme:
+    name: ACME against Pebble (Let's Encrypt's test server)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Pebble and its DNS, pinned by digest; the validator pointed at the outside door on loopback
+        run: |
+          set -euo pipefail
+          # Pebble 2.10.1 (2026-04-20), read from ghcr.io on 2026-10-11. tlsPort is the
+          # port Pebble's validator connects to for TLS-ALPN-01 (443 in the world).
+          cat > "$RUNNER_TEMP/gw-pebble.json" <<'JSON'
+          { "pebble": {
+            "listenAddress": "127.0.0.1:14000", "managementListenAddress": "127.0.0.1:15000",
+            "certificate": "test/certs/localhost/cert.pem", "privateKey": "test/certs/localhost/key.pem",
+            "httpPort": 5002, "tlsPort": 18444, "ocspResponderURL": "", "externalAccountBindingRequired": false,
+            "domainBlocklist": ["blocked-domain.example"], "retryAfter": { "authz": 1, "order": 1 },
+            "keyAlgorithm": "ecdsa",
+            "profiles": { "default": { "description": "90 seconds, to force a renewal", "validityPeriod": 90 } } } }
+          JSON
+          docker run -d --name challtestsrv --network host \
+            ghcr.io/letsencrypt/pebble-challtestsrv:2.10.1@sha256:12ce21884def456bcf9786542113949e1f19dc7738d2c70e156c2d0c38a1405b \
+            -defaultIPv6 "" -defaultIPv4 127.0.0.1 -http01 "" -https01 "" -tlsalpn01 "" -dnsserver 127.0.0.1:8053 -management 127.0.0.1:8055
+          docker run -d --name pebble --network host \
+            -e PEBBLE_VA_NOSLEEP=1 -e PEBBLE_WFE_NONCEREJECT=20 -e PEBBLE_AUTHZREUSE=0 \
+            -v "$RUNNER_TEMP/gw-pebble.json:/test/config/gw-pebble.json:ro" \
+            ghcr.io/letsencrypt/pebble:2.10.1@sha256:ddf230642b1a584f519f32e347de1b05a6e4c1f6c35c1863b33effeab5f78199 \
+            -config /test/config/gw-pebble.json -strict -dnsserver 127.0.0.1:8053
+          for i in $(seq 1 30); do curl -sk https://127.0.0.1:14000/dir >/dev/null && break; sleep 1; done
+          # Read whole into a file, then shown: `curl … | head -c 400` under pipefail
+          # fails when head stops reading while curl is still writing (FX5).
+          curl -sk https://127.0.0.1:14000/dir -o "$RUNNER_TEMP/pebble-dir.json"
+          head -c 400 "$RUNNER_TEMP/pebble-dir.json"; echo
+          # The name this account does not control points where nothing listens.
+          curl -s -d '{"host":"refused.wilson.test","addresses":["127.0.0.2"]}' http://127.0.0.1:8055/add-a
+          docker cp pebble:/test/certs/pebble.minica.pem "$RUNNER_TEMP/pebble.minica.pem"
+      - name: Issued, renewed on a 90-second lifetime, refused for a name it does not control and for a blocked one
+        run: |
+          node WILSON/gateway/test/e2e/acmePebble.mjs --directory https://127.0.0.1:14000/dir \
+            --ca "$RUNNER_TEMP/pebble.minica.pem" --root https://127.0.0.1:15000/roots/0 --port 18444 \
+            --name gw.wilson.test --refused refused.wilson.test --blocked blocked-domain.example
+      - name: Pebble's log, on failure
+        if: failure()
+        run: |
+          # One annotation of forty lines: GitHub keeps ten annotations a step (FX5).
+          set -euo pipefail
+          . WILSON/gateway/test/e2e/containerChecks.sh pebble-log
+          docker logs pebble > /tmp/pebble.log 2>&1 || true
+          tail -n 40 /tmp/pebble.log | annotate 'pebble log (last 40 lines)'

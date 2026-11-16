@@ -15,10 +15,12 @@
 #   B2_APP_KEY             B2 application key
 #   B2_BACKUP_BUCKET       e.g. wilson-backups
 #
-# Retention: configure a B2 lifecycle rule on the bucket ("keep only the
-# last 30 days" on prefix db/) rather than deleting from CI — lifecycle
+# Retention: configured as a B2 lifecycle rule on the bucket ("keep only the
+# last 90 days" on prefix db/) rather than deleting from CI — lifecycle
 # rules survive repo/CI outages and a compromised CI key with delete rights
-# could otherwise purge history.
+# could otherwise purge history. 90 days and not 30 because Supabase Pro
+# already keeps 7 days on-platform; this layer exists for corruption noticed
+# a month later (locked #11/#15).
 # =============================================================================
 
 name: db-backups

@@ -1,0 +1,469 @@
+// @vitest-environment jsdom
+// MothHud.test.jsx — MO2: the HUD's own parts, mounted on their own. Folder cards (five pinned at most, a sixth
+// refused with a sentence, the recent icon shows nothing until pressed), the preview bloom (what it may fetch, what it
+// says instead), the time slider (it says what is not recorded), the first visit's three starts, and Settings.
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import MothCards, { MAX_PINNED, SIXTH_SENTENCE, cardsRoom, fitCard, resizedCard, CARD_FLOOR, CARD_KEY_STEP } from './MothCards.jsx'
+import { CARD_LIMITS, DEFAULT_LOCAL, readLocalPrefs, writeLocalPrefs, normalizeLocal } from '../state/mothAppearance.js'
+import MothBloom, { previewKind, noPreviewReason } from './MothBloom.jsx'
+import MothTimeSlider from './MothTimeSlider.jsx'
+import MothFirstVisit from './MothFirstVisit.jsx'
+import MothSettings, { MothHelp } from './MothSettings.jsx'
+import { indexCatalogue } from '../engine/model.js'
+import { DEFAULT_APPEARANCE } from '../state/mothAppearance.js'
+import { DESKTOP_PREVIEW_SENTENCE } from '../../rabbit_v0.1.0/storage/desktopFileOps.js'
+
+afterEach(() => { cleanup(); vi.useRealTimers() })
+
+const FOLDERS = Array.from({ length: 7 }, (_, i) => ({ id: `d${i}`, parent_id: null, kind: 'custom', slug: `f${i}`, label: `Folder ${i}` }))
+const CAT = {
+  islands: [{ id: 'p1', title: 'Salt Hours' }],
+  folders: { p1: FOLDERS },
+  files: { p1: [{ id: 'f1', project_id: 'p1', folder_id: 'd0', name: 'take.mov', tags: [] }] },
+}
+const INDEX = indexCatalogue(CAT)
+
+describe('MothCards', () => {
+  const mount = (extra = {}) => {
+    const props = { selectedId: null, index: INDEX, recent: [], onSelect: vi.fn(), onOpenCard: vi.fn(), onDropFile: vi.fn(), onNote: vi.fn(), ...extra }
+    const out = render(<MothCards {...props} />)
+    return { ...out, props, again: (more) => out.rerender(<MothCards {...props} {...more} />) }
+  }
+  it('a selected folder shows its card with what is in it; a file or a project shows none', () => {
+    const { again } = mount({ selectedId: 'folder:d0' })
+    expect(screen.getByRole('region', { name: 'Folder 0' })).toBeTruthy()
+    expect(screen.getByText('take.mov')).toBeTruthy()
+    again({ selectedId: 'file:f1' })
+    expect(screen.queryByRole('region')).toBeNull()
+    again({ selectedId: 'project:p1' })
+    expect(screen.queryByRole('region')).toBeNull()
+  })
+  it('five cards pin at most; the sixth is refused with a sentence and the five stay', () => {
+    const { props, again } = mount()
+    for (let i = 0; i < MAX_PINNED; i++) {
+      again({ selectedId: `folder:d${i}` })
+      fireEvent.click(screen.getByRole('button', { name: 'Pin this card' }))
+    }
+    expect(document.querySelectorAll('[data-moth-card="pinned"]')).toHaveLength(MAX_PINNED)
+    again({ selectedId: 'folder:d5' })
+    fireEvent.click(screen.getByRole('button', { name: 'Pin this card' }))
+    expect(props.onNote).toHaveBeenCalledWith(SIXTH_SENTENCE)
+    expect(document.querySelectorAll('[data-moth-card="pinned"]')).toHaveLength(MAX_PINNED)
+    fireEvent.click(screen.getAllByRole('button', { name: 'Unpin this card' })[0])
+    expect(document.querySelectorAll('[data-moth-card="pinned"]')).toHaveLength(MAX_PINNED - 1)
+    // Every folder whose card showed is noted among those opened last.
+    for (let i = 0; i < MAX_PINNED; i++) expect(props.onOpenCard).toHaveBeenCalledWith(`folder:d${i}`)
+  })
+  it('a new selection is followed afresh: a shut card comes back for it, and every shown card is noted as opened', () => {
+    const { props, again } = mount({ selectedId: 'folder:d0' })
+    fireEvent.click(screen.getByRole('button', { name: 'Close this card' }))
+    expect(screen.queryByRole('region')).toBeNull()
+    again({ selectedId: 'folder:d1' })
+    again({ selectedId: 'folder:d0' })
+    expect(screen.getByRole('region', { name: 'Folder 0' })).toBeTruthy()
+    expect(props.onOpenCard).toHaveBeenCalledWith('folder:d1')
+  })
+  it('a card closes, and a click on a row selects it', () => {
+    const { props } = mount({ selectedId: 'folder:d0' })
+    fireEvent.click(screen.getByText('take.mov'))
+    expect(props.onSelect).toHaveBeenCalledWith('file:f1')
+    fireEvent.click(screen.getByRole('button', { name: 'Close this card' }))
+    expect(screen.queryByRole('region')).toBeNull()
+  })
+  it('the recent icon shows nothing until pressed, then the folders opened last that still show', () => {
+    const { props } = mount({ recent: [{ k: 'folder', id: 'd3' }, { k: 'folder', id: 'gone' }] })
+    expect(document.querySelector('[data-moth-recent-list]')).toBeNull()
+    expect(screen.queryByRole('region')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Folders opened last' }))
+    const list = document.querySelector('[data-moth-recent-list]')
+    expect(list.textContent).toBe('Folder 3')
+    fireEvent.click(screen.getByText('Folder 3'))
+    expect(screen.getByRole('region', { name: 'Folder 3' })).toBeTruthy()
+    expect(props.onOpenCard).toHaveBeenCalledWith('folder:d3')
+  })
+  it('a file dropped on a card asks the page to move it there', () => {
+    const { props } = mount({ selectedId: 'folder:d1' })
+    const card = screen.getByRole('region', { name: 'Folder 1' })
+    const data = { types: ['application/x-wilson-moth-file'], getData: () => 'f1' }
+    fireEvent.dragOver(card, { dataTransfer: data })
+    fireEvent.drop(card, { dataTransfer: data })
+    expect(props.onDropFile).toHaveBeenCalledWith('f1', 'folder:d1')
+  })
+})
+
+// MO5 item 1: her picture, the folder card cut off under a sideways scrollbar. The cards are never larger than the
+// room, wrap and share the height rather than scroll sideways, and their edges size them, kept per person.
+describe('MO5 1: the folder cards are never cut off, and their edges size them', () => {
+  const mount = (extra = {}) => {
+    const props = { selectedId: 'folder:d0', index: INDEX, recent: [], onSelect: vi.fn(), onOpenCard: vi.fn(), onDropFile: vi.fn(), onNote: vi.fn(), onSize: vi.fn(), ...extra }
+    const out = render(<MothCards {...props} />)
+    return { ...out, props }
+  }
+  it('the strip never scrolls sideways (the scrollbar covered the cards), it wraps and scrolls up and down', () => {
+    const css = readFileSync(resolve(__dirname, '../moth.css'), 'utf8')
+    const rule = css.match(/\.moth-cards-strip \{[^}]*\}/)?.[0] ?? ''
+    expect(rule).toMatch(/overflow-x: hidden;/)
+    expect(rule).toMatch(/overflow-y: auto;/)
+    expect(rule).toMatch(/flex-wrap: wrap;/)
+    expect(rule).not.toMatch(/overflow-x: auto/)
+  })
+  it('a card opens larger than before and is drawn at the size kept for the person', () => {
+    mount({ size: { w: 360, h: 420 } })
+    const card = screen.getByRole('region', { name: 'Folder 0' })
+    expect(card.style.width).toBe('360px')
+    expect(card.style.height).toBe('420px')
+    cleanup()
+    mount()
+    const fresh = screen.getByRole('region', { name: 'Folder 0' })
+    expect(fresh.style.width).toBe(`${DEFAULT_LOCAL.card_w}px`)
+    expect(DEFAULT_LOCAL.card_w).toBeGreaterThan(216)
+    expect(DEFAULT_LOCAL.card_h).toBeGreaterThan(248)
+  })
+  it('the room wins: a card is never larger than what the map leaves it, and many cards share its height', () => {
+    expect(cardsRoom({ w: 1280, h: 649 })).toEqual({ w: 1280 - 16 - 348 - 36 - 6, h: 649 - 16 - 88 - 6 })
+    expect(fitCard({ w: 600, h: 900 }, { w: 300, h: 250 })).toEqual({ w: 300, h: 250 })
+    expect(fitCard({ w: 280, h: 320 }, { w: 1000, h: 800 })).toEqual({ w: 280, h: 320 })
+    // Two cards that do not fit side by side: two rows, each half the room less the gap, so both show whole.
+    expect(fitCard({ w: 280, h: 320 }, { w: 360, h: 382 }, 2)).toEqual({ w: 280, h: 187 })
+    // Side by side they keep their own height.
+    expect(fitCard({ w: 280, h: 320 }, { w: 900, h: 382 }, 3)).toEqual({ w: 280, h: 320 })
+    // Past the floor they scroll rather than shrink to nothing.
+    expect(fitCard({ w: 280, h: 320 }, { w: 300, h: 300 }, 6).h).toBe(CARD_FLOOR)
+  })
+  it('the top edge grows a card upward, the right edge wider, the corner both, held to the limits and the room', () => {
+    const start = { w: 280, h: 320 }
+    expect(resizedCard(start, 'top', 0, -50, null)).toEqual({ w: 280, h: 370 })
+    expect(resizedCard(start, 'right', 40, 0, null)).toEqual({ w: 320, h: 320 })
+    expect(resizedCard(start, 'corner', 40, -50, null)).toEqual({ w: 320, h: 370 })
+    expect(resizedCard(start, 'top', 0, 900, null).h).toBe(CARD_LIMITS.minH)
+    expect(resizedCard(start, 'right', 5000, 0, null).w).toBe(CARD_LIMITS.maxW)
+    expect(resizedCard(start, 'top', 0, -900, { w: 400, h: 500 }).h).toBe(500)
+  })
+  it('each edge is a named separator a keyboard moves; a drag keeps the size when let go and Escape puts it back', () => {
+    const { props } = mount({ size: { w: 280, h: 320 } })
+    const height = screen.getByRole('separator', { name: 'Height of the folder cards' })
+    const width = screen.getByRole('separator', { name: 'Width of the folder cards' })
+    expect(height.getAttribute('aria-valuenow')).toBe('320')
+    expect(height.getAttribute('title')).toMatch(/taller or shorter/)
+    fireEvent.keyDown(height, { key: 'ArrowUp' })
+    expect(props.onSize).toHaveBeenLastCalledWith({ w: 280, h: 320 + CARD_KEY_STEP })
+    fireEvent.keyDown(width, { key: 'ArrowLeft' })
+    expect(props.onSize).toHaveBeenLastCalledWith({ w: 280 - CARD_KEY_STEP, h: 320 })
+    props.onSize.mockClear()
+    fireEvent.pointerDown(height, { clientX: 10, clientY: 100, pointerId: 1, button: 0 })
+    fireEvent.pointerMove(window, { clientX: 10, clientY: 40, pointerId: 1 })
+    expect(screen.getByRole('region', { name: 'Folder 0' }).style.height).toBe('380px')
+    expect(props.onSize).not.toHaveBeenCalled()
+    fireEvent.pointerUp(window, { clientX: 10, clientY: 40, pointerId: 1 })
+    expect(props.onSize).toHaveBeenCalledWith({ w: 280, h: 380 })
+    props.onSize.mockClear()
+    fireEvent.pointerDown(width, { clientX: 10, clientY: 100, pointerId: 2, button: 0 })
+    fireEvent.pointerMove(window, { clientX: 90, clientY: 100, pointerId: 2 })
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(props.onSize).toHaveBeenCalledWith({ w: 280, h: 320 })
+  })
+  it('round 1: where the room draws the cards smaller than kept, a touch, Escape or "taller" never saves the smaller size', () => {
+    const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, right: 1024, bottom: 300, width: 1024, height: 300, x: 0, y: 0 })
+    try {
+      const { props } = mount({ size: { w: 280, h: 320 } })
+      const card = screen.getByRole('region', { name: 'Folder 0' })
+      expect(parseInt(card.style.height, 10)).toBeLessThan(320) // the room holds it smaller
+      const height = screen.getByRole('separator', { name: 'Height of the folder cards' })
+      fireEvent.pointerDown(height, { clientX: 10, clientY: 100, pointerId: 1, button: 0 })
+      fireEvent.pointerUp(window, { clientX: 10, clientY: 100, pointerId: 1 })
+      expect(props.onSize).toHaveBeenLastCalledWith({ w: 280, h: 320 })
+      fireEvent.pointerDown(height, { clientX: 10, clientY: 100, pointerId: 2, button: 0 })
+      fireEvent.pointerMove(window, { clientX: 10, clientY: 120, pointerId: 2 })
+      fireEvent.keyDown(window, { key: 'Escape' })
+      expect(props.onSize).toHaveBeenLastCalledWith({ w: 280, h: 320 })
+      fireEvent.keyDown(height, { key: 'ArrowUp' })
+      expect(props.onSize).toHaveBeenLastCalledWith({ w: 280, h: 320 })
+      // Round 2: a finger's jitter is a tap; a drag taller in a room that holds the cards smaller keeps the size kept.
+      fireEvent.pointerDown(height, { clientX: 10, clientY: 100, pointerId: 3, button: 0 })
+      fireEvent.pointerMove(window, { clientX: 11, clientY: 101, pointerId: 3 })
+      fireEvent.pointerUp(window, { clientX: 11, clientY: 101, pointerId: 3 })
+      expect(props.onSize).toHaveBeenLastCalledWith({ w: 280, h: 320 })
+      fireEvent.pointerDown(height, { clientX: 10, clientY: 100, pointerId: 4, button: 0 })
+      fireEvent.pointerMove(window, { clientX: 10, clientY: 60, pointerId: 4 })
+      fireEvent.pointerUp(window, { clientX: 10, clientY: 60, pointerId: 4 })
+      expect(props.onSize).toHaveBeenLastCalledWith({ w: 280, h: 320 })
+    } finally {
+      rect.mockRestore()
+    }
+  })
+  it('kept per person and company, read back as untrusted, and kept for the visit where nothing can be stored', () => {
+    const store = new Map()
+    const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) }
+    expect(writeLocalPrefs('u1|c1', { card_w: 333, card_h: 444 }, storage)).toMatchObject({ card_w: 333, card_h: 444 })
+    expect(readLocalPrefs('u1|c1', storage)).toMatchObject({ card_w: 333, card_h: 444, glide: true, carry: false })
+    expect(readLocalPrefs('u2|c1', storage)).toEqual(normalizeLocal(null))
+    store.set('wilson.moth.local.v1', JSON.stringify({ 'u1|c1': { card_w: 'huge', card_h: 99999, glide: 'yes' } }))
+    expect(readLocalPrefs('u1|c1', storage)).toMatchObject({ card_w: DEFAULT_LOCAL.card_w, card_h: CARD_LIMITS.maxH, glide: true })
+    const broken = { getItem: () => { throw new Error('denied') }, setItem: () => { throw new Error('denied') } }
+    expect(writeLocalPrefs('u1|c1', { card_w: 300 }, broken).card_w).toBe(300)
+  })
+})
+
+describe('MothBloom', () => {
+  it('knows what it can preview, from the type and the name', () => {
+    expect(previewKind({ mime_type: 'image/png' })).toBe('image')
+    expect(previewKind({ mime_type: 'video/mp4' })).toBe('video')
+    expect(previewKind({ mime_type: 'text/plain' })).toBe('text')
+    expect(previewKind({ mime_type: null, name: 'Notes.MD' })).toBe('text')
+    expect(previewKind({ mime_type: 'application/zip', thumbnail_url: 't' })).toBe('image')
+    expect(previewKind({ mime_type: 'application/zip' })).toBe('none')
+  })
+  it('says why a file kept on the office server or one computer is not fetched from a browser', () => {
+    expect(noPreviewReason({ storage_provider: 'network_share' }, { onDesktop: false })).toBe(DESKTOP_PREVIEW_SENTENCE)
+    expect(noPreviewReason({ storage_provider: 'network_share' }, { onDesktop: true })).toBeNull()
+    expect(noPreviewReason({ storage_provider: 'local_server' }, { onDesktop: false })).toMatch(/computer that added it/)
+    expect(noPreviewReason({ storage_provider: 'supabase' }, { onDesktop: false })).toBeNull()
+  })
+  it('a folder blooms with its kind and name and asks for nothing; it fades when the pointer leaves', () => {
+    vi.useFakeTimers()
+    const adapter = { fileUrl: vi.fn() }
+    const node = { kind: 'folder', label: 'Shots' }
+    const { rerender } = render(<MothBloom at={{ x: 10, y: 10, r: 4 }} node={node} file={null} adapter={adapter} onDesktop={false} />)
+    expect(screen.getByRole('tooltip').textContent).toContain('Shots')
+    expect(adapter.fileUrl).not.toHaveBeenCalled()
+    rerender(<MothBloom at={null} node={node} file={null} adapter={adapter} onDesktop={false} />)
+    expect(screen.getByRole('tooltip').className).toContain('is-leaving')
+    act(() => { vi.advanceTimersByTime(300) })
+    expect(screen.queryByRole('tooltip')).toBeNull()
+  })
+  it('a file on the office server, from a browser, fetches nothing and says why', () => {
+    const adapter = { fileUrl: vi.fn() }
+    const file = { id: 'f1', name: 'take.mov', mime_type: 'video/mp4', storage_provider: 'network_share' }
+    render(<MothBloom at={{ x: 1, y: 1, r: 1 }} node={{ kind: 'file' }} file={file} adapter={adapter} onDesktop={false} />)
+    expect(document.querySelector('[data-moth-bloom-desktop]').textContent).toBe(DESKTOP_PREVIEW_SENTENCE)
+    expect(adapter.fileUrl).not.toHaveBeenCalled()
+  })
+  it('an image asks for its address once and shows it', async () => {
+    const adapter = { fileUrl: vi.fn(async () => 'blob:one') }
+    const file = { id: 'img-once', name: 'still.png', mime_type: 'image/png', storage_provider: 'supabase' }
+    render(<MothBloom at={{ x: 1, y: 1, r: 1 }} node={{ kind: 'file' }} file={file} adapter={adapter} onDesktop={false} />)
+    await vi.waitFor(() => expect(document.querySelector('img.moth-bloom-media')?.getAttribute('src')).toBe('blob:one'))
+    expect(adapter.fileUrl).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('MothTimeSlider', () => {
+  const NOW = Date.parse('2026-11-07T12:00:00Z')
+  it('says when history is not on this database, or not kept for a project on this computer', () => {
+    const { rerender } = render(<MothTimeSlider history={{ available: false }} />)
+    expect(screen.getByText('History is not on this database yet.')).toBeTruthy()
+    rerender(<MothTimeSlider history={{ available: false, localOnly: true }} />)
+    expect(screen.getByText(/not recorded for projects kept only on this computer/)).toBeTruthy()
+  })
+  it('moves between the floor and now, says what is not recorded, and comes back to now', () => {
+    const setAt = vi.fn()
+    const floor = NOW - 10 * 86400000
+    const { rerender } = render(<MothTimeSlider history={{ available: true, now: NOW, floor, at: null, setAt }} />)
+    const range = screen.getByLabelText('Look back')
+    expect(Number(range.min)).toBe(floor)
+    expect(Number(range.max)).toBe(NOW)
+    expect(document.querySelector('[data-moth-time-says]').textContent).toMatch(/^Now\. Not recorded before /)
+    fireEvent.change(range, { target: { value: String(NOW - 3 * 86400000) } })
+    expect(setAt).toHaveBeenLastCalledWith(NOW - 3 * 86400000)
+    // The page holds the time: shown three days back, then dragged to the end, it is now again.
+    rerender(<MothTimeSlider history={{ available: true, now: NOW, floor, at: NOW - 3 * 86400000, setAt }} />)
+    fireEvent.change(screen.getByLabelText('Look back'), { target: { value: String(NOW) } })
+    expect(setAt).toHaveBeenLastCalledWith(null)
+    rerender(<MothTimeSlider history={{ available: true, now: NOW, floor, at: NOW - 86400000, setAt, incomplete: true }} />)
+    expect(document.querySelector('[data-moth-time-says]').textContent).toMatch(/Looking back changes nothing\..*Only part of this period could be read\./)
+    fireEvent.click(screen.getByRole('button', { name: 'Back to now' }))
+    expect(setAt).toHaveBeenLastCalledWith(null)
+  })
+  it('MO3: before the start of the record of notes, typed tags and links, it says so', () => {
+    const floor = NOW - 10 * 86400000
+    const s3Floor = NOW - 2 * 86400000
+    const { rerender } = render(<MothTimeSlider history={{ available: true, now: NOW, floor, s3Floor, at: NOW - 86400000, setAt: () => {} }} />)
+    expect(document.querySelector('[data-moth-time-says]').textContent).not.toMatch(/Notes, typed tags and links/)
+    rerender(<MothTimeSlider history={{ available: true, now: NOW, floor, s3Floor, at: NOW - 5 * 86400000, setAt: () => {} }} />)
+    expect(document.querySelector('[data-moth-time-says]').textContent).toMatch(/Notes, typed tags and links are recorded from .+: they show as they were then\./)
+    rerender(<MothTimeSlider history={{ available: true, now: NOW, floor, s3Floor: Infinity, at: NOW - 5 * 86400000, setAt: () => {} }} />)
+    expect(document.querySelector('[data-moth-time-says]').textContent).toMatch(/Notes, typed tags and links are not recorded here yet: they show as they are now\./)
+  })
+  it('says it is reading when the record begins until it knows', () => {
+    render(<MothTimeSlider history={{ available: true, now: NOW, floor: null, at: null, setAt: () => {} }} />)
+    expect(document.querySelector('[data-moth-time-says]').textContent).toMatch(/Reading when the record begins/)
+  })
+  it('shows nothing with no history to give', () => {
+    const { container } = render(<MothTimeSlider history={null} />)
+    expect(container.textContent).toBe('')
+  })
+})
+
+describe('MothFirstVisit', () => {
+  it('offers three starts; building your own needs at least one kind of dot', () => {
+    const onChoose = vi.fn()
+    const onClose = vi.fn()
+    render(<MothFirstVisit first onChoose={onChoose} onClose={onClose} />)
+    fireEvent.click(screen.getByText('Everything by tags'))
+    expect(onChoose).toHaveBeenLastCalledWith('q:tags')
+    fireEvent.click(screen.getByText('Everything by folders'))
+    expect(onChoose).toHaveBeenLastCalledWith('q:folders')
+    fireEvent.click(screen.getByText('Build your own'))
+    for (const name of ['Projects', 'Folders', 'Files']) fireEvent.click(screen.getByRole('button', { name }))
+    expect(screen.getByRole('button', { name: 'Map it' }).disabled).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Tasks' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Map it' }))
+    expect(onChoose).toHaveBeenLastCalledWith('unsaved', { nodeKinds: ['task'], edgeKinds: ['lives_in'], layout: 'force' })
+  })
+  it('offers Tags only with Files, and turning Files off takes Tags with it (MO2a R1-13)', () => {
+    const onChoose = vi.fn()
+    render(<MothFirstVisit first onChoose={onChoose} onClose={() => {}} />)
+    fireEvent.click(screen.getByText('Build your own'))
+    fireEvent.click(screen.getByRole('button', { name: 'Tags' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Files' }))
+    expect(screen.getByRole('button', { name: 'Tags' }).disabled).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Map it' }))
+    expect(onChoose).toHaveBeenLastCalledWith('unsaved', { nodeKinds: ['project', 'folder'], edgeKinds: ['lives_in'], layout: 'force' })
+  })
+  it('the first time it offers Not now; afterwards Cancel', () => {
+    const onClose = vi.fn()
+    const { rerender } = render(<MothFirstVisit first onChoose={() => {}} onClose={onClose} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Not now' }))
+    expect(onClose).toHaveBeenCalled()
+    rerender(<MothFirstVisit first={false} onChoose={() => {}} onClose={onClose} />)
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy()
+  })
+})
+
+describe('MothSettings', () => {
+  it('the light\'s colour, what sizes and colours a dot, and the lighter mode', () => {
+    const onChange = vi.fn()
+    render(<MothSettings appearance={{ ...DEFAULT_APPEARANCE }} onChange={onChange} calm={false} />)
+    const warm = screen.getByRole('radio', { name: 'Warm' })
+    expect(warm.getAttribute('aria-checked')).toBe('true')
+    fireEvent.click(screen.getByRole('radio', { name: 'Moonlight' }))
+    expect(onChange).toHaveBeenLastCalledWith({ glow: '#9fd3ff' })
+    fireEvent.change(screen.getByLabelText('Another colour for the light'), { target: { value: '#ABCDEF' } })
+    expect(onChange).toHaveBeenLastCalledWith({ glow: '#abcdef' })
+    fireEvent.change(document.querySelector('[data-moth-size-by]'), { target: { value: 'recency' } })
+    expect(onChange).toHaveBeenLastCalledWith({ size_by: 'recency' })
+    fireEvent.change(document.querySelector('[data-moth-colour-by]'), { target: { value: 'editor' } })
+    expect(onChange).toHaveBeenLastCalledWith({ colour_by: 'editor' })
+    fireEvent.change(document.querySelector('[data-moth-lighter]'), { target: { value: 'light' } })
+    expect(onChange).toHaveBeenLastCalledWith({ light: 'light' })
+  })
+  it('says when the light holds still, and when nothing is kept', () => {
+    render(<MothSettings appearance={{ ...DEFAULT_APPEARANCE, glow: '#123456' }} onChange={() => {}} calm available={false} />)
+    expect(screen.getByText(/asks for less motion/)).toBeTruthy()
+    expect(screen.getByText(/last for this visit only/)).toBeTruthy()
+    expect(screen.getByText('Yours')).toBeTruthy()
+  })
+  it('Help says what Moth never shows', () => {
+    render(<MothHelp />)
+    expect(screen.getByText('What Moth never shows')).toBeTruthy()
+    expect(screen.getByText(/Invoices, finance and legal files/)).toBeTruthy()
+  })
+})
+
+// MO5 item 2: "more of a bar with options than a window with options stacked on top of each other ... icons where
+// possible". One row; every control named for a screen reader and in its tooltip; nothing the stacked card held lost.
+describe('MO5 2: the view is one bar of named icons', () => {
+  const mountBar = async (extra = {}) => {
+    const { default: MothViewWidget } = await import('./MothViewWidget.jsx')
+    const { normalizeConfig, QUICK_VIEWS } = await import('../state/mothViewState.js')
+    const views = { select: vi.fn(), setConfig: vi.fn(), reset: vi.fn(async () => {}), setFocus: vi.fn(), writable: () => true, canWriteProject: () => true }
+    const props = {
+      views, viewSnap: { current: { key: 'v1', row: { id: 'v1', name: 'Mine', scope_kind: 'aggregate' } }, views: [{ id: 'v1', name: 'Mine' }], unsaved: true },
+      config: normalizeConfig(QUICK_VIEWS['q:folders'].config), catalogue: CAT, index: INDEX, selectedNode: { id: 'folder:d0', projectId: 'p1' },
+      pickedCount: 1, gate: { allowed: true }, canUndo: true, canRedo: false, jump: { label: 'Open in R.A.B.B.I.T.' },
+      history: { available: true, floor: Date.now() - 86400000 * 3, at: null, setAt: vi.fn() },
+      onUndo: vi.fn(), onRedo: vi.fn(), onMove: vi.fn(), onDelete: vi.fn(), onJump: vi.fn(), onFind: vi.fn(), onNewView: vi.fn(), onRelayout: vi.fn(), onError: vi.fn(),
+      ...extra,
+    }
+    render(<MothViewWidget {...props} />)
+    return props
+  }
+  it('round 1: Save as greyed says why; What shows is a button that opens (never pressed), and Escape in it gives the focus back', async () => {
+    await mountBar({ viewSnap: { current: { key: 'unsaved', row: null }, views: [], unsaved: true, available: false } })
+    const saveAs = screen.getByRole('button', { name: 'Save as…' })
+    expect(saveAs.disabled).toBe(true)
+    expect(saveAs.getAttribute('title')).toBe('Saved views are not on this database yet.')
+    const shows = screen.getByRole('button', { name: 'What shows' })
+    fireEvent.click(shows)
+    expect(shows.getAttribute('aria-expanded')).toBe('true')
+    expect(shows.hasAttribute('aria-pressed')).toBe(false)
+    const pop = screen.getByRole('group', { name: 'What shows' })
+    pop.querySelector('button').focus()
+    fireEvent.keyDown(pop, { key: 'Escape' })
+    expect(screen.queryByRole('group', { name: 'What shows' })).toBeNull()
+    expect(document.activeElement).toBe(shows)
+  })
+  it('round 2: the bar\'s questions are drawn beside it, never inside its one row; Escape on What shows\' own button closes it', async () => {
+    await mountBar()
+    fireEvent.click(screen.getByRole('button', { name: 'Save as…' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog.closest('[data-moth-view-widget]')).toBeNull()
+    cleanup()
+    await mountBar()
+    const shows = screen.getByRole('button', { name: 'What shows' })
+    fireEvent.click(shows)
+    const e = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    shows.dispatchEvent(e)
+    await vi.waitFor(() => expect(screen.queryByRole('group', { name: 'What shows' })).toBeNull())
+    expect(e.defaultPrevented).toBe(true)
+  })
+  it('round 1: the focus ring of the cards\' edges and the board\'s title is the app\'s own', () => {
+    const css = readFileSync(resolve(__dirname, '../moth.css'), 'utf8')
+    for (const sel of ['.moth-card-grip:hover, .moth-card-grip:focus-visible', '.moth-board-title-button:hover, .moth-board-title-button:focus-visible']) {
+      const rule = css.slice(css.indexOf(sel)).match(/\{[^}]*\}/)?.[0] ?? ''
+      expect(rule, sel).not.toMatch(/outline: none/)
+    }
+  })
+  it('a bar along the top of the map, which never scrolls or cuts off what it opens, and takes a second row rather than draw one control over another', () => {
+    const css = readFileSync(resolve(__dirname, '../moth.css'), 'utf8')
+    const rule = css.match(/\.moth-view-bar \{[^}]*\}/)?.[0] ?? ''
+    expect(rule).toMatch(/flex-direction: row;/)
+    // Round 1: a window of 1,024 pixels (the app's narrowest) cannot hold every control in one row; wrapping beats
+    // the slider drawn over Move to and Delete.
+    expect(rule).toMatch(/flex-wrap: wrap;/)
+    expect(rule).toMatch(/overflow: visible;/)
+    expect(css).not.toMatch(/\.moth-view-widget \{/)
+    // What sits below it follows its real bottom, and the Look back sentence is cut shorter, never hidden.
+    expect(css).toMatch(/\.moth-hud-banners \{[^}]*top: calc\(var\(--moth-bar-bottom, 56px\) \+ 16px\);/)
+    expect(css).not.toMatch(/moth-time-says-short \{ display: none; \}/)
+    // Round 2: the notices under the bar (whose pops draw over them), over the cards; the bloom and the drag's word over
+    // the notices; the Look back group never clips the focus ring.
+    expect(css).toMatch(/\.moth-hud-banners \{[^}]*z-index: 2;/)
+    expect(css).toMatch(/\.moth-bloom \{[^}]*z-index: 3;/)
+    expect(css).toMatch(/\.moth-cursor-word \{[^}]*z-index: 3;/)
+    expect(css.match(/\.moth-bar-time \{[^}]*\}/)?.[0]).not.toMatch(/overflow: hidden/)
+  })
+  it('every button has a name a screen reader says and the same words as its tooltip; every field has a name', async () => {
+    await mountBar()
+    const bar = document.querySelector('[data-moth-view-widget]')
+    const buttons = [...bar.querySelectorAll('button')]
+    expect(buttons.length).toBeGreaterThan(8)
+    for (const b of buttons) {
+      const name = b.getAttribute('aria-label') || b.textContent.trim()
+      expect(name, b.outerHTML.slice(0, 80)).toBeTruthy()
+      if (!b.textContent.trim()) expect(b.getAttribute('title') ?? name, name).toBeTruthy()
+    }
+    for (const f of bar.querySelectorAll('select, input')) expect(f.getAttribute('aria-label') || f.id, f.outerHTML.slice(0, 80)).toBeTruthy()
+  })
+  it('nothing the card held is lost: the view and its menu, Save as, Find, What shows, Focus and its reach, Look back, Move to, Delete, the jump, Undo and Redo', async () => {
+    const p = await mountBar()
+    for (const name of ['Save as…', 'What shows', 'Focus here', 'Move to…', 'Delete', 'Open in R.A.B.B.I.T.', 'Undo', 'Redo', 'Save this view', 'More for this view']) {
+      expect(screen.getByRole('button', { name }), name).toBeTruthy()
+    }
+    expect(screen.getByRole('combobox', { name: 'View' })).toBeTruthy()
+    expect(screen.getByLabelText('Find and fly to')).toBeTruthy()
+    expect(screen.getByLabelText('Focus reaches')).toBeTruthy()
+    expect(screen.getByLabelText('Look back')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'More for this view' }))
+    for (const name of ['New view…', 'Save', 'Rename…', 'Delete view…', 'Reset', 'Lay out again']) expect(screen.getByRole('button', { name }), name).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Lay out again' }))
+    expect(p.onRelayout).toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'What shows' }))
+    expect(screen.getByRole('group', { name: 'What shows' })).toBeTruthy()
+    fireEvent.keyDown(screen.getByRole('group', { name: 'What shows' }), { key: 'Escape' })
+    expect(screen.queryByRole('group', { name: 'What shows' })).toBeNull()
+  })
+})

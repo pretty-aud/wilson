@@ -1,0 +1,68 @@
+/* MO3: typed links and tags in R.A.B.B.I.T.'s text and in notes — the picker under a field, a link's words, and a
+   thing's "Mentioned in". The page's own tokens only. */
+
+.rb-mention-field { position: relative; display: flex; flex-direction: column; gap: 4px; }
+
+.rb-mention-picker {
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-control);
+  background: var(--color-paper-raised);
+  font-size: var(--text-dense);
+  color: var(--color-ink);
+  max-width: 420px;
+}
+.rb-mention-picker-head {
+  display: flex; justify-content: space-between; gap: 12px;
+  padding: 4px 8px; color: var(--color-ink-3); font-size: var(--text-caption);
+  border-bottom: 1px solid var(--color-rule);
+}
+.rb-mention-picker-hint { white-space: nowrap; }
+.rb-mention-picker-list { list-style: none; margin: 0; padding: 2px 0; max-height: 220px; overflow-y: auto; }
+.rb-mention-picker-row {
+  display: flex; align-items: baseline; gap: 8px; padding: 4px 8px; cursor: pointer;
+  border-left: 2px solid transparent;
+}
+.rb-mention-picker-row[data-active='true'] { background: var(--color-signal-tint); border-left-color: var(--color-signal); }
+.rb-mention-picker-note { padding: 6px 8px; color: var(--color-ink-2); }
+.rb-mention-notice { font-size: var(--text-caption); color: var(--color-ink-2); }
+
+.rb-mention-kind {
+  flex: none; min-width: 64px; color: var(--color-ink-3); font-size: var(--text-caption);
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.rb-mention-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.rb-mention-link {
+  color: var(--color-signal);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+.rb-mention-link:hover { text-decoration-thickness: 2px; }
+
+.rb-mentioned-in { margin-top: 12px; border-top: 1px solid var(--color-rule); padding-top: 8px; }
+.rb-mentioned-in-head { margin: 0 0 4px; font-size: var(--text-caption); color: var(--color-ink-3); font-weight: 600; }
+.rb-mentioned-in-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.rb-mentioned-in-row { display: flex; align-items: baseline; gap: 8px; font-size: var(--text-dense); }
+.rb-mentioned-in-open {
+  border: 0; padding: 0; background: none; color: var(--color-signal); cursor: pointer; font: inherit; text-align: left;
+}
+.rb-mentioned-in-open:hover { text-decoration: underline; }
+.rb-mentioned-in-label { color: var(--color-ink-3); font-size: var(--text-caption); }
+
+.rb-item-tags { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 4px 0; }
+.rb-item-tag {
+  display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px;
+  border: 1px solid var(--color-rule); border-radius: 999px; font-size: var(--text-caption); color: var(--color-ink);
+}
+.rb-item-tag[data-tier='personal'] { border-style: dashed; }
+.rb-item-tag-mine { color: var(--color-ink-3); }
+.rb-item-tag-remove {
+  border: 0; background: none; padding: 0 2px; cursor: pointer; color: var(--color-ink-3); font: inherit; line-height: 1;
+}
+.rb-item-tag-remove:hover { color: var(--color-danger); }
+.rb-item-tags-error { color: var(--color-danger); font-size: var(--text-caption); }
+
+/* A note's typed link: the token's words drawn as a link, its brackets and key kept in the text and out of sight. */
+.note-mention { color: var(--color-signal); text-decoration: underline; text-underline-offset: 2px; }
+.note-mention-syntax { font-size: 0; letter-spacing: 0; }

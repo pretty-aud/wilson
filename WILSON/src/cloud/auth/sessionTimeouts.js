@@ -1,0 +1,472 @@
+// =============================================================================
+// sessionTimeouts — Track B bundle B2, part 2: the idle timeout and the
+// absolute session cap (TPN AS-3.8; fix plan answer 23).
+//
+// Numbers: a warning at 25 minutes without activity, sign-out at 30; an
+// absolute cap of 4 HOURS from sign-in, activity or not, with a 5-minute
+// notice before it so nobody loses unsaved work to a clock. 4 hours is TPN's
+// figure and the default the B2 part 1 hand-off named; Audrey had not said
+// otherwise when this shipped. Change the constants, not the logic.
+//
+// Wall-clock, not tick-counted. Timestamps are compared on every evaluation
+// (a periodic tick; every activity while a warning is up; every return to
+// visibility), so a background tab whose timers the browser throttles to
+// once a minute still signs out — at most a minute late — and the moment it
+// is looked at again it is evaluated at once.
+//
+// Activity: pointer, key, wheel and touch events, capture phase, passive. A
+// return to visibility is evaluated FIRST (a person away for 40 minutes is
+// signed out on return, not handed a fresh half hour) and THEN counted as
+// activity (switching to the tab is an action). D2 (2026-10-29): so is every
+// activity — a key pressed after the computer slept is judged against the
+// absence before it counts.
+//
+// Storage, per SURFACE. Two keys under the surface's own session key —
+// `<key>.activity` and `<key>.start` — so /wilson (`wilson.dev.session`) and
+// /wilsonadmin (`wilson.operator.session`) never read each other's clocks: a
+// busy console tab cannot keep an idle app tab alive, or the reverse. The
+// same key IS shared by two tabs of one surface, on purpose: they hold one
+// Supabase session (one refresh token), and a `scope: 'local'` sign-out from
+// an idle tab revokes that session server-side, so the working tab would be
+// dropped at its next refresh with nothing on screen to explain it. Sharing
+// the activity clock within a surface prevents exactly that.
+//
+// The cap is keyed by the JWT's session_id: a reload keeps the original
+// sign-in time; a new sign-in starts a new clock; a session from before this
+// shipped counts from the first time this code saw it. D1 (2026-10-28): at a
+// restore, from the token's own sign-in time when that is earlier, so a
+// desktop relaunch (a new origin, no record) no longer starts four new hours.
+//
+// No React and no DOM in the core — createSessionTimeouts() takes its clock,
+// storage and timer as arguments so the test drives it under fake timers.
+// useSessionTimeouts() binds it to the document for the two surfaces.
+// =============================================================================
+
+import { useEffect, useRef, useState } from 'react'
+import { SESSION_STORAGE_KEY } from './sessionStorage'
+
+export const IDLE_WARN_MS       = 25 * 60 * 1000
+export const IDLE_SIGN_OUT_MS   = 30 * 60 * 1000
+export const SESSION_CAP_MS     =  4 * 60 * 60 * 1000
+export const CAP_WARN_MS        =  5 * 60 * 1000
+export const TICK_MS            =  5 * 1000
+const ACTIVITY_PERSIST_MS = 5 * 1000
+
+/** The reasons handed to onExpire — also the auth_events kinds they become. */
+export const EXPIRE_REASONS = Object.freeze(['idle_timeout', 'session_cap'])
+
+const INACTIVE_STATE = Object.freeze({
+  phase: 'inactive', deadline: null, reason: null, startedAt: null, lastActivity: null,
+})
+
+// ── JWT helpers ──────────────────────────────────────────────────────────────
+
+/** Decode a JWT payload without verifying it (the claims are for display). */
+export function readJwtClaims(accessToken) {
+  if (typeof accessToken !== 'string') return null
+  const parts = accessToken.split('.')
+  if (parts.length !== 3) return null
+  try {
+    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+    const pad = b64.length % 4 === 0 ? '' : '='.repeat(4 - (b64.length % 4))
+    return JSON.parse(atob(b64 + pad))
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The key the cap clock is tied to. GoTrue stamps `session_id` into every
+ * access token of a session and keeps it across refreshes; a new sign-in is a
+ * new id. Falls back to the subject so a token without the claim still gets
+ * a clock, keyed per person rather than per session.
+ */
+export function sessionIdOf(session) {
+  const claims = readJwtClaims(session?.access_token)
+  return claims?.session_id ?? claims?.sub ?? session?.user?.id ?? null
+}
+
+// ── Storage helpers ──────────────────────────────────────────────────────────
+
+function readNumber(storage, key) {
+  try {
+    const raw = storage?.getItem(key)
+    const n = raw == null ? NaN : Number(raw)
+    return Number.isFinite(n) ? n : null
+  } catch { return null }
+}
+
+function readJson(storage, key) {
+  try {
+    const raw = storage?.getItem(key)
+    return raw ? JSON.parse(raw) : null
+  } catch { return null }
+}
+
+function write(storage, key, value) {
+  try { storage?.setItem(key, typeof value === 'string' ? value : JSON.stringify(value)) } catch { /* storage disabled */ }
+}
+
+function remove(storage, key) {
+  try { storage?.removeItem(key) } catch { /* ignore */ }
+}
+
+// ── S2 (night 3, 2026-10-27): the four-hour test an offline launch makes ─────
+//
+// docs/design/RECONNECT_DESIGN.md §11.3. A launch that cannot reach the cloud
+// opens the shell on its saved sign-in only while the sign-in is inside the
+// cap. The start it tests is the EARLIER of the two starts this computer can
+// prove: the cap's own record (`<surfaceKey>.start`, read as start() reads it:
+// this session's id, a finite `at` not in the future), and the token's own
+// sign-in time, the earliest timestamp in its `amr` claim (GoTrue stamps every
+// access token of a session with the methods used to sign in and when, and
+// keeps them across refreshes; the access-token hook adds only app_metadata).
+// The token's time is needed because the DESKTOP never finds the record at
+// launch: its window loads http://127.0.0.1:<port> and the port is listen(0)'s,
+// new at every launch, so every launch is a new origin with an empty
+// localStorage (measured 2026-10-27; OUTSTANDING S2-01). The earlier start is
+// never later than the record start() resumes, so the offline test is stricter
+// than the cap, never more lenient. Read-only: no rule above or below changes.
+
+/** The earliest `amr` timestamp in ms, or null; a time in the future proves nothing. */
+function signedInAtOf(claims, t) {
+  const amr = Array.isArray(claims?.amr) ? claims.amr : []
+  let earliest = null
+  for (const entry of amr) {
+    const s = Number(entry?.timestamp)
+    if (!Number.isFinite(s)) continue
+    const at = s * 1000
+    if (at > t) continue
+    if (earliest == null || at < earliest) earliest = at
+  }
+  return earliest
+}
+
+/** The cap's record for this session, read as start() resumes it: this id, a finite `at` not in the future. */
+function recordedStartOf(storage, startKey, sid, t) {
+  const stored = sid ? readJson(storage, startKey) : null
+  return stored && stored.sid === sid && Number.isFinite(stored.at) && stored.at <= t ? stored.at : null
+}
+
+/**
+ * When this session's four hours started, as far as this computer can prove:
+ * the earlier of the cap's record and the token's own sign-in time; null when
+ * neither is known.
+ */
+export function sessionStartOf(session, { surfaceKey = SESSION_STORAGE_KEY, storage = safeLocalStorage(), now = Date.now() } = {}) {
+  const t = typeof now === 'function' ? now() : now
+  const sid = sessionIdOf(session)
+  const recorded = recordedStartOf(storage, `${surfaceKey}.start`, sid, t)
+  const signedIn = signedInAtOf(readJwtClaims(session?.access_token), t)
+  if (recorded == null) return signedIn
+  if (signedIn == null) return recorded
+  return Math.min(recorded, signedIn)
+}
+
+/**
+ * Is this saved sign-in inside the cap, on the cap's own numbers (the dev-only
+ * override included, so a dev server's shrunk cap shrinks this too)? False
+ * when its start cannot be proved.
+ */
+export function insideSessionCap(session, { surfaceKey = SESSION_STORAGE_KEY, storage = safeLocalStorage(), now = Date.now(), capMs } = {}) {
+  const t = typeof now === 'function' ? now() : now
+  const cap = capMs ?? readDevOverrides(storage).capMs ?? SESSION_CAP_MS
+  const start = sessionStartOf(session, { surfaceKey, storage, now: t })
+  return start != null && t - start < cap
+}
+
+// ── D1 (night 4, 2026-10-28): the cap at a restore ───────────────────────────
+//
+// docs/design/RECONNECT_DESIGN.md §12.2. At a RESTORE (App's start-up check:
+// every desktop launch, every web reload; the operator console's boot) start()
+// resumes the start the offline launch tests above: the earlier of the cap's
+// record and the token's own sign-in time. The desktop lost the record at every
+// launch (a new origin each time), so its cap ran from the latest launch, not
+// from the sign-in (OUTSTANDING S2-01). A FRESH sign-in passes no time: there
+// the token's time adds only the clock's skew, and a computer four hours ahead
+// of the server would be signed out at every sign-in (design review, F4).
+
+/**
+ * The token's own sign-in time in ms (its earliest `amr` timestamp), or null.
+ * Raw: start() judges "not in the future" at its own clock, as sessionStartOf
+ * does at its own, so the value stays the same for the whole session.
+ */
+export function tokenSignedInAt(session) {
+  return signedInAtOf(readJwtClaims(session?.access_token), Infinity)
+}
+
+// ── The core ─────────────────────────────────────────────────────────────────
+
+/**
+ * @param {object} opts
+ * @param {string}   opts.surfaceKey   the surface's session key; two keys hang off it
+ * @param {string}   opts.sessionId    ties the cap clock to one sign-in
+ * @param {number}  [opts.signedInAt]  D1: at a restore, the token's own sign-in time (tokenSignedInAt)
+ * @param {object}  [opts.storage]     { getItem, setItem, removeItem } — localStorage when present
+ * @param {() => number} [opts.now]
+ * @param {(fn: () => void, ms: number) => any} [opts.schedule]   periodic; defaults to setInterval
+ * @param {(handle: any) => void} [opts.unschedule]
+ * @param {(state: object) => void} [opts.onChange]
+ * @param {(reason: 'idle_timeout'|'session_cap') => void} [opts.onExpire]
+ */
+export function createSessionTimeouts(opts) {
+  const {
+    surfaceKey,
+    sessionId,
+    signedInAt = null,
+    storage = null,
+    now = () => Date.now(),
+    schedule = (fn, ms) => setInterval(fn, ms),
+    unschedule = (h) => clearInterval(h),
+    idleWarnMs = IDLE_WARN_MS,
+    idleSignOutMs = IDLE_SIGN_OUT_MS,
+    capMs = SESSION_CAP_MS,
+    capWarnMs = CAP_WARN_MS,
+    tickMs = TICK_MS,
+    activityPersistMs = ACTIVITY_PERSIST_MS,
+    onChange = () => {},
+    onExpire = () => {},
+  } = opts
+  if (!surfaceKey) throw new Error('createSessionTimeouts: surfaceKey is required')
+
+  const activityKey = `${surfaceKey}.activity`
+  const startKey    = `${surfaceKey}.start`
+
+  let state = { ...INACTIVE_STATE }
+  let startedAt = null
+  let memActivity = null      // this tab's own last activity
+  let lastPersisted = 0
+  let timer = null
+  let expired = false
+  let running = false
+
+  function setState(next) {
+    const changed = next.phase !== state.phase || next.deadline !== state.deadline || next.reason !== state.reason
+    state = next
+    if (changed) onChange(state)
+  }
+
+  function lastActivity() {
+    // Another tab of the same surface may be the busy one.
+    //
+    // R2: clamped to now. A stored timestamp in the FUTURE — an OS clock
+    // correction backwards, after this or another tab wrote under the old
+    // clock — otherwise makes `idleFor` negative and suppresses the idle
+    // timeout for as long as the skew lasts. A clock that moved is not
+    // activity; the worst this can do is expire a session early, which is
+    // the safe direction for a security control.
+    const t = now()
+    const stored = readNumber(storage, activityKey)
+    return Math.min(Math.max(memActivity ?? 0, stored ?? 0), t)
+  }
+
+  function stopTicker() {
+    if (timer != null) { unschedule(timer); timer = null }
+  }
+
+  function expire(reason) {
+    if (expired) return state
+    expired = true
+    running = false
+    stopTicker()
+    // 🚨 R2: the two keys are deliberately NOT removed here. `onExpire`
+    // starts a sign-out that is network work — it can hang, and the tab can
+    // be closed inside it. Deleting `.start` first meant that a sign-out
+    // which never finished left the persisted session in place AND no start
+    // time, so the next boot of that same session read "no clock for this
+    // session id" and handed out a FRESH four hours. Keeping it makes the
+    // restart expire again at once (`start()` ends in `evaluate()`), which
+    // is the safe direction. Nothing leaks: `.start` is keyed by session id,
+    // and `start()` overwrites both keys for any new one.
+    setState({ phase: 'expired', deadline: null, reason, startedAt, lastActivity: memActivity })
+    onExpire(reason)
+    return state
+  }
+
+  function evaluate() {
+    if (!running || expired) return state
+    const t = now()
+    const last = lastActivity()
+    const idleFor = t - last
+    const age = t - startedAt
+    if (age >= capMs) return expire('session_cap')
+    if (idleFor >= idleSignOutMs) return expire('idle_timeout')
+    let next
+    if (idleFor >= idleWarnMs) {
+      next = { phase: 'idle-warning', deadline: last + idleSignOutMs, reason: 'idle_timeout' }
+    } else if (age >= capMs - capWarnMs) {
+      next = { phase: 'cap-warning', deadline: startedAt + capMs, reason: 'session_cap' }
+    } else {
+      next = { phase: 'active', deadline: null, reason: null }
+    }
+    setState({ ...next, startedAt, lastActivity: last })
+    return state
+  }
+
+  function activity() {
+    if (!running || expired) return
+    // D2 (night 6, 2026-10-29; RECONNECT_DESIGN.md §13.3; OUTSTANDING
+    // D1-02): the absence is judged BEFORE this activity counts, as visible()
+    // judges a return. After a sleep the overdue tick is a timer task, and a
+    // key or pointer event can run before it: recorded first, it made hours
+    // idle into a fresh half hour (measured: 120 minutes asleep, then a key,
+    // and the session carried on). A gap past the idle limit ends the session
+    // here as a tick would have; a cap passed in the sleep, the same. Every
+    // time, not only when a tick is overdue: the stricter of the two, for one
+    // storage read (measured on the desktop at 0.17 µs).
+    evaluate()
+    if (expired) return
+    const t = now()
+    memActivity = t
+    if (t - lastPersisted >= activityPersistMs) {
+      lastPersisted = t
+      write(storage, activityKey, String(t))
+    }
+    // A warning must clear the moment the person moves, not at the next tick.
+    if (state.phase !== 'active') evaluate()
+  }
+
+  /** The tab became visible: judge the absence first, then count the return. */
+  function visible() {
+    if (!running || expired) return
+    evaluate()
+    if (!expired) activity()
+  }
+
+  function start() {
+    if (running || expired) return
+    running = true
+    const t = now()
+    // D1 (§12.2): at a restore the earlier of the record and the token's own
+    // sign-in time, the start the offline launch tests; never later than the
+    // record alone, so never more lenient than before on either build.
+    const recorded = recordedStartOf(storage, startKey, sessionId, t)
+    const proven = Number.isFinite(signedInAt) && signedInAt <= t ? signedInAt : null
+    if (recorded != null) {
+      startedAt = proven != null && proven < recorded ? proven : recorded   // a reload; the clock keeps running
+    } else {
+      startedAt = proven ?? t              // a new sign-in, a session from before this shipped, a desktop launch with no record
+      write(storage, startKey, { sid: sessionId, at: startedAt })
+    }
+    memActivity = t
+    lastPersisted = t
+    write(storage, activityKey, String(t))
+    timer = schedule(evaluate, tickMs)
+    evaluate()
+  }
+
+  function stop() {
+    running = false
+    stopTicker()
+    // The keys stay: `.start` is keyed by session id and `.activity` is
+    // overwritten by the next start(). Nothing here belongs to another surface.
+  }
+
+  return {
+    start, stop, activity, visible, evaluate,
+    getState: () => state,
+    isRunning: () => running,
+  }
+}
+
+// ── DOM binding ──────────────────────────────────────────────────────────────
+
+const ACTIVITY_EVENTS = Object.freeze(['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart'])
+
+/**
+ * Wire a controller to the document. Returns the detach function.
+ */
+function attachActivityListeners(ctl, target = typeof window !== 'undefined' ? window : null, doc = typeof document !== 'undefined' ? document : null) {
+  if (!target || !doc) return () => {}
+  const onActivity = () => ctl.activity()
+  const onVisibility = () => { if (doc.visibilityState === 'visible') ctl.visible() }
+  const listenerOpts = { capture: true, passive: true }
+  for (const ev of ACTIVITY_EVENTS) target.addEventListener(ev, onActivity, listenerOpts)
+  doc.addEventListener('visibilitychange', onVisibility)
+  return () => {
+    for (const ev of ACTIVITY_EVENTS) target.removeEventListener(ev, onActivity, listenerOpts)
+    doc.removeEventListener('visibilitychange', onVisibility)
+  }
+}
+
+function safeLocalStorage() {
+  try {
+    if (typeof localStorage === 'undefined') return null
+    // A private window can expose the object and throw on use.
+    localStorage.getItem('wilson.session.probe')
+    return localStorage
+  } catch { return null }
+}
+
+/**
+ * DEV ONLY: `localStorage['wilson.session.timeouts.debug']` may hold JSON
+ * overrides ({ idleWarnMs, idleSignOutMs, capMs, capWarnMs, tickMs }) so the
+ * warning and the sign-out can be watched in seconds on a dev server. The
+ * production build never reads it — `import.meta.env.DEV` is false there.
+ */
+const DEV_OVERRIDES_KEY = 'wilson.session.timeouts.debug'
+const OVERRIDABLE = ['idleWarnMs', 'idleSignOutMs', 'capMs', 'capWarnMs', 'tickMs']
+function readDevOverrides(storage = safeLocalStorage()) {
+  // R2: the EXACT `import.meta.env.DEV`, not `import.meta.env?.DEV`. Vite
+  // replaces this expression by key at build time, so the production bundle
+  // folds the branch to `if (true) return {}` and never reads the key at all.
+  // The optional chain happens to be matched today; relying on that is
+  // relying on a bundler's pattern matching for a dev-only switch.
+  if (!import.meta.env.DEV) return {}
+  const raw = readJson(storage, DEV_OVERRIDES_KEY)
+  if (!raw || typeof raw !== 'object') return {}
+  const out = {}
+  for (const k of OVERRIDABLE) if (Number.isFinite(raw[k]) && raw[k] > 0) out[k] = raw[k]
+  return out
+}
+
+/**
+ * React binding for one surface.
+ *
+ * @param {object} opts
+ * @param {boolean} opts.enabled      true while the surface has a session
+ * @param {string|null} opts.sessionId
+ * @param {number|null} [opts.signedInAt]  D1: at a restore only, tokenSignedInAt(session); null at a fresh sign-in
+ * @param {(reason: string) => void} opts.onExpire   sign the surface out, say why
+ * @param {string} [opts.surfaceKey]  defaults to this bundle's session key
+ * @param {object} [opts.overrides]   test seam; DEV overrides are merged first
+ * @returns {{ phase: string, deadline: number|null, reason: string|null, stay: () => void }}
+ */
+export function useSessionTimeouts({ enabled, sessionId, signedInAt = null, onExpire, surfaceKey = SESSION_STORAGE_KEY, overrides }) {
+  const [state, setState] = useState(INACTIVE_STATE)
+  const ctlRef = useRef(null)
+  const onExpireRef = useRef(onExpire)
+  onExpireRef.current = onExpire
+
+  useEffect(() => {
+    if (!enabled || !sessionId) {
+      setState(INACTIVE_STATE)
+      return undefined
+    }
+    const ctl = createSessionTimeouts({
+      surfaceKey,
+      sessionId,
+      signedInAt,
+      storage: safeLocalStorage(),
+      ...readDevOverrides(),
+      ...(overrides || {}),
+      onChange: setState,
+      onExpire: (reason) => onExpireRef.current?.(reason),
+    })
+    ctlRef.current = ctl
+    const detach = attachActivityListeners(ctl)
+    ctl.start()
+    return () => {
+      detach()
+      ctl.stop()
+      if (ctlRef.current === ctl) ctlRef.current = null
+    }
+    // `overrides` is a test seam; a new object per render must not restart the clock.
+    // D1: nor does `signedInAt` (a restart is a start(), which counts as activity):
+    // it travels with the session id it was read with.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, sessionId, surfaceKey])
+
+  const stay = () => ctlRef.current?.activity()
+  return { ...state, stay }
+}

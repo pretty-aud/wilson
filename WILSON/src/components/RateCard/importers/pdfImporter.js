@@ -16,6 +16,11 @@
 //
 // The result has the same shape as csvImporter / xlsxImporter.
 
+import { hasLocalServer } from '../../../lib/localData'
+// B3 (Track B): the desktop loopback API refuses /api without the per-launch
+// token; localFetch attaches it (same-origin URLs only).
+import { localFetch } from '../../../lib/localServerFetch.js'
+
 const CURRENCY_SYMBOLS = {
   '$': 'USD', '€': 'EUR', '£': 'GBP', '¥': 'JPY',
   '₹': 'INR', '₩': 'KRW', 'R$': 'BRL',
@@ -147,11 +152,23 @@ export async function importPdf(file, defaultCurrency = 'USD') {
     throw new Error('importPdf: expected a .pdf file')
   }
 
+  // Session 12: PDF extraction runs in the Electron main process — say so on
+  // the web instead of failing with a cryptic parse error.
+  if (!hasLocalServer()) {
+    return {
+      rows: [],
+      columns: {},
+      unmapped: [],
+      totalRows: 0,
+      errors: ['PDF import runs in the desktop app only. Export the rate card as CSV or XLSX and import that instead.'],
+    }
+  }
+
   const dataUrl = await fileToDataUrl(file)
 
   let text = ''
   try {
-    const res = await fetch('/api/extract-pdf', {
+    const res = await localFetch('/api/extract-pdf', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: file.name, dataUrl }),

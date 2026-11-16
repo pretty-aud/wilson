@@ -1,0 +1,48 @@
+-- =============================================================================
+-- 0103_project_status_desktop_values.sql — M2, night 4 of
+-- docs/sessions/PLAN_TO_1_0.md (2026-10-28).
+--
+-- The desktop's three project statuses, added to the cloud's type. Audrey's
+-- ruling of 2026-10-28 (in chat, multiple choice; OUTSTANDING M1-L4,
+-- walkthrough 84's M1 Q3): "Add the three to the cloud (Recommended)".
+--
+-- R.A.B.B.I.T.'s project settings offer Draft, Active, On hold, Wrapped and
+-- Archived (ProjectSummaryView.jsx's STATUS_OPTIONS); the Projects page offers
+-- Active and Inactive (ProjectDetailPanel.jsx); the intake wizard makes a
+-- project Draft. public.project_status (0000) had active, on_hold, completed,
+-- archived and cancelled, so a browser save of Draft, Wrapped or Inactive was
+-- refused, and a migrated project carrying one arrived as active. MEASURED on
+-- wilson-dev before this file (M2, rolled back): "22P02: invalid input value
+-- for enum project_status: \"draft\"", and the same for "inactive" (M1
+-- measured "wrapped").
+--
+-- WHAT THIS ADDS: three labels, in the lifecycle's order —
+--   draft    before active,
+--   inactive after on_hold,
+--   wrapped  before completed,
+-- so the type reads draft, active, on_hold, inactive, wrapped, completed,
+-- archived, cancelled. Nothing in the schema compares statuses by order (each
+-- reader names a status), so the order is for people reading the type.
+--
+-- NOTHING ELSE, ON PURPOSE: a label added by ALTER TYPE … ADD VALUE cannot be
+-- USED in the transaction that adds it (55P04, "unsafe use of new value"), so
+-- this file adds the three and does nothing else. No column default changes
+-- (projects.status stays DEFAULT 'active'), no policy, no function; the RLS on
+-- projects is unchanged. Suite 106 (106_project_status_desktop_values.sql)
+-- writes the new values in its own transaction, after this one commits.
+-- IF NOT EXISTS makes a second apply a no-op.
+--
+-- HOW IT IS APPLIED (the house way, never `supabase db push`): this file's
+-- statements by `supabase db query --linked --file` from an LF copy, which
+-- commits them; then, in a second call, the history row — INSERT INTO
+-- supabase_migrations.schema_migrations (version, name, statements) SELECT
+-- '0103', 'project_status_desktop_values', ARRAY[<this whole file>] WHERE NOT
+-- EXISTS (… version = '0103'), md5(statements[1]) the md5 of the LF file.
+--
+-- ORDERING — depends on: 0000 (project_status). Numbers: 0103 / suite 106
+-- (0102 and suite 105 stay reserved for the avatars policy).
+-- =============================================================================
+
+ALTER TYPE public.project_status ADD VALUE IF NOT EXISTS 'draft' BEFORE 'active';
+ALTER TYPE public.project_status ADD VALUE IF NOT EXISTS 'inactive' AFTER 'on_hold';
+ALTER TYPE public.project_status ADD VALUE IF NOT EXISTS 'wrapped' BEFORE 'completed';

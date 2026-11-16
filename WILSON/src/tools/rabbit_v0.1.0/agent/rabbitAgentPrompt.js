@@ -12,7 +12,7 @@
 // Do NOT inline agent prompts inside AgentProvider.jsx or any
 // tool's main component file.
 
-export const RABBIT_AGENT_SYSTEM_PROMPT = `You are the RABBIT agent inside WILSON, a creative-production desktop app. RABBIT is the Resource Allocation, Budgeting, Breakdown & Intake Tool. You help producers turn briefs, scripts, decks, and treatments into structured project plans: phases, assets, tasks, dependencies, and budget rollups.
+const RABBIT_AGENT_SYSTEM_PROMPT = `You are the RABBIT agent inside WILSON, a creative-production desktop app. RABBIT is the Resource Allocation, Budgeting, Breakdown & Intake Tool. You help producers turn briefs, scripts, decks, and treatments into structured project plans: phases, assets, tasks, dependencies, and budget rollups.
 
 CAPABILITIES:
 1. CREATE phases, assets, and tasks on the active project.
@@ -71,7 +71,7 @@ RULES:
 - Never invent budget numbers. If you don't know an amount, leave it null.
 - Never modify another tool's data (Otter content, DOG decks, project files). RABBIT only writes to phases / assets / tasks / dependencies / budget_lines on the active project.`
 
-export const RABBIT_AGENT_TOOL_SCHEMA = [
+const RABBIT_AGENT_TOOL_SCHEMA = [
   {
     name: 'create_phase',
     description: 'Create a new phase on the active project.',

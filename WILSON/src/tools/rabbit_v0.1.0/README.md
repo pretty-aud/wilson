@@ -11,7 +11,7 @@ RABBIT (Resource Allocation, Budgeting & Breakdown Intake Tool) is a WILSON tool
 - **Intake pipeline** (`intake/`): chunked extractor with 9 source-type chunkers (script, treatment, deck, brief, GDD, outline, notes, pitchBible, lookbook) and 3 personas (executive, creative, technical) merged through fuzzy reducers. Supports PDF, DOCX, PPTX, TXT, MD only.
 - **Agent surface** (`agent/`): RABBIT system prompt + 8 agent action handlers, registered with the multi-tool AgentProvider as `'rabbit'`.
 - **Views** (`views/`):
-  - `IntakeWizardView` (5 steps: upload → classify → core → run → review)
+  - `IntakeWizardView` (3 steps: prepare → run → review — `prepare` consolidates upload + classify + core-definer)
   - `ProjectSummaryView` (header, phases, next-up, at-risk, budget)
   - `ProjectAssetsView` (table + gallery, inline edit, status warning modal)
   - `TimelineView` (synthetic Gantt with 5 zoom levels and critical-path highlight)
