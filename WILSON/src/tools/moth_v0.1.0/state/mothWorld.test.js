@@ -5,7 +5,7 @@
 // take it goes back until the page's change lands; Escape puts it back and says nothing; half a second at rest asks
 // for a preview and a press ends it; a double click opens a container; hidden, the world stops.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { createMothWorld, carriedBy, DRAG_SLOP_PX, BLOOM_REST_MS, PICK_ZOOM } from './mothWorld.js'
+import { createMothWorld, carriedBy, DRAG_SLOP_PX, BLOOM_REST_MS, PICK_ZOOM, GLIDE } from './mothWorld.js'
 import { buildGraph } from '../engine/model.js'
 
 const METHODS = ['setTransform', 'clearRect', 'beginPath', 'moveTo', 'lineTo', 'arc', 'stroke', 'fill', 'fillText', 'strokeText', 'drawImage', 'fillRect', 'save', 'restore', 'closePath', 'rect', 'clip', 'setLineDash']
@@ -388,5 +388,104 @@ describe('MO5 6: what a drag carries', () => {
     const skip = seen.at(-1)
     expect(skip).toBeInstanceOf(Set)
     expect([...skip].sort()).toEqual(['file:f1', 'folder:d1'])
+  })
+})
+
+// MO5 item 5: a dot flung into empty space glides a little, slows and stops, and only then is its place kept. Off,
+// placed slowly, or while motion is reduced, it stays where it was let go. A press stops a glide where it is.
+describe('MO5 5: a flung dot glides a little', () => {
+  // A flick to the right: three moves 16 ms apart, let go at once.
+  const fling = (id = 'file:f2', step = 30) => {
+    const s = press(id)
+    env.canvas.fire('pointermove', { clientX: s.x + 10, clientY: s.y })
+    env.advance(16)
+    env.canvas.fire('pointermove', { clientX: s.x + 10 + step, clientY: s.y })
+    env.advance(16)
+    env.canvas.fire('pointermove', { clientX: s.x + 10 + 2 * step, clientY: s.y })
+    env.canvas.fire('pointerup', {})
+    return drawn(id)
+  }
+  // Where a dot is drawn now (a dot pinned before keeps its old kept place until it lands again).
+  const drawn = (id) => { const w = env.world.renderer.worldOf(id); return { x: w.x, y: w.y } }
+  const settle = () => { for (let k = 0; k < 4; k++) env.flush() }
+
+  it('🚨 on: it carries on the way it was going, slows, stops, and only then is its place kept; off, it stays (the control)', () => {
+    env.world.setReducedMotion(false)
+    const off = fling()
+    expect(env.events.arranged).toHaveLength(1)
+    settle()
+    expect(drawn('file:f2')).toEqual(off)
+
+    env.flush()
+    env.world.setGlide(true)
+    const letGo = fling()
+    expect(letGo.x).toBeGreaterThan(off.x)
+    expect(env.events.arranged).toHaveLength(1) // not yet: it is still gliding
+    env.flush()
+    const mid = drawn('file:f2')
+    expect(mid.x).toBeGreaterThan(letGo.x)
+    settle()
+    expect(env.events.arranged).toHaveLength(2)
+    const end = drawn('file:f2')
+    expect(end.x).toBeGreaterThan(mid.x)
+    expect(Math.abs(end.y - letGo.y)).toBeLessThan(0.5)
+    const k = env.world.renderer.camera().k
+    expect((end.x - letGo.x) * k).toBeLessThanOrEqual(GLIDE.maxTravelPx + 0.5)
+    const kept = env.world.positions()['file:f2']
+    expect(kept.pinned).toBe(true)
+    expect(kept.x).toBeCloseTo(end.x, 0)
+    expect(env.events.arranged.at(-1)[0]).toMatchObject({ id: 'file:f2' })
+    expect(env.events.arranged.at(-1)[0].x).toBeCloseTo(end.x, 2)
+  })
+  it('🚨 while the computer asks for less motion it never glides', () => {
+    env.world.setGlide(true) // the world here starts with reduced motion on
+    const letGo = fling()
+    expect(env.events.arranged).toHaveLength(1)
+    settle()
+    expect(drawn('file:f2')).toEqual(letGo)
+  })
+  it('placed slowly, or held still before letting go, it does not glide', () => {
+    env.world.setReducedMotion(false)
+    env.world.setGlide(true)
+    const s = press('file:f2')
+    env.canvas.fire('pointermove', { clientX: s.x + 10, clientY: s.y })
+    env.advance(16)
+    env.canvas.fire('pointermove', { clientX: s.x + 60, clientY: s.y })
+    env.advance(GLIDE.stillMs + 40)
+    env.canvas.fire('pointerup', {})
+    expect(env.events.arranged).toHaveLength(1)
+  })
+  it('a press during the glide stops it where it is, and that place is kept', () => {
+    env.world.setReducedMotion(false)
+    env.world.setGlide(true)
+    const letGo = fling()
+    env.flush()
+    const mid = drawn('file:f2')
+    expect(mid.x).toBeGreaterThan(letGo.x)
+    env.canvas.fire('pointerdown', { clientX: 3, clientY: 3 })
+    expect(env.events.arranged).toHaveLength(1)
+    expect(env.events.arranged[0][0].x).toBeCloseTo(mid.x, 2)
+    settle()
+    expect(drawn('file:f2')).toEqual(mid)
+    expect(env.world.positions()['file:f2'].pinned).toBe(true)
+    expect(env.events.arranged).toHaveLength(1)
+  })
+  it('asking for less motion mid-glide stops it there too', () => {
+    env.world.setReducedMotion(false)
+    env.world.setGlide(true)
+    fling()
+    env.world.setReducedMotion(true)
+    expect(env.events.arranged).toHaveLength(1)
+  })
+  it('what a drag carries glides with it, by the same step', () => {
+    env.world.setReducedMotion(false)
+    env.world.setGlide(true)
+    env.world.setCarry(true)
+    const before = env.world.positions()
+    fling('folder:d1')
+    settle()
+    const p = env.world.positions()
+    expect(p['folder:d1'].x - before['folder:d1'].x).toBeCloseTo(p['file:f1'].x - before['file:f1'].x, 0)
+    expect(env.events.arranged.at(-1)[0].carried).toEqual([expect.objectContaining({ id: 'file:f1' })])
   })
 })

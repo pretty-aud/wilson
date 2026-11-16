@@ -1,10 +1,17 @@
 // MothSettings.jsx — MO2: what the Settings panel holds (the brief §3.1, her split of 2026-11-01): the cosmetic
 // choices, the light's colour, what sizes a dot, what colours it, and when the lighter mode is used. Kept per
 // person and company. Also Moth's Help, in plain words.
-import { Field, Select } from '../../../ui'
+import { Field, Select, Switch } from '../../../ui'
 import { GLOW_SWATCHES, SIZE_BY, COLOUR_BY, LIGHTER } from '../state/mothAppearance.js'
 
-export default function MothSettings({ appearance, onChange, calm, available = true }) {
+/** MO5 (her item 5): the switch's words, and why it is off while the computer asks for less motion. */
+export const GLIDE_WORDS = Object.freeze({
+  label: 'Dots glide a little when you let go of them',
+  calm: 'Your computer asks for less motion, so nothing glides.',
+  kept: 'Kept on this computer, for you.',
+})
+
+export default function MothSettings({ appearance, onChange, calm, available = true, glide = true, onGlide = null }) {
   const custom = !GLOW_SWATCHES.some(([c]) => c === appearance.glow)
   return (
     <div className="moth-settings" data-moth-settings>
@@ -45,6 +52,14 @@ export default function MothSettings({ appearance, onChange, calm, available = t
         <Select value={appearance.colour_by} onChange={(v) => onChange({ colour_by: v || 'kind' })}
           options={COLOUR_BY.map(([value, label]) => ({ value, label }))} data-moth-colour-by />
       </Field>
+      {onGlide && (
+        <fieldset className="moth-fieldset" data-moth-glide-set>
+          <legend className="moth-label">Moving dots</legend>
+          <Switch checked={!!glide && !calm} disabled={!!calm} onChange={(on) => onGlide(on)} label={GLIDE_WORDS.label}
+            title={calm ? GLIDE_WORDS.calm : undefined} data-moth-glide />
+          <p className="moth-quiet">{calm ? GLIDE_WORDS.calm : GLIDE_WORDS.kept}</p>
+        </fieldset>
+      )}
       <Field label="Lighter mode, for older computers" hint="Fewer effects and less detail, so it stays smooth.">
         <Select value={appearance.light} onChange={(v) => onChange({ light: v || 'auto' })}
           options={LIGHTER.map(([value, label]) => ({ value, label }))} data-moth-lighter />

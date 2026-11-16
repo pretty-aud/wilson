@@ -20,6 +20,10 @@
 // MO5 (her item 6): with "Move what is joined along" on (setCarry), a drag carries what is joined to the dot it moves
 // (carriedBy below): it all moves by the same step, the dot under the pointer cannot land on any of it, Escape puts it
 // all back, and a drop in empty space keeps it all where it was let go.
+//
+// MO5 (her item 5): with glide on (setGlide; never while motion is reduced), a dot flung into empty space carries on a
+// little and slows to a stop, with what it carries, before its place is kept. A press anywhere, a new graph, hiding
+// the map or asking for less motion stops it where it is, and that place is kept.
 import { createRenderer } from '../engine/renderer.js'
 import { createLayoutClient } from '../engine/layoutClient.js'
 import { bindNavigation } from '../engine/navigation.js'
@@ -33,6 +37,13 @@ export const LINK_REACH_PX = 28
 export const BLOOM_REST_MS = 500
 /** A pick from the list flies at least this close, past the zoom where dots cluster (frame.js clusterBelowK). */
 export const PICK_ZOOM = 0.9
+/**
+ * MO5 (her item 5): how a let-go dot glides. Its speed over the last moments of the drag, read in screen pixels a
+ * millisecond, must be at least GLIDE.minSpeed (a flick, not a careful place); it then slows by e every tauMs, travels
+ * at most maxTravelPx however hard it was flung, and stops below stopSpeed or after maxMs. A drag held still for
+ * stillMs before letting go does not glide.
+ */
+export const GLIDE = Object.freeze({ tauMs: 140, minSpeed: 0.25, maxTravelPx: 180, stopSpeed: 0.02, maxMs: 700, sampleMs: 90, stillMs: 60 })
 
 const CONTAINERS = new Set(['project', 'folder', 'phase', 'scene'])
 const HUBS = new Set(['tag', 'mtag'])
@@ -119,17 +130,23 @@ export function createMothWorld({
   let press = null // { id, pointerId, sx, sy, start, at, dragging, target, additive, wasPinned, allowed, carried, skip }
   let emptyPress = null // a press off any dot: a click there clears the selection, a pan does not
   let carry = false // MO5: a drag carries what is joined to the dot (carriedBy)
+  let glideOn = false // MO5: a flung dot glides a little before its place is kept
+  let glide = null // the glide under way: { p (the press it ends), base, vx, vy, k, t0, frame }
   const down = new Set() // pointers down on the canvas now
+  const clock = now || (() => (typeof performance !== 'undefined' ? performance.now() : Date.now()))
+  const askFrame = requestFrame || ((fn) => (typeof requestAnimationFrame === 'function' ? requestAnimationFrame(fn) : setTimeout(() => fn(clock()), 16)))
+  const dropFrame = cancelFrame || ((h) => (typeof cancelAnimationFrame === 'function' ? cancelAnimationFrame(h) : clearTimeout(h)))
   // A dot being dragged is where the pointer is, whatever a layout tick computed before the pointer got there; so is
-  // what it carries, by the same step.
+  // what it carries, by the same step; and so is a dot gliding after it was let go.
   const holdDragged = (xy) => {
-    if (!press?.dragging || !press.at || !(xy instanceof Float32Array)) return
+    const m = press?.dragging ? press : glide?.p
+    if (!m || !m.at || !(xy instanceof Float32Array)) return
     const put = (id, p) => {
       const i = inputIndex.get(id)
       if (i != null && 2 * i + 1 < xy.length) { xy[2 * i] = p.x; xy[2 * i + 1] = p.y }
     }
-    put(press.id, press.at)
-    for (const c of press.carried) if (c.at) put(c.id, c.at)
+    put(m.id, m.at)
+    for (const c of m.carried) if (c.at) put(c.id, c.at)
   }
 
   const client = createLayoutClient({
@@ -173,6 +190,7 @@ export function createMothWorld({
    * over what the world remembers. `layout`: 'force' or 'radial'. The scene and the layout's run share this turn.
    */
   function setGraph(next, { layout = 'force', saved = null } = {}) {
+    endGlide()
     graph = next || { nodes: [], edges: [] }
     byId = new Map(graph.nodes.map((n) => [n.id, n]))
     layoutKind = layout === 'radial' ? 'radial' : 'force'
@@ -200,6 +218,7 @@ export function createMothWorld({
 
   /** Lay the view out afresh: everything but what was pinned by hand may move. */
   function relayout() {
+    endGlide()
     for (const n of input.nodes) if (!pinned.has(n.id)) places.delete(n.id)
     handPlaced.forEach((_p, id) => { if (!pinned.has(id)) handPlaced.delete(id) })
     setGraph(graph, { layout: layoutKind })
@@ -274,6 +293,77 @@ export function createMothWorld({
       return
     }
     const at = p.at || places.get(p.id) || p.start
+    p.at = { x: at.x, y: at.y }
+    // Flung, it glides a little first (MO5, her item 5); its place is kept when it stops.
+    const v = glideOn && !calm ? flung(p) : null
+    if (v) { startGlide(p, v); return }
+    keepWhereLetGo(p)
+  }
+
+  // Its speed over the last moments of the drag, in world units a millisecond, or null when it was placed, not flung.
+  function flung(p) {
+    const trail = p.trail
+    if (!trail || trail.length < 2) return null
+    const last = trail[trail.length - 1]
+    if (clock() - last.t > GLIDE.stillMs) return null
+    const first = trail.find((s) => last.t - s.t <= GLIDE.sampleMs)
+    const dt = first ? last.t - first.t : 0
+    if (!(dt > 0)) return null
+    let vx = (last.x - first.x) / dt
+    let vy = (last.y - first.y) / dt
+    const k = renderer.camera().k || 1
+    const speed = Math.hypot(vx, vy) * k
+    if (!(speed >= GLIDE.minSpeed)) return null
+    const cap = GLIDE.maxTravelPx / GLIDE.tauMs
+    if (speed > cap) { vx *= cap / speed; vy *= cap / speed }
+    return { vx, vy, k }
+  }
+
+  function startGlide(p, v) {
+    for (const c of p.carried) { const q = c.at || c.start; c.base = { x: q.x, y: q.y } }
+    glide = { p, base: { x: p.at.x, y: p.at.y }, vx: v.vx, vy: v.vy, k: v.k, t0: clock(), frame: null }
+    glide.frame = askFrame(stepGlide)
+  }
+  // Where it is a time e after it was let go: base + v * tau * (1 - exp(-e / tau)), so it slows the same whatever
+  // the frame rate, and stops on its own.
+  function stepGlide() {
+    const g = glide
+    if (!g) return
+    g.frame = null
+    const e = Math.max(0, clock() - g.t0)
+    const decay = Math.exp(-e / GLIDE.tauMs)
+    const reach = GLIDE.tauMs * (1 - decay)
+    const ox = g.vx * reach
+    const oy = g.vy * reach
+    const p = g.p
+    p.at = { x: g.base.x + ox, y: g.base.y + oy }
+    const batch = { [p.id]: p.at }
+    for (const c of p.carried) {
+      c.at = { x: c.base.x + ox, y: c.base.y + oy }
+      batch[c.id] = c.at
+      if (layoutKind === 'force') places.set(c.id, { x: c.at.x, y: c.at.y })
+    }
+    if (layoutKind === 'force') { places.set(p.id, { x: p.at.x, y: p.at.y }); client.pin(p.id, p.at.x, p.at.y) }
+    renderer.setPositions(batch)
+    if (e >= GLIDE.maxMs || Math.hypot(g.vx, g.vy) * decay * g.k < GLIDE.stopSpeed) {
+      glide = null
+      keepWhereLetGo(p)
+      return
+    }
+    g.frame = askFrame(stepGlide)
+  }
+  /** Stop a glide where it is; its place is kept (unless `quiet`, when the world is going). */
+  function endGlide({ quiet = false } = {}) {
+    const g = glide
+    if (!g) return
+    glide = null
+    if (g.frame != null) dropFrame(g.frame)
+    if (!quiet) keepWhereLetGo(g.p)
+  }
+
+  // A dot let go in empty space (after its glide, if it had one) is kept where it is, pinned by hand.
+  function keepWhereLetGo(p) {
+    const at = p.at
     pinned.add(p.id)
     handPlaced.set(p.id, { x: at.x, y: at.y })
     // What it carried stays where it was let go. A radial layout computes every place, so there each is kept by hand
@@ -302,6 +392,7 @@ export function createMothWorld({
 
   const onPointerDown = (e) => {
     stopBloom()
+    endGlide() // a press anywhere stops a glide where it is
     // A second finger or pointer while a dot is dragged changes nothing; one while a dot is only pressed ends that
     // press. Either way it is no click on empty space (MO2 review round 1).
     down.add(e.pointerId)
@@ -326,7 +417,7 @@ export function createMothWorld({
     press = {
       id: hit.id, pointerId: e.pointerId, sx: s.x, sy: s.y, start: { x: w.x, y: w.y },
       dragging: false, target: null, additive: !!(e.shiftKey || e.ctrlKey || e.metaKey), wasPinned: pinned.has(hit.id),
-      allowed: rules.canDrag(byId.get(hit.id)) !== false, carried: [], skip: null,
+      allowed: rules.canDrag(byId.get(hit.id)) !== false, carried: [], skip: null, trail: [],
     }
     canvas.setPointerCapture?.(e.pointerId)
   }
@@ -349,6 +440,8 @@ export function createMothWorld({
       }
       const w = screenToWorld(renderer.camera(), renderer.viewport(), s.x, s.y)
       press.at = w
+      press.trail.push({ t: clock(), x: w.x, y: w.y })
+      if (press.trail.length > 12) press.trail.shift()
       if (layoutKind === 'force') places.set(press.id, { x: w.x, y: w.y })
       if (layoutKind === 'force') client.pin(press.id, w.x, w.y)
       const batch = { [press.id]: w }
@@ -460,17 +553,19 @@ export function createMothWorld({
       if (light !== undefined) governor.setOverride(['auto', 'full', 'light'].includes(light) ? light : 'auto')
       paintGlow()
     },
-    setReducedMotion(v) { calm = !!v; renderer.setReducedMotion(calm); paintGlow() },
+    setReducedMotion(v) { calm = !!v; if (calm) endGlide(); renderer.setReducedMotion(calm); paintGlow() },
     /** What a drag may do: canDrag(node), canMove(dragNode, targetNode), canLink(dragNode, targetNode) → { allowed, reason }. */
     setRules(next) { rules = { ...rules, ...next } },
     /** MO5: whether a drag carries what is joined to the dot (carriedBy). A drag already under way keeps what it had. */
     setCarry(on) { carry = !!on },
+    /** MO5: whether a flung dot glides a little before its place is kept (never while motion is reduced). */
+    setGlide(on) { glideOn = !!on },
     /** Hidden, the world asks no frame and the light's animations stop; shown, it draws once. */
     setActive(v) {
       active = !!v
       glow?.setActive(active)
       renderer.setPaused(!active)
-      if (!active) { stopBloom(); endDrag(true); emptyPress = null; down.clear() }
+      if (!active) { stopBloom(); endDrag(true); endGlide(); emptyPress = null; down.clear() }
     },
     resize(width, height, dpr = 1) {
       viewport = { width, height, dpr }
@@ -490,6 +585,7 @@ export function createMothWorld({
     isActive: () => active,
     destroy() {
       endDrag(true)
+      endGlide({ quiet: true })
       stopBloom()
       unbind()
       canvas.removeEventListener?.('contextmenu', onContextMenu)

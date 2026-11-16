@@ -1072,6 +1072,7 @@ export default function MothPage({ isActive = true, worldFactory }) {
           rules={rules}
           flyTo={flyTo}
           carry={!!local.carry}
+          glide={!!local.glide && !calm}
           worldRef={worldRef}
           createWorld={worldFactory}
           onPick={(id, how) => {
@@ -1284,7 +1285,8 @@ export default function MothPage({ isActive = true, worldFactory }) {
         )}
       </Drawer>
       <Drawer open={settingsOpen} backdrop side="right" width="lg" label="Settings" title="M.O.T.H. settings" onClose={() => setSettingsOpen(false)} className="moth-settings-drawer">
-        <MothSettings appearance={appearance} onChange={setAppearance} calm={calm} available={viewSnap?.prefsAvailable !== false} />
+        <MothSettings appearance={appearance} onChange={setAppearance} calm={calm} available={viewSnap?.prefsAvailable !== false}
+          glide={!!local.glide} onGlide={(on) => setLocal({ glide: !!on })} />
       </Drawer>
       {(firstVisit || newView) && (
         <MothFirstVisit

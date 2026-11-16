@@ -29,7 +29,7 @@ vi.mock('./board/BoardPanel.jsx', async () => {
 
 import MothPage, { BOARD_DOT_COLOUR } from './MothPage.jsx'
 import { keepLeaving, leavingOf, whoKey } from './board/boardPanelState.js'
-import { MothHelp } from './components/MothSettings.jsx'
+import { MothHelp, GLIDE_WORDS } from './components/MothSettings.jsx'
 import { BOARD_NEEDS_CLOUD } from './board/boardPanelState.js'
 import { FOLDERS_FAILED_SENTENCE } from './components/MothTrashView.jsx'
 import { boardPlaces, startPlace, TOP_WORDS, NO_PLACE_WORDS } from './components/MothNewBoard.jsx'
@@ -54,7 +54,7 @@ function fakeWorld() {
     setGraph(g, o) { w.graphs.push({ g, o }) }, relayout() {}, positions: () => ({}),
     setAppearance(a) { if (a && 'colourOf' in a) w.colourOf = a.colourOf },
     setReducedMotion() {}, setRules(r) { w.rules = r }, setActive(v) { w.active = v }, resize() {}, setSelection(s) { w.selection = s },
-    setCarry(v) { w.carry = v },
+    setCarry(v) { w.carry = v }, setGlide(v) { w.glide = v },
     flyTo(id) { w.flown.push(id); return true }, on(event, fn) { w.handlers[event] = fn },
     renderer: {
       hitTest: () => null,
@@ -677,5 +677,46 @@ describe('🚨 MO5 6: the bar\'s switch that carries what is joined', () => {
     await world()
     expect((await screen.findByRole('button', { name: 'Move what is joined along' })).getAttribute('aria-pressed')).toBe('false')
     localStorage.removeItem('wilson.moth.local.v1')
+  })
+})
+
+describe('🚨 MO5 5: the glide\'s switch in Settings', () => {
+  const settings = async () => {
+    fireEvent.click(await screen.findByRole('button', { name: 'M.O.T.H. settings' }))
+    return screen.findByRole('switch', { name: GLIDE_WORDS.label })
+  }
+  it('is on at first and tells the map; off, the map is told and it is kept for this person', async () => {
+    localStorage.removeItem('wilson.moth.local.v1')
+    render(<MothPage worldFactory={fakeWorld} />)
+    const w = await world()
+    const sw = await settings()
+    expect(sw.getAttribute('aria-checked')).toBe('true')
+    expect(w.glide).toBe(true)
+    expect(screen.getByText(GLIDE_WORDS.kept)).toBeTruthy()
+    fireEvent.click(sw)
+    expect(sw.getAttribute('aria-checked')).toBe('false')
+    expect(w.glide).toBe(false)
+    cleanup()
+    render(<MothPage worldFactory={fakeWorld} />)
+    const w2 = await world()
+    expect((await settings()).getAttribute('aria-checked')).toBe('false')
+    expect(w2.glide).toBe(false)
+    localStorage.removeItem('wilson.moth.local.v1')
+  })
+  it('while the computer asks for less motion it is off and cannot be turned on, and says why', async () => {
+    localStorage.removeItem('wilson.moth.local.v1')
+    const was = window.matchMedia
+    window.matchMedia = (q) => ({ matches: q.includes('reduce'), media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} })
+    try {
+      render(<MothPage worldFactory={fakeWorld} />)
+      const w = await world()
+      const sw = await settings()
+      expect(sw.getAttribute('aria-checked')).toBe('false')
+      expect(sw.disabled).toBe(true)
+      expect(screen.getByText(GLIDE_WORDS.calm)).toBeTruthy()
+      expect(w.glide).toBe(false)
+    } finally {
+      window.matchMedia = was
+    }
   })
 })
