@@ -101,8 +101,23 @@ function Row({ label, children }) {
   )
 }
 
-export default function StylePanel({ elements = [], canWrite = false, inputMode = 'mouse', onStyle, onShape, onStack, onRemove, onFrame, onFrameOnly }) {
+export default function StylePanel({ elements = [], canWrite = false, inputMode = 'mouse', onStyle, onShape, onStack, onRemove, onFrame, onFrameOnly, editing = false, onLeave }) {
   if (!canWrite || !elements.length) return null
+  // MO5 (her item 4.2): while words are typed the panel stays (the text tool's words take their size and colour as they
+  // are written). A press on a style's button keeps the typing going (its mousedown never takes the focus); Arrange's
+  // buttons end the words first, as they did, so a frame or a delete never acts under an open box. A field of the
+  // panel may take the focus; the words end when the focus leaves both the panel and the box.
+  const keepTyping = (e) => {
+    if (!editing) return
+    const button = e.target?.closest?.('button')
+    if (button && !button.closest('[data-style-arrange]')) e.preventDefault()
+  }
+  const leave = (e) => {
+    if (!editing) return
+    const to = e.relatedTarget
+    if (to && (e.currentTarget.contains(to) || to.closest?.('[data-moth-board-editor]'))) return
+    onLeave?.()
+  }
   // Frame selection needs something that is not a line tied at an end (a free line is framed as any thing);
   // "Remove the frame only" needs every one a frame.
   const canFrame = elements.some((el) => !isTied(el))
@@ -130,7 +145,10 @@ export default function StylePanel({ elements = [], canWrite = false, inputMode 
       className="moth-board-style"
       data-moth-board-style
       data-input={inputMode}
+      data-editing={editing ? 'true' : undefined}
       aria-label="Style"
+      onMouseDown={keepTyping}
+      onBlur={leave}
       style={{
         position: 'absolute', top: 12, right: 12, zIndex: 3, width: touch ? 260 : 220, maxHeight: 'calc(100% - 24px)',
         overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: touch ? 14 : 10, padding: touch ? 14 : 10,
@@ -141,7 +159,7 @@ export default function StylePanel({ elements = [], canWrite = false, inputMode 
       {/* First, so what acts on the selection (its order, a frame around it, Delete) is in view however long the
           rows of style below grow: on a small board the panel scrolls, and these were under its fold. */}
       <Row label="Arrange">
-        <div style={{ display: 'flex', gap: 2 }}>
+        <div style={{ display: 'flex', gap: 2 }} data-style-arrange>
           <IconButton size={size} Icon={ArrowUp} title="Bring forward" onClick={() => onStack?.('forward')} />
           <IconButton size={size} Icon={ArrowDown} title="Send backward" onClick={() => onStack?.('backward')} />
           <IconButton size={size} Icon={BringToFront} title="Bring to front" onClick={() => onStack?.('front')} />

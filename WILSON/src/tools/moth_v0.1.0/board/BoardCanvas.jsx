@@ -678,6 +678,9 @@ export function mountBoard(host, init) {
     }
     refreshSelection()
     if (lostSelection) ui.onSelection?.([...selected])
+    // MO5 (her item 4.2): the words box follows what changed under it while it is open (a style chosen in the panel
+    // as the words are typed, a move, an undo, someone else's change).
+    if (editor) pushEditor()
     cull()
     ui.onChange?.()
     content.batchDraw()
@@ -2046,7 +2049,9 @@ function WordsEditor({ editor, inputMode, onInput, onBlur, onClose }) {
         maxLength={10000}
         readOnly={ended}
         onChange={(e) => onInput(e.target.value)}
-        onBlur={onBlur}
+        // MO5 (her item 4.2): into the style panel is not away from the words (Shift+Tab reaches it, a size is chosen
+        // there); the panel ends the edit itself when the focus leaves both.
+        onBlur={(e) => { if (e.relatedTarget?.closest?.('[data-moth-board-style]')) return; onBlur() }}
         style={{
           display: 'block', width: '100%', height: Math.max(b.height, b.fontSize * 1.4), boxSizing: 'border-box', margin: 0,
           padding: 0, border: `1px solid ${SELECT_COLOUR}`, outline: 'none', resize: 'none', overflow: 'hidden',
@@ -2295,9 +2300,11 @@ export default function BoardCanvas({ store, live = null, turns = null, adapter 
         />
       )}
       <StylePanel
-        elements={editor ? [] : selectedEls}
+        elements={selectedEls}
         canWrite={writable}
         inputMode={inputMode}
+        editing={!!editor}
+        onLeave={() => ctlRef.current?.editBlur()}
         onStyle={(patch) => ctlRef.current?.applyStyle(patch)}
         onShape={(s) => ctlRef.current?.applyShape(s)}
         onStack={(dir) => ctlRef.current?.stack(dir)}

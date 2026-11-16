@@ -4,7 +4,7 @@
 // nodes, events and Transformer are the real ones. The store, the room (live) and sticky turns are stand-ins that
 // keep to the design's interfaces.
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, cleanup, act, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup, act, waitFor, within } from '@testing-library/react'
 import Konva from 'konva'
 import BoardCanvas, {
   READ_ONLY_WORDS, TURN_ENDED_WORDS, targetSizes, elementIdOf, writingWords, NO_FILES_WORDS, DROP_WORDS, addingWords, mediaBox,
@@ -408,6 +408,41 @@ describe('BoardCanvas — the tools', () => {
     fireEvent.blur(await screen.findByLabelText('Text'))
     await settle()
     expect(store.remove).toHaveBeenCalledWith(['new-2'])
+  })
+
+  // MO5 item 4.2: "the properties widget doesnt show till after typing". It shows the moment a text is placed; a style
+  // chosen there keeps the words open and takes at once; into the panel is not away from the words, and out of both
+  // ends them as before.
+  it('MO5 4.2: the style panel shows as a text is placed, before a word; its styles keep the words open', async () => {
+    const { store } = await mount()
+    fireEvent.click(screen.getByTitle('Text (T)'))
+    press(stageNow(), toScreen({ x: 0, y: 300 }))
+    release(toScreen({ x: 0, y: 300 }))
+    const box = await screen.findByLabelText('Text')
+    const panel = await screen.findByRole('complementary', { name: 'Style' })
+    expect(within(panel).getByRole('group', { name: 'Words' })).toBeTruthy()
+    expect(box.value).toBe('')
+    fireEvent.change(box, { target: { value: 'Open' } })
+    const red = within(panel).getByRole('button', { name: 'Red' })
+    const down = new MouseEvent('mousedown', { bubbles: true, cancelable: true })
+    act(() => { red.dispatchEvent(down) })
+    expect(down.defaultPrevented).toBe(true)
+    fireEvent.click(red)
+    expect(store.update).toHaveBeenCalledWith('new-1', expect.objectContaining({ style: expect.objectContaining({ text_colour: '#F28B82' }) }), { settled: true })
+    expect(screen.getByLabelText('Text')).toBe(box)
+    await waitFor(() => expect(box.style.color).toBe('rgb(242, 139, 130)'))
+    const size = within(panel).getByRole('combobox', { name: 'Size of words' })
+    fireEvent.blur(box, { relatedTarget: size })
+    expect(screen.getByLabelText('Text')).toBe(box)
+    // Arrange's buttons end the words first, as they always did (their mousedown is not held).
+    const forward = within(panel).getByRole('button', { name: 'Bring forward' })
+    const down2 = new MouseEvent('mousedown', { bubbles: true, cancelable: true })
+    act(() => { forward.dispatchEvent(down2) })
+    expect(down2.defaultPrevented).toBe(false)
+    fireEvent.blur(size, { relatedTarget: region() })
+    await settle()
+    expect(screen.queryByLabelText('Text')).toBeNull()
+    expect(store.update).toHaveBeenCalledWith('new-1', expect.objectContaining({ body: 'Open' }), { settled: true })
   })
 
   // A browser sends a press's mousedown after its pointerdown, and gives the focus to the canvas on it. Seen in a
