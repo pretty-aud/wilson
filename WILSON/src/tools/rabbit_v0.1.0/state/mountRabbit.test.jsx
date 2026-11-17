@@ -72,6 +72,11 @@ afterEach(() => { cleanup(); ctx = null; fx = null })
 describe('CONTROL: the gap mountRabbit waits out', () => {
   it('between the project\'s commit and its effects a view\'s add offers an Undo that does nothing and a change for now is wiped; mounted by mountRabbit, the Undo takes the view back and the change stays', async () => {
     holder.adapter = fx.rabbitAdapter()
+    // F5 (rabbit C2): over a backend with a project channel the open now waits
+    // for its join (a later task), so the project no longer commits with the
+    // adapter and this gap does not open there. It still opens wherever there
+    // is no channel (the Local Server, Drive): the fixtures without theirs.
+    delete holder.adapter.subscribeProjectChanges
     expect(typeof holder.adapter.getTableViewLast).toBe('function')   // the fixtures read the views map, so the status wait applies
     const committed = new Promise((resolve) => {
       const mo = new MutationObserver(() => {

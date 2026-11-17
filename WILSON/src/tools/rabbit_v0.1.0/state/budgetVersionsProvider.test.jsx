@@ -577,9 +577,10 @@ describe('rename, note, delete', () => {
 // is a write straight through the adapter; the event is the one 0101 sends.
 // =============================================================================
 describe('S5-02 (R1): another window\'s bid version reaches this one, without reloading the project', () => {
-  // The join's refetch lands first (the provider reloads the project on every
-  // join, and the fixtures report one at once): a load after it is the event's.
-  const joined = () => waitFor(() => expect(loads).toBe(2), { timeout: 3000 })
+  // The join's refetch lands first (the fixtures report a join at once): a load
+  // after it is the event's. F5: on the first join that refetch IS the open's
+  // one load (the open waits for the join), so it is the first load, not the second.
+  const joined = () => waitFor(() => expect(loads).toBe(1), { timeout: 3000 })
   const event = (op, id) => ({
     table: 'budget_versions', op,
     record: op === 'DELETE' ? null : { id, project_id: PROJECT_ID },
@@ -596,7 +597,7 @@ describe('S5-02 (R1): another window\'s bid version reaches this one, without re
     await waitFor(() => expect(byId(BV1).name).toBe('Bid v1 (saved elsewhere)'))
     await settle()
     expect(versionReads).toBe(reads + 1)
-    expect(loads).toBe(2)
+    expect(loads).toBe(1)
     expect(channel.subscribed).toEqual([PROJECT_ID])
   })
 
@@ -610,7 +611,7 @@ describe('S5-02 (R1): another window\'s bid version reaches this one, without re
     await run(() => channel.emit(event('DELETE', BV3)))
     await waitFor(() => expect(byId(BV3)).toBeUndefined())
     await settle()
-    expect(loads).toBe(2)
+    expect(loads).toBe(1)
     expect(channel.subscribed).toEqual([PROJECT_ID])
   })
 })

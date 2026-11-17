@@ -1300,6 +1300,29 @@ function listFilesWith(client, projectId) {
     .eq('project_id', projectId).order('id'), unwrap);
 }
 
+// F5 (rabbit C2): this project's comments only — on the project row and on
+// its phases, assets and tasks (comments.entity_type's four; the table has
+// no project_id). Before F5 the load read every comment the person could see
+// in the workspace, unfiltered and cut at 1,000 rows. Ids go 100 to a request
+// (a URL a proxy will carry), the requests side by side, each paged. Their
+// only reader is the set-aside count (setAside.js workOn), so a refused read
+// costs that count, not the project: it is warned about and answers none.
+const COMMENT_IDS_IN_CHUNK = 100;
+async function readProjectCommentsWith(client, projectId, rowLists) {
+  const ids = [...new Set([projectId, ...rowLists.flatMap(list => (list || []).map(r => r?.id))]
+    .filter(id => id != null).map(String))];
+  const chunks = [];
+  for (let at = 0; at < ids.length; at += COMMENT_IDS_IN_CHUNK) chunks.push(ids.slice(at, at + COMMENT_IDS_IN_CHUNK));
+  try {
+    const pages = await Promise.all(chunks.map(chunk => readAllPagesWith(() => client.from('comments').select('*')
+      .in('entity_id', chunk).order('id'), unwrap)));
+    return pages.flat();
+  } catch (err) {
+    console.warn(`[supabase] this project's comments could not be read, so a removal counts none: ${err?.message || err}`);
+    return [];
+  }
+}
+
 async function foldersByPath(client, projectId) {
   const rows = await listFoldersWith(client, projectId);
   return new Map((rows || []).map(f => [f.path, f]));
@@ -3175,7 +3198,7 @@ export function supabaseAdapter() {
       // VW1c (0098): tableViews / itemGroupings join for the seventh time for
       // the same reason; their reads are the 0098 probe and never fail the
       // load — see tableViewsAbsent.
-      const [project, phases, assets, tasks, dependencies, taskLinks, files, assetVersions, comments, ingestionRuns, budgetVersions, expenses, projectMembers, scenes, shots, levels, experiences, folders, milestones, shotLists, shotListItems, edits, bins, binFiles, shotTakes, binLocations, taskItems, views, _assetLevelLinks] =
+      const [project, phases, assets, tasks, dependencies, taskLinks, files, assetVersions, _comments, ingestionRuns, budgetVersions, expenses, projectMembers, scenes, shots, levels, experiences, folders, milestones, shotLists, shotListItems, edits, bins, binFiles, shotTakes, binLocations, taskItems, views, _assetLevelLinks] =
         await Promise.all([
           client.from('projects').select('*').eq('id', projectId).single().then(unwrap),
           client.from('phases').select('*').eq('project_id', projectId).order('sort_order').then(unwrap),
@@ -3192,7 +3215,8 @@ export function supabaseAdapter() {
           client.from('task_links').select('*, task:tasks!inner(project_id)').eq('task.project_id', projectId).then(unwrap).catch(() => []),
           listFilesWith(client, projectId), // DG1-01 (R1): paged, listFiles' read
           client.from('asset_versions').select('*, asset:assets!inner(project_id)').eq('asset.project_id', projectId).then(unwrap).catch(() => []),
-          client.from('comments').select('*').then(unwrap), // entity_id filter happens client-side
+          // F5 (rabbit C2): read after this Promise.all, for this project's rows only.
+          Promise.resolve(null),
           client.from('ingestion_runs').select('*').eq('project_id', projectId).then(unwrap),
           // Money is manager-only at the RLS layer (0037), so for a reviewer
           // or team member these legitimately return []. Catch rather than
@@ -3251,6 +3275,9 @@ export function supabaseAdapter() {
           client.from('assets').select('level_ids, experience_ids').eq('project_id', projectId)
             .range(0, 0).then(probeAssetLevelLinks, () => false),
         ]);
+      // F5 (rabbit C2): the comments on this project's own rows, set-aside
+      // tasks and phases included (they are in `tasks` and `phases` here).
+      const comments = await readProjectCommentsWith(client, projectId, [phases, assets, tasks]);
       // Post-overhaul S5b (0090): the rows the open bid version does not hold
       // are SET ASIDE. No SELECT policy hides them (they must stay readable to
       // be brought back), so they are split out HERE, into the four

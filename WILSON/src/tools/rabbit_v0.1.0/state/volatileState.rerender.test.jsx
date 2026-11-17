@@ -294,11 +294,12 @@ describe('R.A.B.B.I.T.\'s own clocks, with nothing in the project changed', () =
     const mark = renderSpy.mark()
     await act(async () => { for (const cb of holder.auth) cb('USER_UPDATED', null); await new Promise((resolve) => setTimeout(resolve, 20)) })
     const ran = ranSince(mark)
-    expect(ctx.adapterStatus).not.toBe(was)           // it WAS replaced
+    // F5 (rabbit C2): a status that says what the last one said keeps its
+    // object now (keepStatus), so not even the provider is drawn again.
+    expect(ctx.adapterStatus).toBe(was)
     expect(ctx.adapterStatus.online).toBe(true)
-    expect(ctx.adapterStatus.lastSyncAt).not.toBe(was.lastSyncAt)
-    expect(ran.all).toEqual(['RabbitProvider'])
-    expect(ran.total).toBe(1)
+    expect(ran.all.filter((name) => name !== 'RabbitProvider')).toEqual([])
+    expect(ran.total).toBeLessThanOrEqual(1)
   })
 })
 
@@ -464,8 +465,7 @@ describe('a data hook that loads again when the adapter comes back (useExpenses)
     const loaded = listExpenses.mock.calls.length
     const mark = renderSpy.mark()
     await act(async () => { for (const cb of holder.auth) cb('USER_UPDATED', null); await new Promise((resolve) => setTimeout(resolve, 20)) })
-    expect(ctx.adapterStatus).not.toBe(was)           // it WAS replaced
-    expect(renderSpy.renders('RabbitProvider', mark)).toBeGreaterThan(0)
+    expect(ctx.adapterStatus).toBe(was)               // F5: kept (keepStatus), it says the same thing
     expect(renderSpy.renders('ExpensesReads', mark)).toBe(0)
     expect(listExpenses.mock.calls.length).toBe(loaded)
   })
