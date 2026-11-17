@@ -184,3 +184,29 @@ describe('the wait for the join has an end, and a newer open ends it', () => {
     expect(ctx.project).toBeFalsy()
   })
 })
+
+describe('the project roster: read once, held once', () => {
+  it('an open reads project_members once (the load\'s), and a seat added reaches every reader of the roster with no load', async () => {
+    // The cloud adapter's load carries the roster's rows (F5); the fixtures' answer is made to, as the cloud's does.
+    let listed = 0
+    const realLoad = holder.adapter.loadProject
+    holder.adapter.loadProject = async (pid) => {
+      const out = await realLoad(pid)
+      return { ...out, projectMembers: await holder.adapter.__membersOf(pid) }
+    }
+    const realList = holder.adapter.listProjectMembers.bind(holder.adapter)
+    holder.adapter.__membersOf = (pid) => realList(pid)
+    holder.adapter.listProjectMembers = async (pid) => { listed += 1; return realList(pid) }
+    await openAndJoin()
+    await waitFor(() => expect(ctx?.project?.id).toBe(PROJECT_ID), LONG)
+    await pause(700)
+    expect(listed).toBe(0)
+    const seats = (ctx.projectMembers || []).length
+    expect(seats).toBeGreaterThan(0)
+    expect((ctx.teamAssignments || []).length).toBe(seats)
+    const loadsBefore = loads
+    await act(async () => { await ctx.addProjectMember('u-new-seat', 'member') })
+    expect((ctx.teamAssignments || []).map((a) => a.member_id)).toContain('u-new-seat')
+    expect(loads).toBe(loadsBefore)
+  })
+})

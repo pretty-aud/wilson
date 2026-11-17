@@ -3232,8 +3232,11 @@ export function supabaseAdapter() {
           // on both adapters. project_title (0036) is the per-project JOB
           // TITLE and rides along here — it is NOT project_role, which is the
           // permission column every RLS gate reads.
+          // F5 (rabbit B3): every column, as listProjectMembers reads them: the
+          // rows are also returned whole (`projectMembers`), and the provider's
+          // roster takes them instead of reading the table a second time.
           client.from('project_members')
-            .select('project_id, user_id, project_role, project_title')
+            .select('*')
             .eq('project_id', projectId).then(unwrap).catch(() => []),
           // Ordered by sort_order to match the local bundle, which is an
           // array and therefore ordered by construction. Without this the two
@@ -3299,6 +3302,7 @@ export function supabaseAdapter() {
           project_role: m.project_role,
           project_title: m.project_title || '',
         })),
+        projectMembers: projectMembers || [],
       });
     },
 

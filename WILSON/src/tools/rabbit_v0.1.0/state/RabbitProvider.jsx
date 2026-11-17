@@ -904,6 +904,8 @@ export function RabbitProvider({ children }) {
   // the bundle still on screen, which is not this project's yet).
   const joinGateRef = useRef(null);
   const loadBufferRef = useRef(null);
+  const openRosterRef = useRef(null);
+  const refreshProjectMembersRef = useRef(null);
   const pendingFieldsForRef = useRef(null);
   const releaseJoinGate = useCallback((projectId) => {
     const g = joinGateRef.current;
@@ -943,6 +945,10 @@ export function RabbitProvider({ children }) {
 
   const setActiveProject = useCallback(async (projectId, persist = true) => {
     if (!adapterRef.current) return;
+    // F5 (rabbit B3): the open's load brings the project roster on the cloud
+    // (loadProject's project_members rows): the roster effect reads only who
+    // is signed in for this open, not the table again.
+    openRosterRef.current = projectId || null;
     setActiveProjectIdState(projectId);
     if (persist) saveRabbitSettings({ activeProjectId: projectId });
     // Clear undo history — old ops belong to the previous project.
@@ -994,6 +1000,15 @@ export function RabbitProvider({ children }) {
         const caps = binsCapabilitiesOf(backend);
         const binFiles = markLoadedBinFiles(next?.binFiles, null, caps, { markOnline: backend?.markOnline });
         setBundle(foldKeptEvents({ ...EMPTY_BUNDLE, ...next, ...(binFiles ? { binFiles } : {}) }, loadSeq));
+        // F5 (rabbit B3): the roster this load read, or (an adapter whose load
+        // carries none: the fixtures, Drive) the roster's own read.
+        if (openRosterRef.current === projectId) openRosterRef.current = null;
+        if (Array.isArray(next?.projectMembers)) {
+          rosterReqSeqRef.current++;
+          setProjectMembers(next.projectMembers);
+        } else {
+          refreshProjectMembersRef.current?.();
+        }
         binsCapsRef.current = caps;
         setBinsInfo(i => (i.capabilities === caps ? i : { ...i, capabilities: caps }));
         scheduleBinResolveRef.current?.();
@@ -1046,7 +1061,10 @@ export function RabbitProvider({ children }) {
   }, []);
 
   const refreshProjectMembers = useCallback(async () => {
-    const seq = ++rosterReqSeqRef.current;
+    // F5 (rabbit B3): while this project's open is under way its load brings
+    // the rows; only who is signed in is read here then.
+    const rowsComing = openRosterRef.current != null && openRosterRef.current === activeProjectId;
+    const seq = rowsComing ? rosterReqSeqRef.current : ++rosterReqSeqRef.current;
     if (adapterMode !== 'supabase' || !activeProjectId
         || typeof adapterRef.current?.listProjectMembers !== 'function') {
       setProjectMembers([]);
@@ -1059,9 +1077,16 @@ export function RabbitProvider({ children }) {
       // the user unknown — the withdraw maker test reads authUserId too.
       const [sessRes, rowsRes] = await Promise.allSettled([
         sharedAuthedClient.auth.getSession(),
-        adapterRef.current.listProjectMembers(activeProjectId),
+        rowsComing ? Promise.resolve(undefined) : adapterRef.current.listProjectMembers(activeProjectId),
       ]);
-      if (!rosterMountedRef.current || seq !== rosterReqSeqRef.current) return;
+      if (!rosterMountedRef.current) return;
+      if (rowsComing) {
+        if (sessRes.status === 'fulfilled') {
+          setAuthUserId(sessRes.value?.data?.session?.user?.id ?? (import.meta.env.DEV ? (devFixtures()?.permissions?.userId ?? null) : null));
+        }
+        return;
+      }
+      if (seq !== rosterReqSeqRef.current) return;
       if (sessRes.status === 'fulfilled') {
         const sess = sessRes.value?.data;
         // Dev fixtures (dev builds only): there is no session; the reviewer's id is the dataset's.
@@ -1075,6 +1100,7 @@ export function RabbitProvider({ children }) {
   }, [adapterMode, activeProjectId]);
 
   useEffect(() => { refreshProjectMembers(); }, [refreshProjectMembers]);
+  refreshProjectMembersRef.current = refreshProjectMembers;
 
   const addProjectMember = useCallback(async (userId, role = 'member') => {
     if (adapterMode !== 'supabase' || !activeProjectId) return null;
@@ -8989,6 +9015,20 @@ export function RabbitProvider({ children }) {
     [bundle, adapterMode],
   );
   const strippedTasksRef = useRef(new WeakMap());
+  // F5 (rabbit B3): on the cloud the project roster is held once
+  // (projectMembers, which the seat edits and the channel's roster events
+  // keep), and teamAssignments is derived from it, so a seat change reaches
+  // every reader at once. Before F5 the load's copy stayed as loaded until the
+  // next load. Elsewhere the bundle's (the Local Server's assignments).
+  const teamAssignmentsView = useMemo(() => (adapterMode === 'supabase'
+    ? projectMembers.map(m => ({
+      project_id: m.project_id,
+      member_id: m.user_id,
+      project_role: m.project_role,
+      project_title: m.project_title || '',
+    }))
+    : bundle.teamAssignments), [adapterMode, projectMembers, bundle.teamAssignments]);
+
   const tasksView = useMemo(() => {
     if (!taskItemsOn) return bundle.tasks;
     const memo = strippedTasksRef.current;
@@ -9113,7 +9153,7 @@ export function RabbitProvider({ children }) {
     assetVersions: bundle.assetVersions,
     comments:      bundle.comments,
     ingestionRuns: bundle.ingestionRuns,
-    teamAssignments: bundle.teamAssignments,
+    teamAssignments: teamAssignmentsView,
     managedFiles:    bundle.managedFiles || [],
     budgetVersions:  bundle.budgetVersions || [],
     expenses:        bundle.expenses || [],
@@ -9404,7 +9444,7 @@ export function RabbitProvider({ children }) {
     removalPlanForCb, previewOpenCb, previewDeleteCb, runWithUndoToast,
     ensureProjectFoldersFor, ensureEntityFolderFor,
     undo, redo, runBatch, clearHistory, canUndo, canRedo,
-    memoSelectors,
+    memoSelectors, teamAssignmentsView,
   ]);
 
   // D.O.G.'s six (F4): it read them off the whole value, so every write to the
