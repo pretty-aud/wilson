@@ -394,6 +394,9 @@ async function canAccessProjectLegal(client, projectId) {
 // Whether this project keeps its media on this computer. MO1 (0110): a
 // personal space is is_private and is NOT that: its files go to the company's
 // storage, as any project's do (her answer; MOTH_DESIGN §2.2 PS-6).
+// uploadFile reads it through its batch (F5), under the same name, so the
+// money gate's pinned line beside it reads as it did.
+const readProjectIsPrivate = (client, projectId) => projectIsPrivate(client, projectId);
 async function projectIsPrivate(client, projectId) {
   if (!(await privateProjectsAvailable(client))) return false;
   const personal = await personalSpacesAvailable(client);
@@ -1441,6 +1444,20 @@ async function sceneRowFor(client, shot) {
   }
 }
 
+// F5 (rabbit C4): one read per batch of a fact every file of the batch shares
+// (uploadFile's `opts.batch`); without a batch, a read each time, as before.
+// A read that fails is not kept, so the next file of the batch asks again.
+function onceInBatch(batch, key, read) {
+  if (!batch || typeof batch !== 'object') return read();
+  const facts = batch.facts || (batch.facts = new Map());
+  if (!facts.has(key)) {
+    const p = Promise.resolve().then(read);
+    facts.set(key, p);
+    p.catch(() => { if (facts.get(key) === p) facts.delete(key); });
+  }
+  return facts.get(key);
+}
+
 /** The scene a shot belongs to, by the shot's id (uploadFile's key needs it). */
 async function shotSceneId(client, shotId) {
   if (!shotId) return null;
@@ -1452,12 +1469,53 @@ async function shotSceneId(client, shotId) {
   }
 }
 
-async function ensureEntityFolderWith(client, projectId, project, entityType, entity) {
-  const scene = entityType === 'shot' ? await sceneRowFor(client, entity) : null;
+// F5 (rabbit C4): `known` is what the caller already holds, so a create does
+// not read the whole folder tree again (twice for a shot) nor the shot's scene:
+//   known.folders — the project's folders (the bundle's), with its root;
+//   known.scenes  — its scenes, for a shot's scene row;
+//   known.byPath  — the tree a caller in this same ensure has (the shot's
+//                   scene, below), so the slow path reads it once, not twice;
+//   known.out     — where a rename leaves the tree it ends with (the provider
+//                   takes it instead of listing the folders again).
+// The hint is for a CREATE: when the entity already has a folder (a rename)
+// the true tree is read, since the walk below moves every folder under it.
+// A failure with the hint (a folder made or moved meanwhile by another
+// window: the bundle's folders are not kept live) tries once more without it.
+async function ensureEntityFolderWith(client, projectId, project, entityType, entity, known = null) {
+  if (known && (known.folders || known.scenes) && !known.byPath) {
+    try {
+      return await ensureEntityFolderOnce(client, projectId, project, entityType, entity, known);
+    } catch {
+      return ensureEntityFolderOnce(client, projectId, project, entityType, entity, { out: known.out });
+    }
+  }
+  return ensureEntityFolderOnce(client, projectId, project, entityType, entity, known);
+}
+
+async function ensureEntityFolderOnce(client, projectId, project, entityType, entity, known) {
+  const sceneHint = entityType === 'shot' && entity?.scene_id && Array.isArray(known?.scenes)
+    ? known.scenes.find(sc => sc && sc.id === entity.scene_id) : undefined;
+  const scene = entityType === 'shot'
+    ? (sceneHint ? { id: sceneHint.id, name: sceneHint.name } : await sceneRowFor(client, entity))
+    : null;
   const planned = planEntityFolder(project, entityType, entity, scene);
   if (!planned) throw new Error(`[supabase] unknown folder entity type: ${entityType}`);
   const fk = ENTITY_FK_COLUMN[entityType];
-  const byPath = await foldersByPath(client, projectId);
+  const fkOf = (list) => (list || []).find(f => f && f[fk] && f[fk] === entity?.id);
+  let hinted = known?.byPath
+    || (Array.isArray(known?.folders) && known.folders.some(f => f && f.path === '') && !fkOf(known.folders)
+      ? new Map(known.folders.map(f => [f.path, f]))
+      : null);
+  // The held folders are not kept live (no channel event moves them): a
+  // scene renamed in another window leaves its old path here. A shot's hint
+  // is taken only when its scene's folder sits where the scene's name (the
+  // bundle's, which IS kept live) puts it; otherwise the true tree is read.
+  if (hinted && !known?.byPath && entityType === 'shot' && scene) {
+    const held = [...hinted.values()].find(f => f && f[ENTITY_FK_COLUMN.scene] === scene.id);
+    const want = planEntityFolder(project, 'scene', scene, null)?.folder?.path;
+    if (held && want && held.path !== want) hinted = null;
+  }
+  const byPath = hinted || await foldersByPath(client, projectId);
   const rows = [...byPath.values()];
 
   // Renaming the entity MOVES its folder (folderPaths.js explains why),
@@ -1507,6 +1565,7 @@ async function ensureEntityFolderWith(client, projectId, project, entityType, en
         queue.push(child.id);
       }
     }
+    if (known?.out) known.out.folders = [...byId.values()].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     return renamed;
   }
 
@@ -1519,7 +1578,7 @@ async function ensureEntityFolderWith(client, projectId, project, entityType, en
   }
   await insertFolderIfMissing(client, projectId, planned.category, byPath);
   if (planned.parent) {
-    const sceneRow = await ensureEntityFolderWith(client, projectId, project, 'scene', scene);
+    const sceneRow = await ensureEntityFolderOnce(client, projectId, project, 'scene', scene, { byPath });
     if (sceneRow) {
       byPath.set(sceneRow.path, sceneRow);
       if (sceneRow.path !== planned.folder.parentPath) {
@@ -3799,6 +3858,15 @@ export function supabaseAdapter() {
     // things. Progress is transport, not content, so it travels beside the scope.
     async uploadFile(projectId, scope = {}, file, opts = {}) {
       const client = await requireClient();
+      // F5 (rabbit C4): a drop of many files passes one `opts.batch` object;
+      // the facts the same for all of them (the container's folder, the
+      // INVOICES folder, a shot's scene, the project's privacy) are read once
+      // per batch, not once per file. Privacy is read fresh for each batch and
+      // never taken from the bundle: a stale "not private" would send a
+      // private project's media to the cloud.
+      const once = (key, read) => onceInBatch(opts.batch, key, read);
+      // The privacy, the batch's: this name stands for the module's read here.
+      const projectIsPrivate = (c, pid) => once(`private|${pid}`, () => readProjectIsPrivate(c, pid));
       // Session 24: `INVOICES` is a RESERVED path segment, and the check
       // comes first so a financial file can never be filed under another
       // entity. 🚨 THE POLICY FAMILY IS `rabbit_files_money_*`, NOT
@@ -3881,11 +3949,11 @@ export function supabaseAdapter() {
       let folderRow = null;
       if (container.key && !legal) {
         try {
-          const { data } = await client
+          const { data } = await once(`folder|${projectId}|${container.key}|${container.id}`, () => client
             .from('folders').select('id, path')
             .eq('project_id', projectId)
             .eq(container.key, container.id)
-            .maybeSingle();
+            .maybeSingle());
           folderRow = data && data.id ? data : null;
         } catch { /* the tree is a convenience here, not a precondition */ }
       }
@@ -3907,27 +3975,31 @@ export function supabaseAdapter() {
       // that fails is said in the console, never swallowed, and the upload
       // still goes on.
       if (scope.financial && !scope.folderId && !folderRow) {
-        try {
-          const { data, error } = await client
-            .from('folders').select('id, path')
-            .eq('project_id', projectId)
-            .eq('kind', 'category')
-            .eq('path', INVOICES_PLANNED.path)
-            .maybeSingle();
-          if (error) {
-            console.warn(`[supabase] the INVOICES folder could not be read, so the file sits at the project's top: ${error.message || error}`);
-          } else if (data && data.id) {
-            folderRow = data;
-          } else {
-            const byPath = await foldersByPath(client, projectId);
-            if (byPath.has('')) {
-              folderRow = (await insertFolderIfMissing(client, projectId, INVOICES_PLANNED, byPath))
-                || byPath.get(INVOICES_PLANNED.path) || null;
+        folderRow = await once(`invoices|${projectId}`, async () => {
+          let found = null;
+          try {
+            const { data, error } = await client
+              .from('folders').select('id, path')
+              .eq('project_id', projectId)
+              .eq('kind', 'category')
+              .eq('path', INVOICES_PLANNED.path)
+              .maybeSingle();
+            if (error) {
+              console.warn(`[supabase] the INVOICES folder could not be read, so the file sits at the project's top: ${error.message || error}`);
+            } else if (data && data.id) {
+              found = data;
+            } else {
+              const byPath = await foldersByPath(client, projectId);
+              if (byPath.has('')) {
+                found = (await insertFolderIfMissing(client, projectId, INVOICES_PLANNED, byPath))
+                  || byPath.get(INVOICES_PLANNED.path) || null;
+              }
             }
+          } catch (err) {
+            console.warn(`[supabase] the INVOICES folder could not be read or made, so the file sits at the project's top: ${err?.message || err}`);
           }
-        } catch (err) {
-          console.warn(`[supabase] the INVOICES folder could not be read or made, so the file sits at the project's top: ${err?.message || err}`);
-        }
+          return found;
+        });
       }
       const folderId = legal ? null : (scope.folderId || folderRow?.id || null);
 
@@ -3945,7 +4017,7 @@ export function supabaseAdapter() {
       // never a shot's).
       if (!moneyGated && container.key === 'shot_id') {
         const underShots = typeof folderRow?.path === 'string' && folderRow.path.startsWith('SHOTS/');
-        const sceneId = underShots ? null : await shotSceneId(client, container.id);
+        const sceneId = underShots ? null : await once(`scene|${container.id}`, () => shotSceneId(client, container.id));
         prefix = shotObjectPrefix(projectId, sceneId, container.id);
       }
       const storagePath = `${prefix}/${Date.now()}-${safeName}`;
@@ -5258,9 +5330,9 @@ export function supabaseAdapter() {
     // The per-entity folder (ensureEntityFolderWith, module-level, above):
     // five scenes means five folders under SCENES/; a shot's folder sits in
     // its scene's (S4c); an existing folder keeps its parent.
-    async ensureEntityFolder(projectId, project, entityType, entity) {
+    async ensureEntityFolder(projectId, project, entityType, entity, known = null) {
       const client = await requireClient();
-      return ensureEntityFolderWith(client, projectId, project, entityType, entity);
+      return ensureEntityFolderWith(client, projectId, project, entityType, entity, known);
     },
 
     // ── S4c: the one-time re-filing of a project's shot folders ─────────

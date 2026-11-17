@@ -600,6 +600,9 @@ export default function FileManager({
       // refused left twenty-six never attempted — with one error message and
       // nothing saying which files landed. The user cannot tell what to retry.
       const failed = []
+      // F5 (rabbit C4): one batch per drop, so the cloud reads the facts the
+      // files share (folder, privacy, scene) once, not once per file.
+      const batch = {}
       for (const file of queued) {
         try {
         // taskTitle renaming is a managed-store behaviour: those records carry
@@ -620,6 +623,7 @@ export default function FileManager({
         // transport reports, so a small upload shows no bar rather than a fake
         // one that jumps 0 → 100.
         const row = await ctx.uploadFile(file, uploadScope, {
+          batch,
           onProgress: (sent, total) => {
             if (!total) return
             setCopyProgress({

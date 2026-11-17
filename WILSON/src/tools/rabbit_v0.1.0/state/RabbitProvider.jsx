@@ -1772,17 +1772,25 @@ export function RabbitProvider({ children }) {
     try {
       const fk = `${entityType}_id`;
       const had = (bundleRef.current?.folders || []).find(f => f && f[fk] && String(f[fk]) === String(entity?.id));
+      // F5 (rabbit C4): the folders and scenes already held, so a create does
+      // not read the tree (twice for a shot) nor the scene; a rename leaves
+      // the tree it ends with in `out`, taken instead of listing again.
+      const b = bundleRef.current;
+      const mine = b?.project?.id === projectId;
+      const out = {};
       const row = await adapter.ensureEntityFolder(
-        projectId, bundleRef.current?.project, entityType, entity,
+        projectId, b?.project, entityType, entity,
+        mine ? { folders: b.folders, scenes: b.scenes, out } : { out },
       );
       // A RENAME re-paths the rows under the folder too (a scene's shot
       // folders since S4c), and the adapter answers only the folder's own
-      // row: read the tree again so the shots' Folder lines and the Files
-      // tab say the new path at once (round 2, item 6). A new row, or a
-      // name unchanged, merges as before.
-      if (row && had && had.path !== row.path && typeof adapter.listFolders === 'function') {
-        let folders = null;
-        try { folders = await adapter.listFolders(projectId); } catch { folders = null; }
+      // row: the tree again so the shots' Folder lines and the Files tab
+      // say the new path at once (round 2, item 6), from the rename's own
+      // walk (F5) or, from an adapter that leaves none, a read. A new row,
+      // or a name unchanged, merges as before.
+      if (row && had && had.path !== row.path && (out.folders || typeof adapter.listFolders === 'function')) {
+        let folders = out.folders || null;
+        if (!folders) { try { folders = await adapter.listFolders(projectId); } catch { folders = null; } }
         if (Array.isArray(folders) && activeProjectIdRef.current === projectId) {
           setBundle(prev => ({ ...prev, folders }));
           return row;
