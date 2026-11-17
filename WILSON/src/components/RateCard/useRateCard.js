@@ -29,12 +29,13 @@
 //   Entries with day_rate but no wage are migrated on read:
 //   wage = day_rate. The computed total replaces day_rate for consumers.
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { useRabbitOnline } from '../../tools/rabbit_v0.1.0/state/rabbitLive'
 import { usePermissions } from '../../permissions/usePermissions'
 import { adapterSupportsWrites } from '../../tools/rabbit_v0.1.0/adapters'
+import { createReadCache, useReadEntry, sourceId } from '../../lib/readCache'
 
 export function makeSlug(label) {
   return String(label || '')
@@ -122,6 +123,12 @@ const inFlightLoads = new Map()
 /** Test seam: concurrent-mount dedup is global, so tests must be able to clear it. */
 export function __resetRateCardLoadCache() {
   inFlightLoads.clear()
+  // F5: and the one rate card every reader shares (below).
+  for (const r of retries.values()) clearTimeout(r.timer)
+  retries.clear()
+  cardsKeyNow = null
+  cardsCache.clear()
+  entriesCache.clear()
 }
 
 /**
@@ -200,15 +207,82 @@ async function loadOrCreateRateCards(adapter, workspaceId) {
  * in-flight call. Every concurrent caller awaits the SAME promise, so the
  * create runs once no matter how many hook instances mount together.
  */
-export function sharedLoadRateCards(adapter, workspaceId) {
-  const existing = inFlightLoads.get(workspaceId)
+export function sharedLoadRateCards(adapter, workspaceId, who = '') {
+  // F5: keyed on the adapter and the person as well as the workspace. On the
+  // workspace alone, a read still out for the person who signed out answered
+  // the person who signed in over them in the same company (and a switched
+  // adapter's read answered the next adapter).
+  const key = `${sourceId(adapter)}|${who}|${workspaceId}`
+  const existing = inFlightLoads.get(key)
   if (existing) return existing
   const p = loadOrCreateRateCards(adapter, workspaceId)
     // Cleared on BOTH paths: a failed load that stayed cached would wedge every
     // later mount onto the same rejection with no way to retry.
-    .finally(() => { inFlightLoads.delete(workspaceId) })
-  inFlightLoads.set(workspaceId, p)
+    .finally(() => { inFlightLoads.delete(key) })
+  inFlightLoads.set(key, p)
   return p
+}
+
+// ─── F5 (shared B2): ONE rate card for every reader ──────────────────────────
+//
+// Before F5 every useRateCard() held its own cards, entries and department
+// defaults: sharedLoadRateCards (above) shared only a card read already in
+// flight, each reader read its card's entries and defaults again, and an edit
+// on the Rate Card page reached the other readers only when they remounted.
+// Now two module-level caches (lib/readCache.js) hold them, and every reader
+// draws from the same entries:
+//   * the cards, one entry per adapter, mode, person and company, read through
+//     sharedLoadRateCards, so its create-once guard is inside the store;
+//   * each card's entries and department defaults, one entry per card.
+// The card a reader shows stays its own (the Team Members page flips to the
+// internal card while the Rate Card page shows the general one); it defaults
+// to the default card, and only when it has none or its card is gone. An edit
+// changes the card's one entry, so every reader of that card redraws with no
+// read again. A failed read is tried again after 1.5 s, then 4 s, once per
+// entry however many readers see it; a return online reads a failed entry
+// once more.
+const cardsCache = createReadCache()
+const entriesCache = createReadCache()
+let cardsKeyNow = null
+const retries = new Map() // cache key → { timer, tries }
+const RETRY_MS = [1500, 4000]
+const NO_ROWS = Object.freeze([])
+
+function cardsReader(adapter, workspaceId, who) {
+  return () => sharedLoadRateCards(adapter, workspaceId, who)
+}
+
+function entriesReader(adapter, cardId) {
+  return async () => {
+    const [rows, defaults] = await Promise.all([
+      adapter.listRateCardEntries(cardId),
+      adapter.listDeptDefaults ? adapter.listDeptDefaults(cardId) : Promise.resolve([]),
+    ])
+    // Migrate legacy entries: day_rate → wage on read.
+    const entries = (Array.isArray(rows) ? rows : []).map(e => {
+      if (e.wage == null && e.day_rate != null) return { ...e, wage: e.day_rate }
+      return e
+    })
+    return { entries, deptDefaults: Array.isArray(defaults) ? defaults : [] }
+  }
+}
+
+// One timer per entry, however many readers see its error.
+function retryLater(cache, key, reader) {
+  const r = retries.get(key) || { timer: null, tries: 0 }
+  if (r.timer || r.tries >= RETRY_MS.length) return
+  r.timer = setTimeout(() => {
+    r.timer = null
+    cache.reload(key, reader)
+  }, RETRY_MS[r.tries])
+  r.tries += 1
+  retries.set(key, r)
+}
+function settled(key) {
+  const r = retries.get(key)
+  if (!r) return
+  clearTimeout(r.timer)
+  retries.delete(key)
 }
 
 export function useRateCard() {
@@ -258,150 +332,83 @@ export function useRateCard() {
   // again when it flips, as before; a new status that says the same thing
   // does not draw this hook's host.
   const adapterOnline = useRabbitOnline(rabbit)
-
-  const [rateCards, setRateCards] = useState([])
-  const [activeRateCardId, setActiveRateCardId] = useState(null)
-  const [entries, setEntries] = useState([])
-  const [deptDefaults, setDeptDefaults] = useState([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
-  // Post-overhaul S5c: whether the rates on hand are the card's. `loading` is
-  // false on the first render, before any read has started, and again for a
-  // render between the cards' read and the entries' — so "not loading" does
-  // not say "read". The Budget's versions block compares a bid against these
-  // rates and must not call a version unsaved (or save it) off an empty list.
-  const [cardsRead, setCardsRead] = useState(false)
-  const [entriesFor, setEntriesFor] = useState(null)
-
-  // StrictMode-safe: the body must reset to true — setup → cleanup → setup
-  // reuses the same ref, and a cleanup-only effect strands it at false.
-  const mountedRef = useRef(true)
-  useEffect(() => {
-    mountedRef.current = true
-    return () => { mountedRef.current = false }
-  }, [])
-
-  // Post-overhaul S5c review round 2 (R2-10): one failed read — the cards, or
-  // the active card's entries — left `settled` false, and the Budget's
-  // versions block greyed ("The rate card could not be read"), until a
-  // remount or an online flip (useProjectRateOverrides had the same, R1-07).
-  // Each read is tried again, after 1.5s and then 4s, before its error
-  // stands; a read that lands, or a new card's or mode's read, starts the
-  // count again.
-  const RETRY_MS = [1500, 4000]
-  const cardsRetryRef = useRef({ timer: null, tries: 0 })
-  const entriesRetryRef = useRef({ timer: null, tries: 0, card: null, said: null })
-  const loadCardsRef = useRef(null)
-  const [entriesTry, setEntriesTry] = useState(0)
-  useEffect(() => () => {
-    clearTimeout(cardsRetryRef.current.timer)
-    clearTimeout(entriesRetryRef.current.timer)
-  }, [])
-
-  // ── Load rate cards on mount + on adapter mode change ──
-  const loadRateCards = useCallback(async () => {
-    if (!getAdapter || !workspaceId) return
-    const adapter = getAdapter()
-    if (!adapter) return
-    setLoading(true)
-    setError(null)
-    try {
-      // Shared per workspace: eight hook instances mounting together must not
-      // each create a card pair. See sharedLoadRateCards above.
-      const { cards, softError } = await sharedLoadRateCards(adapter, workspaceId)
-      if (!mountedRef.current) return
-      cardsRetryRef.current.tries = 0
-      if (softError) setError(softError)
-      setRateCards(cards)
-      // Pick the default (general) card, or the first one.
-      const next = cards.find(c => c.is_default) || cards.find(c => c.type === 'general') || cards[0] || null
-      setActiveRateCardId(next ? next.id : null)
-      setCardsRead(true)
-    } catch (err) {
-      if (!mountedRef.current) return
-      setError(err.message || String(err))
-      const r = cardsRetryRef.current
-      if (r.tries < RETRY_MS.length) {
-        clearTimeout(r.timer)
-        r.timer = setTimeout(() => { if (mountedRef.current) loadCardsRef.current?.() }, RETRY_MS[r.tries])
-        r.tries += 1
-      }
-    } finally {
-      if (mountedRef.current) setLoading(false)
-    }
-  }, [getAdapter, workspaceId])
-  loadCardsRef.current = loadRateCards
+  // The adapter object is part of the key (readCache's sourceId): a switched
+  // adapter is a new entry, and so is a test's new adapter.
+  const adapter = getAdapter?.() || null
+  const cardsKey = adapter && workspaceId
+    ? `${sourceId(adapter)}|${adapterMode || ''}|${perms?.userId || '-'}|${workspaceId}`
+    : null
+  const cardsEntry = useReadEntry(cardsCache, cardsKey)
 
   useEffect(() => {
-    clearTimeout(cardsRetryRef.current.timer)
-    cardsRetryRef.current.tries = 0
-    loadRateCards()
-  }, [loadRateCards, adapterMode, adapterOnline])
+    if (!cardsKey) return
+    if (cardsKeyNow !== cardsKey) {
+      // Another person, company or adapter: nothing of the last one's is kept.
+      cardsKeyNow = cardsKey
+      cardsCache.retain(k => k === cardsKey)
+      entriesCache.retain(k => k.startsWith(`${cardsKey}|`))
+    }
+    cardsCache.ensure(cardsKey, cardsReader(adapter, workspaceId, perms?.userId || '-'))
+  }, [cardsKey, adapter, workspaceId])
 
-  // ── Load entries + dept defaults whenever active card changes ──
   useEffect(() => {
-    if (!activeRateCardId || !getAdapter) {
-      setEntries([])
-      setDeptDefaults([])
-      return
-    }
-    const adapter = getAdapter()
-    if (!adapter) return
-    const r = entriesRetryRef.current
-    if (r.card !== activeRateCardId) {
-      clearTimeout(r.timer)
-      r.tries = 0
-      r.card = activeRateCardId
-    }
-    setLoading(true)
-    // Stale-response guard: the active card can change while a fetch is in
-    // flight (e.g. the Team Members page flips general → internal right
-    // after load). Without this, a slow response for the OLD card would
-    // overwrite the new card's entries/defaults.
-    let stale = false
-    // Load entries and dept defaults in parallel
-    Promise.all([
-      adapter.listRateCardEntries(activeRateCardId),
-      adapter.listDeptDefaults ? adapter.listDeptDefaults(activeRateCardId) : Promise.resolve([]),
-    ])
-      .then(([rows, defaults]) => {
-        if (!mountedRef.current || stale) return
-        // Migrate: entries with day_rate but no wage → set wage = day_rate
-        const migrated = (Array.isArray(rows) ? rows : []).map(e => {
-          if (e.wage == null && e.day_rate != null) return { ...e, wage: e.day_rate }
-          return e
-        })
-        setEntries(migrated)
-        setDeptDefaults(Array.isArray(defaults) ? defaults : [])
-        setEntriesFor(activeRateCardId)
-        r.tries = 0
-        // The error this read had said goes with it (a card's own soft error,
-        // said by the cards' read, stays).
-        if (r.said != null) { const said = r.said; r.said = null; setError(prev => (prev === said ? null : prev)) }
-      })
-      .catch(err => {
-        if (!mountedRef.current || stale) return
-        r.said = err.message || String(err)
-        setError(r.said)
-        if (r.tries < RETRY_MS.length) {
-          clearTimeout(r.timer)
-          r.timer = setTimeout(() => { if (mountedRef.current) setEntriesTry(n => n + 1) }, RETRY_MS[r.tries])
-          r.tries += 1
-        }
-      })
-      .finally(() => {
-        if (mountedRef.current && !stale) setLoading(false)
-      })
-    return () => { stale = true }
-  }, [activeRateCardId, getAdapter, entriesTry])
+    if (cardsKey) cardsCache.noteOnline(cardsKey, adapterOnline, cardsReader(adapter, workspaceId, perms?.userId || '-'))
+  }, [cardsKey, adapterOnline, adapter, workspaceId])
 
-  // ── Compute day_rate (total) for each entry for backward compat ──
-  const entriesWithTotal = entries.map(e => {
+  useEffect(() => {
+    if (!cardsKey) return
+    if (cardsEntry.error && !cardsEntry.loading) retryLater(cardsCache, cardsKey, cardsReader(adapter, workspaceId, perms?.userId || '-'))
+    else if (cardsEntry.loaded) settled(cardsKey)
+  }, [cardsKey, cardsEntry.error, cardsEntry.loading, cardsEntry.loaded, adapter, workspaceId])
+
+  const rateCards = cardsEntry.data?.cards || NO_ROWS
+  const [chosenId, setChosenId] = useState(null)
+  const defaultId = useMemo(() => {
+    const next = rateCards.find(c => c.is_default) || rateCards.find(c => c.type === 'general') || rateCards[0] || null
+    return next ? next.id : null
+  }, [rateCards])
+  const activeRateCardId = chosenId && rateCards.some(c => c.id === chosenId) ? chosenId : defaultId
+  const setActiveRateCardId = useCallback((id) => setChosenId(id ?? null), [])
+
+  const entriesKey = cardsKey && activeRateCardId ? `${cardsKey}|${activeRateCardId}` : null
+  const entriesEntry = useReadEntry(entriesCache, entriesKey)
+
+  useEffect(() => {
+    if (entriesKey) entriesCache.ensure(entriesKey, entriesReader(adapter, activeRateCardId))
+  }, [entriesKey, adapter, activeRateCardId])
+
+  useEffect(() => {
+    if (!entriesKey) return
+    if (entriesEntry.error && !entriesEntry.loading) retryLater(entriesCache, entriesKey, entriesReader(adapter, activeRateCardId))
+    else if (entriesEntry.loaded) settled(entriesKey)
+  }, [entriesKey, entriesEntry.error, entriesEntry.loading, entriesEntry.loaded, adapter, activeRateCardId])
+
+  const entries = entriesEntry.data?.entries || NO_ROWS
+  const deptDefaults = entriesEntry.data?.deptDefaults || NO_ROWS
+
+  // An edit's failure is this reader's to show; a read's is every reader's.
+  const [writeError, setWriteError] = useState(null)
+  const error = writeError
+    ?? cardsEntry.error
+    ?? cardsEntry.data?.softError
+    ?? entriesEntry.error
+    ?? null
+
+  const setEntries = useCallback((fn) => {
+    if (entriesKey) entriesCache.mutate(entriesKey, d => ({ ...d, entries: fn(d.entries) }))
+  }, [entriesKey])
+  const setDeptDefaults = useCallback((fn) => {
+    if (entriesKey) entriesCache.mutate(entriesKey, d => ({ ...d, deptDefaults: fn(d.deptDefaults) }))
+  }, [entriesKey])
+  const entriesNow = useCallback(() => (entriesKey ? entriesCache.peek(entriesKey).data?.entries : null) || NO_ROWS, [entriesKey])
+
+  // Computed totals: one array per change of the card's entries, not per render.
+  const entriesWithTotal = useMemo(() => entries.map(e => {
     const { total } = computeEntryTotal(e, deptDefaults)
     return { ...e, day_rate: total }
-  })
+  }), [entries, deptDefaults])
 
-  // ── Helpers ──
+  // ── Normalize a draft into a full entry ──
   const normalizeEntry = useCallback((draft) => {
     const role_label = draft.role_label || draft.role || ''
     const role_slug = draft.role_slug || makeSlug(role_label)
@@ -424,7 +431,7 @@ export function useRateCard() {
     }
   }, [activeRateCardId])
 
-  // ── Mutations (optimistic) ──
+  // ── Mutations (optimistic, into the card's one entry) ──
   const addEntry = useCallback(async (draft) => {
     if (!activeRateCardId || !getAdapter) return null
     const adapter = getAdapter()
@@ -437,46 +444,48 @@ export function useRateCard() {
       return saved
     } catch (err) {
       setEntries(prev => prev.filter(e => e.id !== entry.id))
-      setError(err.message || String(err))
+      setWriteError(err.message || String(err))
       throw err
     }
-  }, [activeRateCardId, getAdapter, normalizeEntry])
+  }, [activeRateCardId, getAdapter, normalizeEntry, setEntries])
 
   const updateEntry = useCallback(async (id, patch) => {
     if (!getAdapter) return
     const adapter = getAdapter()
     if (!adapter) return
-    const snapshot = entries
-    const next = entries.map(e => e.id === id ? { ...e, ...patch } : e)
-    setEntries(next)
-    const merged = next.find(e => e.id === id)
+    const was = entriesNow().find(e => e.id === id) || null
+    const merged = was ? { ...was, ...patch } : null
+    setEntries(prev => prev.map(e => e.id === id ? { ...e, ...patch } : e))
     try {
-      const saved = await adapter.upsertRateCardEntry(merged)
-      setEntries(prev => prev.map(e => e.id === id ? { ...merged, ...saved } : e))
+      const saved = await adapter.upsertRateCardEntry(merged || { id, ...patch })
+      setEntries(prev => prev.map(e => e.id === id ? { ...e, ...saved } : e))
       return saved
     } catch (err) {
-      setEntries(snapshot)
-      setError(err.message || String(err))
+      // Roll back this row only: another reader's edit to another row stays.
+      if (was) setEntries(prev => prev.map(e => e.id === id ? was : e))
+      setWriteError(err.message || String(err))
       throw err
     }
-  }, [entries, getAdapter])
+  }, [getAdapter, entriesNow, setEntries])
 
   const deleteEntry = useCallback(async (id) => {
     if (!getAdapter || !activeRateCardId) return
     const adapter = getAdapter()
     if (!adapter) return
-    const snapshot = entries
+    const list = entriesNow()
+    const at = list.findIndex(e => e.id === id)
+    const was = at >= 0 ? list[at] : null
     setEntries(prev => prev.filter(e => e.id !== id))
     try {
       await adapter.deleteRateCardEntry(id, activeRateCardId)
     } catch (err) {
-      setEntries(snapshot)
-      setError(err.message || String(err))
+      if (was) setEntries(prev => (prev.some(e => e.id === id) ? prev : [...prev.slice(0, at), was, ...prev.slice(at)]))
+      setWriteError(err.message || String(err))
       throw err
     }
-  }, [entries, getAdapter, activeRateCardId])
+  }, [getAdapter, activeRateCardId, entriesNow, setEntries])
 
-  // ── Department defaults ──
+  // ── Dept default mutations ──
   const updateDeptDefault = useCallback(async (department, patch) => {
     if (!activeRateCardId || !getAdapter) return
     const adapter = getAdapter()
@@ -490,13 +499,15 @@ export function useRateCard() {
     })
     try {
       const result = await adapter.upsertDeptDefault(activeRateCardId, updated)
-      if (Array.isArray(result)) setDeptDefaults(result)
+      if (Array.isArray(result)) setDeptDefaults(() => result)
     } catch (err) {
-      setError(err.message || String(err))
+      setWriteError(err.message || String(err))
     }
-  }, [activeRateCardId, getAdapter, deptDefaults])
+  }, [activeRateCardId, getAdapter, deptDefaults, setDeptDefaults])
 
-  // ── Bulk upsert (used by importers) ──
+  // ── Bulk upsert (for CSV/XLSX import) ──
+  // Inserts each row sequentially so failures are isolated per row.
+  // Returns { ok, error, entry } per input row in order.
   const bulkUpsertEntries = useCallback(async (drafts) => {
     if (!getAdapter || !activeRateCardId) return []
     const adapter = getAdapter()
@@ -519,7 +530,12 @@ export function useRateCard() {
       }
     }
     return results
-  }, [getAdapter, activeRateCardId, normalizeEntry])
+  }, [getAdapter, activeRateCardId, normalizeEntry, setEntries])
+
+  const reload = useCallback(() => {
+    setWriteError(null)
+    return cardsKey ? cardsCache.reload(cardsKey, cardsReader(adapter, workspaceId, perms?.userId || '-')) : Promise.resolve()
+  }, [cardsKey, adapter, workspaceId])
 
   return {
     workspaceId,
@@ -529,12 +545,12 @@ export function useRateCard() {
     entries: entriesWithTotal,       // entries with computed day_rate (total)
     rawEntries: entries,             // entries without computed total
     deptDefaults,
-    loading,
+    loading: cardsEntry.loading || entriesEntry.loading,
     // S5c: the cards are read and the active card's entries with them (a
     // workspace with no card has none to read).
-    settled: cardsRead && (activeRateCardId == null || entriesFor === activeRateCardId),
+    settled: cardsEntry.loaded && (activeRateCardId == null || entriesEntry.loaded),
     error,
-    reload: loadRateCards,
+    reload,
     addEntry,
     updateEntry,
     deleteEntry,
