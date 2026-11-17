@@ -1280,6 +1280,48 @@ async function readAllPages(makeQuery) {
   return readAllPagesWith(makeQuery, unwrapOptionalTable);
 }
 
+// F5 (rabbit B2): ONE paged read per collection, used by loadProject and by
+// that collection's list method alike. Before F5 each query was built twice
+// and the copies disagreed: loadProject paged assets, tasks, scenes and shots
+// but not phases, levels, experiences, milestones or folders, and no list
+// method paged at all, so a project past 1,000 rows of a kind lost some in one
+// view or the other (or in D.O.G.'s references, which read the list methods).
+// Each keeps its order with `id` closing it (no row straddles two pages) and
+// its strictness: unwrap where a refusal must fail the read, the optional
+// table's tolerance (readAllPages) where an older database lacks the table.
+function readPhasesWith(client, projectId) {
+  return readAllPagesWith(() => client.from('phases').select('*')
+    .eq('project_id', projectId).order('sort_order').order('id'), unwrap);
+}
+function readAssetsWith(client, projectId) {
+  return readAllPagesWith(() => client.from('assets').select('*')
+    .eq('project_id', projectId).order('sort_order').order('id'), unwrap);
+}
+function readTasksWith(client, projectId) {
+  return readAllPagesWith(() => client.from('tasks').select('*')
+    .eq('project_id', projectId).order('id'), unwrap);
+}
+function readScenesWith(client, projectId) {
+  return readAllPages(() => client.from('scenes').select('*')
+    .eq('project_id', projectId).order('sort_order').order('id'));
+}
+function readShotsWith(client, projectId) {
+  return readAllPages(() => client.from('shots').select('*')
+    .eq('project_id', projectId).order('sort_order').order('id'));
+}
+function readLevelsWith(client, projectId) {
+  return readAllPages(() => client.from('levels').select('*')
+    .eq('project_id', projectId).order('sort_order').order('id'));
+}
+function readExperiencesWith(client, projectId) {
+  return readAllPages(() => client.from('experiences').select('*')
+    .eq('project_id', projectId).order('sort_order').order('id'));
+}
+function readMilestonesWith(client, projectId) {
+  return readAllPages(() => client.from('milestones').select('*')
+    .eq('project_id', projectId).order('date').order('id'));
+}
+
 function listFoldersWith(client, projectId) {
   // unwrapOptionalTable: a client deployed ahead of 0041 shows no folders
   // rather than failing every project load. Same treatment 0040's tables got,
@@ -3201,16 +3243,14 @@ export function supabaseAdapter() {
       const [project, phases, assets, tasks, dependencies, taskLinks, files, assetVersions, _comments, ingestionRuns, budgetVersions, expenses, projectMembers, scenes, shots, levels, experiences, folders, milestones, shotLists, shotListItems, edits, bins, binFiles, shotTakes, binLocations, taskItems, views, _assetLevelLinks] =
         await Promise.all([
           client.from('projects').select('*').eq('id', projectId).single().then(unwrap),
-          client.from('phases').select('*').eq('project_id', projectId).order('sort_order').then(unwrap),
+          readPhasesWith(client, projectId),
           // VW1m review round 2 (R2-4): paged, as the scenes and shots are
           // below. Cut at PostgREST's 1,000 rows, a feature-sized project lost
           // its 1,001st asset (and VW1m hides an item whose row is not
           // loaded) or task. Still strict (unwrap): a refusal fails the load.
           // `id` closes each order, so no row straddles two pages.
-          readAllPagesWith(() => client.from('assets').select('*').eq('project_id', projectId)
-            .order('sort_order').order('id'), unwrap),
-          readAllPagesWith(() => client.from('tasks').select('*').eq('project_id', projectId)
-            .order('id'), unwrap),
+          readAssetsWith(client, projectId),
+          readTasksWith(client, projectId),
           listDependenciesWith(client, projectId),
           client.from('task_links').select('*, task:tasks!inner(project_id)').eq('task.project_id', projectId).then(unwrap).catch(() => []),
           listFilesWith(client, projectId), // DG1-01 (R1): paged, listFiles' read
@@ -3245,23 +3285,18 @@ export function supabaseAdapter() {
           // the bundle's shots and scenes, so a feature-sized project must
           // not be cut at PostgREST's 1,000 rows. `sort_order, id` is a
           // total order, so no row straddles two pages.
-          readAllPages(() => client.from('scenes').select('*').eq('project_id', projectId)
-            .order('sort_order').order('id')),
-          readAllPages(() => client.from('shots').select('*').eq('project_id', projectId)
-            .order('sort_order').order('id')),
-          client.from('levels').select('*').eq('project_id', projectId)
-            .order('sort_order').then(unwrapOptionalTable),
-          client.from('experiences').select('*').eq('project_id', projectId)
-            .order('sort_order').then(unwrapOptionalTable),
-          client.from('folders').select('*').eq('project_id', projectId)
-            .order('path').then(unwrapOptionalTable),
+          readScenesWith(client, projectId),
+          readShotsWith(client, projectId),
+          readLevelsWith(client, projectId),
+          readExperiencesWith(client, projectId),
+          // F5 (rabbit B2): the folders' one paged read (the tree must be WHOLE).
+          listFoldersWith(client, projectId),
           // `.order('id')` is the TIE-BREAK, not decoration: `ORDER BY date`
           // alone leaves two key dates on the same day in an arbitrary heap
           // order, while the local adapter's Array.sort is stable — so the two
           // backends could return the same project in different orders, which
           // is what ordering this at all was meant to prevent (R2).
-          client.from('milestones').select('*').eq('project_id', projectId)
-            .order('date').order('id').then(unwrapOptionalTable),
+          readMilestonesWith(client, projectId),
           listShotListsWith(client, projectId),
           listShotListItemsWith(client, projectId),
           listEditsWith(client, projectId),
@@ -3393,7 +3428,7 @@ export function supabaseAdapter() {
     // ── Phases ────────────────────────────────────────────────
     async listPhases(projectId) {
       const client = await requireClient();
-      return unwrap(await client.from('phases').select('*').eq('project_id', projectId).order('sort_order'));
+      return readPhasesWith(client, projectId);
     },
     async upsertPhase(phase) {
       const client = await requireClient();
@@ -3418,7 +3453,7 @@ export function supabaseAdapter() {
     // ── Assets ────────────────────────────────────────────────
     async listAssets(projectId) {
       const client = await requireClient();
-      return unwrap(await client.from('assets').select('*').eq('project_id', projectId).order('sort_order'));
+      return readAssetsWith(client, projectId);
     },
     async upsertAsset(asset) {
       const client = await requireClient();
@@ -3443,7 +3478,7 @@ export function supabaseAdapter() {
     // ── Tasks ─────────────────────────────────────────────────
     async listTasks(projectId) {
       const client = await requireClient();
-      return unwrap(await client.from('tasks').select('*').eq('project_id', projectId));
+      return readTasksWith(client, projectId);
     },
     async upsertTask(task) {
       const client = await requireClient();
@@ -5119,8 +5154,7 @@ export function supabaseAdapter() {
     // broke in S23.
     async listScenes(projectId) {
       const client = await requireClient();
-      return unwrapOptionalTable(await client.from('scenes').select('*')
-        .eq('project_id', projectId).order('sort_order'));
+      return readScenesWith(client, projectId);
     },
     async upsertScene(scene) {
       const client = await requireClient();
@@ -5137,8 +5171,7 @@ export function supabaseAdapter() {
 
     async listShots(projectId) {
       const client = await requireClient();
-      return unwrapOptionalTable(await client.from('shots').select('*')
-        .eq('project_id', projectId).order('sort_order'));
+      return readShotsWith(client, projectId);
     },
     async upsertShot(shot) {
       const client = await requireClient();
@@ -5152,8 +5185,7 @@ export function supabaseAdapter() {
 
     async listLevels(projectId) {
       const client = await requireClient();
-      return unwrapOptionalTable(await client.from('levels').select('*')
-        .eq('project_id', projectId).order('sort_order'));
+      return readLevelsWith(client, projectId);
     },
     async upsertLevel(level) {
       const client = await requireClient();
@@ -5167,8 +5199,7 @@ export function supabaseAdapter() {
 
     async listExperiences(projectId) {
       const client = await requireClient();
-      return unwrapOptionalTable(await client.from('experiences').select('*')
-        .eq('project_id', projectId).order('sort_order'));
+      return readExperiencesWith(client, projectId);
     },
     async upsertExperience(experience) {
       const client = await requireClient();
@@ -5383,8 +5414,7 @@ export function supabaseAdapter() {
     // how task creation broke in S23.
     async listMilestones(projectId) {
       const client = await requireClient();
-      return unwrapOptionalTable(await client.from('milestones').select('*')
-        .eq('project_id', projectId).order('date').order('id'));
+      return readMilestonesWith(client, projectId);
     },
     async upsertMilestone(milestone) {
       const client = await requireClient();

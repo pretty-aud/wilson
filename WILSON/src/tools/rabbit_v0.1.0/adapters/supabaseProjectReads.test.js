@@ -111,6 +111,44 @@ const many = (kind, extra = (i) => ({})) => Array.from({ length: N }, (_, i) => 
   id: `${kind}-${String(i).padStart(5, '0')}`, project_id: 'p1', sort_order: i, ...extra(i),
 }))
 
+describe('every collection is read whole, by loadProject and by its list method', () => {
+  const KINDS = [
+    ['phases', 'phases', 'listPhases'],
+    ['assets', 'assets', 'listAssets'],
+    ['tasks', 'tasks', 'listTasks'],
+    ['scenes', 'scenes', 'listScenes'],
+    ['shots', 'shots', 'listShots'],
+    ['levels', 'levels', 'listLevels'],
+    ['experiences', 'experiences', 'listExperiences'],
+    ['milestones', 'milestones', 'listMilestones'],
+    ['folders', 'folders', 'listFolders'],
+  ]
+  function project() {
+    const tables = { projects: [{ id: 'p1', title: 'Big', workspace_id: 'ws-1' }] }
+    for (const [table] of KINDS) {
+      tables[table] = many(table, (i) => (table === 'folders' ? { path: `F/${String(i).padStart(5, '0')}`, kind: 'custom', slug: `f${i}` } : table === 'milestones' ? { date: '2026-01-01' } : {}))
+    }
+    return tables
+  }
+
+  it('loadProject returns all 1,001 rows of each', async () => {
+    const adapter = use(project())
+    const bundle = await adapter.loadProject('p1')
+    const short = KINDS.filter(([, key]) => (bundle[key] || []).length !== N).map(([, key]) => `${key}: ${(bundle[key] || []).length}`)
+    expect(short).toEqual([])
+  })
+
+  it('each list method returns all 1,001 rows', async () => {
+    const adapter = use(project())
+    const short = []
+    for (const [, , method] of KINDS) {
+      const rows = await adapter[method]('p1')
+      if ((rows || []).length !== N) short.push(`${method}: ${(rows || []).length}`)
+    }
+    expect(short).toEqual([])
+  })
+})
+
 describe('a project load reads that project\'s comments only', () => {
   it('serves no comment on another project\'s rows', async () => {
     const adapter = use({
