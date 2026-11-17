@@ -204,21 +204,10 @@ export default function TeamMembersPage() {
   const rateAccess = useRateCardAccess(subscribeWorkspaceEvents)
   const [adminError, setAdminError] = useState(null)
 
-  // Roster liveness (§6 gap #13): workspace_members events → debounced
-  // reload. Refs keep the subscription stable across re-renders; RESYNC
-  // closes the missed-events window after every channel (re)join.
-  const wmReloadRef = useRef(wm.reload)
-  useEffect(() => { wmReloadRef.current = wm.reload }, [wm.reload])
-  useEffect(() => {
-    if (typeof subscribeWorkspaceEvents !== 'function') return undefined
-    let timer = null
-    const unsub = subscribeWorkspaceEvents((evt) => {
-      if (evt.op !== 'RESYNC' && evt.table !== 'workspace_members') return
-      if (timer) clearTimeout(timer)
-      timer = setTimeout(() => { timer = null; wmReloadRef.current?.() }, 400)
-    })
-    return () => { if (timer) clearTimeout(timer); unsub() }
-  }, [subscribeWorkspaceEvents])
+  // Roster liveness (§6 gap #13): workspace_members events and every channel
+  // (re)join reload the ONE roster since F5 (useWorkspaceMembers'
+  // noteRosterEvent, which R.A.B.B.I.T.'s workspace channel calls), so every
+  // reader sees the change, not this page alone.
 
   // Assigned-projects column (§10-E): project_members with embedded titles,
   // live off the same channel. Missing-table tolerance keeps pre-0013 envs

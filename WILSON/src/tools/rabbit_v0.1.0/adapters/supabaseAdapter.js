@@ -4894,43 +4894,16 @@ export function supabaseAdapter() {
       unwrap(await client.from('task_templates').delete().eq('id', id));
     },
 
-    // ── Team members (Session 24) ─────────────────────────────
+    // ── Team members ───────────────────────────────────────────
     //
-    // The Crew/Team budget tab is driven by useTeamMembers() ∩ the project's
-    // teamAssignments. `listTeamMembers` existed ONLY on localServerAdapter,
-    // so in cloud `tm.members` was [] and the Crew tab rendered no one at all
-    // — Audrey's "show each team member and their title" could not work.
-    //
-    // There is no separate cloud `team_members` table and there should not be
-    // one: the roster already exists as workspace_members, exposed through
-    // the workspace_directory() RPC (0010), which is SECURITY DEFINER and
-    // already filters by the caller's LIVE membership rather than a JWT claim.
-    // Mapped onto the local shape so one UI serves both adapters.
-    //
-    // Read only, deliberately. Creating/removing workspace members is the
-    // Admin Terminal's job and goes through admin-create-user; a budget tab
-    // must not be able to mint people. useTeamMembers feature-detects each
-    // method separately, so the absent writers degrade cleanly.
-    async listTeamMembers() {
-      const client = await requireClient();
-      const rows = unwrap(await client.rpc('workspace_directory')) || [];
-      return rows
-        .filter(r => r.is_active !== false)
-        .map(r => ({
-          id: r.user_id,                       // cloud identity IS the user id
-          user_id: r.user_id,
-          name: r.display_name || r.username || '(unnamed)',
-          username: r.username,
-          title: r.title || '',                // company job title
-          department: r.department || '',
-          avatar_url: r.avatar_url || null,
-          email: r.email || null,
-          app_role: r.app_role,
-          // No cloud column. The local bundle carries it; defaulting keeps
-          // CrewTeamTab's grouping working rather than rendering undefined.
-          employment_type: 'fulltime',
-        }));
-    },
+    // Session 24 gave this adapter `listTeamMembers` (the workspace_directory()
+    // RPC mapped onto the local shape) so the Crew/Team budget tab could show
+    // the cloud's people. F5 (shared B1, rabbit B1) removed it: useTeamMembers
+    // now reads the ONE roster useWorkspaceMembers holds and maps it there
+    // (teamMembersFromDirectory), because this method made a second identical
+    // RPC per useRosterMembers mount. Creating or removing members stays the
+    // Admin terminal's job (admin-create-user); a budget tab must not be able
+    // to mint people, so this adapter has no team-member writers either.
 
     // ── Budget (Session 24, migrations 0036 + 0037) ───────────
     //

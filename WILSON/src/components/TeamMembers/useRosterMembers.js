@@ -42,10 +42,12 @@ export function useRosterMembers() {
   const rabbit = useRabbit()
   const mode = rabbit?.adapterMode || 'local_server'
 
-  // Both source hooks run unconditionally (rules of hooks). Each is
-  // cheap when its backend isn't active: useTeamMembers no-ops without
-  // adapter.listTeamMembers (supabase/drive), useWorkspaceMembers
-  // no-ops without a signed-in workspace claim (local).
+  // Both source hooks run unconditionally (rules of hooks). Since F5 they
+  // read shared entries, not a request each: on the cloud both read the ONE
+  // workspace_directory() entry (useWorkspaceMembers' store; useTeamMembers
+  // maps it), so a mount here costs no read of its own; on the Local Server
+  // useTeamMembers reads the registry once for every reader. Only the mode's
+  // source is shown below.
   const workspace = useWorkspaceMembers()
   const team = useTeamMembers()
 

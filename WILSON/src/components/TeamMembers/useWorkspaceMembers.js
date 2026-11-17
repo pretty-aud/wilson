@@ -21,10 +21,11 @@
 // relies on the DB (RLS policies + the 0010 guard trigger) as the real
 // gate. The UI's PermissionGate/role checks are presentation only.
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import { supabase } from '../../cloud/auth/supabaseClient'
 import { usePermissions } from '../../permissions/usePermissions'
 import { devFixtures } from '../../dev/devFixtures'
+import { createReadCache, useReadEntry } from '../../lib/readCache'
 
 // Only render avatar images served from OUR storage bucket. avatar_url is
 // member-writable text — an arbitrary external URL rendered to teammates
@@ -50,71 +51,137 @@ function sortMembers(list) {
 // when migration 0010 hasn't reached this environment yet.
 const MISSING_RPC_CODES = new Set(['PGRST202', '42883'])
 
+
+// ── F5 (shared B1, rabbit B1): ONE roster for every reader ───────────────────
+// Before F5 every useWorkspaceMembers() held its own copy and called
+// workspace_directory() itself (seven calls at an admin's launch, more on
+// opening Scenes or the Timeline), and a member change reached only the two
+// pages that listened for one. Now one module-level entry per signed-in
+// person and company holds the rows (lib/readCache.js): readers that mount
+// together share one read, and R.A.B.B.I.T.'s workspace channel reads it once
+// more per workspace_members event or (re)join (noteRosterEvent, which the
+// provider calls). useTeamMembers reads the same entry on the cloud.
+//
+// Keyed on the PERSON as well as the company (F4's rule): the RPC answers
+// emails to admins, managers and the caller only, so an admin's roster must
+// never be shown to the member who signs in after them in the same company.
+const rosterCache = createReadCache()
+let rosterKeyNow = null
+let rosterTimer = null
+// The pages' own debounce before F5 (TeamMembersPage, DashboardPage).
+const ROSTER_EVENT_MS = 400
+const EMPTY_ROWS = Object.freeze([])
+
+/** The roster's key for a person in a company; null when no company is claimed. */
+export function rosterKeyFor(userId, workspaceId) {
+  return workspaceId ? `cloud|${userId || '-'}|${workspaceId}` : null
+}
+
+function directoryReader(workspaceId) {
+  return async () => {
+    // Dev fixtures (2026-09-11, dev builds only): the roster is the dataset's.
+    const fx = import.meta.env.DEV ? devFixtures() : null
+    if (fx?.workspace) return sortMembers(fx.workspace.listMembers())
+    const { data, error: rpcErr } = await supabase.rpc('workspace_directory')
+    if (!rpcErr) return sortMembers(Array.isArray(data) ? data : [])
+    if (!MISSING_RPC_CODES.has(rpcErr.code)) throw rpcErr
+    // 0010 not deployed here yet — degrade to the RLS-scoped table read.
+    const { data: fallback, error: selErr } = await supabase
+      .from('workspace_members')
+      .select('*')
+      .eq('workspace_id', workspaceId)
+    if (selErr) throw selErr
+    return sortMembers(Array.isArray(fallback) ? fallback : [])
+  }
+}
+const workspaceOfKey = (key) => key.slice(key.lastIndexOf('|') + 1)
+
+/**
+ * R.A.B.B.I.T.'s workspace channel, for the roster: a workspace_members
+ * change, or the synthetic RESYNC every (re)join sends (the missed-events
+ * window). Debounced into ONE read, however many arrive or readers there are.
+ */
+export function noteRosterEvent(evt) {
+  if (evt?.op !== 'RESYNC' && evt?.table !== 'workspace_members') return
+  const key = rosterKeyNow
+  if (!key) return
+  if (rosterTimer) clearTimeout(rosterTimer)
+  rosterTimer = setTimeout(() => {
+    rosterTimer = null
+    if (rosterKeyNow === key) rosterCache.reload(key, directoryReader(workspaceOfKey(key)))
+  }, ROSTER_EVENT_MS)
+}
+
+/** Test seam: the module-level roster forgets everything. */
+export function __resetRosterCache() {
+  if (rosterTimer) clearTimeout(rosterTimer)
+  rosterTimer = null
+  rosterKeyNow = null
+  rosterCache.clear()
+}
+
+/**
+ * The one roster entry for whoever is signed in: { key, rows, loading, error,
+ * reload }. Used by useWorkspaceMembers and, on the cloud, by useTeamMembers.
+ */
+export function useRosterEntry(perms) {
+  const workspaceId = perms?.workspaceId || null
+  const key = rosterKeyFor(perms?.userId, workspaceId)
+  const entry = useReadEntry(rosterCache, key)
+
+  useEffect(() => {
+    if (!key) {
+      // Signed out (or not yet known): nothing of the last person's is kept.
+      if (rosterKeyNow !== null) {
+        rosterKeyNow = null
+        rosterCache.retain(() => false)
+      }
+      return
+    }
+    if (rosterKeyNow !== key) {
+      rosterKeyNow = key
+      rosterCache.retain((k) => k === key)
+    }
+    rosterCache.ensure(key, directoryReader(workspaceId))
+  }, [key, workspaceId])
+
+  // S2's offline launch: the claims are the held session's and the read was
+  // refused before the network. At the confirmation the one entry is read
+  // once more, however many readers see it. (A drop and a return of the
+  // network re-read it through the channel's RESYNC, noteRosterEvent.)
+  const offline = !!perms?.offline
+  useEffect(() => {
+    if (key) rosterCache.noteOnline(key, !offline, directoryReader(workspaceId))
+  }, [key, workspaceId, offline])
+
+  const reload = useCallback(
+    () => (key ? rosterCache.reload(key, directoryReader(workspaceId)) : Promise.resolve()),
+    [key, workspaceId],
+  )
+  return { key, rows: entry.data || EMPTY_ROWS, loading: entry.loading, error: entry.error, reload }
+}
+
 export function useWorkspaceMembers() {
   const perms = usePermissions()
   const workspaceId = perms.workspaceId
+  const { key, rows: members, loading, error, reload } = useRosterEntry(perms)
 
-  const [members, setMembers] = useState([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
-
-  // StrictMode-safe mounted flag: the effect BODY must reset the flag to
-  // true, because StrictMode runs setup → cleanup → setup on the same
-  // component instance — a cleanup-only effect leaves the ref false forever
-  // and every post-fetch setState gets skipped (perpetual "Loading...").
-  const mountedRef = useRef(true)
-  useEffect(() => {
-    mountedRef.current = true
-    return () => { mountedRef.current = false }
-  }, [])
-
-  const load = useCallback(async () => {
-    if (!workspaceId) return
-    setLoading(true)
-    setError(null)
-    try {
-      // Dev fixtures (2026-09-11, dev builds only): the roster is the dataset's.
-      const fx = import.meta.env.DEV ? devFixtures() : null
-      if (fx?.workspace) {
-        if (mountedRef.current) setMembers(sortMembers(fx.workspace.listMembers()))
-        return
-      }
-      let rows = null
-      const { data, error: rpcErr } = await supabase.rpc('workspace_directory')
-      if (rpcErr) {
-        if (!MISSING_RPC_CODES.has(rpcErr.code)) throw rpcErr
-        // 0010 not deployed here yet — degrade to the RLS-scoped table read.
-        const { data: fallback, error: selErr } = await supabase
-          .from('workspace_members')
-          .select('*')
-          .eq('workspace_id', workspaceId)
-        if (selErr) throw selErr
-        rows = fallback
-      } else {
-        rows = data
-      }
-      if (!mountedRef.current) return
-      setMembers(sortMembers(Array.isArray(rows) ? rows : []))
-    } catch (err) {
-      if (mountedRef.current) setError(err.message || String(err))
-    } finally {
-      if (mountedRef.current) setLoading(false)
-    }
-  }, [workspaceId])
-
-  useEffect(() => { load() }, [load])
+  const setRows = useCallback((fn) => rosterCache.mutate(key, fn), [key])
+  const setError = useCallback((msg) => rosterCache.setError(key, msg), [key])
 
   // ── Mutations (optimistic, snapshot rollback) ──
   // The DB decides what's actually allowed; surfaced errors include the
   // guard-trigger messages ('self-role change not allowed', 'managers may
-  // only edit title and department', ...).
+  // only edit title and department', ...). They change the ONE roster, so
+  // every reader sees the edit; an answer that arrives after the person
+  // changed lands nowhere (the entry is theirs, by its key).
   const updateMember = useCallback(async (userId, patch) => {
-    if (!workspaceId) return null
+    if (!workspaceId || !key) return null
     // Surgical rollback: snapshot ONLY the target row. Restoring the whole
     // list would revert other members' concurrently-saved edits (and any
-    // rows refreshed by a load() that resolved while this request flew).
-    const savedRow = members.find(m => m.user_id === userId) || null
-    setMembers(prev => prev.map(m => m.user_id === userId ? { ...m, ...patch } : m))
+    // rows refreshed by a read that resolved while this request flew).
+    const savedRow = (rosterCache.peek(key).data || []).find(m => m.user_id === userId) || null
+    setRows(prev => prev.map(m => m.user_id === userId ? { ...m, ...patch } : m))
     setError(null)
     try {
       // Dev fixtures (dev builds only): the edit lands in memory, same answer shape.
@@ -130,20 +197,14 @@ export function useWorkspaceMembers() {
           .maybeSingle()
       if (updErr) throw updErr
       if (!data) throw new Error('Update was blocked — you may not have permission to edit this member.')
-      if (mountedRef.current) {
-        setMembers(prev => sortMembers(prev.map(m => m.user_id === userId ? { ...m, ...data } : m)))
-      }
+      setRows(prev => sortMembers(prev.map(m => m.user_id === userId ? { ...m, ...data } : m)))
       return data
     } catch (err) {
-      if (mountedRef.current) {
-        if (savedRow) {
-          setMembers(prev => sortMembers(prev.map(m => m.user_id === userId ? savedRow : m)))
-        }
-        setError(err.message || String(err))
-      }
+      if (savedRow) setRows(prev => sortMembers(prev.map(m => m.user_id === userId ? savedRow : m)))
+      setError(err.message || String(err))
       throw err
     }
-  }, [members, workspaceId])
+  }, [key, workspaceId, setRows, setError])
 
   const setRole = useCallback(
     (userId, app_role) => updateMember(userId, { app_role }),
@@ -160,7 +221,7 @@ export function useWorkspaceMembers() {
   //   { user_id, email, username, app_role, workspace_id }
   const injectMember = useCallback((row) => {
     if (!row?.user_id) return
-    setMembers(prev => {
+    setRows(prev => {
       if (prev.some(m => m.user_id === row.user_id)) return prev
       return sortMembers([...prev, {
         workspace_id: row.workspace_id,
@@ -178,9 +239,11 @@ export function useWorkspaceMembers() {
         email:        row.email ?? null,
       }])
     })
-  }, [])
+  }, [setRows])
 
-  return {
+  const clearError = useCallback(() => setError(null), [setError])
+
+  return useMemo(() => ({
     ready: perms.ready,
     workspaceId,
     role: perms.role,
@@ -189,11 +252,36 @@ export function useWorkspaceMembers() {
     members,
     loading,
     error,
-    clearError: () => setError(null),
-    reload: load,
+    clearError,
+    reload,
     updateMember,
     setRole,
     setActive,
     injectMember,
-  }
+  }), [perms.ready, workspaceId, perms.role, perms.userId, perms.can, members, loading, error,
+    clearError, reload, updateMember, setRole, setActive, injectMember])
+}
+
+/**
+ * The directory's rows in R.A.B.B.I.T.'s team-member shape: the cloud's
+ * mapping, which supabaseAdapter.listTeamMembers made before F5 (that method
+ * read the same RPC a second time per useRosterMembers).
+ */
+export function teamMembersFromDirectory(rows) {
+  return (rows || [])
+    .filter(r => r.is_active !== false)
+    .map(r => ({
+      id: r.user_id,                       // cloud identity IS the user id
+      user_id: r.user_id,
+      name: r.display_name || r.username || '(unnamed)',
+      username: r.username,
+      title: r.title || '',                // company job title
+      department: r.department || '',
+      avatar_url: r.avatar_url || null,
+      email: r.email || null,
+      app_role: r.app_role,
+      // No cloud column. The local bundle carries it; defaulting keeps
+      // CrewTeamTab's grouping working rather than rendering undefined.
+      employment_type: 'fulltime',
+    }))
 }

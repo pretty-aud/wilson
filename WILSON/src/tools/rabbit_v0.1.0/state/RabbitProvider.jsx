@@ -56,6 +56,8 @@ import { realGatewayDoors } from '../bins/gatewayDoors';
 import { listGatewaysForPlayback, fetchGatewayTickets, listRemoteViewingsOfClip as listRemoteViewingsOfClipApi } from '../../../cloud/gatewayApi';
 import { needsCloudPoster, BIN_POSTERS_OFF_SENTENCE } from '../bins/cloudPosters';
 import { supabase as sharedAuthedClient } from '../../../cloud/auth/supabaseClient';
+// F5 (shared B1): the workspace channel reloads the one roster (useWorkspaceMembers' store).
+import { noteRosterEvent } from '../../../components/TeamMembers/useWorkspaceMembers';
 import { runIngestion } from '../intake/pipeline';
 import {
   selectAssetsByPhase,
@@ -1365,6 +1367,7 @@ export function RabbitProvider({ children }) {
         });
       }
     }
+    noteRosterEvent(evt);
     for (const cb of wsListenersRef.current) {
       try { cb(evt); } catch { /* listener errors stay theirs */ }
     }
@@ -1415,8 +1418,10 @@ export function RabbitProvider({ children }) {
             // Listeners get a synthetic 'resync' hint so the Dashboard can
             // refetch its own data too.
             scheduleProjectsIndexRefetch();
+            const resync = { table: null, op: 'RESYNC', record: null, oldRecord: null };
+            noteRosterEvent(resync);
             for (const cb of wsListenersRef.current) {
-              try { cb({ table: null, op: 'RESYNC', record: null, oldRecord: null }); } catch { /* theirs */ }
+              try { cb(resync); } catch { /* theirs */ }
             }
             setWorkspaceRealtimeStatus('live');
           } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
