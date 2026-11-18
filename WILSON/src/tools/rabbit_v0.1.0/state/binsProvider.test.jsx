@@ -122,7 +122,9 @@ function makeAdapter() {
       bins: db.bins, binFiles: db.files, binRoots: [], shotTakes: db.takes, binLocations: db.locations,
     }),
     listProjectMembers: async () => [],
-    subscribeProjectChanges: () => () => {},
+    // F5: the channel joins, as the real one and the fixtures' do (an open on
+    // the cloud waits for its project channel's join, then loads once).
+    subscribeProjectChanges: (_pid, _cb, opts) => { const t = setTimeout(() => opts?.onStatus?.('SUBSCRIBED'), 0); return () => clearTimeout(t) },
     binsCapabilities: () => CLOUD_CAPS,
     listBins: async () => { calls.push(['listBins']); return clone({ bins: db.bins, binFiles: db.files, binRoots: [], binLocations: db.locations, shotTakes: db.takes, orphanTakes: [], ffmpeg: false, capabilities: CLOUD_CAPS }) },
     getRemoteViewingEnabled: async () => db.remoteViewing,
@@ -225,9 +227,14 @@ describe('BC3 — a browser knows what it is from the project load, and keeps ev
   it('binsInfo.capabilities is the cloud\'s once the project has loaded, even when the bins list then fails', async () => {
     holder.adapter.listBins = async () => { throw new Error('the list failed') }
     await mountRabbit(<RabbitProvider><Probe /></RabbitProvider>, { adapter: holder.adapter, ctx: () => ctxRef, until: () => expect(ctxRef?.project?.id).toBe('p1') })
-    expect(ctxRef.binsInfo.capabilities).toBe(CLOUD_CAPS)
+    // F5: the open's load lands after its channel's join, by when the signed-in
+    // person is known and a browser's backend is the gateway composite (GW3),
+    // so the object is the cloud's or the composite's: known from the load,
+    // and kept when the list then fails.
+    const caps = ctxRef.binsInfo.capabilities
+    expect([CLOUD_CAPS.backend, 'gateway_cloud']).toContain(caps?.backend)
     await act(async () => { await expect(ctxRef.refreshBins()).rejects.toThrow('the list failed') })
-    expect(ctxRef.binsInfo.capabilities).toBe(CLOUD_CAPS)
+    expect(ctxRef.binsInfo.capabilities).toBe(caps)
     expect(ctxRef.binFiles.every(f => f.online === false)).toBe(true)
   })
 

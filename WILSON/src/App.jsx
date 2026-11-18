@@ -17,6 +17,7 @@ import { looksLikeRecoveryLink } from './cloud/auth/recoveryLink'
 import NewUserWelcome from './cloud/onboarding/NewUserWelcome'
 import { loadSession, clearSession } from './cloud/auth/sessionStorage'
 import { hydrateSupabase, supabase, endSessionLocally, onHeldSessionRefused } from './cloud/auth/supabaseClient'
+import { workspaceFromSession } from './cloud/auth/authSnapshot'
 import { fetchWorkspaceStorage, clearWorkspaceStorageCache } from './cloud/workspaceStorage'
 import { callAI, isRetryableAIError } from './cloud/aiProxy'
 import { releaseAllAIFiles } from './cloud/aiFiles'
@@ -545,8 +546,10 @@ export default function App() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) return;
         const userId = session.user?.id;
-        // JWT app_metadata.workspace_id is set by custom_access_token_hook.
-        const workspaceId = session.user?.app_metadata?.workspace_id ?? null;
+        // The access token's app_metadata.workspace_id, set by
+        // custom_access_token_hook — not the user object's, which keeps what
+        // issue-session last wrote (F5 item 7, the review's shared B4).
+        const workspaceId = workspaceFromSession(session);
         if (!userId || !workspaceId) return;
 
         const { data, error } = await supabase

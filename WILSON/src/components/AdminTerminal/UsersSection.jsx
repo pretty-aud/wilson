@@ -23,7 +23,6 @@ import {
   Users, Search, X, UserPlus, KeyRound, Power, ChevronDown,
 } from 'lucide-react'
 import { isOwnAvatarUrl } from '../TeamMembers/useWorkspaceMembers'
-import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { adminResetPassword, adminSetActive, adminUserSecurity } from '../../cloud/adminApi'
 import CreateUserDialog from './CreateUserDialog'
 import MultiInviteDialog from './MultiInviteDialog'
@@ -160,7 +159,6 @@ const STATUS_FILTERS = [
 // useWorkspaceMembers (loads once app-wide) and the security lookup is
 // gated on panel open — nothing here fetches on mount.
 export default function UsersSection({ wm }) {
-  const rabbit = useRabbit()
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [selectedId, setSelectedId] = useState(null)
@@ -172,27 +170,9 @@ export default function UsersSection({ wm }) {
   const narrow = useNarrow(mainRef, selectedId)
 
   // Roster liveness: workspace_members changes (and full RESYNCs after a
-  // reconnect) debounce into a directory reload — Dashboard pattern.
-  // Callback held behind a ref so re-renders never resubscribe.
-  const reloadRef = useRef(wm.reload)
-  useEffect(() => { reloadRef.current = wm.reload }, [wm.reload])
-  useEffect(() => {
-    const subscribe = rabbit?.subscribeWorkspaceEvents
-    if (typeof subscribe !== 'function') return undefined
-    let timer = null
-    const unsub = subscribe((evt) => {
-      if (evt.table !== 'workspace_members' && evt.op !== 'RESYNC') return
-      if (timer) clearTimeout(timer)
-      timer = setTimeout(() => {
-        timer = null
-        reloadRef.current?.()
-      }, 400)
-    })
-    return () => {
-      if (timer) clearTimeout(timer)
-      unsub()
-    }
-  }, [rabbit?.subscribeWorkspaceEvents])
+  // reconnect) reload the ONE roster since F5 (useWorkspaceMembers'
+  // noteRosterEvent, which R.A.B.B.I.T.'s workspace channel calls), so this
+  // list, the Team Members page and every picker see the same rows.
 
   // The kit `Menu` owns click-outside and Escape dismissal, so the two
   // document listeners this component ran for them are deleted rather than

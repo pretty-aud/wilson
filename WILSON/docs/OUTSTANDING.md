@@ -1335,6 +1335,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| F5 (2026-11-17 and 18, wave 3 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f5-one-roster-one-load` into `feat/post-overhaul-edit-versioning`) — one roster, one rate card, one project load: the roster and the rate card as module-level stores (`src/lib/readCache.js`), the project loaded once after its channel joins with the comments of its own rows, the project roster read once, every collection paged in one place, a New shot's folder tree read once and a drop's shared lookups once, one auth snapshot (`src/cloud/auth/authSnapshot.js`) and the company from the token's claim everywhere; measured before and after by counting tests; two review rounds on Opus 5.5, whose security defects (a private project's drop sent to the cloud after one failed privacy probe; a sign-out not superseding an open's load; the privacy probe failing open) and what F5 had made worse were fixed in the session; no migration, no SQL, no Edge Function | F5-01 to F5-12 | none. Comment markers: 4 → 4. |
 | F8 (2026-11-13, wave 2 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f8-edge-shared-plumbing`) — the Edge Functions' shared plumbing: one envelope crypto, one bucket loader, the caller checks once, one raw-HTTP transport and host rule, every body read under a measured cap (413 past it), the master keys and the opened ticket key kept per isolate, one SigV4 key per batch; deployed to wilson-dev; two review rounds. | F8-01 to F8-19 (below, the F8 section). | F1-01's 28 known type errors to 1 (F1-01, lowered). F8-01 and F8-02, closed by F8 as the second merger (`8a0bdb4f`); F8-03 tried there and taken back (`6515a9d2`), open on purpose. |
 | Post-overhaul F4 (2026-11-13, wave 2; `po/f4-rerender-discipline` into `feat/post-overhaul-edit-versioning`) — re-render discipline, nothing new on the screen meant: the pet's state in `PetHost` under App, the agent's value memoized and its input apart, `React.memo` on the pages and the three tools' roots, R.A.B.B.I.T.'s state that moves on its own clock out of the provider's value (`state/rabbitLive.js`), the Assets tab's warnings from one index (rabbit C5), O.T.T.E.R.'s lesson body and reference views memoized, D.O.G.'s preview placeholders at module level and its parse kept; measured in the running app before and after (a minute of the pet 2,105.7 to 2,859.2 ms of drawing → 42.4 to 50.7 ms); the render spy `src/lib/renderSpy.js` and its pins; two review rounds on Opus 5.5, whose security defects (the pet's saves and chat reaching the next person's account or screen) and the five things F4 had made worse were fixed in the session; no migration, no SQL, no Edge Function | F4-01 to F4-03, F4-05 to F4-07, F4-09 to F4-13 (F4-04, the pet's chat kept for the next person, was found and fixed in the session; F4-08, the agent's conversation kept for the next person, was found in the session and fixed after its merge) | P1-16 (the preview's loop, `b151c20e`). Comment markers: 4 → 4. |
 | MO3 (M.O.T.H. Session 3, 2026-11-08; `po/moth3-tags`) — typed tags, relationships and workspace notes: migrations 0124 to 0129 on wilson-dev, the notes' tiers and trash, the `[[` and `#` pickers in R.A.B.B.I.T., M.O.T.H.'s typed-tag drawer, notes, tags and links in the graph and its record; two whole-session review rounds. | MO3-01 to MO3-12 (above, after MO2's list). | MO2-03 (links are saved: 0127, and the page's link drop), MO2-09, MO2-10, MO2-11, MO2-12 and MO2-18 (0124). |
@@ -5496,3 +5497,92 @@ is a security finding.
   follows the cloud.
 - **MO5-27 · Probes still owed.** `shotRefilingCloud.test.js` does not assert that no object moved for a refused shot
   of the board case, and no test runs the trashed-board case of MO5-24.
+
+## F5 (2026-11-17, wave 3 of `docs/sessions/PLAN_WEEK_2026-11-04.md`) — left open
+
+One roster, one rate card, one project load (`po/f5-one-roster-one-load`; brief
+`docs/sessions/briefs/po-f5-one-roster-one-load.md`). What each finding has left, what F5 met outside its list, and
+what its review rounds recorded. None is fixed unless it says so.
+
+- **F5-01 · The roster costs two reads at launch, not one.** MEASURED by its pin (`rosterReads.test.jsx`: one read for
+  any number of readers, one more per member event or RESYNC) and INFERRED for the launch from the pages mounted: the
+  first read, then the workspace channel's first join sends RESYNC and the roster is read again (shared B1's
+  missed-events window, kept on purpose). Before F5: 8 at an admin's launch, 7 at a member's. Fix shape, if wanted: skip
+  the RESYNC read when the entry's read began after the join (the store would need the join's time).
+- **F5-02 · The wait for the project channel's join is a guess.** `JOIN_WAIT_MS` is 500 ms (rabbit C2): an open waits
+  at most that for its channel's join before it loads, and a join slower than that costs the two loads it cost before
+  F5 (the open's, then the join's refetch). The real join time was not measured (no running build against dev was
+  signed in: F5-07). An open on the cloud now shows its project after the join, not before it.
+- **F5-03 · Collections still read unpaged.** Rabbit B2 paged the nine the review named (phases, assets, tasks,
+  scenes, shots, levels, experiences, milestones, folders) in `loadProject` and their list methods. Still one request
+  each, cut at 1,000 rows: shot lists, their items and edits (their reads double as the 0084 probe, run once per
+  page if paged), ingestion runs, bid versions, expenses, task links, asset versions and the project roster. The
+  dependencies' read (`listDependenciesWith`) spans the workspace, as already recorded.
+- **F5-04 · The entity popups' file pick reads the shared facts per file.** Rabbit C4's batch is passed by
+  FileManager's drop only; `entityFiles.js` (the Levels and Experiences popups) does not, because
+  `entityFiles.test.js` and `rabbitEntityViewsRender.test.jsx` pin the upload call's two arguments. A pick of n files
+  there still reads the folder and the privacy n times.
+- **F5-05 · A return online re-reads only what failed.** Before F5 every `useTeamMembers` and `useRateCard` reader
+  read again on every flip of the adapter's `online`; now one read again per return, and only for an entry whose last
+  read failed (its retries start again then). A change made while the Local Server was out of reach shows at the next
+  event, reload or (for the rate card) a reader that opens more than 2 s after the last read; on the cloud the
+  workspace channel's re-join (RESYNC) re-reads the roster. The Local Server's registry is held all session by the
+  Rate Card page's picker and is not read again on a later mount.
+- **F5-06 · A New shot still reads the folder tree once.** The brief asked for none. A create given the bundle's
+  folders and scenes was built and taken back in review round 1: neither is kept live (no channel event moves a
+  folder; scenes are not broadcast), and the hint misfiled a shot under a renamed scene, left a rename's folder behind
+  and made no folder for a new entity whose path the stale copy held. What stays: the shot's scene ensure shares the
+  tree, so 2 reads became 1 (and the scene row 1, as before). Fix shape, if wanted: folders on the project channel.
+- **F5-07 · The running build against dev's fixture company was not measured.** The brief's second method (a
+  running build signed in to wilson-dev's fixture company, the network panel) needs her sign-in in the browser
+  pane, which this session did not ask for before its numbers were taken. Every number above is the vitest
+  counting fakes' and the code's.
+- **F5-08 · otterFetch still reads the session twice per call.** The review's shared C5: every `otterFetch` reads and
+  decodes the session, twice. Item 7 left it (O.T.T.E.R.'s files are F6's by the controller's line of 2026-11-18, and a
+  network-bound token read keeps its getSession, which refreshes an expired token). Fix shape: the token from one
+  getSession per call, the claims from `authSnapshot.js`.
+- **F5-09 · Item 7 does not close F4-10 or F4-13's client half.** The auth snapshot holds who is signed in once, but
+  the model tiers (F4-10) need App's effect keyed on the person and emptied when the person changes, and AgentProvider
+  told to read its skills again; F4-13's first bullet needs `sendChat` to stamp the asker's id and send nothing if the
+  snapshot names someone else at send time. Both stay as recorded under F4.
+- **F5-10 · Other auth listeners stay their own.** `aiFiles.js`, `avatarReads.js`, `ConnectionDot.jsx` and
+  RabbitProvider's two (`authUserId`, `wsAuthKey`) still subscribe to auth events themselves, and about thirty
+  network-bound token reads still call getSession (they must: it refreshes an expired token). Only their workspace
+  reads moved to the claim. Fix shape, if wanted: the listeners read `authSnapshot.js`.
+- **F5-11 · Review round 1's findings recorded, not fixed** (four reviewers, Opus 5.5; what was security or made worse by
+  F5 is fixed in the round's commit). Each INFERRED or measured by a reviewer's scratch test, none caught by a test:
+  - A reload during an open's wait uses up the join's refetch: its snapshot is read before the join, the join then
+    releases the waiting gate and nothing reads after it (rare; a restore, an undo or a queued refetch effect).
+  - A sign-out during the wait neither supersedes the open nor releases the gate: after `JOIN_WAIT_MS` the open asks
+    with no session ("[supabase] no active session…"); a sign-in within the window loads as the new person.
+  - While a superseded open's refetch is out (a live buffer), the new project's events land on the previous project's
+    bundle still on screen (every open did this before F5).
+  - The desktop manifest (`projectManifest.js`) still reads the load's `teamAssignments`, not the derived roster.
+  - The comments read is tolerant: a refused read makes a removal question count none, with a console warning only.
+  - A roster RESYNC read that fails shows its error over a good earlier answer (every reader, not one page now).
+  - `listPhasesByProjects` and `listMyTasks` (the Dashboard's) are unpaged list methods; offset pages are not a
+    snapshot (a row written between two pages past 1,000 can repeat or drop at the boundary).
+  - RabbitProvider's `wsAuthKey` effect still primes with its own getSession and applies it unconditionally, the late
+    read race authSnapshot's `heard` closes (latent: it runs once, at mount, with the SDK empty).
+  - A second person in the same company signing in over the first with no SIGNED_OUT (a recovery or invite link, App's
+    deliberate case) keeps the workspace channel (keyed on the company alone; its presence says the first person) and
+    does not run the onboarding check again (pre-existing).
+  - Tests: the onboarding check, OtterMigrationPanel, ConnectionDot and the channel key's listener can each go back to
+    the user object with every test green; volatileState.rerender's two status cases no longer replace an object (an
+    error-text change while offline would restore them); budgetVersionsProvider's `joined` counts a call, not a
+    landing; binsProvider's capability case accepts either object; rosterReads calls `noteRosterEvent` directly (no
+    test pins the provider's two calls), and its second-person case checks the call log, not the admin-only email.
+- **F5-12 · Review round 2's findings recorded, not fixed** (two reviewers, Opus 5.5; the security defects and what F5
+  or round 1 had made worse are fixed in the round's commit):
+  - `settled` stays true through a rate card's re-read, so the budget's versions block compares against, and Save
+    snapshots, the cached rates until the re-read lands; a failed re-read shows its error over valid rates on every
+    reader.
+  - A found folder is kept for the whole drop: a re-filing that moves the shot's folder mid-drop files the later files
+    under the old prefix (no gate is involved).
+  - Roster reads with nobody reading: `rosterKeyNow` outlives the last reader, so a member event or RESYNC still reads
+    the directory (INFERRED: the Team Members and Dashboard pages stay mounted while signed in).
+  - At an offline launch's confirmation the roster is read twice (the confirmation's read, then the first join's
+    RESYNC), as at an ordinary launch (F5-01).
+  - Pins: "an open overtaken by its late join's refetch" has about 150 ms of slack on the old code (a slow mount passes
+    it there); "a token refresh with a new role" uses sessions with no access token, so only personKeyOf's
+    user-object branch is exercised.

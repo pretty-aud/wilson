@@ -76,6 +76,7 @@ import { useRabbitLive, useRabbitOnline } from '../state/rabbitLive'
 import { StatusDot } from '../../../ui/StatusDot'
 import { supabase } from '../../../cloud/auth/supabaseClient'
 import { heldSession } from '../../../cloud/auth/heldSession'
+import { workspaceFromSession } from '../../../cloud/auth/authSnapshot'
 import { connectionWatchdog } from '../../../cloud/connectionWatchdog'
 import { presignStorage } from '../../../cloud/storageApi'
 import { peekWorkspaceStorageCached } from '../../../cloud/workspaceStorage'
@@ -146,7 +147,8 @@ function useConnection({ active = true } = {}) {
       const was = tokenRef.current
       const token = session?.access_token || null
       const user = session?.user?.id ?? null
-      const workspace = session?.user?.app_metadata?.workspace_id ?? null
+      // The token's claim, not the user object's (F5 item 7, the review's B4).
+      const workspace = workspaceFromSession(session)
       // The same token again (auth-js's SIGNED_IN on every return to the
       // window) keeps when the dot first found it stale; a new one starts clean.
       tokenRef.current = { token, expiresAt: session?.expires_at || null, user, workspace, staleSince: token === was.token ? was.staleSince : null }

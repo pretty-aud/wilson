@@ -261,8 +261,8 @@ async function privateProjectsAvailable(client) {
     return false;
   }
   // Any other failure (network, RLS) says nothing about the column: answer
-  // "not now" and probe again next time.
-  return false;
+  // "not known" (null, falsy for every other caller) and probe again next time.
+  return null;
 }
 // MO1 (0107, 0109): projects.topic_epoch names the project's realtime topic
 // after a narrowing (rabbit:project:{id}:{n}) — but only 0109 makes the
@@ -395,7 +395,14 @@ async function canAccessProjectLegal(client, projectId) {
 // personal space is is_private and is NOT that: its files go to the company's
 // storage, as any project's do (her answer; MOTH_DESIGN §2.2 PS-6).
 async function projectIsPrivate(client, projectId) {
-  if (!(await privateProjectsAvailable(client))) return false;
+  const available = await privateProjectsAvailable(client);
+  // F5 review round 2 (security): fail CLOSED. A probe that failed says
+  // nothing, and "not private" would send a private project's file to the
+  // cloud; uploadFile, the one caller, refuses that file instead.
+  if (available === null) {
+    throw new Error('[supabase] whether this project is private could not be read, so the file was not added; try again');
+  }
+  if (!available) return false;
   const personal = await personalSpacesAvailable(client);
   const { data, error } = await client
     .from('projects').select(personal ? 'is_private, personal_owner_id' : 'is_private').eq('id', projectId).maybeSingle();
@@ -1280,6 +1287,48 @@ async function readAllPages(makeQuery) {
   return readAllPagesWith(makeQuery, unwrapOptionalTable);
 }
 
+// F5 (rabbit B2): ONE paged read per collection, used by loadProject and by
+// that collection's list method alike. Before F5 each query was built twice
+// and the copies disagreed: loadProject paged assets, tasks, scenes and shots
+// but not phases, levels, experiences, milestones or folders, and no list
+// method paged at all, so a project past 1,000 rows of a kind lost some in one
+// view or the other (or in D.O.G.'s references, which read the list methods).
+// Each keeps its order with `id` closing it (no row straddles two pages) and
+// its strictness: unwrap where a refusal must fail the read, the optional
+// table's tolerance (readAllPages) where an older database lacks the table.
+function readPhasesWith(client, projectId) {
+  return readAllPagesWith(() => client.from('phases').select('*')
+    .eq('project_id', projectId).order('sort_order').order('id'), unwrap);
+}
+function readAssetsWith(client, projectId) {
+  return readAllPagesWith(() => client.from('assets').select('*')
+    .eq('project_id', projectId).order('sort_order').order('id'), unwrap);
+}
+function readTasksWith(client, projectId) {
+  return readAllPagesWith(() => client.from('tasks').select('*')
+    .eq('project_id', projectId).order('id'), unwrap);
+}
+function readScenesWith(client, projectId) {
+  return readAllPages(() => client.from('scenes').select('*')
+    .eq('project_id', projectId).order('sort_order').order('id'));
+}
+function readShotsWith(client, projectId) {
+  return readAllPages(() => client.from('shots').select('*')
+    .eq('project_id', projectId).order('sort_order').order('id'));
+}
+function readLevelsWith(client, projectId) {
+  return readAllPages(() => client.from('levels').select('*')
+    .eq('project_id', projectId).order('sort_order').order('id'));
+}
+function readExperiencesWith(client, projectId) {
+  return readAllPages(() => client.from('experiences').select('*')
+    .eq('project_id', projectId).order('sort_order').order('id'));
+}
+function readMilestonesWith(client, projectId) {
+  return readAllPages(() => client.from('milestones').select('*')
+    .eq('project_id', projectId).order('date').order('id'));
+}
+
 function listFoldersWith(client, projectId) {
   // unwrapOptionalTable: a client deployed ahead of 0041 shows no folders
   // rather than failing every project load. Same treatment 0040's tables got,
@@ -1298,6 +1347,29 @@ function listFoldersWith(client, projectId) {
 function listFilesWith(client, projectId) {
   return readAllPagesWith(() => client.from('files').select('*')
     .eq('project_id', projectId).order('id'), unwrap);
+}
+
+// F5 (rabbit C2): this project's comments only — on the project row and on
+// its phases, assets and tasks (comments.entity_type's four; the table has
+// no project_id). Before F5 the load read every comment the person could see
+// in the workspace, unfiltered and cut at 1,000 rows. Ids go 100 to a request
+// (a URL a proxy will carry), the requests side by side, each paged. Their
+// only reader is the set-aside count (setAside.js workOn), so a refused read
+// costs that count, not the project: it is warned about and answers none.
+const COMMENT_IDS_IN_CHUNK = 100;
+async function readProjectCommentsWith(client, projectId, rowLists) {
+  const ids = [...new Set([projectId, ...rowLists.flatMap(list => (list || []).map(r => r?.id))]
+    .filter(id => id != null).map(String))];
+  const chunks = [];
+  for (let at = 0; at < ids.length; at += COMMENT_IDS_IN_CHUNK) chunks.push(ids.slice(at, at + COMMENT_IDS_IN_CHUNK));
+  try {
+    const pages = await Promise.all(chunks.map(chunk => readAllPagesWith(() => client.from('comments').select('*')
+      .in('entity_id', chunk).order('id'), unwrap)));
+    return pages.flat();
+  } catch (err) {
+    console.warn(`[supabase] this project's comments could not be read, so a removal counts none: ${err?.message || err}`);
+    return [];
+  }
 }
 
 async function foldersByPath(client, projectId) {
@@ -1376,6 +1448,23 @@ async function sceneRowFor(client, shot) {
   }
 }
 
+// F5 (rabbit C4): one read per batch of a fact every file of the batch shares
+// (uploadFile's `opts.batch`); without a batch, a read each time, as before.
+// An answer is kept only when `keep` says it was found (by default, not null):
+// a read that failed, or found nothing, is asked again by the next file, so a
+// fault on one file stays that file's (F5's first review round).
+function onceInBatch(batch, key, read, keep = (value) => value != null) {
+  if (!batch || typeof batch !== 'object') return read();
+  const facts = batch.facts || (batch.facts = new Map());
+  if (!facts.has(key)) {
+    const p = Promise.resolve().then(read);
+    facts.set(key, p);
+    const forget = () => { if (facts.get(key) === p) facts.delete(key); };
+    p.then((value) => { if (!keep(value)) forget(); }, forget);
+  }
+  return facts.get(key);
+}
+
 /** The scene a shot belongs to, by the shot's id (uploadFile's key needs it). */
 async function shotSceneId(client, shotId) {
   if (!shotId) return null;
@@ -1387,12 +1476,20 @@ async function shotSceneId(client, shotId) {
   }
 }
 
-async function ensureEntityFolderWith(client, projectId, project, entityType, entity) {
+// F5 (rabbit C4): a shot's folder ensure recurses into its scene's, and that
+// call shares the tree this one read (`known.byPath`), so a New shot reads the
+// folder tree once, not twice. The bundle's folders and scenes are NOT used
+// for a create: neither is kept live (no channel event moves a folder, and
+// scenes are not broadcast), and F5's first review round showed a create given
+// them misfiling a shot under a renamed scene, leaving a rename's folder
+// behind, and making no folder for a new entity whose path a renamed one still
+// held in the stale copy.
+async function ensureEntityFolderWith(client, projectId, project, entityType, entity, known = null) {
   const scene = entityType === 'shot' ? await sceneRowFor(client, entity) : null;
   const planned = planEntityFolder(project, entityType, entity, scene);
   if (!planned) throw new Error(`[supabase] unknown folder entity type: ${entityType}`);
   const fk = ENTITY_FK_COLUMN[entityType];
-  const byPath = await foldersByPath(client, projectId);
+  const byPath = known?.byPath || await foldersByPath(client, projectId);
   const rows = [...byPath.values()];
 
   // Renaming the entity MOVES its folder (folderPaths.js explains why),
@@ -1454,7 +1551,7 @@ async function ensureEntityFolderWith(client, projectId, project, entityType, en
   }
   await insertFolderIfMissing(client, projectId, planned.category, byPath);
   if (planned.parent) {
-    const sceneRow = await ensureEntityFolderWith(client, projectId, project, 'scene', scene);
+    const sceneRow = await ensureEntityFolderWith(client, projectId, project, 'scene', scene, { byPath });
     if (sceneRow) {
       byPath.set(sceneRow.path, sceneRow);
       if (sceneRow.path !== planned.folder.parentPath) {
@@ -3175,24 +3272,23 @@ export function supabaseAdapter() {
       // VW1c (0098): tableViews / itemGroupings join for the seventh time for
       // the same reason; their reads are the 0098 probe and never fail the
       // load — see tableViewsAbsent.
-      const [project, phases, assets, tasks, dependencies, taskLinks, files, assetVersions, comments, ingestionRuns, budgetVersions, expenses, projectMembers, scenes, shots, levels, experiences, folders, milestones, shotLists, shotListItems, edits, bins, binFiles, shotTakes, binLocations, taskItems, views, _assetLevelLinks] =
+      const [project, phases, assets, tasks, dependencies, taskLinks, files, assetVersions, _comments, ingestionRuns, budgetVersions, expenses, projectMembers, scenes, shots, levels, experiences, folders, milestones, shotLists, shotListItems, edits, bins, binFiles, shotTakes, binLocations, taskItems, views, _assetLevelLinks] =
         await Promise.all([
           client.from('projects').select('*').eq('id', projectId).single().then(unwrap),
-          client.from('phases').select('*').eq('project_id', projectId).order('sort_order').then(unwrap),
+          readPhasesWith(client, projectId),
           // VW1m review round 2 (R2-4): paged, as the scenes and shots are
           // below. Cut at PostgREST's 1,000 rows, a feature-sized project lost
           // its 1,001st asset (and VW1m hides an item whose row is not
           // loaded) or task. Still strict (unwrap): a refusal fails the load.
           // `id` closes each order, so no row straddles two pages.
-          readAllPagesWith(() => client.from('assets').select('*').eq('project_id', projectId)
-            .order('sort_order').order('id'), unwrap),
-          readAllPagesWith(() => client.from('tasks').select('*').eq('project_id', projectId)
-            .order('id'), unwrap),
+          readAssetsWith(client, projectId),
+          readTasksWith(client, projectId),
           listDependenciesWith(client, projectId),
           client.from('task_links').select('*, task:tasks!inner(project_id)').eq('task.project_id', projectId).then(unwrap).catch(() => []),
           listFilesWith(client, projectId), // DG1-01 (R1): paged, listFiles' read
           client.from('asset_versions').select('*, asset:assets!inner(project_id)').eq('asset.project_id', projectId).then(unwrap).catch(() => []),
-          client.from('comments').select('*').then(unwrap), // entity_id filter happens client-side
+          // F5 (rabbit C2): read after this Promise.all, for this project's rows only.
+          Promise.resolve(null),
           client.from('ingestion_runs').select('*').eq('project_id', projectId).then(unwrap),
           // Money is manager-only at the RLS layer (0037), so for a reviewer
           // or team member these legitimately return []. Catch rather than
@@ -3208,9 +3304,14 @@ export function supabaseAdapter() {
           // on both adapters. project_title (0036) is the per-project JOB
           // TITLE and rides along here — it is NOT project_role, which is the
           // permission column every RLS gate reads.
+          // F5 (rabbit B3): every column, as listProjectMembers reads them: the
+          // rows are also returned whole (`projectMembers`), and the provider's
+          // roster takes them instead of reading the table a second time.
           client.from('project_members')
-            .select('project_id, user_id, project_role, project_title')
-            .eq('project_id', projectId).then(unwrap).catch(() => []),
+            .select('*')
+            // F5 review round 2: a failed read is unknown (null), not an empty
+            // roster: the provider then reads the roster by its own path.
+            .eq('project_id', projectId).then(unwrap).catch(() => null),
           // Ordered by sort_order to match the local bundle, which is an
           // array and therefore ordered by construction. Without this the two
           // adapters would disagree on row order for the same project.
@@ -3218,23 +3319,18 @@ export function supabaseAdapter() {
           // the bundle's shots and scenes, so a feature-sized project must
           // not be cut at PostgREST's 1,000 rows. `sort_order, id` is a
           // total order, so no row straddles two pages.
-          readAllPages(() => client.from('scenes').select('*').eq('project_id', projectId)
-            .order('sort_order').order('id')),
-          readAllPages(() => client.from('shots').select('*').eq('project_id', projectId)
-            .order('sort_order').order('id')),
-          client.from('levels').select('*').eq('project_id', projectId)
-            .order('sort_order').then(unwrapOptionalTable),
-          client.from('experiences').select('*').eq('project_id', projectId)
-            .order('sort_order').then(unwrapOptionalTable),
-          client.from('folders').select('*').eq('project_id', projectId)
-            .order('path').then(unwrapOptionalTable),
+          readScenesWith(client, projectId),
+          readShotsWith(client, projectId),
+          readLevelsWith(client, projectId),
+          readExperiencesWith(client, projectId),
+          // F5 (rabbit B2): the folders' one paged read (the tree must be WHOLE).
+          listFoldersWith(client, projectId),
           // `.order('id')` is the TIE-BREAK, not decoration: `ORDER BY date`
           // alone leaves two key dates on the same day in an arbitrary heap
           // order, while the local adapter's Array.sort is stable — so the two
           // backends could return the same project in different orders, which
           // is what ordering this at all was meant to prevent (R2).
-          client.from('milestones').select('*').eq('project_id', projectId)
-            .order('date').order('id').then(unwrapOptionalTable),
+          readMilestonesWith(client, projectId),
           listShotListsWith(client, projectId),
           listShotListItemsWith(client, projectId),
           listEditsWith(client, projectId),
@@ -3251,6 +3347,9 @@ export function supabaseAdapter() {
           client.from('assets').select('level_ids, experience_ids').eq('project_id', projectId)
             .range(0, 0).then(probeAssetLevelLinks, () => false),
         ]);
+      // F5 (rabbit C2): the comments on this project's own rows, set-aside
+      // tasks and phases included (they are in `tasks` and `phases` here).
+      const comments = await readProjectCommentsWith(client, projectId, [phases, assets, tasks]);
       // Post-overhaul S5b (0090): the rows the open bid version does not hold
       // are SET ASIDE. No SELECT policy hides them (they must stay readable to
       // be brought back), so they are split out HERE, into the four
@@ -3272,6 +3371,7 @@ export function supabaseAdapter() {
           project_role: m.project_role,
           project_title: m.project_title || '',
         })),
+        projectMembers: Array.isArray(projectMembers) ? projectMembers : null,
       });
     },
 
@@ -3362,7 +3462,7 @@ export function supabaseAdapter() {
     // ── Phases ────────────────────────────────────────────────
     async listPhases(projectId) {
       const client = await requireClient();
-      return unwrap(await client.from('phases').select('*').eq('project_id', projectId).order('sort_order'));
+      return readPhasesWith(client, projectId);
     },
     async upsertPhase(phase) {
       const client = await requireClient();
@@ -3387,7 +3487,7 @@ export function supabaseAdapter() {
     // ── Assets ────────────────────────────────────────────────
     async listAssets(projectId) {
       const client = await requireClient();
-      return unwrap(await client.from('assets').select('*').eq('project_id', projectId).order('sort_order'));
+      return readAssetsWith(client, projectId);
     },
     async upsertAsset(asset) {
       const client = await requireClient();
@@ -3412,7 +3512,7 @@ export function supabaseAdapter() {
     // ── Tasks ─────────────────────────────────────────────────
     async listTasks(projectId) {
       const client = await requireClient();
-      return unwrap(await client.from('tasks').select('*').eq('project_id', projectId));
+      return readTasksWith(client, projectId);
     },
     async upsertTask(task) {
       const client = await requireClient();
@@ -3733,6 +3833,15 @@ export function supabaseAdapter() {
     // things. Progress is transport, not content, so it travels beside the scope.
     async uploadFile(projectId, scope = {}, file, opts = {}) {
       const client = await requireClient();
+      // F5 (rabbit C4): a drop of many files passes one `opts.batch` object;
+      // the container's folder, the INVOICES folder and a shot's scene, the
+      // same for all of them, are read once per batch when found (a lookup
+      // that failed or found nothing is asked again by the next file). The
+      // project's privacy is read for EVERY file, as before F5: its probe
+      // answers "not private" on an error, and a kept answer, or one a change
+      // to private outlived, would send the rest of a private project's drop
+      // to the cloud (F5's first review round, security).
+      const once = (key, read, keep) => onceInBatch(opts.batch, key, read, keep);
       // Session 24: `INVOICES` is a RESERVED path segment, and the check
       // comes first so a financial file can never be filed under another
       // entity. 🚨 THE POLICY FAMILY IS `rabbit_files_money_*`, NOT
@@ -3815,11 +3924,11 @@ export function supabaseAdapter() {
       let folderRow = null;
       if (container.key && !legal) {
         try {
-          const { data } = await client
+          const { data } = await once(`folder|${projectId}|${container.key}|${container.id}`, () => client
             .from('folders').select('id, path')
             .eq('project_id', projectId)
             .eq(container.key, container.id)
-            .maybeSingle();
+            .maybeSingle(), (r) => !r?.error && !!r?.data?.id);
           folderRow = data && data.id ? data : null;
         } catch { /* the tree is a convenience here, not a precondition */ }
       }
@@ -3841,27 +3950,31 @@ export function supabaseAdapter() {
       // that fails is said in the console, never swallowed, and the upload
       // still goes on.
       if (scope.financial && !scope.folderId && !folderRow) {
-        try {
-          const { data, error } = await client
-            .from('folders').select('id, path')
-            .eq('project_id', projectId)
-            .eq('kind', 'category')
-            .eq('path', INVOICES_PLANNED.path)
-            .maybeSingle();
-          if (error) {
-            console.warn(`[supabase] the INVOICES folder could not be read, so the file sits at the project's top: ${error.message || error}`);
-          } else if (data && data.id) {
-            folderRow = data;
-          } else {
-            const byPath = await foldersByPath(client, projectId);
-            if (byPath.has('')) {
-              folderRow = (await insertFolderIfMissing(client, projectId, INVOICES_PLANNED, byPath))
-                || byPath.get(INVOICES_PLANNED.path) || null;
+        folderRow = await once(`invoices|${projectId}`, async () => {
+          let found = null;
+          try {
+            const { data, error } = await client
+              .from('folders').select('id, path')
+              .eq('project_id', projectId)
+              .eq('kind', 'category')
+              .eq('path', INVOICES_PLANNED.path)
+              .maybeSingle();
+            if (error) {
+              console.warn(`[supabase] the INVOICES folder could not be read, so the file sits at the project's top: ${error.message || error}`);
+            } else if (data && data.id) {
+              found = data;
+            } else {
+              const byPath = await foldersByPath(client, projectId);
+              if (byPath.has('')) {
+                found = (await insertFolderIfMissing(client, projectId, INVOICES_PLANNED, byPath))
+                  || byPath.get(INVOICES_PLANNED.path) || null;
+              }
             }
+          } catch (err) {
+            console.warn(`[supabase] the INVOICES folder could not be read or made, so the file sits at the project's top: ${err?.message || err}`);
           }
-        } catch (err) {
-          console.warn(`[supabase] the INVOICES folder could not be read or made, so the file sits at the project's top: ${err?.message || err}`);
-        }
+          return found;
+        }, (row) => !!row?.id);
       }
       const folderId = legal ? null : (scope.folderId || folderRow?.id || null);
 
@@ -3879,7 +3992,7 @@ export function supabaseAdapter() {
       // never a shot's).
       if (!moneyGated && container.key === 'shot_id') {
         const underShots = typeof folderRow?.path === 'string' && folderRow.path.startsWith('SHOTS/');
-        const sceneId = underShots ? null : await shotSceneId(client, container.id);
+        const sceneId = underShots ? null : await once(`scene|${container.id}`, () => shotSceneId(client, container.id));
         prefix = shotObjectPrefix(projectId, sceneId, container.id);
       }
       const storagePath = `${prefix}/${Date.now()}-${safeName}`;
@@ -4894,43 +5007,16 @@ export function supabaseAdapter() {
       unwrap(await client.from('task_templates').delete().eq('id', id));
     },
 
-    // ── Team members (Session 24) ─────────────────────────────
+    // ── Team members ───────────────────────────────────────────
     //
-    // The Crew/Team budget tab is driven by useTeamMembers() ∩ the project's
-    // teamAssignments. `listTeamMembers` existed ONLY on localServerAdapter,
-    // so in cloud `tm.members` was [] and the Crew tab rendered no one at all
-    // — Audrey's "show each team member and their title" could not work.
-    //
-    // There is no separate cloud `team_members` table and there should not be
-    // one: the roster already exists as workspace_members, exposed through
-    // the workspace_directory() RPC (0010), which is SECURITY DEFINER and
-    // already filters by the caller's LIVE membership rather than a JWT claim.
-    // Mapped onto the local shape so one UI serves both adapters.
-    //
-    // Read only, deliberately. Creating/removing workspace members is the
-    // Admin Terminal's job and goes through admin-create-user; a budget tab
-    // must not be able to mint people. useTeamMembers feature-detects each
-    // method separately, so the absent writers degrade cleanly.
-    async listTeamMembers() {
-      const client = await requireClient();
-      const rows = unwrap(await client.rpc('workspace_directory')) || [];
-      return rows
-        .filter(r => r.is_active !== false)
-        .map(r => ({
-          id: r.user_id,                       // cloud identity IS the user id
-          user_id: r.user_id,
-          name: r.display_name || r.username || '(unnamed)',
-          username: r.username,
-          title: r.title || '',                // company job title
-          department: r.department || '',
-          avatar_url: r.avatar_url || null,
-          email: r.email || null,
-          app_role: r.app_role,
-          // No cloud column. The local bundle carries it; defaulting keeps
-          // CrewTeamTab's grouping working rather than rendering undefined.
-          employment_type: 'fulltime',
-        }));
-    },
+    // Session 24 gave this adapter `listTeamMembers` (the workspace_directory()
+    // RPC mapped onto the local shape) so the Crew/Team budget tab could show
+    // the cloud's people. F5 (shared B1, rabbit B1) removed it: useTeamMembers
+    // now reads the ONE roster useWorkspaceMembers holds and maps it there
+    // (teamMembersFromDirectory), because this method made a second identical
+    // RPC per useRosterMembers mount. Creating or removing members stays the
+    // Admin terminal's job (admin-create-user); a budget tab must not be able
+    // to mint people, so this adapter has no team-member writers either.
 
     // ── Budget (Session 24, migrations 0036 + 0037) ───────────
     //
@@ -5115,8 +5201,7 @@ export function supabaseAdapter() {
     // broke in S23.
     async listScenes(projectId) {
       const client = await requireClient();
-      return unwrapOptionalTable(await client.from('scenes').select('*')
-        .eq('project_id', projectId).order('sort_order'));
+      return readScenesWith(client, projectId);
     },
     async upsertScene(scene) {
       const client = await requireClient();
@@ -5133,8 +5218,7 @@ export function supabaseAdapter() {
 
     async listShots(projectId) {
       const client = await requireClient();
-      return unwrapOptionalTable(await client.from('shots').select('*')
-        .eq('project_id', projectId).order('sort_order'));
+      return readShotsWith(client, projectId);
     },
     async upsertShot(shot) {
       const client = await requireClient();
@@ -5148,8 +5232,7 @@ export function supabaseAdapter() {
 
     async listLevels(projectId) {
       const client = await requireClient();
-      return unwrapOptionalTable(await client.from('levels').select('*')
-        .eq('project_id', projectId).order('sort_order'));
+      return readLevelsWith(client, projectId);
     },
     async upsertLevel(level) {
       const client = await requireClient();
@@ -5163,8 +5246,7 @@ export function supabaseAdapter() {
 
     async listExperiences(projectId) {
       const client = await requireClient();
-      return unwrapOptionalTable(await client.from('experiences').select('*')
-        .eq('project_id', projectId).order('sort_order'));
+      return readExperiencesWith(client, projectId);
     },
     async upsertExperience(experience) {
       const client = await requireClient();
@@ -5379,8 +5461,7 @@ export function supabaseAdapter() {
     // how task creation broke in S23.
     async listMilestones(projectId) {
       const client = await requireClient();
-      return unwrapOptionalTable(await client.from('milestones').select('*')
-        .eq('project_id', projectId).order('date').order('id'));
+      return readMilestonesWith(client, projectId);
     },
     async upsertMilestone(milestone) {
       const client = await requireClient();
