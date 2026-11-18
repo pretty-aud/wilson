@@ -37,6 +37,9 @@ import { useRabbit } from '../state/RabbitProvider'
 import FileThumbnail, { extensionOf } from './FileThumbnail'
 import VideoPreview from './VideoPreview'
 import { fileSlugify } from '../entityNaming'
+// F9 (A1): the one place the renderer turns a project and a folder into a path
+// on this computer (the copy's destination, Download, Open folder).
+import { projectDiskPath } from './projectDiskPath'
 import { isLegalFile } from '../fileTags'
 import { guessMimeType } from './mimeTypes'
 // Session 40 (§5f). Provider-keyed, because 50 MB is `rabbit-files`'s own limit
@@ -690,8 +693,6 @@ export default function FileManager({
     const videoNotices = []
 
     try {
-      const projectSlug = project?.folder_slug || fileSlugify(project?.title || 'Untitled')
-
       for (const srcPath of filePaths) {
         // Get file info
         const stats = await api.getFileStats({ filePath: srcPath })
@@ -726,30 +727,17 @@ export default function FileManager({
           notes:         '',
         })
 
-        // Resolve destination directory: the record's own folder.
-        const folderRel = recordFolderRel(record)
-        const folderRoot = project?.folder_root
-        let destDir
-        if (folderRoot) {
-          destDir = folderRoot.replace(/\\/g, '/') + '/' + folderRel
-        } else {
-          // Fallback: the root this machine resolves under. effectiveRootDir
-          // (S34) folds in the workspace root when one is pushed — reading
-          // defaultRootDir alone here diverged from main's resolvers the day
-          // the root moved to the database.
-          const cfg = await api.readFilesConfig()
-          const rootBase = cfg?.effectiveRootDir || cfg?.defaultRootDir
-          if (rootBase) {
-            destDir = rootBase.replace(/\\/g, '/') + '/' + projectSlug + '/' + folderRel
-          }
-        }
+        // Resolve destination directory: the record's own folder, under the
+        // project's folder on this computer (projectDiskPath: its folder_root,
+        // else the root this machine resolves under — S34's effectiveRootDir).
+        const destDir = await projectDiskPath({ project, api, rel: recordFolderRel(record) })
 
         if (destDir) {
           // Copy file to asset folder using streaming IPC
           setCopyProgress({ fileName: record.stored_name, percent: 0 })
           await api.copyFile({
             sourcePath: srcPath,
-            destDir: destDir.replace(/\//g, '\\'),
+            destDir,
             destFileName: record.stored_name,
             // Main refuses a copy outside this project's own folder, and a
             // source that did not come from the pick above (copyFileFence.cjs).
@@ -867,21 +855,9 @@ export default function FileManager({
     const api = window.electronAPI?.rabbit
     if (!api) return
     // Open the file's folder in OS explorer
-    const projectSlug = project?.folder_slug || fileSlugify(project?.title || 'Untitled')
-    const folderRel = recordFolderRel(file).replace(/\//g, '\\')
-    const folderRoot = project?.folder_root
-    let filePath
-    if (folderRoot) {
-      filePath = folderRoot + '\\' + folderRel + '\\' + file.stored_name
-    } else {
-      const cfg = await api.readFilesConfig()
-      const rootBase = cfg?.effectiveRootDir || cfg?.defaultRootDir // S34: workspace root first
-      if (rootBase) {
-        filePath = rootBase + '\\' + projectSlug + '\\' + folderRel + '\\' + file.stored_name
-      }
-    }
+    const filePath = await projectDiskPath({ project, api, rel: recordFolderRel(file), leaf: file.stored_name })
     if (filePath) {
-      await api.openInExplorer({ filePath: filePath.replace(/\//g, '\\') })
+      await api.openInExplorer({ filePath })
     }
   }, [project, recordFolderRel])
 
@@ -914,21 +890,9 @@ export default function FileManager({
   const handleOpenFolder = useCallback(async () => {
     const api = window.electronAPI?.rabbit
     if (!api) return
-    const projectSlug = project?.folder_slug || fileSlugify(project?.title || 'Untitled')
-    const folderRel = entityFolderRel.replace(/\//g, '\\')
-    const folderRoot = project?.folder_root
-    let folderPath
-    if (folderRoot) {
-      folderPath = folderRoot + '\\' + folderRel
-    } else {
-      const cfg = await api.readFilesConfig()
-      const rootBase = cfg?.effectiveRootDir || cfg?.defaultRootDir // S34: workspace root first
-      if (rootBase) {
-        folderPath = rootBase + '\\' + projectSlug + '\\' + folderRel
-      }
-    }
+    const folderPath = await projectDiskPath({ project, api, rel: entityFolderRel })
     if (folderPath) {
-      await api.openInExplorer({ filePath: folderPath.replace(/\//g, '\\') })
+      await api.openInExplorer({ filePath: folderPath })
     }
   }, [project, entityFolderRel])
 

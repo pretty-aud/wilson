@@ -1225,14 +1225,22 @@ describe('review fixes — S40', () => {
     //
     // The resolver is the load-bearing half: a bundle ALREADY ON DISK may
     // carry a poisoned slug, so fixing only the writers leaves it live.
+    // F9: the resolver is the one in electron/projectFolders.cjs (main.cjs
+    // keeps two bindings of it); its slug is projectSlugOf, which slugifies
+    // the stored folder_slug every time (a poisoned slug is served in
+    // projectFolders.test.js and cannot leave the root).
     const fn = sliceBetween(main, 'function resolveProjectFolderRoot', 'function ensureAssetFolder')
     expect(fn).toBeTruthy()
-    expect(fn).toMatch(/fileSlugify\(String\(stored\)\)/)
-    expect(fn).not.toMatch(/path\.join\(rootBase, bundle\.project\?\.folder_slug/)
+    expect(fn).toMatch(/projectFolders\.projectFolderOf\(bundle, \{ mustExist: false \}\)/)
+    const folders = executable(readRepo('electron', 'projectFolders.cjs'))
+    expect(folders).toMatch(/return slug\(project\?\.folder_slug\) \|\| slug\(project\?\.title\) \|\| PROJECT_FALLBACK;/)
+    expect(folders).toMatch(/const slug = \(value\) => fileSlugify\(String\(value \?\? ''\)\);/)
+    expect(folders).toMatch(/path\.join\(rootBase, projectSlugOf\(bundle\?\.project\)\)/)
+    expect(folders).not.toMatch(/path\.join\(rootBase, bundle\.project\?\.folder_slug/)
   })
 
   it('🚨 HIGH: and at both writers — the create route and the PATCH spread', () => {
-    expect(main).toMatch(/folder_slug:\s*fileSlugify\(String\(req\.body\.folder_slug/)
+    expect(main).toMatch(/folder_slug:\s*projectSlugOf\(\{ folder_slug: req\.body\.folder_slug/)
     expect(main).toMatch(/if \('folder_slug' in req\.body\)/)
   })
 

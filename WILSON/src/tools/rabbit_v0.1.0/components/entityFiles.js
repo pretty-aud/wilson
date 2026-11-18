@@ -21,8 +21,9 @@
 // abandons the rest (FileManager's rule): the names that failed come back.
 // =============================================================================
 
-import { fileSlugify } from '../entityNaming'
 import { guessMimeType } from './mimeTypes'
+// F9 (A1): the renderer's one answer to "where is this project's folder".
+import { projectDiskPath } from './projectDiskPath'
 
 const EXT_RE = /\.[^./\\]+$/
 
@@ -98,23 +99,14 @@ export async function addFilesToEntity({ ctx, entityType, entity, picked = [], a
         size_bytes:    stats.size,
         notes:         '',
       })
-      const project = ctx.project
       const folderRel = String(record?.folder_path || '').replace(/\/+$/, '')
       if (!folderRel) throw new Error('the record names no folder')
-      let destDir = null
-      if (project?.folder_root) {
-        destDir = project.folder_root.replace(/\\/g, '/') + '/' + folderRel
-      } else if (typeof api.readFilesConfig === 'function') {
-        const cfg = await api.readFilesConfig()
-        const rootBase = cfg?.effectiveRootDir || cfg?.defaultRootDir
-        const projectSlug = project?.folder_slug || fileSlugify(project?.title || 'Untitled')
-        if (rootBase) destDir = rootBase.replace(/\\/g, '/') + '/' + projectSlug + '/' + folderRel
-      }
+      const destDir = await projectDiskPath({ project: ctx.project, api, rel: folderRel })
       if (!destDir) throw new Error('no project folder on this computer')
       // p.path is the desktop's picker's (EntityListView.CreateEntityPopup); main
       // refuses any other source, and a folder outside this project's own
       // (copyFileFence.cjs). The refusal is the sentence the form shows.
-      await api.copyFile({ sourcePath: p.path, destDir: destDir.replace(/\//g, '\\'), destFileName: record.stored_name, projectId: record.project_id })
+      await api.copyFile({ sourcePath: p.path, destDir, destFileName: record.stored_name, projectId: record.project_id })
       added += 1
     } catch (err) {
       failed.push(`${p.name || 'a file'}: ${err?.message || String(err)}`)

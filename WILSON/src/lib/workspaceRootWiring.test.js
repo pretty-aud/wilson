@@ -75,10 +75,15 @@ describe('main.cjs — one definition of the configured root, consulted everywhe
 
 describe('FileManager — renderer path building rides the effective root', () => {
   it('all three fallback sites consult effectiveRootDir before defaultRootDir', () => {
-    const sites = fileManager.match(/cfg\?\.effectiveRootDir \|\| cfg\?\.defaultRootDir/g) || []
-    expect(sites.length).toBeGreaterThanOrEqual(3)
+    // F9 (A1): the three sites ask the renderer's one path helper, which
+    // consults effectiveRootDir first (its answers are served in
+    // components/projectDiskPath.test.js).
+    expect(fileManager.match(/await projectDiskPath\(\{/g) || []).toHaveLength(3)
+    const helper = read('../tools/rabbit_v0.1.0/components/projectDiskPath.js')
+    expect(helper).toContain('const rootBase = cfg?.effectiveRootDir || cfg?.defaultRootDir')
     // and no site reads defaultRootDir alone for path building anymore
     expect(fileManager).not.toMatch(/if \(cfg\?\.defaultRootDir\) \{/)
+    expect(helper).not.toMatch(/if \(cfg\?\.defaultRootDir\) \{/)
   })
 })
 

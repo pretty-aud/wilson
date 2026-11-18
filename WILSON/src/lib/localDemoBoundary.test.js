@@ -161,8 +161,12 @@ describe('main.cjs — every round-two seam reaches its module (source scan)', (
     expect(pick).toContain('userAuthorizedImages.add(path.resolve(result.filePaths[0]).toLowerCase())')
   })
   it('H3: both project-folder resolvers and the relink roots consult storedRootUsable (real path, inside the open folder)', () => {
-    expect(MAIN).toContain('if (root && fs.existsSync(root) && storedRootUsable(root)) return root;')
-    expect(MAIN).toContain('if (projectRoot && fs.existsSync(projectRoot) && storedRootUsable(projectRoot)) return projectRoot;')
+    // F9: the two resolvers are bindings of the one in projectFolders.cjs,
+    // made with main's storedRootUsable (a stored root that is not usable is
+    // served in storage/projectFolders.test.js).
+    const FOLDERS = readFileSync(fileURLToPath(new URL('../../electron/projectFolders.cjs', import.meta.url)), 'utf8')
+    expect(FOLDERS).toContain('if (stored && fs.existsSync(stored) && storedRootUsable(stored)) return stored;')
+    expect(MAIN).toMatch(/createProjectFolders\(\{[^}]*storedRootUsable, resolveConfiguredRootDir,/)
     expect(MAIN).toContain('const fd = bundle.project?.files_dir; if (fd && storedRootUsable(fd)) roots.push(fd);')
     const fn = MAIN.slice(MAIN.indexOf('function storedRootUsable('), MAIN.indexOf('function storedRootUsable(') + 400)
     expect(fn).toContain('fs.realpathSync.native(root)')

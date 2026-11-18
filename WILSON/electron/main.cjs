@@ -1499,6 +1499,15 @@ function startLocalServer(distPath) {
     // outside rabbit-data (electron/personalSpace.cjs).
     const { createPersonalSpace, mountPersonalSpace } = require('./personalSpace.cjs');
     const personalSpace = createPersonalSpace({ fs, path, userDataDir: app.getPath('userData'), newId: uuidv4 });
+    // F9 (A1): "where is this project's folder on this computer", once —
+    // electron/projectFolders.cjs. resolveProjectFolder and
+    // resolveProjectFolderRoot below are its two bindings; projectSlugOf and
+    // assetSlugOf are the one slug of a project's folder and of an asset's.
+    const projectFolders = require('./projectFolders.cjs').createProjectFolders({
+      fs, path, fileSlugify, isPersonalBundle: personalSpace.isPersonalBundle,
+      storedRootUsable, resolveConfiguredRootDir,
+    });
+    const { projectSlugOf, assetSlugOf } = projectFolders;
 
     function getRabbitProjectsDir() {
       const dir = path.join(getRabbitDataDir(), 'projects');
@@ -1866,20 +1875,15 @@ function startLocalServer(distPath) {
     //   {Slug}_FILES/                 — uploaded files (docs, etc.; NOT
     //                                   receipts since C4 — see INVOICES/)
 
+    // The project's folder, only if it is there (the tree, the mirrors, the
+    // files and invoices folders, relink, the manifest, the rates file, the
+    // shot re-filing, Legal). F9: projectFolders.cjs holds the rule — the
+    // personal space has none (MO1); a stored root only where the person
+    // could have chosen it (review round 2, H3); else the configured root
+    // (Session 34) and projectSlugOf.
     function resolveProjectFolder(bundle) {
-      // MO1: the personal space has no project folder and no _DATABASES mirror.
-      if (personalSpace.isPersonalBundle(bundle)) return null;
-      const root = bundle?.project?.folder_root;
-      // (review round 2, H3) a stored root is followed only where the person
-      // could have chosen it — inside the open demo folder, or anywhere when
-      // none is open; a copied folder's bundle is somebody else's record.
-      if (root && fs.existsSync(root) && storedRootUsable(root)) return root;
-      // Session 34: workspace root (byos) outranks the machine default.
-      const rootBase = resolveConfiguredRootDir();
-      if (!rootBase) return null;
-      const slug = bundle?.project?.folder_slug || fileSlugify(bundle?.project?.title || 'Untitled-Project');
-      const resolved = path.join(rootBase, slug);
-      return fs.existsSync(resolved) ? resolved : null;
+      if (personalSpace.isPersonalBundle(bundle)) return null; // MO1, asked first (personalSpace.routes.test.js pins it here)
+      return projectFolders.projectFolderOf(bundle, { mustExist: true });
     }
 
     // ── Session 26: the folder categories ────────────────────
@@ -1939,7 +1943,7 @@ function startLocalServer(distPath) {
     function ensureProjectFolders(bundle) {
       const root = resolveProjectFolder(bundle);
       if (!root) return;
-      const slug = bundle.project.folder_slug || fileSlugify(bundle.project.title || 'Untitled-Project');
+      const slug = projectSlugOf(bundle.project);
       const dirs = [
         path.join(root, 'ASSETS'),
         // 🚨 NOT ported to the folders TABLE, and it must not be. On `main`
@@ -2285,7 +2289,7 @@ function startLocalServer(distPath) {
       if (override && fs.existsSync(override)) return override;
       const root = resolveProjectFolder(bundle);
       if (root) {
-        const slug = bundle.project.folder_slug || fileSlugify(bundle.project.title || 'Untitled-Project');
+        const slug = projectSlugOf(bundle.project);
         const dir = path.join(root, `${slug}_FILES`);
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         return dir;
@@ -2641,7 +2645,9 @@ function startLocalServer(distPath) {
         // against (resolveProjectFolderRoot), so `../../../..` here reparents
         // the whole project. Idempotent for a legitimate slug — the renderer
         // produces the same form — so nothing that works today changes.
-        folder_slug:     fileSlugify(String(req.body.folder_slug || req.body.title || 'Untitled-Project')),
+        // F9 (OUTSTANDING F9-02): and never empty — a title like 東京
+        // slugified to '' and the folder below was the configured root itself.
+        folder_slug:     projectSlugOf({ folder_slug: req.body.folder_slug, title: req.body.title }),
         folder_root:     folderRootIn,
         files_dir:       filesDirIn,
         // Post-overhaul S3a (0084): a new project has no shot list, so it can
@@ -2760,15 +2766,17 @@ function startLocalServer(distPath) {
         const next = req.body.folder_slug;
         const cur = bundle.project.folder_slug || null;
         if (String(next ?? '') !== String(cur ?? '')) {
-          req.body.folder_slug = fileSlugify(String(next || bundle.project.title || 'Untitled-Project'));
+          req.body.folder_slug = projectSlugOf({ folder_slug: next, title: bundle.project.title });
         }
       }
       const oldTitle = bundle.project.title;
       const oldSlug = bundle.project.folder_slug;
       bundle.project = { ...bundle.project, ...req.body, id: bundle.project.id };
-      // If title changed, update folder_slug and rename folder
+      // If title changed, update folder_slug and rename folder. F9: the one
+      // slug rule — a title with nothing to slug renames to the fallback, where
+      // '' left the folder behind and the write's reconcile then named another.
       if (req.body.title && req.body.title !== oldTitle) {
-        const newSlug = fileSlugify(req.body.title);
+        const newSlug = projectSlugOf({ title: req.body.title });
         if (newSlug !== oldSlug && oldSlug) {
           const root = bundle.project.folder_root
             ? path.dirname(bundle.project.folder_root)
@@ -3018,35 +3026,18 @@ function startLocalServer(distPath) {
     // ── Assets: custom routes with folder lifecycle side-effects ──
     // Replaces rabbitSubentityRoutes('assets','assets') so we can
     // create/rename/soft-delete OS folders when assets change.
+    // The project's folder whether or not it is there yet (asset folders,
+    // managed-file bodies and thumbnails, the hard delete, the copy fence's
+    // roots). 🚨 SESSION 40 (adversarial review, HIGH — CONFIRMED BY
+    // MEASUREMENT): the containment base was client-controlled — folder_slug
+    // reaches a bundle verbatim from req.body, and `'../../../..'` turned a
+    // root of D:\WilsonRoot\Projects into D:\. Slugifying at the RESOLVER is
+    // the load-bearing half (a bundle already on disk may carry a poisoned
+    // slug): projectSlugOf (projectFolders.cjs) re-slugifies it, and since F9
+    // never answers an empty slug, so never the configured root itself.
     function resolveProjectFolderRoot(bundle) {
       if (personalSpace.isPersonalBundle(bundle)) return null; // MO1: as resolveProjectFolder
-      const projectRoot = bundle.project?.folder_root;
-      if (projectRoot && fs.existsSync(projectRoot) && storedRootUsable(projectRoot)) return projectRoot; // (review 2, H3)
-      // Session 34: workspace root (byos) outranks the machine default.
-      const rootBase = resolveConfiguredRootDir();
-      if (!rootBase) return null;
-      const slug = fileSlugify(bundle.project?.title || 'Untitled-Project');
-      // 🚨 SESSION 40 (adversarial review, HIGH — CONFIRMED BY MEASUREMENT).
-      // THE CONTAINMENT BASE WAS ITSELF CLIENT-CONTROLLED, which makes every
-      // resolveContainedFilePath below it faithfully contain against a
-      // directory the caller chose. `folder_slug` reaches a bundle verbatim
-      // from req.body (the project POST's `req.body.folder_slug || ...`, and
-      // the PATCH's spread), so `folder_slug: '../../../..'` turns a root of
-      // D:\WilsonRoot\Projects into D:\ — measured, exactly that.
-      //
-      // Slugifying HERE and not only at the writers is the load-bearing half:
-      // a bundle already on disk may carry a poisoned slug, and fileSlugify
-      // strips every character that is not alphanumeric or a space, so a
-      // traversal cannot survive it. Idempotent for every legitimate slug
-      // (the renderer produces the same form via entityNaming.fileSlugify),
-      // so no existing project's folder moves.
-      //
-      // Pre-existing since the folder tree; S40 is where it stopped being
-      // survivable, because the stream route returns ORIGINAL BYTES of ANY
-      // type with Range support rather than a 256px JPEG of an image.
-      const stored = bundle.project?.folder_slug;
-      const safe = stored ? fileSlugify(String(stored)) : '';
-      return path.join(rootBase, safe || slug);
+      return projectFolders.projectFolderOf(bundle, { mustExist: false });
     }
     // ── Session 40: the ONE place a managed file's body is located on disk ────
     //
@@ -3079,7 +3070,7 @@ function startLocalServer(distPath) {
         return resolveContainedFilePath(root, path.join(...segs, mf.stored_name));
       }
       const asset = (bundle.assets || []).find(a => a.id === mf.asset_id);
-      const assetSlug = asset?.folder_slug || fileSlugify(asset?.name || 'Untitled-Asset');
+      const assetSlug = assetSlugOf(asset);
       return resolveContainedFilePath(root, path.join('ASSETS', assetSlug, mf.stored_name));
     }
     function ensureAssetFolder(bundle, assetName) {
@@ -3087,7 +3078,7 @@ function startLocalServer(distPath) {
       if (!root) return null;
       const assetsDir = path.join(root, 'ASSETS');
       if (!fs.existsSync(assetsDir)) fs.mkdirSync(assetsDir, { recursive: true });
-      const assetSlug = fileSlugify(assetName || 'Untitled-Asset');
+      const assetSlug = assetSlugOf({ name: assetName });
       const folderPath = path.join(assetsDir, assetSlug);
       if (!fs.existsSync(folderPath)) fs.mkdirSync(folderPath, { recursive: true });
       return { folderPath, assetSlug };
@@ -3122,8 +3113,11 @@ function startLocalServer(distPath) {
       if (req.body.name && req.body.name !== oldAsset.name) {
         const root = resolveProjectFolderRoot(bundle);
         if (root) {
-          const oldSlug = oldAsset.folder_slug || fileSlugify(oldAsset.name || 'Untitled-Asset');
-          const newSlug = fileSlugify(req.body.name);
+          // F9: never an empty slug (OUTSTANDING F9-02) — a name with nothing
+          // to slug joined to ASSETS itself, and this rename then tried to move
+          // the whole ASSETS folder.
+          const oldSlug = assetSlugOf(oldAsset);
+          const newSlug = assetSlugOf({ name: req.body.name });
           const assetsDir = path.join(root, 'ASSETS');
           if (!fs.existsSync(assetsDir)) fs.mkdirSync(assetsDir, { recursive: true });
           // Session 17 (#45 family): newSlug is fileSlugify output and safe,
@@ -3167,7 +3161,10 @@ function startLocalServer(distPath) {
       if (asset) {
         const root = resolveProjectFolderRoot(bundle);
         if (root) {
-          const slug = asset.folder_slug || fileSlugify(asset.name || 'Untitled-Asset');
+          // F9 (OUTSTANDING F9-02): never an empty slug — '' resolved to
+          // ASSETS itself, and this renameSync moved EVERY asset's folder to
+          // .trash with the one deleted (projectFolders.test.js).
+          const slug = assetSlugOf(asset);
           // Contained for the same reason as the rename above: folder_slug
           // is client-writable, and this renameSync moves a directory.
           const folderPath = resolveContainedFilePath(path.join(root, 'ASSETS'), slug);
@@ -4136,6 +4133,9 @@ function startLocalServer(distPath) {
       if (!bundle) return rabbitNotFound(res);
       if (!bundle.managedFiles) bundle.managedFiles = [];
       const now = new Date().toISOString();
+      // Kept in its own words (not projectSlugOf / assetSlugOf below): the shot
+      // re-filing test lifts this route with a fixed list of names. Every bundle
+      // it meets is reconciled, where it answers as projectSlugOf (F9-03).
       const projectSlug = bundle.project?.folder_slug || fileSlugify(bundle.project?.title || 'Untitled');
       const version = getNextVersion(bundle.managedFiles, req.body.file_name, req.body.asset_id, req.body.shot_id, req.body.scene_id, req.body.level_id, req.body.experience_id);
       const vLabel = formatVersion(version);
@@ -4579,7 +4579,7 @@ function startLocalServer(distPath) {
         return res.status(403).json({ error: 'folder not authorized by the user' });
       }
       const now = new Date().toISOString();
-      const projectSlug = bundle.project?.folder_slug || fileSlugify(bundle.project?.title || 'Untitled');
+      const projectSlug = projectSlugOf(bundle.project);
       const created = [];
       // Scan top-level subdirs as asset folders
       const entries = fs.readdirSync(folderPath, { withFileTypes: true });
