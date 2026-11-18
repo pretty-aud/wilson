@@ -37,6 +37,9 @@ export default class LazyPageBoundary extends Component {
   }
 }
 
+// What each loader answered, once it has (keyed by the loader function itself).
+const loadedParts = new WeakMap()
+
 /**
  * A part of a page loaded on its first draw, held by the boundary above: MothSurface's shape (App.jsx), once.
  *
@@ -52,9 +55,21 @@ export function LazyPart({ load, title, waiting, surface, children }) {
   const [attempt, setAttempt] = useState(0)
   // `load` is read once per attempt: a call site's inline arrow is a new function at every draw, and a new lazy()
   // per draw would load again and lose the part's state.
-  const Loaded = useMemo(() => lazy(() => Promise.resolve().then(load).then((loaded) => ({
-    default: function LazyPartLoaded({ draw }) { return draw(loaded) },
-  }))), [attempt]) // eslint-disable-line react-hooks/exhaustive-deps
+  const Loaded = useMemo(() => lazy(() => Promise.resolve().then(load).then((loaded) => {
+    loadedParts.set(load, loaded)
+    return { default: function LazyPartLoaded({ draw }) { return draw(loaded) } }
+  })), [attempt]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Review round 1 (1B): a part drawn again after it has loaded once (Settings mounts its Storage tab's body anew at
+  // each visit) is drawn at once from what loaded, with no waiting line; the loaders are module-level functions.
+  // Decided once, when this part is first drawn: switching paths later would remount it and lose its state.
+  const [already] = useState(() => loadedParts.get(load))
+  if (already && attempt === 0) {
+    return (
+      <LazyPageBoundary key={attempt} title={title} surface={surface} onRetry={() => setAttempt((n) => n + 1)}>
+        {children(already)}
+      </LazyPageBoundary>
+    )
+  }
   return (
     <LazyPageBoundary key={attempt} title={title} surface={surface} onRetry={() => setAttempt((n) => n + 1)}>
       <Suspense fallback={<p data-lazy-part-waiting>{waiting}</p>}>

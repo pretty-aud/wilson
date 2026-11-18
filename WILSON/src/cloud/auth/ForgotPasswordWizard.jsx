@@ -12,11 +12,12 @@
 // It used to send the username alone, and resolve-login answers a miss when a
 // bare username exists in two companies, so that person got no email while
 // this screen said one was on its way. Now the company this device last signed
-// in to (or a `?company=` link) is shown above the username, as the login's
-// step 2 shows it, with "Change company" back to a company field; with no
-// company remembered the wizard opens on that field. On sending, the company
-// is verified (its canonical slug) and the username resolved within it, so the
-// reset goes to that company's address. The steps are signIn.js's, the login's.
+// in to (or, with none, a `?company=` link) is shown above the username, as the
+// login's step 2 shows it, with "Change company" back to a company field; with
+// no company known the wizard opens on that field. On sending, the company is
+// verified (its canonical slug) and the username resolved within it, so the
+// reset goes to that company's address; a company step that cannot be answered
+// is the timeout sentence, never a guessed slug. The steps are signIn.js's.
 //
 // Security:
 //   - The "sent" screen is identical whether the username existed or not, and
@@ -52,7 +53,7 @@ import AuthShell, {
   AuthField,
 } from './AuthShell'
 import { supabase } from './supabaseClient'
-import { SLUG_RE, slugifyWorkspace } from './workspaceSlug'
+import { SLUG_RE } from './workspaceSlug'
 import { withTimeout, AUTH_TIMEOUT_MS } from './withTimeout'
 import { verifyCompany, resolveLogin, readLastCompany, saveLastCompany, companyFromDeepLink } from './signIn'
 
@@ -76,11 +77,14 @@ function recoveryRedirectUrl() {
 export default function ForgotPasswordWizard({ onBackToLogin }) {
   const [ready, setReady]     = useState(false)
   const [revealing, setRevealing] = useState(false)
-  // The company: the deep link's, else this device's last (B1). Shown, not
-  // asked again, when there is one; asked when there is none.
+  // The company: this device's last (B1), else a `?company=` link's. Shown,
+  // not asked again, when there is one; asked when there is none. The
+  // remembered one comes first (review round 1, 1E): the login's company step
+  // saves the company it just verified, so it is newer than a link the app was
+  // opened with, which the person may have corrected there.
   const [company, setCompany]     = useState(() => (
-    companyFromDeepLink(typeof window === 'undefined' ? '' : window.location.search)
-    || readLastCompany()
+    readLastCompany()
+    || companyFromDeepLink(typeof window === 'undefined' ? '' : window.location.search)
   ))
   // The canonical slug once THIS wizard has verified the company (the company
   // field's Continue); otherwise it is verified when the link is sent.
@@ -100,15 +104,16 @@ export default function ForgotPasswordWizard({ onBackToLogin }) {
   }, [ready, stage])
 
   // The company step, as the login's: verify it, keep its canonical slug.
-  // Answers { slug }, or { refused: 'limited' | 'not_found' } after saying why.
+  // Answers { slug }, or { refused: 'limited' | 'unavailable' | 'not_found' } after saying why.
   const checkCompany = useCallback(async (typed) => {
     const v = await verifyCompany(typed)
     if (v.limited) { setError(RATE_LIMITED_ERROR); return { refused: 'limited' } }
-    if (v.unavailable) {
-      // As the login: an older resolve-login, or no answer — a derived slug, loud in the console.
-      console.warn('[wilson] company verification unavailable — the reset uses a derived slug.')
-      return { slug: slugifyWorkspace(typed) }
-    }
+    // Unlike the login, no derived slug (review round 1, 1E): a company step
+    // that could not be answered (no answer, a 5xx, an unreadable reply) is
+    // the timeout sentence and nothing is sent. A guessed slug is nearly never
+    // a company's real one, so the lookup would miss and "sent" would be said
+    // with nothing sent: REV-05's own symptom.
+    if (v.unavailable) { setError(TIMEOUT_ERROR); return { refused: 'unavailable' } }
     // ONE wording for "no such company" and "suspended", as the login's.
     if (!v.exists || !SLUG_RE.test(v.slug ?? '')) { setError(COMPANY_NOT_FOUND); return { refused: 'not_found' } }
     saveLastCompany(typed)

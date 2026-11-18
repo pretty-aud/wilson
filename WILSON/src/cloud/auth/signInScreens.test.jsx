@@ -40,13 +40,14 @@ const { default: LoginScreen } = await import('./LoginScreen.jsx')
 // The companies and the one username in two of them.
 const COMPANIES = { 'petal studios': 'petal', petal: 'petal', smoke: 'smoke' }
 const PEOPLE = { 'sam@petal': 'sam@petal.test', 'sam@smoke': 'sam@smoke.test', 'ann@petal': 'ann@petal.test' }
-function resolveLoginFake({ status } = {}) {
+function resolveLoginFake({ status, companyStatus, userStatus } = {}) {
   const sent = []
   globalThis.fetch = vi.fn(async (url, init) => {
     const body = JSON.parse(init.body)
     sent.push(body)
     const json = (s, b) => ({ ok: s < 300, status: s, json: async () => b })
-    if (status) return json(status, { exists: false, email: null })
+    const forced = status ?? ('company' in body ? companyStatus : userStatus)
+    if (forced) return json(forced, { exists: false, email: null })
     if ('company' in body) {
       const slug = COMPANIES[body.company.toLowerCase()]
       return json(200, { exists: !!slug, slug: slug ?? null, v: 2 })
@@ -158,13 +159,63 @@ describe('the "sent" screen tells nobody whether the username exists', () => {
       a.unmount()
       globalThis.fetch = vi.fn(async () => { throw new TypeError('Failed to fetch') })
       const b = render(<ForgotPasswordWizard />)
-      // The company step degrades to a derived slug (as the login's); the lookup then has no answer.
+      // No answer at the company step: the timeout sentence, nothing sent (review round 1, 1E).
       await sendReset(username)
       expect(screen.getByText(TIMEOUT_ERROR)).toBeTruthy()
       b.unmount()
     }
     expect(resets).toEqual([])
   })
+  // Review round 1 (1E). Failing controls: the deep link first again, a derived slug again, and the username-path
+  // 429 branch removed each turn one of these red.
+  it('the company the device remembers comes before a ?company= link; the link serves when nothing is remembered', () => {
+    window.history.replaceState(null, '', '/?company=Petal')
+    try {
+      localStorage.setItem('wilson.lastCompany', 'Smoke')
+      const a = render(<ForgotPasswordWizard />)
+      expect(screen.getByText('Smoke')).toBeTruthy()
+      a.unmount()
+      localStorage.clear()
+      render(<ForgotPasswordWizard />)
+      expect(screen.getByText('Petal')).toBeTruthy()
+      expect(screen.queryByLabelText('Company')).toBeNull()
+    } finally {
+      window.history.replaceState(null, '', '/')
+    }
+  })
+  it('a company step with no usable answer is the timeout sentence; no username is looked up and nothing is sent', async () => {
+    localStorage.setItem('wilson.lastCompany', 'Petal Studios')
+    const sent = resolveLoginFake({ companyStatus: 500 })
+    render(<ForgotPasswordWizard />)
+    await sendReset('ann')
+    expect(screen.getByText(TIMEOUT_ERROR)).toBeTruthy()
+    expect(sent).toEqual([{ company: 'Petal Studios' }])
+    expect(resets).toEqual([])
+    expect(screen.getByLabelText('Username')).toBeTruthy()
+  })
+  it('a 429 at the username lookup has its sentence and keeps the form', async () => {
+    localStorage.setItem('wilson.lastCompany', 'Petal')
+    const sent = resolveLoginFake({ userStatus: 429 })
+    render(<ForgotPasswordWizard />)
+    await sendReset('ann')
+    expect(sent).toEqual([{ company: 'Petal' }, { username: 'ann', workspace_slug: 'petal' }])
+    expect(screen.getByText(RATE_LIMITED_ERROR)).toBeTruthy()
+    expect(screen.getByLabelText('Username')).toBeTruthy()
+    expect(screen.queryByText(SENT)).toBeNull()
+  })
+  it('Change company, another company, Send: the reset goes to the person in the company now given', async () => {
+    localStorage.setItem('wilson.lastCompany', 'Smoke')
+    const sent = resolveLoginFake()
+    render(<ForgotPasswordWizard />)
+    fireEvent.click(screen.getByRole('button', { name: 'Change company' }))
+    fireEvent.change(screen.getByLabelText('Company'), { target: { value: 'Petal' } })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Continue' })) })
+    await sendReset('sam')
+    expect(await screen.findByText(SENT)).toBeTruthy()
+    expect(sent).toEqual([{ company: 'Petal' }, { username: 'sam', workspace_slug: 'petal' }])
+    expect(resets).toEqual(['sam@petal.test'])
+  })
+
   it('its three sentences are the login\'s, word for word', () => {
     const here = dirname(fileURLToPath(import.meta.url))
     const login = readFileSync(join(here, 'LoginScreen.jsx'), 'utf8')

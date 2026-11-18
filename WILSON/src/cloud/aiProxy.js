@@ -61,6 +61,8 @@ const FRIENDLY = {
   // F11 (OUTSTANDING F8-06): ai-proxy's own size cap (F8) answers 413 `too_large`, which had no words here
   // ("AI request failed (413)."). It is the same remedy as the 546's.
   too_large: 'This request is too large for WILSON’s AI relay — it was refused before it reached the AI. Attaching fewer documents will get through.',
+  // Review round 1 (1C): a 413 with no house body (the platform refusing before the function runs) is the same.
+  http_413: 'This request is too large for WILSON’s AI relay — it was refused before it reached the AI. Attaching fewer documents will get through.',
   // F11: the answer did not start within AI_START_MS. Not retried (isRetryableAIError): the wait would repeat.
   timeout: 'The AI did not start answering in time. Check your connection and try again.',
 }

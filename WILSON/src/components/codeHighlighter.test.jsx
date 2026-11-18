@@ -69,6 +69,12 @@ const SAMPLE = {
   typescript: 'interface A { b: string }',
   vbnet: 'Dim a As String = "s"',
   yaml: 'a: 1\nb: "s"',
+  // The doc grammars read a comment line's own shape.
+  jsdoc: ' * @param {string} name the name',
+  javadoc: ' * @param name the name',
+  phpdoc: ' * @param string $name the name',
+  // xml-doc only adds its colours to C#'s and VB.NET's /// comments; it is drawn through C# in 1b.
+  'xml-doc': null,
 }
 // What a model's fence most often writes instead of the grammar's own name.
 const ALIASES = {
@@ -85,12 +91,37 @@ const coloured = (markup) => markup.includes('class="token')
 describe('1. every registered language, and the common aliases, are coloured', () => {
   it('each registered grammar has a sample, and each sample draws token spans', () => {
     expect(Object.keys(SAMPLE).sort()).toEqual([...HIGHLIGHTED_LANGUAGES].sort())
-    const plain = HIGHLIGHTED_LANGUAGES.filter((lang) => !coloured(draw(lang, SAMPLE[lang])))
+    const plain = HIGHLIGHTED_LANGUAGES.filter((lang) => SAMPLE[lang] !== null && !coloured(draw(lang, SAMPLE[lang])))
     expect(plain).toEqual([])
   })
   it('a fence tagged with an alias is coloured too', () => {
     const plain = Object.entries(ALIASES).filter(([alias, code]) => !coloured(draw(alias, code))).map(([a]) => a)
     expect(plain).toEqual([])
+  })
+})
+
+// Review round 1 (1A, measured): registered alphabetically, css and javascript came before markup, so an html
+// fence's <style> and <script> were one uncoloured run; a regex literal's insides and a doc comment's tags went plain
+// too. Failing control: the alphabetical order (or no doc grammars) turns this red.
+describe('1b. code inside code keeps its own colours', () => {
+  // Judged by the colour drawn (oneDark's inks, inline): with a style the highlighter keeps a token's type as a
+  // class only when the theme does not colour it, so classes alone cannot show a keyword.
+  const KEYWORD = 'hsl\\(286, 60%, 67%\\)' // violet: keywords, a doc comment's @tags
+  const SELECTOR = 'hsl\\(95, 38%, 62%\\)'  // green: a css selector (and a string)
+  const TAG = 'hsl\\(355, 65%, 65%\\)'      // red: a tag
+  const inked = (markup, ink, text) => new RegExp(`style="[^"]*color:${ink}[^"]*">${text}<`).test(markup)
+  it('html: the script inside it is javascript, the style inside it is css', () => {
+    const html = draw('html', '<style>.a { color: red; }</style>\n<script>const a = 1; // c</script>')
+    expect(inked(html, KEYWORD, 'const'), 'the script\'s keyword').toBe(true)
+    expect(inked(html, SELECTOR, '\\.a\\s?'), 'the style\'s selector').toBe(true)
+  })
+  it('a regex literal\'s insides are coloured', () => {
+    expect(draw('javascript', 'const r = /^a+(b|c)$/')).toMatch(/regex-source/)
+  })
+  it('a doc comment\'s tags: JSDoc and Javadoc @param, and C#\'s /// XML doc', () => {
+    expect(inked(draw('javascript', '/**\n * @param {string} name\n */\nfunction f(name) {}'), KEYWORD, '@param')).toBe(true)
+    expect(inked(draw('java', '/**\n * @param name the name\n */\nvoid f(String name) {}'), KEYWORD, '@param')).toBe(true)
+    expect(new RegExp(`color:${TAG}`).test(draw('csharp', '/// <summary>The name.</summary>\nclass A {}'))).toBe(true)
   })
 })
 
@@ -123,8 +154,8 @@ describe('4. nothing in src reaches the full build', () => {
   const files = walk(SRC)
   const rel = (p) => relative(SRC, p).replace(/\\/g, '/')
   const FULL = [
-    /from\s+['"]react-syntax-highlighter['"]/,
-    /['"]refractor\/all['"]/,
+    /(?:from\s+|import\s*\(\s*|require\s*\(\s*)['"]react-syntax-highlighter['"]/,
+    /['"]refractor(?:\/all)?['"]/,
     /['"]react-syntax-highlighter\/dist\/(?:esm|cjs)\/(?:prism|prism-async|prism-async-light|light|light-async|default-highlight|index)(?:\.js)?['"]/,
   ]
 

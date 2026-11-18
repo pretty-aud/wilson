@@ -44,7 +44,9 @@ import go from 'react-syntax-highlighter/dist/esm/languages/prism/go'
 import hlsl from 'react-syntax-highlighter/dist/esm/languages/prism/hlsl'
 import ini from 'react-syntax-highlighter/dist/esm/languages/prism/ini'
 import java from 'react-syntax-highlighter/dist/esm/languages/prism/java'
+import javadoc from 'react-syntax-highlighter/dist/esm/languages/prism/javadoc'
 import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript'
+import jsdoc from 'react-syntax-highlighter/dist/esm/languages/prism/jsdoc'
 import json from 'react-syntax-highlighter/dist/esm/languages/prism/json'
 import jsx from 'react-syntax-highlighter/dist/esm/languages/prism/jsx'
 import kotlin from 'react-syntax-highlighter/dist/esm/languages/prism/kotlin'
@@ -57,6 +59,7 @@ import mel from 'react-syntax-highlighter/dist/esm/languages/prism/mel'
 import objectivec from 'react-syntax-highlighter/dist/esm/languages/prism/objectivec'
 import perl from 'react-syntax-highlighter/dist/esm/languages/prism/perl'
 import php from 'react-syntax-highlighter/dist/esm/languages/prism/php'
+import phpdoc from 'react-syntax-highlighter/dist/esm/languages/prism/phpdoc'
 import powershell from 'react-syntax-highlighter/dist/esm/languages/prism/powershell'
 import python from 'react-syntax-highlighter/dist/esm/languages/prism/python'
 import r from 'react-syntax-highlighter/dist/esm/languages/prism/r'
@@ -72,12 +75,20 @@ import tsx from 'react-syntax-highlighter/dist/esm/languages/prism/tsx'
 import typescript from 'react-syntax-highlighter/dist/esm/languages/prism/typescript'
 import vbnet from 'react-syntax-highlighter/dist/esm/languages/prism/vbnet'
 import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml'
+import xmlDoc from 'react-syntax-highlighter/dist/esm/languages/prism/xml-doc'
 
+// THE ORDER MATTERS (review round 1, 1A, measured). A grammar wires an embedding only into a host that is already
+// registered: css and javascript put themselves inside markup's <style>, <script> and style="" / on…="" when markup
+// exists, javascript colours a regex literal's insides when regex exists, markdown its front matter when yaml exists,
+// and the doc-comment grammars add their colours to the languages already there. refractor/all registers in that
+// order; an alphabetical one left an html fence's script and style as one uncoloured run. So: the hosts first, then
+// the rest, then the doc comments (JSDoc, Javadoc, PHPDoc, C#'s /// XML docs), which the full build carried.
 const GRAMMARS = {
-  arduino, bash, batch, c, cpp, csharp, css, diff, gdscript, glsl, go, hlsl, ini, java,
-  javascript, json, jsx, kotlin, less, lua, makefile, markdown, markup, mel, objectivec, perl,
-  php, powershell, python, r, regex, ruby, rust, sass, scss, sql, swift, toml, tsx, typescript,
-  vbnet, yaml,
+  markup, css, regex, javascript, yaml,
+  arduino, bash, batch, c, cpp, csharp, diff, gdscript, glsl, go, hlsl, ini, java, json, jsx,
+  kotlin, less, lua, makefile, markdown, mel, objectivec, perl, php, powershell, python, r, ruby,
+  rust, sass, scss, sql, swift, toml, tsx, typescript, vbnet,
+  jsdoc, javadoc, phpdoc, 'xml-doc': xmlDoc,
 }
 
 for (const [name, grammar] of Object.entries(GRAMMARS)) SyntaxHighlighter.registerLanguage(name, grammar)

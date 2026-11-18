@@ -33,7 +33,8 @@ vi.mock('./auth/supabaseClient', () => ({
   },
 }))
 vi.mock('../dev/devFixtures', () => ({ devFixtures: () => null, devWriteRefused: (l) => ({ message: `${l} refused` }) }))
-vi.mock('./errorCodes', () => ({ reportAppEvent: () => {} }))
+const reports = vi.hoisted(() => ({ calls: [] }))
+vi.mock('./errorCodes', () => ({ reportAppEvent: (e) => { reports.calls.push(e) } }))
 vi.mock('../tools/rabbit_v0.1.0/storage/uploadReservation.js', () => ({ releaseStaleUploads: async () => 0 }))
 
 const { callEdgeFunction, edgeFunctionUrl, EDGE_WORDS } = await import('./edgeFunctions.js')
@@ -288,6 +289,72 @@ describe('4. a call past its ceiling is aborted and answers timeout', () => {
   })
 })
 
+// ── 4b. every ceiling, at its edges (review round 1, 1C and 1D) ──────────────
+// Failing controls: any of these figures lowered (OPERATOR_MS = 60000, say) turns its row red at the "not yet" check;
+// a ceiling removed turns it red at the "aborted" check.
+describe('4b. each ceiling ends a dead call at its own figure, never before', () => {
+  const ROWS = [
+    ['an admin read (security posture), 15 s', () => admin.adminUserSecurity('u1'), 15_000],
+    ['an invite, 60 s', () => admin.inviteMember({ email: 'e@x.test', username: 'eve', appRole: 'user' }), 60_000],
+    ['an operator call (a teardown runs long), 420 s', () => op.teardownWorkspace('w1', 'n'), 420_000],
+    ['the upload, 600 s', () => files.uploadAIFile({ data: 'aGk=', mediaType: 'text/plain' }), 600_000],
+    ['the file store list, 15 s', () => files.listAIFiles(), 15_000],
+    ['the file store sweep, 120 s', () => files.sweepAIFiles(), 120_000],
+    ['the gateway reach check, 30 s', () => gw.checkGatewayReach('g1'), 30_000],
+  ]
+  for (const [label, call, ms] of ROWS) {
+    it(label, async () => {
+      vi.useFakeTimers()
+      const seen = hanging()
+      const s = settle(call())
+      await vi.advanceTimersByTimeAsync(ms - 1_000)
+      expect(s.done, 'not yet').toBe(false)
+      expect(seen.signal.aborted).toBe(false)
+      await vi.advanceTimersByTimeAsync(1_500)
+      expect(seen.signal.aborted, 'aborted at the ceiling').toBe(true)
+      expect(s.done).toBe(true)
+    })
+  }
+  it('the session read: not given up before 15 s, given up just after', async () => {
+    vi.useFakeTimers()
+    auth.getSession = () => new Promise(() => {})
+    const s = settle(callEdgeFunction('x', {}))
+    await vi.advanceTimersByTimeAsync(14_000)
+    expect(s.done).toBe(false)
+    await vi.advanceTimersByTimeAsync(1_500)
+    expect(s.value).toMatchObject({ code: 'session_stalled' })
+  })
+  it('a ceiling reached while the answer\'s body is read is a timeout, never bad_answer', async () => {
+    vi.useFakeTimers()
+    globalThis.fetch = vi.fn(async (url, init) => ({ ok: true, status: 200, json: () => new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))) }))
+    const s = settle(callEdgeFunction('x', {}, { timeoutMs: 15_000 }))
+    await vi.advanceTimersByTimeAsync(15_500)
+    expect(s.value).toMatchObject({ ok: false, status: 0, code: 'timeout' })
+  })
+})
+
+describe('4c. the reports to app_events, as before (WIL-4201, WIL-4202)', () => {
+  it('a 5xx, the last admin and no answer are each reported with their context', async () => {
+    reports.calls = []
+    record(answer(500, { error: 'update_failed' }))
+    await admin.adminSetActive('u1', true)
+    record(answer(409, { error: 'last_admin' }))
+    await admin.adminSetActive('u1', false)
+    globalThis.fetch = vi.fn(async () => { throw new TypeError('Failed to fetch') })
+    await admin.adminSetActive('u1', true)
+    expect(reports.calls.map((e) => [e.code, e.context])).toEqual([
+      ['WIL-4201', { fn: 'admin-set-active', error: 'update_failed' }],
+      ['WIL-4202', { fn: 'admin-set-active' }],
+      ['WIL-4201', { fn: 'admin-set-active', error: 'network' }],
+    ])
+  })
+  it('the AI words a bare 413 too; an unreadable 2xx says to check before trying again', async () => {
+    record(aiAnswer(413, notJson()))
+    await expect(ai.callAI({})).rejects.toMatchObject({ code: 'http_413', message: expect.stringMatching(/too large for WILSON’s AI relay/) })
+    expect(EDGE_WORDS.bad_answer).toMatch(/check before trying again/)
+  })
+})
+
 // ── 5. the rules every call keeps ────────────────────────────────────────────
 describe('5. the caller\'s rules', () => {
   it('the caller\'s own abort is rethrown as fetch reported it, never worded', async () => {
@@ -314,6 +381,20 @@ describe('5. the caller\'s rules', () => {
     await vi.advanceTimersByTimeAsync(15_500)
     expect(s.value).toMatchObject({ ok: false, status: 0, code: 'session_stalled', words: EDGE_WORDS.session_stalled })
     expect(f).toHaveLength(0)
+  })
+  it('a caller\'s abort is an AbortError in every phase, whatever reason was given (1D)', async () => {
+    const ctl = new AbortController()
+    globalThis.fetch = vi.fn(async (url, init) => ({ ok: true, status: 200, json: () => new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))) }))
+    const p = callEdgeFunction('x', {}, { signal: ctl.signal, timeoutMs: 60_000 })
+    await new Promise((r) => setTimeout(r, 0))
+    ctl.abort('stop-string')
+    await expect(p).rejects.toMatchObject({ name: 'AbortError' })
+    // Already aborted before the call: fetch is handed an aborted signal and nothing is answered.
+    const done = new AbortController()
+    done.abort()
+    globalThis.fetch = vi.fn(async (url, init) => { if (init.signal?.aborted) throw new DOMException('aborted', 'AbortError'); return answer(200, {}) })
+    await expect(callEdgeFunction('x', {}, { signal: done.signal, timeoutMs: 60_000 })).rejects.toMatchObject({ name: 'AbortError' })
+    expect(globalThis.fetch.mock.calls[0][1].signal.aborted, 'the request itself was stopped').toBe(true)
   })
   it('anonymous calls carry the apikey alone; a given token is used without a session read', async () => {
     auth.getSession = vi.fn(async () => ({ data: { session: { access_token: 'tok-1' } } }))

@@ -46,7 +46,8 @@ export const EDGE_WORDS = Object.freeze({
   too_large: 'That request is too large to send. Make it smaller and try again.',
   http_413: 'That request is too large to send. Make it smaller and try again.',
   timeout: 'The server did not answer in time. It may still have gone through, so check before trying again.',
-  bad_answer: 'The server answered in a way WILSON could not read. Try again in a moment.',
+  // Review round 1 (1C): a 2xx WILSON could not read may have landed (a write), so the words say to check first.
+  bad_answer: 'The server answered in a way WILSON could not read. It may still have gone through, so check before trying again.',
 })
 
 /** <VITE_SUPABASE_URL>/functions/v1/<name>, read at the call (a test's stubEnv is seen). */
@@ -166,7 +167,8 @@ export async function callEdgeFunction(name, body, opts = {}) {
     const ok = res.ok
     let data = null
     try { data = await res.json() } catch { data = null }
-    if (signal?.aborted) throw signal.reason ?? new DOMException('The operation was aborted.', 'AbortError')
+    // As fetch reports a caller's abort in every phase: an AbortError, whatever reason the caller gave (1D).
+    if (signal?.aborted) throw new DOMException('The operation was aborted.', 'AbortError')
     if (timedOut()) return refused(0, 'timeout')
     if (ok) return isPlainObject(data) ? { ok: true, status: res.status, data } : refused(res.status, 'bad_answer')
     const body = isPlainObject(data) ? data : null

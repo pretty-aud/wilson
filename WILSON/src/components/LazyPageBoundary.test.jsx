@@ -2,7 +2,7 @@
 // LazyPageBoundary.test.jsx — MO1 (whole-session review round 1): a lazy page that cannot load, or that throws
 // while drawing, must not take the whole window with it. Suspense handles only the wait.
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -101,6 +101,28 @@ describe('F11: LazyPart', () => {
     silence.mockRestore()
   })
   function Fails() { throw new Error('x') }
+
+  // Review round 1 (1B): Settings mounts its Storage tab's body anew at each visit. Failing controls: no cache turns
+  // the first test red (the waiting line again); choosing the cached path at every draw turns the second red (the
+  // part remounts after its first load and loses its count).
+  const visitLoad = vi.fn(async () => ({ default: Part }))
+  it('a part drawn again after it has loaded is drawn at once, with no waiting line and no second load', async () => {
+    const first = render(<LazyPart load={visitLoad} title="x" waiting="Opening…">{({ default: P }) => <P label="visit" />}</LazyPart>)
+    expect(await screen.findByText('visit')).toBeTruthy()
+    first.unmount()
+    render(<LazyPart load={visitLoad} title="x" waiting="Opening…">{({ default: P }) => <P label="visit" />}</LazyPart>)
+    expect(screen.getByText('visit')).toBeTruthy()
+    expect(screen.queryByText('Opening…')).toBeNull()
+    expect(visitLoad).toHaveBeenCalledTimes(1)
+  })
+  const counterLoad = async () => ({ default: function Counter({ label }) { const [n, setN] = useState(0); return <button onClick={() => setN(n + 1)}>{label} {n}</button> } })
+  it('after its first load, a redraw keeps the part mounted and its own state', async () => {
+    const { rerender } = render(<LazyPart load={counterLoad} title="x" waiting="…">{({ default: C }) => <C label="count" />}</LazyPart>)
+    fireEvent.click(await screen.findByRole('button', { name: 'count 0' }))
+    expect(screen.getByRole('button', { name: 'count 1' })).toBeTruthy()
+    rerender(<LazyPart load={counterLoad} title="x" waiting="…">{({ default: C }) => <C label="tally" />}</LazyPart>)
+    expect(screen.getByRole('button', { name: 'tally 1' })).toBeTruthy()
+  })
 })
 
 describe('F11: the three parts are out of the main chunk', () => {

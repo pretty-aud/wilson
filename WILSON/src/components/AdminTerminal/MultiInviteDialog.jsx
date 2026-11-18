@@ -142,7 +142,13 @@ export default function MultiInviteDialog({ open, onClose, onInvited }) {
       if (!mountedRef.current) return
       if (res.status === 201 && res.ok) {
         patchRow(target.email, { status: 'ok', error: null })
-        onInvited?.({ ...res.data, display_name: res.data.username })
+        // Review round 1 (1C): the caller's own failure is this row's, as it was inside the per-row try, never the
+        // whole run's (a throw here used to leave the dialog busy with Cancel disabled).
+        try {
+          onInvited?.({ ...res.data, display_name: res.data.username })
+        } catch (err) {
+          patchRow(target.email, { status: 'failed', error: err?.message ?? 'Network error.' })
+        }
       } else {
         patchRow(target.email, { status: 'failed', error: res.data.friendly })
       }
