@@ -65,7 +65,10 @@ import {
 import {
   Toolbar, Button, IconButton, Tabs, Table, Th, Td, Row, Dialog, Field,
   Card, HoverActions, RowTitle, EmptyState, StatusDot, StatusBadge, StatusBanner, CellSelect, statusMeta,
-  Banner, Loading, MenuButton, useToast,
+  Banner, Loading, MenuButton, useOptionalToast,
+  // Post-overhaul F10 (rabbit A6): the kit's own editors, bulk picker,
+  // question and label; this file's names below are its look on them.
+  useInlineText, BulkSelect as KitBulkSelect, Confirm, FieldLabel as KitFieldLabel,
 } from '../../../ui'
 import './rabbitFiles.css'
 // VW1e (2026-10-25): the custom views on the Levels and Experiences tables
@@ -126,12 +129,6 @@ const STATUS_OPTIONS = STATUSES.map(s => ({ value: s, label: STATUS_LABELS[s] })
 // VW1e (2026-10-25): the sorts, groupings and filters are the view's, read
 // through the table's description (views/tableViews/entityTableView.js); the
 // old lists here went with the old saved views (her Q17, "Start fresh").
-
-// The kit toast stack, or nothing where no ToastProvider is mounted (a test
-// that mounts the tab alone): a passing message, never a failure.
-function useOptionalToast() {
-  try { return useToast() } catch { return null }
-}
 
 // ── Gallery card sizes ──
 // The three card widths — 160, 220 and 300px, the picture 0.6 of each, as
@@ -822,26 +819,19 @@ function EntityTable({ entity, items, columns = DEFAULT_COLUMNS, assetCountById,
         ))}
       </Table>
 
-      {/* W9: the bulk question on the kit Dialog, 🚨 PORTALLED into <body> as
-          FileManager's delete question is (the kit Dialog does not portal,
-          B4-KR-2). React events still bubble through this tree. */}
-      {confirmBulkDelete && createPortal(
-        <Dialog
-          width="confirm"
+      {/* W9: the bulk question, the kit's Confirm, 🚨 PORTALLED into <body>
+          as FileManager's delete question is (B4-KR-2). React events still
+          bubble through this tree. */}
+      {confirmBulkDelete && (
+        <Confirm
           title={`Delete ${entity.nouns}`}
-          onClose={() => setConfirmBulkDelete(false)}
-          footer={(
-            <>
-              <Button autoFocus onClick={() => setConfirmBulkDelete(false)}>Cancel</Button>
-              <Button variant="danger" onClick={confirmedBulkDelete}>Delete</Button>
-            </>
-          )}
+          onCancel={() => setConfirmBulkDelete(false)}
+          onConfirm={confirmedBulkDelete}
         >
           <p className="rb-ent-confirm">
             {`Delete ${selected.size} ${entity.noun}${selected.size === 1 ? '' : 's'}?`}
           </p>
-        </Dialog>,
-        document.body,
+        </Confirm>
       )}
     </div>
   )
@@ -1435,52 +1425,19 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
 
 // ─── Shared sub-components ───
 
-// ─── The delete question: the kit's Dialog (W9's shape) ───
+// ─── The delete question: the kit's Confirm (W9's shape) ───
 // The row's delete, the card's and the detail popup's all ask here, in the
 // same words. Cancel and the backdrop keep the row, as they did; Escape does
-// too now (Q17). 🚨 PORTALLED into <body>, as FileManager's question is.
-//
-// 🚨 Cancel takes focus in an EFFECT, not only by `autoFocus`. From the
-// detail popup's Delete the popup closes in the same commit this opens:
-// `autoFocus` puts focus on Cancel during the commit, then the popup's
-// unmount hands focus back to what opened IT, and the kit Dialog's own
-// effect, finding focus outside, lands it on ✕ (B4c review round one). This
-// effect runs after both — a child's effects run before its parent's — so
-// the question opens on Cancel from every path, as it does from a row.
-//
-// 🚨 …and on close, focus goes back to `returnTo` when the popup asked (B4c
-// review round two). The kit Dialog hands it to what had it when the
-// question opened — the popup's own Delete, gone with the popup — so every
-// close from that path dropped focus to <body>. `returnTo` is what opened
-// the popup, the row's Open: taken while it is in the page and
-// focus has fallen to <body> (StrictMode's rehearsal of an unmount leaves it
-// on Cancel, so that does nothing). A delete takes the row, and its button,
-// with it — as a row's own delete question does.
+// too (Q17). Portalled into <body>, Cancel focused from every path, and focus
+// back to `returnTo` (the row's Open) when the popup asked: the kit's
+// Confirm does all three (F10; it was written here, B4c's rounds one and two).
+// The delete is called, not returned: the question does not wait on it.
 function ConfirmDialog({ title, message, onConfirm, onCancel, returnTo = null }) {
-  const cancelRef = useRef(null)
-  useEffect(() => {
-    cancelRef.current?.focus()
-    return () => {
-      const active = document.activeElement
-      if (returnTo && returnTo !== document.body && returnTo.isConnected && (!active || active === document.body)) returnTo.focus()
-    }
-  }, [])
-  return createPortal(
-    <Dialog
-      width="confirm"
-      title={title}
-      dismissOnBackdrop
-      onClose={onCancel}
-      footer={(
-        <>
-          <Button ref={cancelRef} autoFocus onClick={onCancel}>Cancel</Button>
-          <Button variant="danger" onClick={onConfirm}>Delete</Button>
-        </>
-      )}
-    >
+  return (
+    <Confirm title={title} dismissOnBackdrop returnTo={returnTo}
+      onConfirm={() => { onConfirm() }} onCancel={onCancel}>
       <p className="rb-ent-confirm">{message}</p>
-    </Dialog>,
-    document.body,
+    </Confirm>
   )
 }
 
@@ -1646,139 +1603,60 @@ function CreateEntityPopup({ entity, ctx, count, onClose }) {
 
 
 // ─── Bulk select dropdown ───
-// The floating bar's select, in the kit's small well (B2's BulkSelect).
+// The floating bar's select: the kit's BulkSelect (F10) in this lane's class.
 function BulkSelect({ label, options, labels, onPick }) {
-  return (
-    <select
-      defaultValue=""
-      aria-label={label}
-      onChange={e => { if (e.target.value !== '') { onPick(e.target.value); e.target.value = '' } }}
-      className="ui-input rb-ent-tool"
-      data-size="sm"
-    >
-      <option value="" disabled>{label}</option>
-      {options.map(o => <option key={o} value={o}>{(labels?.[o] || o).replace(/_/g, ' ')}</option>)}
-    </select>
-  )
+  return <KitBulkSelect label={label} options={options} labels={labels} onPick={onPick} className="ui-input rb-ent-tool" />
 }
 
 
 // ─── The table's inline editor ───
-// A cell's own text until it is clicked, then a native field in the kit's
-// small well (not the kit Input, whose own Enter blurs; B3d-KR-2). Enter and
-// blur commit the trimmed draft and Escape reverts — unchanged. The name is
-// the row's anchor, Dense 600 in the full ink; a `quiet` cell (the
-// description) reads at 400 in the second ink (R4-03); an empty one shows
-// its placeholder in the third.
+// The kit's useInlineText (F10: its behaviour — Enter and blur commit the
+// trimmed draft, Escape reverts, focus back to the words, P1-06) on this
+// lane's elements, as they were drawn: a cell's own text until it is clicked,
+// then a native field in the kit's small well. The name is the row's anchor,
+// Dense 600 in the full ink; a `quiet` cell (the description) reads at 400 in
+// the second ink (R4-03); an empty one shows its placeholder in the third.
 // R1 (2026-10-27): `readOnly` — a seat that cannot write gets the words alone,
 // as the Scenes rows' InlineText does: no click, no hover fill, no field
-// (`data-static`); the name's placeholder or a dash when empty.
+// (`data-static`); the name's placeholder or a dash when empty. An empty cell
+// showing the app's one empty mark (P1-76) would be read as a dash: it is
+// named by its field instead. A placeholder in words ("Untitled level") stays
+// the name, so the visible words are in it.
 function InlineText({ value, placeholder, label, onCommit, quiet = false, readOnly = false }) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(value)
-  const inputRef = useRef(null)
-  useEffect(() => { setDraft(value) }, [value])
-  useEffect(() => { if (editing && inputRef.current) inputRef.current.focus() }, [editing])
-  function commit() {
-    const trimmed = draft.trim()
-    if (trimmed !== value) onCommit(trimmed)
-    setEditing(false)
-  }
-  if (readOnly) {
-    return (
-      <span className="rb-ent-cell-text" data-static="true"
-        title={value || undefined}
-        aria-label={!value && placeholder === '—' ? `${label}, empty` : undefined}
-        data-quiet={quiet ? 'true' : 'false'}
-        data-empty={value ? 'false' : 'true'}>
-        {value || placeholder}
-      </span>
-    )
-  }
-  if (editing) {
-    return (
-      <input ref={inputRef} type="text" value={draft}
-        onChange={e => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); setEditing(false) } }}
-        aria-label={label}
-        className="ui-input rb-ent-cell-input"
-        data-size="sm"
-        data-quiet={quiet ? 'true' : 'false'} />
-    )
-  }
-  return (
-    <button type="button" onClick={() => setEditing(true)}
-      className="rb-ent-cell-text"
-      title={value || undefined}
-      // An empty cell showing the app's one empty mark (P1-76) would be read
-      // as a dash: it is named by its field instead. A placeholder in words
-      // ("Untitled level") stays the name, so the visible words are in it.
+  return useInlineText({
+    value, placeholder, label, onCommit, readOnly,
+    words: <button type="button" className="rb-ent-cell-text" title={value || undefined}
       aria-label={!value && placeholder === '—' ? `${label}, empty` : undefined}
-      data-quiet={quiet ? 'true' : 'false'}
-      data-empty={value ? 'false' : 'true'}>
-      {value || placeholder}
-    </button>
-  )
+      data-quiet={quiet ? 'true' : 'false'} data-empty={value ? 'false' : 'true'} />,
+    still: <span className="rb-ent-cell-text" data-static="true" title={value || undefined}
+      aria-label={!value && placeholder === '—' ? `${label}, empty` : undefined}
+      data-quiet={quiet ? 'true' : 'false'} data-empty={value ? 'false' : 'true'} />,
+    field: <input className="ui-input rb-ent-cell-input" data-size="sm" data-quiet={quiet ? 'true' : 'false'} />,
+  })
 }
 
 // ─── The popup's name field ───
-// Its words as a quiet button until clicked, the Assets popup's in-place
-// editor: no box, the kit's hover fill, an empty one's placeholder in the
-// third ink (it was #57534e, 2.29:1). Then a native field in the kit's small
-// well where the words were (not the kit Input, whose own Enter blurs;
-// B3d-KR-2), in the ink where it was orange. Enter and blur commit the
-// trimmed draft, as they did. Escape reverts it and is MARKED handled (K4's
-// mark), so the kit Dialog around it stands down: the first press reverts
-// the edit, the next one closes the popup (W2).
+// The kit's useInlineText (F10) on this lane's elements: its words as a quiet
+// button until clicked, the Assets popup's in-place editor — no box, the
+// kit's hover fill, an empty one's placeholder in the third ink — then a
+// native field in the kit's small well where the words were, in the ink.
+// Escape reverts and is MARKED handled, so the kit Dialog around it stands
+// down: the first press reverts the edit, the next one closes the popup (W2).
 // R1: `readOnly`, as InlineText's above.
 function PopupInlineText({ value, placeholder, label, onCommit, readOnly = false }) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(value)
-  const inputRef = useRef(null)
-  useEffect(() => { setDraft(value) }, [value])
-  useEffect(() => { if (editing && inputRef.current) inputRef.current.focus() }, [editing])
-  function commit() {
-    const trimmed = draft.trim()
-    if (trimmed !== value) onCommit(trimmed)
-    setEditing(false)
-  }
-  if (readOnly) {
-    return (
-      <span className="rb-ent-prop-text" data-static="true" data-empty={value ? 'false' : 'true'}>
-        {value || placeholder}
-      </span>
-    )
-  }
-  if (editing) {
-    return (
-      <input ref={inputRef} type="text" value={draft}
-        onChange={e => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { e.preventDefault(); setDraft(value); setEditing(false) } }}
-        aria-label={label}
-        className="ui-input rb-ent-name-input"
-        data-size="sm" />
-    )
-  }
-  return (
-    <button type="button" onClick={() => setEditing(true)}
-      className="rb-ent-prop-text"
-      data-empty={value ? 'false' : 'true'}>
-      {value || placeholder}
-    </button>
-  )
+  return useInlineText({
+    value, placeholder, label, onCommit, readOnly,
+    words: <button type="button" className="rb-ent-prop-text" data-empty={value ? 'false' : 'true'} />,
+    still: <span className="rb-ent-prop-text" data-static="true" data-empty={value ? 'false' : 'true'} />,
+    field: <input className="ui-input rb-ent-name-input" data-size="sm" />,
+  })
 }
 
 // ─── A property's label: the Label step ───
-// The kit Field's own label class — 11px, 600, capitals at the kit's
-// tracking, the second ink (7.85:1 on the Dialog's raised paper, where
-// #78716c measured 3.16 on the old ground) — a block over its value. As
-// before it labels no control by itself: each control carries its own name.
+// The kit's FieldLabel (F10) in this lane's class — 11px, 600, capitals at the
+// kit's tracking, the second ink (7.85:1 on the Dialog's raised paper) — a
+// block over its value. It labels no control by itself: each control carries
+// its own name.
 function FieldLabel({ children }) {
-  return (
-    <label className="ui-field-label rb-ent-label">
-      {children}
-    </label>
-  )
+  return <KitFieldLabel className="ui-field-label rb-ent-label">{children}</KitFieldLabel>
 }

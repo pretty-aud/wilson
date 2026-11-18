@@ -47,6 +47,8 @@ import { TaskItemsTable, useTaskItemsView, useTaskItemSort, ITEM_GLYPH } from '.
 import { ITEM_KINDS, KIND_LABEL, KIND_LABEL_PLURAL, isItemKind, sortItemsForDisplay } from '../state/taskItemsModel'
 import { useRemovalAsk } from './RemovalQuestion'
 import { Dialog, Button, Field, EmptyState, StatusBanner, StatusDot, statusMeta, Switch } from '../../../ui'
+// Post-overhaul F10 (rabbit A6): the title's editor is the kit's useInlineText.
+import { useInlineText } from '../../../ui'
 // Post-overhaul S3c, step 1: which shot list holds a linked scene or shot,
 // and the pickers' active-list default.
 import LinkHome from '../views/scenes/LinkHome'
@@ -789,30 +791,13 @@ function FileNameEditor({ fileNameOverride, editingFileName, fileNameDraft, setE
 }
 
 
-// ── Inline text editor ──
+// ── Inline text editor: the title, the kit's useInlineText (F10: the trimmed
+// draft on Enter and blur, Escape reverts and stays inside the popup, focus
+// back to the words, P1-06) on this lane's elements. ──
 function PopupInlineText({ value, placeholder, onCommit }) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(value)
-  useEffect(() => { setDraft(value) }, [value])
-  function commit() {
-    setEditing(false)
-    if (draft !== value) onCommit(draft)
-  }
-  if (editing) {
-    return (
-      <input autoFocus value={draft} onChange={e => setDraft(e.target.value)}
-        aria-label="Title"
-        onBlur={commit}
-        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { e.stopPropagation(); setDraft(value); setEditing(false) } }}
-        className="ui-input rb-task-title-input" />
-    )
-  }
-  return (
-    <button type="button" onClick={() => { setDraft(value); setEditing(true) }}
-      className="rb-task-textblock"
-      data-size="line"
-      data-empty={value ? 'false' : 'true'}>
-      {value || placeholder || '—'}
-    </button>
-  )
+  return useInlineText({
+    value, placeholder, label: 'Title', onCommit,
+    words: <button type="button" className="rb-task-textblock" data-size="line" data-empty={value ? 'false' : 'true'} />,
+    field: <input className="ui-input rb-task-title-input" />,
+  })
 }

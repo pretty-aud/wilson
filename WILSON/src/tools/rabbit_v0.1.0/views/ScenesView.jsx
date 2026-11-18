@@ -39,7 +39,12 @@ import { v4 as uuidv4 } from 'uuid'
 import {
   Table, Th, Td, Row, Toolbar, Tabs, Button, IconButton, CellSelect, Stat, Card,
   StatusDot, StatusBadge, StatusBanner, statusMeta, humanizeStatus, EmptyState, HoverActions, RowTitle, Dialog, Badge, Banner,
-  SectionTitle, Loading, useToast,
+  SectionTitle, Loading, useOptionalToast,
+  // Post-overhaul F10 (rabbit A6): the kit's own editors, bulk picker,
+  // question, label and draft hooks; this file's names below are its look on
+  // them.
+  useInlineText, BulkSelect as KitBulkSelect, Confirm, FieldLabel as KitFieldLabel,
+  useSavedDraft, useFocusBack,
 } from '../../../ui'
 import './rabbitScenes.css'
 import { useRabbit } from '../state/RabbitProvider'
@@ -216,12 +221,6 @@ const OLD_SAVED_VIEWS_KEY = 'rabbit_scene_saved_views'
 // One empty list for a backend with no takes: the same object every render,
 // so the Shots description (which counts takes) is not made anew each time.
 const NO_ROWS = Object.freeze([])
-
-// The kit toast stack, or nothing where no ToastProvider is mounted (a test
-// that mounts the tab alone): a passing message, never a failure.
-function useOptionalToast() {
-  try { return useToast() } catch { return null }
-}
 
 // Post-overhaul S3c, step 3: while an edit is on screen its cut order IS the
 // view — the toolbar's sort, group, filter and view controls stand aside
@@ -4380,48 +4379,30 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
 
 
 // ─── Confirmation dialog ───
-// The kit Dialog at the confirm width (W9), portalled into <body> so no
-// container on the page can hold it (the kit Dialog does not portal): the
-// same words, Cancel first and focused, Delete the kit's danger button, and
+// The kit's Confirm (F10; W9's shape), portalled into <body> so no container
+// on the page can hold it: the same words, Cancel first and focused from
+// every path (surface 6c, B4c's lesson), Delete the kit's danger button, and
 // Escape and the focus trap the kit adds (Q17). A row's delete keeps its
 // backdrop click, as the hand-rolled one had; the three bulk deletes that
-// were window.confirm pass `dismissOnBackdrop={false}`.
+// were window.confirm pass `dismissOnBackdrop={false}`. On close, focus goes
+// back to `returnTo` when a popup asked: what opened the popup, the row's
+// Open (the popup's own Delete has gone with the popup).
 //
-// 🚨 Cancel takes focus in an EFFECT, not only by `autoFocus` (surface 6c,
-// B4c's lesson). From a detail popup's Delete the popup closes in the same
-// commit this opens: `autoFocus` puts focus on Cancel during the commit, the
-// popup's unmount hands focus back to what opened IT, and the kit Dialog's
-// own effect, finding focus outside, lands it on ✕. This effect runs after
-// both — a child's effects run before its parent's — so the question opens on
-// Cancel from every path, as it does from a row.
-//
-// 🚨 …and on close, focus goes back to `returnTo` when a popup asked: what
-// opened the popup, the row's Open. The kit Dialog hands focus to
-// what had it when the question opened — the popup's own Delete, gone with
-// the popup — so every close from that path dropped focus to <body>. Only
-// when focus has fallen there, and only while the opener is in the page (a
-// delete takes the row, and its button, with it; StrictMode's rehearsal of an
-// unmount leaves focus on Cancel, so that does nothing).
-//
-// 🚨 …and while one is up, the page's Ctrl+Z / Ctrl+Y stand down (R1-08,
-// above). This page's question counts itself in `openQuestions` while it is
-// mounted: the tables' bulk questions are their own state, which the page's
-// key handler cannot read. Module state, as the kit's modal stack is
-// (overlay.js): there is one page and one keyboard.
-//
-// 🚨 This component is NOT every question on the page (review round two,
-// R2-01). The popups host FileManager's "Delete file" and RelationsPanel's
-// "Create task", each the kit Dialog at the confirm width in <body>, and
-// Ctrl+Z behind them reverted an edit (a status set in the table) while the
-// question was up. So the handler also stands down while ANY kit Dialog at
-// the confirm width is on screen, whoever opened it: the kit writes the
-// width token on its surface (`data-width="confirm"`, Dialog.jsx). A popup
-// is the kit Dialog at another width, so the keys still undo there (C1).
-const openQuestions = { count: 0 }
+// 🚨 While a question is up, the page's Ctrl+Z / Ctrl+Y stand down (R1-08,
+// above), and not only under this one (review round two, R2-01): the popups
+// host FileManager's "Delete file" and RelationsPanel's "Create task", each
+// the kit Dialog at the confirm width in <body>, and Ctrl+Z behind them
+// reverted an edit (a status set in the table) while the question was up. So
+// the handler stands down while ANY kit Dialog at the confirm width is on
+// screen, whoever opened it: the kit writes the width token on its surface
+// (`data-width="confirm"`, Dialog.jsx). This page's own questions are among
+// them (they are the kit's Confirm since F10, which counted itself here
+// before, in a module count the width query already covered). A popup is the
+// kit Dialog at another width, so the keys still undo there (C1).
 // Post-overhaul S3c review round 2 (R2-05): the window's close question too
 // (App's own, no kit Dialog) — with or without a popup open, as any question.
 function questionOnScreen() {
-  return openQuestions.count > 0 || answersOpen.count > 0 || document.querySelector('.ui-dialog[data-width="confirm"]') !== null
+  return answersOpen.count > 0 || document.querySelector('.ui-dialog[data-width="confirm"]') !== null
     || appQuestionOnScreen()
 }
 /** A kit menu ON SCREEN (a row's shot-list menu, the bar's More): a key
@@ -4434,32 +4415,11 @@ function menuOnScreen() {
   return false
 }
 function ConfirmDialog({ title, message, onConfirm, onCancel, dismissOnBackdrop = true, returnTo = null }) {
-  const cancelRef = useRef(null)
-  useEffect(() => {
-    openQuestions.count += 1
-    cancelRef.current?.focus()
-    return () => {
-      openQuestions.count -= 1
-      const active = document.activeElement
-      if (returnTo && returnTo !== document.body && returnTo.isConnected && (!active || active === document.body)) returnTo.focus()
-    }
-  }, [])
-  return createPortal(
-    <Dialog
-      width="confirm"
-      title={title}
-      dismissOnBackdrop={dismissOnBackdrop}
-      onClose={onCancel}
-      footer={(
-        <>
-          <Button ref={cancelRef} autoFocus onClick={onCancel}>Cancel</Button>
-          <Button variant="danger" onClick={onConfirm}>Delete</Button>
-        </>
-      )}
-    >
+  return (
+    <Confirm title={title} dismissOnBackdrop={dismissOnBackdrop} returnTo={returnTo}
+      onConfirm={() => { onConfirm() }} onCancel={onCancel}>
       {message}
-    </Dialog>,
-    document.body,
+    </Confirm>
   )
 }
 
@@ -4471,140 +4431,67 @@ function ConfirmDialog({ title, message, onConfirm, onCancel, dismissOnBackdrop 
 
 
 // ─── Bulk select ───
-// A bulk bar's picker: the kit's small field (B4b's AssetBulkSelect), its
+// A bulk bar's picker: the kit's BulkSelect (F10) in this lane's class, its
 // first option the label it always showed, its choices in sentence case.
 function SceneBulkSelect({ label, options, onPick }) {
-  return (
-    <select defaultValue="" aria-label={label}
-      onChange={e => { if (e.target.value) { onPick(e.target.value); e.target.value = '' } }}
-      className="ui-input rb-scene-bulk-select"
-      data-size="sm">
-      <option value="" disabled>{label}</option>
-      {options.map(o => <option key={o} value={o}>{humanizeStatus(o)}</option>)}
-    </select>
-  )
+  return <KitBulkSelect label={label} options={options} onPick={onPick} className="ui-input rb-scene-bulk-select" />
 }
 
 
 // ─── InlineText ───
-// A cell's words that become a field on a click, exactly as before. At rest
-// the words — `strong` (a row's name) at 600 in the ink, the rest in the
-// second ink, `size="xs"` (the scene popup's shot line) in the third, an
-// empty one its placeholder in the third (R3-13: it was #57534e, 2.3:1) —
+// A cell's words that become a field on a click: the kit's useInlineText (F10)
+// on this lane's elements. At rest the words — `strong` (a row's name) at 600
+// in the ink, the rest in the second ink, `size="xs"` (the scene popup's shot
+// line) in the third, an empty one its placeholder in the third (R3-13) —
 // with the kit's hover fill; editing, the kit's small field, a native
-// `ui-input` (the kit Input's own Escape and Enter would break the draft,
-// B3d trap 3). `label` names the field for a screen reader. Escape reverts
-// the draft and is MARKED handled, as PopupInlineText's is (K4's mark): a
-// shot's description in the scene popup is inside the kit Dialog, which
-// stands down on a handled Escape, so the first press only reverts (review
-// round one, R1-02: it reverted AND closed the popup).
+// `ui-input`. `label` names the field for a screen reader. Escape reverts the
+// draft and is MARKED handled (K4's mark): a shot's description in the scene
+// popup is inside the kit Dialog, which stands down on a handled Escape, so
+// the first press only reverts (review round one, R1-02). Enter and blur
+// commit the trimmed draft. The words are a span, not a control: a tab stop
+// on every row was ruled out (C1). Since F10 the span is focusable by script
+// only (tabIndex -1), so focus comes back to it when an edit closes (P1-06)
+// and the row gains no tab stop. Its click stops there (the row's own).
 // `title` (S3b, D10): the words' tooltip — a name's lists ("In: …").
 // `readOnly` (S3b step 7): a seat that may not write scenes and shots gets
 // the words alone — no click, no hover fill, no field (`data-static`); an
 // empty one a dash, not an "Add …" it could not do.
 function InlineText({ value, placeholder, onCommit, size = 'md', strong = false, label, title, readOnly = false }) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(value)
-  const inputRef = useRef(null)
-
-  useEffect(() => { setDraft(value) }, [value])
-  useEffect(() => { if (editing && inputRef.current) inputRef.current.focus() }, [editing])
-
-  if (readOnly) {
-    return (
-      <span
-        className="rb-scene-inline"
-        data-static="true"
-        data-tone={strong ? 'strong' : size === 'xs' ? 'quiet' : undefined}
-        data-empty={value ? undefined : 'true'}
-        title={title}
-      >
-        {mentionPlainText(value || '') || (strong ? placeholder : '—')}
-      </span>
-    )
-  }
-  if (editing) {
-    return (
-      <input ref={inputRef} type="text" value={draft}
-        onChange={e => setDraft(e.target.value)}
-        onBlur={() => { if (draft !== value) onCommit(draft); setEditing(false) }}
-        onKeyDown={e => {
-          if (e.key === 'Enter') { if (draft !== value) onCommit(draft); setEditing(false) }
-          if (e.key === 'Escape') { e.preventDefault(); setDraft(value); setEditing(false) }
-        }}
-        aria-label={label}
-        className="ui-input rb-scene-inline-input"
-        data-size="sm"
-        onClick={e => e.stopPropagation()}
-      />
-    )
-  }
-  return (
-    <span
-      className="rb-scene-inline"
-      data-tone={strong ? 'strong' : size === 'xs' ? 'quiet' : undefined}
-      data-empty={value ? undefined : 'true'}
-      title={title}
-      onClick={e => { e.stopPropagation(); setEditing(true) }}
-    >
-      {mentionPlainText(value || '') || placeholder}
-    </span>
-  )
+  return useInlineText({
+    value, placeholder, label, onCommit, readOnly,
+    display: mentionPlainText, staticEmpty: strong ? placeholder : '—', stopClick: true,
+    words: <span className="rb-scene-inline" data-tone={strong ? 'strong' : size === 'xs' ? 'quiet' : undefined}
+      data-empty={value ? undefined : 'true'} title={title} />,
+    still: <span className="rb-scene-inline" data-static="true" data-tone={strong ? 'strong' : size === 'xs' ? 'quiet' : undefined}
+      data-empty={value ? undefined : 'true'} title={title} />,
+    field: <input className="ui-input rb-scene-inline-input" data-size="sm" />,
+  })
 }
 
 
 // ─── PopupInlineText ───
-// The popups' name field (surface 6c). At rest its words in the kit's small
-// well, a button — legible as a field, and a tab stop where it was a span
-// only a pointer could open — an empty one's placeholder in the third ink
-// (it was #57534e, 2.3:1). On a click the kit's small field takes its place,
-// the same size (a native `ui-input`: the kit Input's own Escape and Enter
-// would break the draft, B3d trap 3), in the ink where it was orange with an
-// orange underline. Enter and blur commit the draft as they did. Escape
-// reverts it and is MARKED handled (K4's mark), so the kit Dialog around it
-// stands down: the first press reverts the edit, the next closes the popup
-// (W2). Closed, it gives focus back to its words (R2-05, useFocusBack).
-// `label` names the field. `readOnly` (S3b step 7): the words inert, as a
-// value nobody can type is (R3-36) — no well, no tab stop.
+// The popups' name field (surface 6c): the kit's useInlineText (F10) on this
+// lane's elements. At rest its words in the kit's small well, a button —
+// legible as a field, and a tab stop — an empty one's placeholder in the
+// third ink. On a click the kit's small field takes its place, the same size,
+// in the ink. Enter and blur commit the trimmed draft. Escape reverts it and
+// is MARKED handled (K4's mark), so the kit Dialog around it stands down: the
+// first press reverts the edit, the next closes the popup (W2). Closed, it
+// gives focus back to its words (R2-05). `label` names the field.
+// `readOnly` (S3b step 7): the words inert, as a value nobody can type is
+// (R3-36) — no well, no tab stop.
 function PopupInlineText({ value, placeholder, label, onCommit, readOnly = false }) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(value)
-  const inputRef = useRef(null)
-  const wordsRef = useFocusBack(editing)
-
-  useEffect(() => { setDraft(value) }, [value])
-  useEffect(() => { if (editing && inputRef.current) inputRef.current.focus() }, [editing])
-
-  if (readOnly) {
-    return (
+  return useInlineText({
+    value, placeholder, label, onCommit, readOnly,
+    display: mentionPlainText,
+    words: <button type="button" className="ui-input rb-scene-name-text" data-size="sm" data-empty={value ? undefined : 'true'} />,
+    still: (
       <span className="rb-scene-prop-inert" data-empty={value ? undefined : 'true'}>
         <span className="rb-scene-prop-words">{value || placeholder}</span>
       </span>
-    )
-  }
-  if (editing) {
-    return (
-      <input ref={inputRef} type="text" value={draft}
-        onChange={e => setDraft(e.target.value)}
-        onBlur={() => { if (draft !== value) onCommit(draft); setEditing(false) }}
-        onKeyDown={e => {
-          if (e.key === 'Enter') { if (draft !== value) onCommit(draft); setEditing(false) }
-          if (e.key === 'Escape') { e.preventDefault(); setDraft(value); setEditing(false) }
-        }}
-        aria-label={label}
-        className="ui-input"
-        data-size="sm"
-      />
-    )
-  }
-  return (
-    <button ref={wordsRef} type="button" onClick={() => setEditing(true)}
-      className="ui-input rb-scene-name-text"
-      data-size="sm"
-      data-empty={value ? undefined : 'true'}>
-      {mentionPlainText(value || '') || placeholder}
-    </button>
-  )
+    ),
+    field: <input className="ui-input" data-size="sm" />,
+  })
 }
 
 
@@ -4740,65 +4627,19 @@ function NestedAsset({ ctx, assetId, thumbRevision, onThumbChanged, onClose, can
 }
 
 
-// ─── useFocusBack ───
-// An editor in a popup whose words at rest are a control — the name field
-// (PopupInlineText) and each popup's description and notes — gives focus
-// back to them when its edit closes (review round two, R2-05). The field
-// that had focus goes with the edit, and focus fell to <body>: the next Tab
-// started again from the popup's first control (Escape in the description,
-// then Tab, landed on the popup's Close). Whenever focus has fallen there —
-// always after Escape, Enter, Save or Cancel, whose control is the one that
-// went; after a blur that commits only then, so a Tab or a click elsewhere
-// keeps where it went. Returns the ref for the words' button.
-// InlineText (the tables' editor, also in the scene popup's shot list) is
-// NOT on it: its words are a span, not a control, and making them one would
-// add a Tab stop to every row (C1; recorded for Audrey), so its close there
-// still leaves focus on <body>.
-/**
- * A popup's draft of one saved text (D21; review round 1, R1-06). The saved
- * words replace the draft while its editor is closed — and while it is open
- * but still holds the words it opened on, so a change from elsewhere (a
- * teammate, a re-read, Ctrl+Z) shows in an editor nobody has typed in,
- * which neither reads as changed nor writes the old words back on Save. A
- * draft someone HAS typed in stays put, and closing the popup still asks.
- * The basis is read before the update is queued: React may run the updater
- * after this effect has moved the ref on.
- */
-function useSavedDraft(saved, editing) {
-  const [draft, setDraft] = useState(saved)
-  const basisRef = useRef(saved)
-  useEffect(() => {
-    const basis = basisRef.current
-    basisRef.current = saved
-    setDraft(d => (!editing || d === basis ? saved : d))
-  }, [saved, editing])
-  return [draft, setDraft]
-}
-
-function useFocusBack(editing) {
-  const wordsRef = useRef(null)
-  const wasEditing = useRef(editing)
-  useEffect(() => {
-    const closed = wasEditing.current && !editing
-    wasEditing.current = editing
-    if (!closed) return
-    const active = document.activeElement
-    if (!active || active === document.body) wordsRef.current?.focus()
-  }, [editing])
-  return wordsRef
-}
+// ─── useFocusBack, useSavedDraft ───
+// The popups' description and notes give focus back to their words when an
+// edit closes (review round two, R2-05), and each draft follows the saved
+// words while its editor is closed or untouched (D21; review round 1, R1-06).
+// Both hooks are the kit's since F10 (src/ui/useInlineText.jsx, imported above),
+// where the inline editors use them too; their rules are written there.
 
 
 // ─── FieldLabel ───
-// A property's label: the kit Field's own label class — 11px, 600, capitals
-// at the kit's tracking, the second ink (7.85:1 on the Dialog's raised paper,
-// where #78716c measured 3.16 on #292524) — a block over its value, as B4c's
-// FieldLabel. As before it labels no control by itself: each control carries
-// its own name.
+// A property's label: the kit's FieldLabel (F10) in this lane's class —
+// 11px, 600, capitals at the kit's tracking, the second ink (7.85:1 on the
+// Dialog's raised paper) — a block over its value, as B4c's FieldLabel. As
+// before it labels no control by itself: each control carries its own name.
 function FieldLabel({ children }) {
-  return (
-    <label className="ui-field-label rb-scene-label">
-      {children}
-    </label>
-  )
+  return <KitFieldLabel className="ui-field-label rb-scene-label">{children}</KitFieldLabel>
 }

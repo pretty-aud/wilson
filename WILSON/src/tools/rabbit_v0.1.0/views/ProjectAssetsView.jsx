@@ -45,7 +45,10 @@ import {
 import {
   Toolbar, Button, IconButton, Tabs, Table, Th, Td, Row, Dialog, Field,
   Card, RowTitle, EmptyState, StatusDot, StatusBadge, StatusBanner, Badge, CellSelect, statusMeta,
-  Banner, Loading, HoverActions, MenuButton, useToast,
+  Banner, Loading, HoverActions, MenuButton, useOptionalToast,
+  // Post-overhaul F10 (rabbit A6): the kit's own editors, bulk picker and
+  // question; this file's names below are its look on them.
+  useInlineText, BulkSelect as KitBulkSelect, Confirm,
 } from '../../../ui'
 import './rabbitFiles.css'
 // VW1e (2026-10-25): the custom views on the Assets table (the design's §7
@@ -134,12 +137,6 @@ export const TASK_STATUSES = [
 const OLD_SAVED_VIEWS_KEY = 'rabbit_asset_saved_views'
 /** Rows in their own table's order (sort_order), on a copy. */
 const inOwnOrder = (rows) => (Array.isArray(rows) ? [...rows].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)) : rows)
-
-// The kit toast stack, or nothing where no ToastProvider is mounted (a test
-// that mounts the tab alone): a passing message, never a failure.
-function useOptionalToast() {
-  try { return useToast() } catch { return null }
-}
 
 // ── Topological sort for dependency-ordered task creation ──
 function topoSort(tasks) {
@@ -984,25 +981,21 @@ function AssetTable({ assets, groups, groupBy, columns, showThumb = true, phases
         )}
       </Table>
 
-      {/* W9: the bulk question on the kit Dialog — the same words, Cancel
+      {/* W9: the bulk question, the kit's Confirm — the same words, Cancel
           leaves every asset where it was, Delete deletes exactly as OK did.
-          Raised here, outside the table, so no cell's nowrap reaches it. */}
+          Raised here, outside the table, so no cell's nowrap reaches it; drawn
+          in place, as it was (`portal={false}`). */}
       {confirmBulkDelete && (
-        <Dialog
-          width="confirm"
+        <Confirm
+          portal={false}
           title="Delete assets"
-          onClose={() => setConfirmBulkDelete(false)}
-          footer={(
-            <>
-              <Button autoFocus onClick={() => setConfirmBulkDelete(false)}>Cancel</Button>
-              <Button variant="danger" onClick={confirmedBulkDelete}>Delete</Button>
-            </>
-          )}
+          onCancel={() => setConfirmBulkDelete(false)}
+          onConfirm={confirmedBulkDelete}
         >
           <p className="rb-asset-confirm">
             {`Delete ${selected.size} asset${selected.size === 1 ? '' : 's'}?${tasksStayWords(selected, taskCountByAsset)}`}
           </p>
-        </Dialog>
+        </Confirm>
       )}
     </div>
   )
@@ -1078,21 +1071,11 @@ function AssetGroupRows({ group, groupBy, span, collapsed, onToggle, canDrop = f
   )
 }
 
-// ── Bulk-action dropdown for the floating bar (B2's BulkSelect) ──
+// ── Bulk-action dropdown for the floating bar: the kit's BulkSelect (F10)
+// in this lane's class. "None" now answers null, the clear its callers'
+// `v || null` always expected (it had the label's '' and did nothing). ──
 function AssetBulkSelect({ label, options, labels, onPick, allowEmpty }) {
-  return (
-    <select
-      defaultValue=""
-      aria-label={label}
-      onChange={e => { if (e.target.value !== '') { onPick(e.target.value); e.target.value = '' } }}
-      className="ui-input rb-asset-tool"
-      data-size="sm"
-    >
-      <option value="" disabled>{label}</option>
-      {allowEmpty && <option value="">None</option>}
-      {options.map(o => <option key={o} value={o}>{(labels?.[o] || o).replace(/_/g, ' ')}</option>)}
-    </select>
-  )
+  return <KitBulkSelect label={label} options={options} labels={labels} onPick={onPick} allowEmpty={allowEmpty} className="ui-input rb-asset-tool" />
 }
 
 
@@ -2357,93 +2340,31 @@ function PropField({ label, value, numeric = false, children }) {
   )
 }
 
-// ── Inline editors ──
+// ── Inline editors: the kit's useInlineText (F10) on this lane's elements ──
 // The asset's name, edited in place: the gallery card's (Dense, at the card's
 // 600) and the detail popup's title (the H2 step, R4-09 — rabbitFiles.css
-// sizes it by where it sits). Enter and blur commit and Escape reverts, as
-// they did. The Escape is MARKED handled (K4's mark), so the kit Dialog around
-// the title stands down on it: the first press reverts the edit, the next one
-// closes the popup (W2).
+// sizes it by where it sits). Enter and blur commit the trimmed draft, Escape
+// reverts and is MARKED handled, so the kit Dialog around the title stands
+// down on it: the first press reverts the edit, the next one closes the popup
+// (W2). Focus goes back to the words when the edit closes (P1-06).
+// Session 29: a seat that cannot write gets the words alone.
 function InlineText({ value, onCommit, placeholder, readOnly = false }) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft]     = useState(value)
-  function commit() {
-    setEditing(false)
-    if (draft !== value) onCommit(draft)
-  }
-  // Session 29 — see CellInlineText. Gallery cards edit the asset name too.
-  if (readOnly) {
-    return (
-      <span className="rb-asset-inline" data-empty={value ? 'false' : 'true'}>
-        {value || placeholder || '—'}
-      </span>
-    )
-  }
-  if (editing) {
-    return (
-      <input
-        autoFocus
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') commit()
-          if (e.key === 'Escape') { e.preventDefault(); setDraft(value); setEditing(false) }
-        }}
-        aria-label="Name"
-        className="ui-input rb-asset-inline-input"
-        data-size="sm"
-      />
-    )
-  }
-  return (
-    <button
-      type="button"
-      onClick={() => { setDraft(value); setEditing(true) }}
-      className="rb-asset-inline"
-      data-empty={value ? 'false' : 'true'}
-    >
-      {value || placeholder || '—'}
-    </button>
-  )
+  return useInlineText({
+    value, placeholder, label: 'Name', onCommit, readOnly,
+    words: <button type="button" className="rb-asset-inline" data-empty={value ? 'false' : 'true'} />,
+    still: <span className="rb-asset-inline" data-empty={value ? 'false' : 'true'} />,
+    field: <input className="ui-input rb-asset-inline-input" data-size="sm" />,
+  })
 }
 
-// The table's name editor (B2's CellInlineText, in this lane's classes)
+// The table's name editor (B2's CellInlineText, in this lane's classes): the
+// kit's useInlineText. Session 29 — a seat that cannot write gets plain text, no
+// button, no hover. See the Tasks tab twin.
 function CellInlineText({ value, placeholder, onCommit, readOnly = false }) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft]     = useState(value)
-  useEffect(() => { setDraft(value) }, [value])
-  function commit() {
-    setEditing(false)
-    if (draft !== value) onCommit(draft)
-  }
-  // Session 29 — plain text, no button, no hover. See the Tasks tab twin.
-  if (readOnly) {
-    return (
-      <span className="rb-asset-cell-text" data-empty={value ? 'false' : 'true'} data-static="true"
-        title={value || undefined}>
-        {value || placeholder || '—'}
-      </span>
-    )
-  }
-  // Enter and blur commit, Escape reverts — unchanged. A native field in the
-  // kit's small well, not the kit Input (whose own Enter blurs; B3d-KR-2).
-  if (editing) {
-    return (
-      <input autoFocus value={draft} onChange={e => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); setEditing(false) } }}
-        aria-label="Name"
-        className="ui-input rb-asset-cell-input"
-        data-size="sm" />
-    )
-  }
-  return (
-    <button type="button" onClick={() => { setDraft(value); setEditing(true) }}
-      className="rb-asset-cell-text"
-      title={value || undefined}
-      data-empty={value ? 'false' : 'true'}>
-      {value || placeholder || '—'}
-    </button>
-  )
+  return useInlineText({
+    value, placeholder, label: 'Name', onCommit, readOnly,
+    words: <button type="button" className="rb-asset-cell-text" title={value || undefined} data-empty={value ? 'false' : 'true'} />,
+    still: <span className="rb-asset-cell-text" data-empty={value ? 'false' : 'true'} data-static="true" title={value || undefined} />,
+    field: <input className="ui-input rb-asset-cell-input" data-size="sm" />,
+  })
 }

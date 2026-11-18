@@ -1034,6 +1034,39 @@ select option {
   .ui-td:has(> .ui-cell-select) { padding-top: 4px; padding-bottom: 3px; }
   .ui-table[data-dense="true"] .ui-td:has(> .ui-cell-select) { padding-top: 2px; padding-bottom: 1px; }
 
+  /* ── InlineText: words that become a field (post-overhaul F10, rabbit A6) ─
+     The kit's own look, for a caller that brings none: the words as a cell's
+     text in the one ink, the hover fill, an empty one's placeholder in the
+     third ink — and the second while hovered or focused, CellSelect's measured
+     rule (the third on the fill is under 4.5:1) — and words nobody may change
+     plain, no fill and no text cursor. R.A.B.B.I.T.'s eight editors each bring
+     their own class, which REPLACES this one (InlineText.jsx says why: their
+     cursors, hovers and edges differ). The field is the kit's small well. */
+  .ui-inline-text {
+    display: block;
+    min-width: 0;
+    min-height: var(--control-sm);
+    padding: 4px 6px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+    font-family: var(--font-sans);
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink);
+    background-color: transparent;
+    border: 0;
+    border-radius: var(--radius-control);
+    cursor: text;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .ui-inline-text:hover:not([data-static="true"]) { background-color: var(--color-hover); }
+  .ui-inline-text[data-empty="true"] { color: var(--color-ink-3); }
+  .ui-inline-text[data-empty="true"]:hover:not([data-static="true"]),
+  .ui-inline-text[data-empty="true"]:focus { color: var(--color-ink-2); }
+  .ui-inline-text[data-static="true"] { cursor: default; }
+
   /* ── Field: Label role + control, 4px inside / 16px between ────────── */
   .ui-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
   .ui-field[data-inline="true"] { flex-direction: row; align-items: center; gap: 12px; }

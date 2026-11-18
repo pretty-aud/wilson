@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { PAGE_BARS } from '../layout/pages'
-import { Toast, ToastProvider, useToast, TOAST_TONES, toastFocusReturn } from './Toast'
+import { Toast, ToastProvider, useToast, useOptionalToast, TOAST_TONES, toastFocusReturn } from './Toast'
 
 afterEach(() => { cleanup(); vi.useRealTimers() })
 
@@ -111,6 +111,16 @@ describe('Toast', () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {})
     expect(() => render(<Pusher opts={{}} />)).toThrow(/ToastProvider/)
     err.mockRestore()
+  })
+
+  it('useOptionalToast (F10): the same stack inside a provider, null outside one (a tab mounted alone)', () => {
+    const seen = []
+    function Reader() { seen.push(useOptionalToast()); return null }
+    render(<Reader />)
+    expect(seen.at(-1)).toBeNull()
+    cleanup()
+    render(<ToastProvider><Reader /></ToastProvider>)
+    expect(typeof seen.at(-1)?.push).toBe('function')
   })
 
   // The Track A merge, review round 2 (A-R2-02): R.A.B.B.I.T.'s UndoToast was

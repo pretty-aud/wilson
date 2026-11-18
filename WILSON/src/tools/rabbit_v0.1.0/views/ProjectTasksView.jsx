@@ -91,7 +91,10 @@ import { projectDayCounts, toIsoDate, showDate } from '../dates.js'
 import {
   Stat, Toolbar, Button, IconButton, Tabs, Table, Th, Td, Row, Dialog,
   HoverActions, RowTitle, EmptyState, Badge, StatusDot, humanizeStatus, Banner,
-  MenuButton, Loading, useToast,
+  MenuButton, Loading, useOptionalToast,
+  // Post-overhaul F10 (rabbit A6): the kit's own editor, bulk picker and
+  // question; this file's names below are its look on them.
+  useInlineText, BulkSelect as KitBulkSelect, Confirm,
 } from '../../../ui'
 // Priority as a status TONE, from the one place that decides it: the
 // Dashboard's task table shows the same tasks and must not say otherwise.
@@ -123,12 +126,6 @@ import './rabbitTasks.css'
 // before VW1d, removed on the first load after the new views ship. The other
 // tables' keys are VW1e's; Expenses' and Team's stay (Q19).
 const OLD_SAVED_VIEWS_KEY = 'rabbit_task_saved_views'
-
-// The kit toast stack, or nothing where no ToastProvider is mounted (a test
-// that mounts the tab alone): a passing message, never a failure.
-function useOptionalToast() {
-  try { return useToast() } catch { return null }
-}
 
 // VW1m (2026-10-16): grouping by an item kind makes one group per
 // combination of a task's items (her Q-D). VW1b (her Q11): Scene, Shot,
@@ -1359,22 +1356,20 @@ function TaskTable({ tasks, hasAnyTask = false, groups, groupBy, itemLookup, col
         // ticked tasks another version holds are set aside, not deleted, and
         // the question says which; otherwise it is the question it always was.
         const removalQ = removalQuestion(ctx?.removalPlanFor?.({ tasks: [...selected] }), 'task')
+        // The kit's Confirm (F10), drawn in place as it was (`portal={false}`).
         return (
-          <Dialog
-            width="confirm"
+          <Confirm
+            portal={false}
             title={removalQ ? removalQ.title : `Delete ${selected.size} task${selected.size === 1 ? '' : 's'}?`}
-            onClose={() => setConfirmBulkDelete(false)}
-            footer={(
-              <>
-                <Button autoFocus onClick={() => setConfirmBulkDelete(false)}>Cancel</Button>
-                <Button variant={removalQ && !removalQ.danger ? 'primary' : 'danger'} onClick={confirmedBulkDelete}>{removalQ ? removalQ.confirm : 'Delete'}</Button>
-              </>
-            )}
+            confirmLabel={removalQ ? removalQ.confirm : 'Delete'}
+            variant={removalQ && !removalQ.danger ? 'primary' : 'danger'}
+            onCancel={() => setConfirmBulkDelete(false)}
+            onConfirm={confirmedBulkDelete}
           >
             {removalQ
               ? removalQ.sentences.map((line, i) => <p key={i} className="rb-removal-line">{line}</p>)
               : 'Every ticked task is deleted, including any in a collapsed group.'}
-          </Dialog>
+          </Confirm>
         )
       })()}
 
@@ -1388,21 +1383,11 @@ function TaskTable({ tasks, hasAnyTask = false, groups, groupBy, itemLookup, col
   )
 }
 
-// ── Bulk-action dropdown for floating bar ──
+// ── Bulk-action dropdown for the floating bar: the kit's BulkSelect (F10) in
+// this lane's class. "None" now answers null, the clear its callers'
+// `v || null` always expected (it had the label's '' and did nothing). ──
 function BulkSelect({ label, options, labels, onPick, allowEmpty }) {
-  return (
-    <select
-      defaultValue=""
-      aria-label={label}
-      onChange={e => { if (e.target.value !== '') { onPick(e.target.value); e.target.value = '' } }}
-      className="ui-input rb-task-tool"
-      data-size="sm"
-    >
-      <option value="" disabled>{label}</option>
-      {allowEmpty && <option value="">None</option>}
-      {options.map(o => <option key={o} value={o}>{(labels?.[o] || o).replace(/_/g, ' ')}</option>)}
-    </select>
-  )
+  return <KitBulkSelect label={label} options={options} labels={labels} onPick={onPick} allowEmpty={allowEmpty} className="ui-input rb-task-tool" />
 }
 
 // ── Drag helpers ──
@@ -2172,48 +2157,19 @@ function KanbanCard({ task, itemLookup, itemSort, memberById, cardShows = null, 
 // ═════════════════════════════════════════════════════
 // CELL EDITORS
 // ═════════════════════════════════════════════════════
+// The kit's useInlineText (F10: Enter and blur commit the trimmed draft, Escape
+// reverts, focus back to the words, P1-06) on this lane's elements.
 // Session 29 — `readOnly` renders the value as plain text with no button, no
 // hover highlight and no way in. The alternative (leave the button, drop the
 // write) is the S23 defect: a control that looks live, accepts a click, and
 // discards what you typed.
 function CellInlineText({ value, placeholder, onCommit, readOnly = false }) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(value)
-
-  useEffect(() => { setDraft(value) }, [value])
-
-  function commit() {
-    setEditing(false)
-    if (draft !== value) onCommit(draft)
-  }
-
-  if (readOnly) {
-    return (
-      <span className="rb-task-cell-text" data-empty={value ? 'false' : 'true'} data-static="true"
-        title={value || undefined}>
-        {value || placeholder || '—'}
-      </span>
-    )
-  }
-
-  if (editing) {
-    return (
-      <input autoFocus value={draft} onChange={e => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); setEditing(false) } }}
-        aria-label="Title"
-        className="ui-input rb-task-cell-input"
-        data-size="sm" />
-    )
-  }
-  return (
-    <button type="button" onClick={() => { setDraft(value); setEditing(true) }}
-      className="rb-task-cell-text"
-      title={value || undefined}
-      data-empty={value ? 'false' : 'true'}>
-      {value || placeholder || '—'}
-    </button>
-  )
+  return useInlineText({
+    value, placeholder, label: 'Title', onCommit, readOnly,
+    words: <button type="button" className="rb-task-cell-text" title={value || undefined} data-empty={value ? 'false' : 'true'} />,
+    still: <span className="rb-task-cell-text" data-empty={value ? 'false' : 'true'} data-static="true" title={value || undefined} />,
+    field: <input className="ui-input rb-task-cell-input" data-size="sm" />,
+  })
 }
 
 function CellDateInput({ value, label, onCommit, readOnly = false }) {
