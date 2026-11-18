@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import AnswerLink from '../../components/AnswerLink';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import SyntaxHighlighter from '../../components/codeHighlighter';
 import Editor from '@monaco-editor/react';
 /* Monaco takes its size as a NUMBER, and `TYPE.body` IS a number: `tokens.js`
    builds TYPE with `Number(THEME['text-body'].replace('px',''))`, so this is

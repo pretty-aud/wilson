@@ -24,11 +24,15 @@
 // =============================================================================
 
 import { supabase } from './auth/supabaseClient'
-import { withTimeout, TimeoutError, AUTH_TIMEOUT_MS } from './auth/withTimeout'
+import { TimeoutError } from './auth/withTimeout'
 import { devFixtures } from '../dev/devFixtures'
+import { callEdgeFunction, readSessionToken } from './edgeFunctions'
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
-const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY
+// F11 (A1): the transport is callEdgeFunction's; the words and the throws are
+// this file's, as they were. The upload's ceiling, on purpose, is aiProxy.js's
+// AI_START_MS reasoning: ten minutes, past anything the platform lets the
+// function run (the upload is inside that), so a slow upload is never cut off.
+const UPLOAD_MS = 600000
 
 /**
  * The beta Anthropic requires on the upload AND on every messages request that
@@ -136,19 +140,7 @@ export async function uploadAIFile({ data, filename, mediaType }, { signal } = {
   // caller's spinner running forever with nothing in the console, and a stall
   // must not be reported as "sign in" — that sends someone to a remedy that
   // cannot work. See aiProxy.js for the full rationale.
-  let token = null
-  try {
-    const { data: sess } = await withTimeout(
-      supabase.auth.getSession(), AUTH_TIMEOUT_MS, 'reading your session',
-    )
-    token = sess?.session?.access_token ?? null
-  } catch (err) {
-    if (err instanceof TimeoutError) {
-      throw new AIFileError(FRIENDLY.session_stalled, 0, 'session_stalled')
-    }
-    /* anything else: fall through to the !token branch */
-  }
-  if (!token) throw new AIFileError(FRIENDLY.unauthorized, 401, 'unauthorized')
+  const token = await readToken()
 
   const blob = data instanceof Blob ? data : base64ToBlob(data, mediaType)
   const form = new FormData()
@@ -167,36 +159,18 @@ export async function uploadAIFile({ data, filename, mediaType }, { signal } = {
   void filename
   form.append('file', blob, neutralFileName(blob.type || mediaType))
 
-  let res
-  try {
-    res = await fetch(`${SUPABASE_URL}/functions/v1/ai-files`, {
-      method: 'POST',
-      // NOTE: no content-type header. The browser must set it itself so the
-      // multipart boundary is generated — setting it by hand produces a body
-      // the upstream cannot parse, and the error names neither cause.
-      headers: {
-        apikey: SUPABASE_ANON,
-        authorization: `Bearer ${token}`,
-      },
-      body: form,
-      signal,
-    })
-  } catch (err) {
-    if (err?.name === 'AbortError') throw err
-    throw new AIFileError(FRIENDLY.network, 0, 'network')
+  // NOTE: no content-type header. callEdgeFunction sends a FormData as it is,
+  // so the browser sets the multipart boundary itself — setting it by hand
+  // produces a body the upstream cannot parse, and the error names neither cause.
+  const r = await callEdgeFunction('ai-files', form, { token, signal, timeoutMs: UPLOAD_MS, words: FRIENDLY })
+  if (r.ok && r.data?.id) return r.data
+  if (r.ok || r.code === 'bad_answer') {
+    throw new AIFileError('The AI service accepted the file but returned no id.', r.status, 'no_file_id')
   }
-
-  const json = await res.json().catch(() => ({}))
-  if (!res.ok) {
-    const code = json.error ?? `http_${res.status}`
-    const upstreamMsg = json.anthropic?.error?.message
-    const msg = upstreamMsg || FRIENDLY[code] || `File upload failed (${res.status}).`
-    throw new AIFileError(msg, res.status, code)
-  }
-  if (!json?.id) {
-    throw new AIFileError('The AI service accepted the file but returned no id.', res.status, 'no_file_id')
-  }
-  return json
+  if (r.status === 0) throw new AIFileError(r.words, 0, r.code)
+  const upstreamMsg = r.data?.anthropic?.error?.message
+  const msg = upstreamMsg || r.words || `File upload failed (${r.status}).`
+  throw new AIFileError(msg, r.status, r.code)
 }
 
 // =============================================================================
@@ -211,7 +185,6 @@ export async function uploadAIFile({ data, filename, mediaType }, { signal } = {
 // refusal's body defensively (a non-JSON 546 must not become a SyntaxError
 // that hides the status).
 
-const FILES_URL = () => `${SUPABASE_URL}/functions/v1/ai-files`
 /** Ids per DELETE: a short list, far under keepalive's 64 KB in flight. */
 export const DELETE_BATCH = 25
 const CALL_TIMEOUT_MS = 15000
@@ -228,13 +201,11 @@ try {
   })
 } catch { /* a test double without onAuthStateChange */ }
 
+// The bounded session read every call here starts from (the upload's and the store's), with this file's words.
 async function readToken() {
   let token = null
   try {
-    const { data: sess } = await withTimeout(
-      supabase.auth.getSession(), AUTH_TIMEOUT_MS, 'reading your session',
-    )
-    token = sess?.session?.access_token ?? null
+    token = await readSessionToken()
   } catch (err) {
     if (err instanceof TimeoutError) throw new AIFileError(FRIENDLY.session_stalled, 0, 'session_stalled')
   }
@@ -242,61 +213,14 @@ async function readToken() {
   return token
 }
 
-/** An AbortController with a timeout, joined to the caller's signal. */
-function timedSignal(outer, ms) {
-  const c = new AbortController()
-  const timer = setTimeout(() => c.abort(), ms)
-  const onAbort = () => c.abort()
-  if (outer) {
-    if (outer.aborted) c.abort()
-    else outer.addEventListener('abort', onAbort, { once: true })
-  }
-  return {
-    signal: c.signal,
-    timedOut: () => c.signal.aborted && !outer?.aborted,
-    done: () => { clearTimeout(timer); outer?.removeEventListener?.('abort', onAbort) },
-  }
-}
-
 async function callFiles(method, { body, token, signal, keepalive = false, timeoutMs = CALL_TIMEOUT_MS }) {
-  const t = timedSignal(signal, timeoutMs)
-  try {
-    let res
-    try {
-      res = await fetch(FILES_URL(), {
-        method,
-        keepalive,
-        headers: {
-          apikey: SUPABASE_ANON,
-          authorization: `Bearer ${token}`,
-          ...(body ? { 'content-type': 'application/json' } : {}),
-        },
-        ...(body ? { body: JSON.stringify(body) } : {}),
-        signal: t.signal,
-      })
-    } catch (err) {
-      if (signal?.aborted) throw err // the caller's own abort, as fetch reports it
-      if (t.timedOut()) throw new AIFileError(FRIENDLY.timeout, 0, 'timeout')
-      throw new AIFileError(FRIENDLY.network, 0, 'network')
-    }
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}))
-      const code = typeof j?.error === 'string' ? j.error : `http_${res.status}`
-      // The upload's words say "uploads"; these routes are not uploads (review round 2, note 9).
-      const words = code === 'rate_limited' ? FRIENDLY.store_rate_limited : FRIENDLY[code]
-      throw new AIFileError(words || `The AI’s file store refused (${res.status}).`, res.status, code)
-    }
-    const j = await res.json().catch(() => null)
-    if (!j || typeof j !== 'object' || Array.isArray(j)) {
-      throw new AIFileError(FRIENDLY.bad_answer, res.status, 'bad_answer')
-    }
-    return j
-  } catch (err) {
-    if (t.timedOut() && !(err instanceof AIFileError)) throw new AIFileError(FRIENDLY.timeout, 0, 'timeout')
-    throw err
-  } finally {
-    t.done()
-  }
+  // The upload's words say "uploads"; these routes are not uploads (review round 2, note 9).
+  const words = { ...FRIENDLY, rate_limited: FRIENDLY.store_rate_limited }
+  const r = await callEdgeFunction('ai-files', body, { token, signal, timeoutMs, keepalive, method, words })
+  if (r.ok) return r.data
+  if (r.status === 0) throw new AIFileError(r.words, 0, r.code)
+  if (r.code === 'bad_answer') throw new AIFileError(FRIENDLY.bad_answer, r.status, 'bad_answer')
+  throw new AIFileError(r.words || `The AI’s file store refused (${r.status}).`, r.status, r.code)
 }
 
 /**

@@ -29,6 +29,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../cloud/auth/supabaseClient'
 import { saveSession } from '../cloud/auth/sessionStorage'
 import { withTimeout, AUTH_TIMEOUT_MS } from '../cloud/auth/withTimeout'
+import { mfaStepNeeded, verifyTotp } from '../cloud/auth/signIn'
 
 // Deliberately identical for wrong-email, wrong-password and not-an-operator.
 // The console's URL is not a secret, so its error copy must not confirm which
@@ -71,19 +72,14 @@ export default function OperatorLogin({ onSignedIn, notice = '' }) {
       // Upgrade to aal2 BEFORE handing the session on — every operator Edge
       // Function requires it, so an aal1 session here would look signed in
       // and then fail on the first action.
-      const { data: aal } = await withTimeout(
-        supabase.auth.mfa.getAuthenticatorAssuranceLevel(), AUTH_TIMEOUT_MS, 'MFA level check')
-      if (aal?.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') {
-        const { data: factors } = await withTimeout(
-          supabase.auth.mfa.listFactors(), AUTH_TIMEOUT_MS, 'factor list')
-        const totp = (factors?.totp ?? []).find((f) => f.status === 'verified')
-        if (totp) {
-          setFactorId(totp.id)
-          setCode('')
-          setStage('mfa')
-          setBusy(false)
-          return
-        }
+      // F11 (A2): signIn.js's mfaStepNeeded, the login's same two bounded reads.
+      const step = await mfaStepNeeded()
+      if (step) {
+        setFactorId(step.factorId)
+        setCode('')
+        setStage('mfa')
+        setBusy(false)
+        return
       }
 
       // No verified factor. The guard would refuse this session anyway; say
@@ -113,27 +109,17 @@ export default function OperatorLogin({ onSignedIn, notice = '' }) {
     setBusy(true)
     setError('')
     try {
-      const { data: ch, error: chErr } = await withTimeout(
-        supabase.auth.mfa.challenge({ factorId }), AUTH_TIMEOUT_MS, 'MFA challenge')
-      if (chErr || !ch?.id) throw chErr ?? new Error('challenge failed')
-      const { data: vData, error: vErr } = await withTimeout(
-        supabase.auth.mfa.verify({ factorId, challengeId: ch.id, code: clean }),
-        AUTH_TIMEOUT_MS, 'MFA verify')
-      if (vErr) {
+      // F11 (A2): signIn.js's verifyTotp — the challenge and the verify bounded,
+      // and verify()'s own session used (Session 17: a getSession() straight
+      // after it deadlocked on auth-js's lock), as the login does.
+      const verdict = await verifyTotp(factorId, clean)
+      if (verdict.rejected) {
         setError('Code rejected. Try again.')
         setCode('')
         setBusy(false)
         return
       }
-      // Session 17: use verify()'s own returned session rather than calling
-      // getSession() straight after it — auth-js's navigator lock made that a
-      // deadlock. Same fix as LoginScreen; see the note there.
-      let session = vData?.access_token ? vData : null
-      if (!session) {
-        const { data: fresh } = await withTimeout(
-          supabase.auth.getSession(), AUTH_TIMEOUT_MS, 'session read')
-        session = fresh?.session ?? null
-      }
+      const session = verdict.session
       if (!session) {
         setError(GENERIC_ERROR)
         setBusy(false)

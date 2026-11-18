@@ -590,14 +590,30 @@ Login is **username-first**: a user types a workspace username, not an email.
 | # | Step | Where |
 |---|---|---|
 | 1 | Client validates the username shape `^[a-z0-9][a-z0-9._-]{1,31}$` before any network call | `LoginScreen.jsx:149` |
-| 2 | `POST /functions/v1/resolve-login` with `{username}` (+ optional `workspace_slug`) | `LoginScreen.jsx:36` |
+| 2 | `POST /functions/v1/resolve-login` with `{username}` (+ optional `workspace_slug`) | `signIn.js` `resolveLogin` (F11; `LoginScreen.jsx` before) |
 | 3 | Server looks up `workspace_members` joined to `workspaces` on username + `is_active` + not-deleted, `.limit(2)`, and resolves the email via the service-role admin API | `resolve-login/index.ts:135-169` |
 | 4 | On a miss, the client still calls `signInWithPassword` against a fabricated `__miss+<uuid>@invalid.local` address, so timing and code path are identical to a real attempt | `LoginScreen.jsx:160` |
 | 5 | `supabase.auth.signInWithPassword` — GoTrue itself. The access-token hook fires here and bakes the claims into an **ES256** JWT | `LoginScreen.jsx:162` |
-| 6 | If the account has a verified TOTP factor and the session is not already `aal2`, the UI enters the MFA stage: `mfa.challenge` → `mfa.verify` | `LoginScreen.jsx:170-231` |
+| 6 | If the account has a verified TOTP factor and the session is not already `aal2`, the UI enters the MFA stage: `mfa.challenge` → `mfa.verify` | `signIn.js` `mfaStepNeeded`, `verifyTotp` (F11; `LoginScreen.jsx` before) |
 | 7 | The client lists the user's workspaces (RLS-scoped). More than one → a chooser | `LoginScreen.jsx:68` |
-| 8 | `POST /functions/v1/issue-session` with the chosen `workspace_id`, then `refreshSession()` | `LoginScreen.jsx:52, 125` |
+| 8 | `POST /functions/v1/issue-session` with the chosen `workspace_id`, then `refreshSession()` | `signIn.js` `issueSession` (F11); `LoginScreen.jsx` completeSignIn |
 | 9 | Session persisted through `src/cloud/auth/sessionStorage.js` (§5.2) | — |
+
+> **F11 (2026-11-18): the steps are written once.** `src/cloud/auth/signIn.js` holds them: `verifyCompany`,
+> `resolveLogin(username, slug)`, `issueSession`, `mfaStepNeeded` and `verifyTotp`, with the device's last company
+> (`wilson.lastCompany`) and the `?company=` link. The login, the reset wizard, the workspace switcher, the MFA panel
+> and the operator console's sign-in use them; each screen keeps its own words, its order and its defences (the
+> fake-email sign-in at step 4, the one generic error). Every await in `signIn.js` is bounded at `AUTH_TIMEOUT_MS`
+> (15 s); what the screens still await bare is OUTSTANDING F11-09. Bounded now where they were not: the
+> company step and step 2 had no ceiling, and step 6's check for a verified factor (`getAuthenticatorAssuranceLevel`,
+> `listFactors`) had none and now answers a stall with the timeout sentence, never an aal1 sign-in. Requests go through
+> the one Edge Function caller (§4.6). **Forgot password (REV-05):** it sent `{ username }` alone, and a username in
+> two companies is a miss at step 3, so that person got no email while the wizard said one was on its way. It now
+> asks for the company the way the login does, at her answer of 2026-11-18 ("Show it, with 'Change company'"): the
+> device's last company, or the link's, shown above the username with *Change company*; a company field when none is
+> remembered. It verifies the company and sends `{ username, workspace_slug }`; a company step that cannot be
+> answered is the timeout sentence, never a guessed slug; the "sent" screen is the same for a hit and a miss
+> (`signInScreens.test.jsx`). Walkthrough 101, F11.
 
 `resolve-login` is deliberately uniform: a constant-time floor of 180 ms wraps
 **every** reply path, and the response body is always `{exists, email}` with
@@ -1139,9 +1155,27 @@ on it, `aiKeyCrypto.ts`, `storageSecretCrypto.ts` and `gatewayKeyCrypto.ts`
 > `resolve-login` among them since Track B B1. Each function's secrets by name, and what
 > production holds of each by the documents: `docs/PRODUCTION_RUNBOOK.md` (c).
 
+> **The client's side, F11 (2026-11-18): one caller.** Every request from the app and the operator console goes through
+> `callEdgeFunction(name, body, { token, anon, signal, timeoutMs, words, method, keepalive, raw })` in
+> `src/cloud/edgeFunctions.js` (sixteen hand-built fetches in twelve files before; `supabase.functions.invoke` is still
+> used nowhere). The helpers keep their names, signatures and answers (`callAI`, `uploadAIFile`, `presignStorage`,
+> `admin*`, the operator calls, the gateway's two; `inviteMember` is new, the two invite dialogs' one call). Its rules:
+> the token is the caller's (an auth event's, the sign-in's, the page's last moments), none (`anon`, resolve-login), or
+> one session read bounded at 15 s (`readSessionToken`: a stall is `session_stalled`, never "sign in again"); `res.ok`
+> is read once, before the body, and the body once with `json()`; a 2xx that is not a JSON object is `bad_answer`,
+> never a success; a ceiling is an AbortController joined to the caller's signal, and the caller's own abort is
+> rethrown. Words: the caller's own table first, then `EDGE_WORDS` (the network, a stalled session read, a timeout, an
+> unreadable answer, and `too_large` for F8's 413, which had no words: OUTSTANDING F8-06), then the caller's numbered
+> sentence. Ceilings, each said in its file: admin reads 15 s; admin writes and invites 60 s (a write cut short may
+> have landed, and the timeout's words say to check); the operator calls and storage-gc 420 s, and `callAI` and the
+> upload 600 s to the START of the answer only (past the platform's own run limit, so they end only a dead
+> connection; a stream is never bounded); the file store 15/120 s and the gateway 15/30 s as before; resolve-login and
+> issue-session 15 s. The storage calls keep none of their own (FX11's contract: the connection dot's probe passes its
+> own signal; OUTSTANDING F11-04). Edge Function calls stay outside the watchdog (`RECONNECT_DESIGN.md` §5).
+
 | Function | Caller | Guard | Job |
 |---|---|---|---|
-| `resolve-login` | `LoginScreen` (with `workspace_slug` since S43), `ForgotPasswordWizard` (without) | none (public, pre-auth) | Username (+ slug) → email, constant-time, uniform shape |
+| `resolve-login` | `LoginScreen` (with `workspace_slug` since S43), `ForgotPasswordWizard` (with it since F11, REV-05; without before) | none (public, pre-auth) | Username (+ slug) → email, constant-time, uniform shape |
 | `issue-session` | `LoginScreen`, `WorkspaceSwitcher` | `adminGuard.authenticate` since F8 (inline `getUser` before) | Seat `app_metadata.workspace_id` for the next refresh |
 | `invite-member` | `InviteMemberDialog`, `MultiInviteDialog` | `requireWorkspaceAdmin` (since S17) | Invite by email, create the membership row with `onboarded_at` null |
 | `admin-create-user` | Admin Terminal → `adminApi.js` | `requireWorkspaceAdmin` | Create a member with a show-once password; optional synthesized email |
@@ -5262,6 +5296,22 @@ five-phase ~2.1 s transition before flipping the visible page.
 >    *after* the role check — and inside that child, hand each section an
 >    `isActive` prop so its own fetch waits for first activation.
 
+**Parts of pages load on their first open (F11, 2026-11-18).** The pages are still all mounted at once; three PARTS
+most launches never open are their own chunks, loaded by `LazyPart` (`src/components/LazyPageBoundary.jsx`:
+M.O.T.H.'s surface shape, once — an attempt, `lazy()` per attempt, the boundary keyed on it, `Suspense` with one
+waiting line): the three migration panels on the Settings Storage tab's first open (`SettingsPage.jsx`), the Admin
+terminal's seven sections when an admin's body first draws (one chunk through `AdminTerminal/adminSections.js`; the
+gate, the nav and the stylesheet stay in the page, so a person who is not an admin never loads them), and the Notes
+editor on the Dashboard's Notes tab's first show, mounted from then on so its Y.Doc is kept (`DashboardPage.jsx`; a
+note asked for from elsewhere still opens it, MO3). A part that cannot load — offline on the web, or a window left
+open across a deploy — is "*<name>* could not open." in its own place with *Try again* (a new load) and *Reload the
+page*; on the light Settings page it takes the kit's light treatment. The boundary also holds a part that throws
+after it loaded (the whole pane, OUTSTANDING F11-12). A part drawn again after it loaded once (Settings mounts its
+tab's body anew at each visit) is drawn at once, with no waiting line. The desktop reads its chunks from disk.
+`LazyPageBoundary.test.jsx` walks the static imports from `main.jsx` and finds none of the eleven files. What stays in
+the main chunk: the editor stack, through D.O.G.'s references (OUTSTANDING F11-01), and `binsMigration.js`, through
+R.A.B.B.I.T.'s Help (F11-02).
+
 **A render of App no longer renders every page (F4, 2026-11-13).** The pages
 (Home, Projects, Rate card, Team members, Dashboard, Help, Settings' bridge,
 M.O.T.H.'s surface) and the three tools' roots (each in its own `index.jsx`)
@@ -7994,9 +8044,19 @@ Panel's handle)**
   the hosted relay delivers the 413. A body past 64 MiB is cut there, and the
   platform answers for the function (a 70 MiB body to ai-proxy: 504 after
   168 s on wilson-dev). No app request comes near a cap.
-- **The clients' messages have no `too_large`.** An admin, operator or AI
-  request refused for size reads "Request failed (413)." or "AI request failed
-  (413)." (OUTSTANDING F8-06); storage shows the sentence.
+- **The clients' messages have words for `too_large` (F11, 2026-11-18; F8-06
+  closed).** They read "Request failed (413)." or "AI request failed (413)."
+  before. `EDGE_WORDS.too_large` (`src/cloud/edgeFunctions.js`) answers it for
+  the admin, operator, invite, upload, file-store and clean-up calls; the AI
+  says its own (attach fewer documents); storage and the gateway still show the
+  function's `detail`.
+- **The main chunk, measured (F11, 2026-11-18; `vite build`, the bytes on disk).**
+  5,093,158 → 4,289,154 bytes (gzip 1,501.24 → 1,232.89 kB): the highlighter's
+  grammars, 297 to the 46 the app names and their dependencies, hosts registered
+  first so code inside code keeps its colours (`src/components/codeHighlighter.js`;
+  a language not on the list draws as plain text, OUTSTANDING F11-05), and the
+  three parts of §13.4. The operator console 523,609 → 526,138 (+2,529: the one
+  caller and the sign-in module). Never carry these; build and measure.
 - **A cache lives as long as its isolate, and no longer than its secret.**
   The master keys, and the opened ticket key, are kept per isolate and checked
   against the environment's value (and, for the ticket key, the row read on

@@ -21,21 +21,17 @@
 // to tenant credentials).
 // =============================================================================
 
-import { supabase } from './auth/supabaseClient'
 import { releaseStaleUploads } from '../tools/rabbit_v0.1.0/storage/uploadReservation.js'
 import { isMoneyKey } from '../tools/rabbit_v0.1.0/storage/index.js'
+import { supabase } from './auth/supabaseClient'
+import { callEdgeFunction } from './edgeFunctions'
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
-const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY
-
-async function sessionToken() {
-  try {
-    const { data } = await supabase.auth.getSession()
-    return data?.session?.access_token ?? null
-  } catch {
-    return null
-  }
-}
+// F11 (A1): the transport is callEdgeFunction's, with NO ceiling of its own,
+// on purpose: FX11's contract (storageApiProbe.test.js) is that the connection
+// dot's probe bounds its own calls with its own signal, which reaches fetch as
+// itself, and that every other caller sends no signal, as it always has. A
+// ceiling here would replace both. That a presign from an upload or a preview
+// has no bound but the caller's is recorded (OUTSTANDING F11-04).
 
 // `opts.token` / `opts.signal` (FX11): the connection dot's bucket probe calls
 // with the access token it read from an auth EVENT and its own abort signal,
@@ -43,28 +39,18 @@ async function sessionToken() {
 // auth-js's global lock (OUTSTANDING's auth-js lock entry) — and a hung
 // request is aborted, not left running. An aborted call rethrows its
 // AbortError; every other caller passes nothing and is unchanged.
+// Answers { ok, status, data } with the function's own `detail` on a refusal,
+// as before; a 2xx that is not a JSON object is not ok (F11), with no detail,
+// so each wrapper's own numbered sentence still names the status.
 async function callStorageFn(name, body, { token: given = null, signal = undefined } = {}) {
-  const token = given || await sessionToken()
-  if (!token) {
+  const r = await callEdgeFunction(name, body ?? {}, { token: given || undefined, signal })
+  if (r.ok) return { ok: true, status: r.status, data: r.data }
+  if (r.code === 'unauthorized' && !r.data) {
     return { ok: false, status: 401, data: { error: 'unauthorized', detail: 'Session expired — sign in again.' } }
   }
-  try {
-    const res = await fetch(`${SUPABASE_URL}/functions/v1/${name}`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        apikey: SUPABASE_ANON,
-        authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(body ?? {}),
-      signal,
-    })
-    const json = await res.json().catch(() => ({}))
-    return { ok: res.ok, status: res.status, data: json }
-  } catch (err) {
-    if (signal?.aborted) throw err
-    return { ok: false, status: 0, data: { error: 'network', detail: 'Network error — check your connection.' } }
-  }
+  if (r.status === 0) return { ok: false, status: 0, data: { error: r.code, detail: r.words } }
+  if (r.code === 'bad_answer') return { ok: false, status: r.status, data: {} }
+  return { ok: false, status: r.status, data: r.data ?? {} }
 }
 
 // ── Track C / 0074 — opening Files ──────────────────────────────────────────

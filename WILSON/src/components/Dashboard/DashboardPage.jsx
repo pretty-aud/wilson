@@ -28,9 +28,13 @@
 // the 1240px data measure and the one 24px gutter, so the title in the orange
 // bar and the first content column share a left edge (alignment 1, §3.3).
 //
-// 🚨 All three tabs stay MOUNTED (app-wide pattern): the notes editor must not
-// lose its Y.Doc and the task views keep their scroll state. `authSelectors.
-// test.js` reads this file as source and pins both that fact and the bare
+// 🚨 All three tabs stay MOUNTED once drawn (app-wide pattern): the notes
+// editor must not lose its Y.Doc and the task views keep their scroll state.
+// F11 (the review's shared-client C3): the Notes tab is drawn the first time
+// it is shown (or at launch when a note is waiting for it, MO3), its editor
+// loaded then, and it stays mounted from that moment; the tasks and profile
+// tabs mount at once as before. `authSelectors.test.js` reads this file as
+// source and pins the profile tab's `display` ternary and the bare
 // `<ProfileSection />` call, because the profile tab being in the DOM on every
 // authed page is what makes two `getByLabel` values collide in Playwright.
 // Do not change either string without reading that test.
@@ -41,10 +45,13 @@ import { useRabbitLive } from '../../tools/rabbit_v0.1.0/state/rabbitLive'
 import { useWorkspaceMembers, isOwnAvatarUrl } from '../TeamMembers/useWorkspaceMembers'
 import ProfileSection from '../settings/ProfileSection'
 import DashboardTasksView from './DashboardTasksView'
-import NotesView from './NotesView'
+import { LazyPart } from '../LazyPageBoundary'
 import { OPEN_DASHBOARD_NOTE, peekPendingNote } from '../../tools/rabbit_v0.1.0/state/linkedThings'
 import { Tabs, Toolbar } from '../../ui'
 import './dashboard.css'
+
+// F11 (C3): the Notes editor, loaded the first time its tab is shown.
+const loadNotes = () => import('./NotesView')
 
 const TABS = [
   { id: 'tasks', label: 'My tasks' },
@@ -62,6 +69,10 @@ export default function DashboardPage() {
     window.addEventListener(OPEN_DASHBOARD_NOTE, toNotes)
     return () => window.removeEventListener(OPEN_DASHBOARD_NOTE, toNotes)
   }, [])
+  // F11: the Notes tab mounts the first time it is shown and stays mounted. Set while drawing (React's own pattern
+  // for state that follows a prop), so the first draw with the tab shown already holds it, never an empty frame.
+  const [notesOpened, setNotesOpened] = useState(tab === 'notes')
+  if (tab === 'notes' && !notesOpened) setNotesOpened(true)
 
   // F4 (2026-11-13): the page no longer reads R.A.B.B.I.T.'s provider. It read
   // the whole value for the strip's two props, so it was drawn again at every
@@ -89,7 +100,11 @@ export default function DashboardPage() {
           <DashboardTasksView />
         </div>
         <div className="dash-tabpane" style={{ display: tab === 'notes' ? 'flex' : 'none' }}>
-          <NotesView />
+          {notesOpened && (
+            <LazyPart load={loadNotes} title="Notes" waiting="Opening Notes…">
+              {({ default: NotesView }) => <NotesView />}
+            </LazyPart>
+          )}
         </div>
         <div className="dash-tabpane dash-tabpane-scroll" style={{ display: tab === 'profile' ? 'block' : 'none' }}>
           {/* 🚨 THE LIGHT BRIDGE, AND IT IS TEMPORARY.

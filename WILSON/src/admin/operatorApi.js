@@ -13,10 +13,14 @@
 // nowhere to land — the server side writes public.platform_audit instead.
 // =============================================================================
 
-import { supabase } from '../cloud/auth/supabaseClient'
+import { callEdgeFunction } from '../cloud/edgeFunctions'
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
-const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY
+// F11 (A1): the transport is callEdgeFunction's; the words and answers are this
+// file's, as they were. One ceiling, seven minutes, on purpose: a teardown, a
+// sweep or a re-seal runs long, and the platform ends any function itself well
+// before that (150 s on the free plan, 400 s on a paid one), so this only ends
+// a connection that has died; it never cuts off an operation still running.
+const OPERATOR_MS = 420000
 
 const FRIENDLY = {
   unauthorized: 'Session expired — sign in again.',
@@ -79,33 +83,16 @@ const FRIENDLY = {
 }
 
 async function callOperatorFn(name, body) {
-  let token = null
-  try {
-    const { data } = await supabase.auth.getSession()
-    token = data?.session?.access_token ?? null
-  } catch { /* fall through to unauthorized */ }
-  if (!token) {
+  const r = await callEdgeFunction(name, body ?? {}, { timeoutMs: OPERATOR_MS, words: FRIENDLY })
+  if (r.ok) return { ok: true, status: r.status, data: r.data }
+  if (r.code === 'unauthorized' && !r.data) {
     return { ok: false, status: 401, data: { error: 'unauthorized', friendly: FRIENDLY.unauthorized } }
   }
-  try {
-    const res = await fetch(`${SUPABASE_URL}/functions/v1/${name}`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        apikey: SUPABASE_ANON,
-        authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(body ?? {}),
-    })
-    const json = await res.json().catch(() => ({}))
-    if (!res.ok) {
-      const friendly = FRIENDLY[json.error] ?? `Request failed (${res.status}).`
-      return { ok: false, status: res.status, data: { ...json, friendly } }
-    }
-    return { ok: true, status: res.status, data: json }
-  } catch {
-    return { ok: false, status: 0, data: { error: 'network', friendly: 'Network error — check your connection.' } }
+  if (r.status === 0 || r.code === 'bad_answer') {
+    return { ok: false, status: r.status, data: { error: r.code, friendly: r.words } }
   }
+  const friendly = r.words ?? `Request failed (${r.status}).`
+  return { ok: false, status: r.status, data: { ...(r.data ?? {}), friendly } }
 }
 
 /** Cross-tenant roll-up: one row per company with member/project/file counts. */

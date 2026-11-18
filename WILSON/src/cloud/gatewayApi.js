@@ -25,9 +25,9 @@
 
 import { supabase } from './auth/supabaseClient'
 import { devFixtures } from '../dev/devFixtures'
+import { callEdgeFunction } from './edgeFunctions'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
-const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY
 
 // The admin's columns: what the card shows, and nothing it does not (the
 // grants leave out the root's PEM, the reach nonce and the delivery stamps).
@@ -153,35 +153,9 @@ export async function fetchGatewayTickets(gatewayId, binFileIds, { timeoutMs = 1
   const fx = fixtures()
   if (fx) return fx.fetchGatewayTickets(gatewayId, ids)
   if (!gatewayId || !ids.length) return { ok: false, status: 400, code: 'bad_ids', friendly: SAID.tickets }
-  let token = null
-  try {
-    const { data } = await supabase.auth.getSession()
-    token = data?.session?.access_token ?? null
-  } catch { /* fall through */ }
-  if (!token) return { ok: false, status: 401, code: 'unauthorized', friendly: SAID.signIn }
-  const ctrl = typeof AbortController === 'function' ? new AbortController() : null
-  const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null
-  let res
-  try {
-    res = await fetch(`${SUPABASE_URL}/functions/v1/gateway-ticket`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', apikey: SUPABASE_ANON, authorization: `Bearer ${token}` },
-      body: JSON.stringify({ gateway_id: gatewayId, bin_file_ids: ids }),
-      ...(ctrl ? { signal: ctrl.signal } : {}),
-    })
-  } catch {
-    if (timer) clearTimeout(timer)
-    return { ok: false, status: 0, code: 'network', friendly: SAID.network }
-  }
-  if (timer) clearTimeout(timer)
-  if (!res.ok) {
-    let body = null
-    try { body = await res.json() } catch { body = null }
-    const detail = typeof body?.detail === 'string' && body.detail ? body.detail : SAID.tickets
-    return { ok: false, status: res.status, code: typeof body?.error === 'string' ? body.error : `http_${res.status}`, friendly: detail }
-  }
-  let body = null
-  try { body = await res.json() } catch { body = null }
+  const sent = await callGatewayFn('gateway-ticket', { gateway_id: gatewayId, bin_file_ids: ids }, timeoutMs, SAID.tickets)
+  if (sent.refusal) return sent.refusal
+  const { res, body } = sent
   if (!body || typeof body !== 'object' || !body.tickets || typeof body.tickets !== 'object') {
     return { ok: false, status: res.status, code: 'bad_answer', friendly: SAID.ticketsShape }
   }
@@ -416,40 +390,30 @@ export async function rotateTicketKeys() {
 export async function checkGatewayReach(gatewayId, { timeoutMs = 30000 } = {}) {
   const fx = fixtures()
   if (fx) return fx.checkGatewayReach(gatewayId)
-  let token = null
-  try {
-    const { data } = await supabase.auth.getSession()
-    token = data?.session?.access_token ?? null
-  } catch { /* fall through */ }
-  if (!token) return { ok: false, status: 401, code: 'unauthorized', friendly: SAID.signIn }
-  const ctrl = typeof AbortController === 'function' ? new AbortController() : null
-  const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null
-  let res
-  try {
-    res = await fetch(`${SUPABASE_URL}/functions/v1/gateway-reach`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', apikey: SUPABASE_ANON, authorization: `Bearer ${token}` },
-      body: JSON.stringify({ gateway_id: gatewayId }),
-      ...(ctrl ? { signal: ctrl.signal } : {}),
-    })
-  } catch {
-    if (timer) clearTimeout(timer)
-    return { ok: false, status: 0, code: 'network', friendly: SAID.network }
-  }
-  if (timer) clearTimeout(timer)
-  // `fetch` resolves for a 4xx and a 5xx too: the status first, then a body.
-  if (!res.ok) {
-    let body = null
-    try { body = await res.json() } catch { body = null }
-    const detail = typeof body?.detail === 'string' && body.detail ? body.detail : SAID.reach
-    return { ok: false, status: res.status, code: typeof body?.error === 'string' ? body.error : `http_${res.status}`, friendly: detail }
-  }
-  let body = null
-  try { body = await res.json() } catch { body = null }
+  // `fetch` resolves for a 4xx and a 5xx too: the status first, then a body (callEdgeFunction's rule).
+  const sent = await callGatewayFn('gateway-reach', { gateway_id: gatewayId }, timeoutMs, SAID.reach)
+  if (sent.refusal) return sent.refusal
+  const { res, body } = sent
   if (!body || typeof body !== 'object' || !body.outside || typeof body.outside.detail !== 'string') {
     return { ok: false, status: res.status, code: 'bad_answer', friendly: SAID.reachShape }
   }
   return { ok: true, status: res.status, data: body }
+}
+
+/**
+ * F11 (A1): the two function calls of this file, through callEdgeFunction, with this file's words: a refusal is
+ * the function's `detail` (else `fallback`) under its own code; no answer at all (the network, the ceiling, a
+ * session read that stalled) is `network` and SAID.network, as a timeout always was here; no token is the
+ * sign-in sentence. Answers { refusal } or { res: { status }, body } for the caller's own shape check.
+ */
+async function callGatewayFn(name, payload, timeoutMs, fallback) {
+  const r = await callEdgeFunction(name, payload, { timeoutMs })
+  if (r.ok) return { res: { status: r.status }, body: r.data }
+  if (r.code === 'unauthorized' && !r.data) return { refusal: { ok: false, status: 401, code: 'unauthorized', friendly: SAID.signIn } }
+  if (r.status === 0) return { refusal: { ok: false, status: 0, code: 'network', friendly: SAID.network } }
+  if (r.code === 'bad_answer') return { res: { status: r.status }, body: null }
+  const detail = typeof r.data?.detail === 'string' && r.data.detail ? r.data.detail : fallback
+  return { refusal: { ok: false, status: r.status, code: r.code, friendly: detail } }
 }
 
 /** The functions base the gateway is given (WILSON_CLOUD_URL; the installer's second field). */
