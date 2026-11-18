@@ -45,7 +45,7 @@ import {
 import {
   Toolbar, Button, IconButton, Tabs, Table, Th, Td, Row, Dialog, Field,
   Card, RowTitle, EmptyState, StatusDot, StatusBadge, StatusBanner, Badge, CellSelect, statusMeta,
-  Banner, Loading, HoverActions, MenuButton, useOptionalToast,
+  Banner, Loading, HoverActions, MenuButton,
   // Post-overhaul F10 (rabbit A6): the kit's own editors, bulk picker and
   // question; this file's names below are its look on them.
   useInlineText, BulkSelect as KitBulkSelect, Confirm,
@@ -55,24 +55,17 @@ import './rabbitFiles.css'
 // step 5): the shared piece (views/tableViews/) given this table's
 // description; combination groups by scene, shot, level and experience with
 // Create grouping (her Q-M3); the old saved views removed (Q17).
-import { useRosterMembers } from '../../../components/TeamMembers/useRosterMembers'
 import { buildItemLookup, KIND_LABEL, KIND_LABEL_PLURAL } from '../state/taskItemsModel'
-import { isGroupingLive } from '../state/tableViewsModel'
-import { GROUPINGS_GATE_WORDS } from '../state/tableViewsState'
-import { useTableView } from './tableViews/useTableView'
+import { useTableTab, useTableScreen } from './tableViews/useTableScreen'
 import { TableViewsMenu } from './tableViews/TableViewsMenu'
 import { ViewBar } from './tableViews/ViewBar'
 import { ViewFilterRow } from './tableViews/ViewFilterRow'
 import { CreateGroupingDialog } from './tableViews/CreateGroupingDialog'
-import { useAsk } from './tableViews/useAsk'
 import { combinationGroupsOf } from './tableViews/combinationGroups'
 import {
   ASSETS_TABLE, ASSET_STATUSES, ASSET_KIND_FIELD, assetsDescription, assetKindsOf, assetsTableWidths,
   ASSET_LINKS_ABSENT_REASON, linksKept,
 } from './tableViews/assetsTableView'
-import {
-  applyViewFilters, applyViewSorts, effectiveFields, effectiveLeading, filterCount, withFirstSort, withFirstSortReversed,
-} from './tableViews/viewScreenModel'
 import { useRabbit } from '../state/RabbitProvider'
 import { useNavigateTarget } from '../state/rabbitNavigate'
 // FX2 (0096): an asset's task count and its window's tasks count every task
@@ -280,85 +273,34 @@ export default function ProjectAssetsView() {
   const taskCountOf = useCallback((a) => taskCountByAsset[a.id] || 0, [taskCountByAsset])
   const description = useMemo(() => assetsDescription({ kinds, phases, lookup, kindRows, taskCountOf }),
     [kinds, phases, lookup, kindRows, taskCountOf])
-  // Who changed a view, by the workspace roster (design §5.5): "Someone"
-  // when they are not there; its own entries only (VW1d R2-7).
-  const { members: rosterMembers } = useRosterMembers()
-  const rosterById = useMemo(() => { const m = {}; for (const mb of rosterMembers || []) m[mb.id] = mb; return m }, [rosterMembers])
-  const nameOf = useCallback((id) => {
-    const m = Object.prototype.hasOwnProperty.call(rosterById, id) ? rosterById[id] : null
-    return m ? (m.name || m.display_name || m.username || null) : null
-  }, [rosterById])
-  const toast = useOptionalToast()
-  const notify = useCallback((words) => { toast?.push({ tone: 'info', title: words }) }, [toast])
-  const { ask, dialog: askDialog } = useAsk()
-  // The table's one polite live region (§4.9).
-  const [announcement, setAnnouncement] = useState({ words: '', n: 0 })
-  const announce = useCallback((words) => setAnnouncement(a => ({ words, n: a.n + 1 })), [])
-  // A drop or a grouping's removal that did not land, said above the table.
-  const [dropFailure, setDropFailure] = useState(null)
-  const [groupingKind, setGroupingKind] = useState(null)
-  const [focusGroupMenu, setFocusGroupMenu] = useState(false)
-  useEffect(() => {
-    if (!focusGroupMenu) return
-    document.querySelector('.rb-asset-toolbar select[aria-label="Group"]')?.focus({ preventScroll: true })
-    setFocusGroupMenu(false)
-  }, [focusGroupMenu])
-  const focusViews = useCallback(() => {
-    document.querySelector('.rb-asset-toolbar .rb-tv-button')?.focus({ preventScroll: true })
-  }, [])
-
-  // Q17 (her "Start fresh"): this browser's old saved views go, once.
-  useEffect(() => {
-    try { localStorage.removeItem(OLD_SAVED_VIEWS_KEY) } catch { /* storage unavailable: nothing kept to remove */ }
-  }, [])
-
-  const tv = useTableView({ ctx, tableKey: ASSETS_TABLE, description, canWrite, nameOf, notify })
-  const config = tv.config
-  const viewMode = config.layout === 'gallery' ? 'gallery' : 'table'
-  const filters = config.filters || []
-  const sorts = config.sorts || []
-  // The FIRST sort the table can sort by is the toolbar's (VW1d R2-4).
-  const firstSort = sorts.find(s => s && description.field(s.field)?.sortable) || null
-  const sortField = firstSort?.field || ''
-  const sortDir = firstSort?.dir === 'desc' ? 'desc' : 'asc'
-  // A grouping the table no longer offers (a kind the project stopped using)
-  // reads as none: a saved view keeps it, a change for now forgets it (VW1b
-  // R1-10, as the Tasks table keeps it).
-  const storedGroup = config.group?.field || ''
-  const groupBy = description.groupFields.some(f => f.key === storedGroup) ? storedGroup : ''
-  const hideEmpty = config.group ? config.group.hideEmpty !== false : true
+  // F10 (rabbit A3): the screen around the views, the four tables' one hook
+  // (views/tableViews/useTableScreen.jsx): who changed a view (the roster),
+  // the toast, the views' questions, the live region, a refusal's Banner, the
+  // view on screen's layout, filters, sorts and grouping — one the table no
+  // longer offers (a kind the project stopped using) reads as none, a saved
+  // view keeps it, a change for now forgets it (VW1b R1-10) — the search,
+  // filters and sorts of the rows (sort_order on a COPY when none, VW1e step 0
+  // finding 16), the columns and the cards' lines, the project's groupings,
+  // and this browser's old saved views removed once (Q17).
+  const tab = useTableTab()
+  const { ask, askDialog, announce, liveRegion, setDropFailure, failureBanner } = tab
+  const screen = useTableScreen({
+    tab, ctx, tableKey: ASSETS_TABLE, description, rows: assets, canWrite, toolbarSelector: '.rb-asset-toolbar',
+    search, baseOrder: 'sort_order', lookup, groupingWords: { rows: 'assets', kept: 'items' },
+    oldViewsKey: OLD_SAVED_VIEWS_KEY,
+  })
+  const {
+    tv, config, viewMode, setViewMode, filters, addFilter, updateFilter, removeFilter, activeFilters,
+    sortField, sortDir, setSortField, reverseSort, groupBy, hideEmpty, setGroupBy,
+    processed, columns, leading, cardShows, savedOf, groupingKind, setGroupingKind, createGrouping, removeGrouping, focusViews,
+  } = screen
   const groupedKind = groupBy ? (description.field(groupBy)?.kind || null) : null
-  const fromDraft = tv.fromDraft
-  const update = tv.update
-  useEffect(() => {
-    if (fromDraft && storedGroup && !groupBy) update(c => ({ ...c, group: null }))
-  }, [fromDraft, storedGroup, groupBy, update])
-  const setViewMode = (mode) => tv.update(c => ({ ...c, layout: mode === 'gallery' ? 'gallery' : 'table' }))
-  const setGroupBy = (value) => tv.update(c => ({ ...c, group: value ? { field: value, hideEmpty: description.hideEmptyDefault(viewMode, value) } : null }))
-  const setSortField = (field) => tv.update(c => ({ ...c, sorts: withFirstSort(c.sorts, field) }))
-  const reverseSort = () => tv.update(c => ({ ...c, sorts: withFirstSortReversed(c.sorts, s => !!description.field(s.field)?.sortable) }))
-
-  // ── Filtering, then the view's sorts (VW1e) ──
-  // The search is the tab's own; every complete filter must match (Q13); the
-  // sorts in order (Q14). No sort: the table's own order (sort_order), on a
-  // COPY — the old sort reordered the provider's array in place (VW1e step 0,
-  // finding 16).
-  const processed = useMemo(() => {
-    const s = search.trim().toLowerCase()
-    const base = [...assets].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-    const searched = s ? base.filter(a => (a.name || '').toLowerCase().includes(s)) : base
-    return applyViewSorts(applyViewFilters(searched, filters, description), sorts, description)
-  }, [assets, search, filters, sorts, description])
 
   // ── Grouping ──
   // By a linked kind (her Q-M3): one group per combination of the scenes,
   // shots, levels or experiences an asset is in (combinationGroups.js), the
   // project's groupings among them (Q-D2). By type, phase or status as
   // before; with *Hide empty groups* off every option shows (§4.3).
-  const savedOf = useCallback((kind) => {
-    const list = typeof ctx?.groupingsOf === 'function' ? ctx.groupingsOf(ASSETS_TABLE, kind) : []
-    return list.filter(g => isGroupingLive(g, lookup.isLive)).map(g => ({ id: g.id, ids: g.entity_ids }))
-  }, [ctx, lookup])
   const groups = useMemo(() => {
     if (!groupBy) return null
     if (groupedKind) {
@@ -412,50 +354,11 @@ export default function ProjectAssetsView() {
       .catch((err) => setDropFailure(`Could not move “${name}”: ${err?.message || err}`))
   }
 
-  // ── The project's groupings (her Q-D2, Q-D3, Q-D5) ──
-  async function createGrouping(kind, ids) {
-    await ctx.addItemGrouping({ tableKey: ASSETS_TABLE, kind, entityIds: ids })
-  }
-  async function removeGrouping(group) {
-    const yes = await ask({
-      title: `Remove the grouping ${group.label}?`,
-      body: 'Its assets keep their items. The group stays while assets are in it.',
-      confirm: 'Remove grouping',
-      danger: true,
-    })
-    if (!yes) return
-    try {
-      const res = await ctx.removeItemGrouping(group.groupingId)
-      if (res && res.removed === false && res.status === 'filtered') setDropFailure(GROUPINGS_GATE_WORDS)
-      else setFocusGroupMenu(true)
-    } catch (err) {
-      setDropFailure(`Could not remove the grouping ${group.label}: ${err?.message || err}`)
-    }
-  }
-
-  // ── The Filter strip: the view's filters in the shared row (the Filters
-  // card's own); a new row filters nothing until it has a value (defect 1).
-  function addFilter() {
-    const first = description.filterFields[0]
-    tv.update(c => ({ ...c, filters: [...(c.filters || []), { field: first.key, op: description.filterOps(first)[0].value, values: [] }] }))
-  }
-  function updateFilter(idx, row) {
-    tv.update(c => ({ ...c, filters: (c.filters || []).map((f, i) => (i === idx ? row : f)) }))
-  }
-  function removeFilter(idx) {
-    tv.update(c => ({ ...c, filters: (c.filters || []).filter((_, i) => i !== idx) }))
-  }
-
-  // ── What the view shows ──
-  const activeFilters = filterCount(filters, description)
-  // The columns: the view's fields over the table's, in its order, the
-  // hidden ones out (Q6, Q7); the name first, always shown; the picture in
-  // front of it unless the view hides it (Q-J).
-  const fieldList = useMemo(() => effectiveFields(config.fields, description.fieldKeys, { fixed: description.fixed }), [config.fields, description])
-  const columns = useMemo(() => fieldList.filter(f => f.visible).map(f => description.columns.find(c => c.key === f.key)).filter(Boolean), [fieldList, description])
-  const showThumb = effectiveLeading(config.leading, description.leadingKeys).some(f => f.key === 'thumbnail' && f.visible)
-  // The Gallery card's own fields the view shows (her Q-E, Q-P2).
-  const cardShows = useMemo(() => new Set(fieldList.filter(f => f.visible && description.cardFields.includes(f.key)).map(f => f.key)), [fieldList, description])
+  // ── The project's groupings (her Q-D2, Q-D3, Q-D5), the Filter strip, the
+  // columns (the name first, always shown) and the cards' lines are the
+  // screen's; the picture sits in front of the name unless the view hides it
+  // (Q-J).
+  const showThumb = leading.has('thumbnail')
   // A level or experience group on a cloud without 0099 takes no drop (R1-9).
   const kindKept = linksKept(ctx, groupedKind)
   const canDrag = canWrite && !!groupedKind && kindKept
@@ -487,9 +390,7 @@ export default function ProjectAssetsView() {
     <div className="rb-asset-view h-full flex flex-col">
       {/* ── The table's one polite live region (VW1e, design §4.9): the
           bar's state and every reorder, always mounted. ── */}
-      <p className="sr-only" role="status" aria-live="polite">
-        <span key={announcement.n}>{announcement.words}</span>
-      </p>
+      {liveRegion}
 
       {/* ── Toolbar: the kit's, composed as B2's Tasks toolbar is — every
           control the 28px sm height on one baseline (R4-16), the same
@@ -640,14 +541,7 @@ export default function ProjectAssetsView() {
       )}
 
       {/* ── A drop or a grouping's removal that did not land, said ── */}
-      {dropFailure && (
-        <Banner
-          tone="danger"
-          action={<IconButton size="sm" Icon={X} title="Dismiss" onClick={() => setDropFailure(null)} />}
-        >
-          {dropFailure}
-        </Banner>
-      )}
+      {failureBanner}
 
       {/* ── The *changed for now* bar (design §4.4): only while the view on
           screen has a change of one's own, directly above the table. ── */}

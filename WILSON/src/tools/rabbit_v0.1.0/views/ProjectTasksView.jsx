@@ -91,7 +91,7 @@ import { projectDayCounts, toIsoDate, showDate } from '../dates.js'
 import {
   Stat, Toolbar, Button, IconButton, Tabs, Table, Th, Td, Row, Dialog,
   HoverActions, RowTitle, EmptyState, Badge, StatusDot, humanizeStatus, Banner,
-  MenuButton, Loading, useOptionalToast,
+  MenuButton, Loading,
   // Post-overhaul F10 (rabbit A6): the kit's own editor, bulk picker and
   // question; this file's names below are its look on them.
   useInlineText, BulkSelect as KitBulkSelect, Confirm,
@@ -103,22 +103,16 @@ import { ITEM_KINDS, KIND_FIELD, KIND_LABEL, KIND_LABEL_PLURAL, buildItemLookup,
 import { pickerKinds, useTaskItemSort } from '../components/RelationsPanel'
 import { TaskItemCell, useItemPicker } from './TaskItemCells'
 import { tasksTableColumns, tasksTableWidths } from './tasksTableColumns'
-import { isGroupingLive } from '../state/tableViewsModel'
 import { combinationGroupsOf } from './tableViews/combinationGroups'
-import { GROUPINGS_GATE_WORDS } from '../state/tableViewsState'
-import { useTableView } from './tableViews/useTableView'
+import { useTableTab, useTableScreen } from './tableViews/useTableScreen'
 import { TableViewsMenu } from './tableViews/TableViewsMenu'
 import { ViewBar } from './tableViews/ViewBar'
 import { ViewFilterRow } from './tableViews/ViewFilterRow'
 import { CreateGroupingDialog } from './tableViews/CreateGroupingDialog'
-import { useAsk } from './tableViews/useAsk'
 import {
   TASKS_TABLE, TASK_STATUSES, PRIORITIES, STATUS_LABELS, PRIORITY_LABELS, CARD_FIELDS,
   tasksDescription, groupToTab, groupFromTab,
 } from './tableViews/tasksTableView'
-import {
-  applyViewFilters, applyViewSorts, effectiveFields, filterCount, withFirstSort, withFirstSortReversed,
-} from './tableViews/viewScreenModel'
 import { mentionPlainText } from '../state/mentionTokens'
 import './rabbitTasks.css'
 
@@ -126,6 +120,10 @@ import './rabbitTasks.css'
 // before VW1d, removed on the first load after the new views ship. The other
 // tables' keys are VW1e's; Expenses' and Team's stay (Q19).
 const OLD_SAVED_VIEWS_KEY = 'rabbit_task_saved_views'
+// The table's screen (F10): the search reads a task's title; a view's Board
+// is the tab's kanban.
+const taskTitle = (t) => t.title || ''
+const TASK_LAYOUTS = Object.freeze({ board: 'kanban' })
 
 // VW1m (2026-10-16): grouping by an item kind makes one group per
 // combination of a task's items (her Q-D). VW1b (her Q11): Scene, Shot,
@@ -322,43 +320,14 @@ export default function ProjectTasksView() {
   const description = useMemo(() => tasksDescription({
     itemKinds, phases, members: projectMembers, lookup: itemLookup, kindRows, itemSort,
   }), [itemKinds, phases, projectMembers, itemLookup, kindRows, itemSort])
-  // Who changed a view, by the workspace roster (design §5.5): "Someone"
-  // when they are not there.
-  const nameOf = useCallback((id) => {
-    // Its own entries only: a stored "constructor" is nobody (review round 2, R2-7).
-    const m = Object.prototype.hasOwnProperty.call(memberById, id) ? memberById[id] : null
-    return m ? (m.name || m.display_name || m.username || null) : null
-  }, [memberById])
-  const toast = useOptionalToast()
-  const notify = useCallback((words) => { toast?.push({ tone: 'info', title: words }) }, [toast])
-  const { ask, dialog: askDialog } = useAsk()
-  // The table's one polite live region (§4.9): the bar's state, every
-  // reorder. Keyed so the same words said twice are said twice.
-  const [announcement, setAnnouncement] = useState({ words: '', n: 0 })
-  const announce = useCallback((words) => setAnnouncement(a => ({ words, n: a.n + 1 })), [])
+  // F10 (rabbit A3): what a tab shares — who changed a view (the roster: its
+  // own entries only, R2-7), the toast, the views' questions, the one polite
+  // live region (§4.9) and a refused drop's sentence in the kit Banner (VW1m
+  // R2-2) — the four tables' one hook (views/tableViews/useTableScreen.jsx).
+  const tab = useTableTab()
+  const { ask, askDialog, announce, liveRegion, setDropFailure, failureBanner } = tab
 
   const [showFilterPanel, setShowFilterPanel] = useState(false)
-  // VW1m review round 2 (R2-2): a refused or failed drop's sentence, said in
-  // the kit Banner above the table or the Board until dismissed (or the next
-  // failure replaces it).
-  const [dropFailure, setDropFailure] = useState(null)
-  // Create grouping's dialog: the kind it makes a grouping of, or null.
-  const [groupingKind, setGroupingKind] = useState(null)
-  // After Remove grouping: the keyboard to the Group menu (R1-6).
-  const [focusGroupMenu, setFocusGroupMenu] = useState(false)
-  useEffect(() => {
-    if (!focusGroupMenu) return
-    document.querySelector('.rb-task-toolbar select[aria-label="Group"]')?.focus({ preventScroll: true })
-    setFocusGroupMenu(false)
-  }, [focusGroupMenu])
-  const focusViews = useCallback(() => {
-    document.querySelector('.rb-task-toolbar .rb-tv-button')?.focus({ preventScroll: true })
-  }, [])
-
-  // Q17: the old saved views go, once, on the first load after these ship.
-  useEffect(() => {
-    try { localStorage.removeItem(OLD_SAVED_VIEWS_KEY) } catch { /* storage unavailable: nothing kept to remove */ }
-  }, [])
 
   // Phase creation
   const [showPhaseCreate, setShowPhaseCreate] = useState(false)
@@ -425,54 +394,47 @@ export default function ProjectTasksView() {
   // VW1d: the Views dropdown's seat rule is the table's (Q2: anyone who can
   // edit the project saves views; Q-F: a seat that cannot write sees no
   // editing control).
-  const tv = useTableView({ ctx, tableKey: TASKS_TABLE, description, canWrite, nameOf, notify })
-  const config = tv.config
-  const viewMode = config.layout === 'board' ? 'kanban' : 'table'
-  const filters = config.filters || []
-  const sorts = config.sorts || []
-  // The FIRST sort does what the one sort did besides ordering the rows: it
-  // orders the Phase groups and places the key dates (finding 5). The first
-  // the table can sort by: one on a field it lacks (a view sorted by Scene
-  // on a project without scenes) sorts nothing, and the toolbar does not
-  // show it as a sort (code review round 2, R2-4).
-  const firstSort = sorts.find(s => s && description.field(s.field)?.sortable) || null
-  const sortField = firstSort?.field || ''
-  const sortDir = firstSort?.dir === 'desc' ? 'desc' : 'asc'
-  const groupBy = groupToTab(config.group?.field)
-  const kanbanGroup = groupToTab(config.board?.field) || 'status'
-  const tableHideEmpty = config.group ? config.group.hideEmpty !== false : true
-  const boardHideEmpty = config.board?.hideEmpty === true
-  const setViewMode = (mode) => tv.update(c => ({ ...c, layout: mode === 'kanban' ? 'board' : 'table' }))
-  const setGroupBy = (value) => tv.update(c => {
-    const field = groupFromTab(value)
-    return { ...c, group: field ? { field, hideEmpty: description.hideEmptyDefault('table', field) } : null }
-  })
-  const setKanbanGroup = (value) => tv.update(c => {
-    const field = groupFromTab(value) || 'status'
-    return { ...c, board: { field, hideEmpty: description.hideEmptyDefault('board', field) } }
-  })
-  const setSortField = (field) => tv.update(c => ({ ...c, sorts: withFirstSort(c.sorts, field) }))
-  const reverseSort = () => tv.update(c => ({ ...c, sorts: withFirstSortReversed(c.sorts, s => !!description.field(s.field)?.sortable) }))
   // VW1b: the Group menu offers the item kinds the project uses; a grouping
   // whose kind it no longer offers (its column gone) reads as the default.
   // VW1d: read, not written back — a view keeps its grouping (VW1b R1-10's
   // write-back would make opening a view on such a project a change).
   const groupFields = useMemo(() => groupableFields(itemKinds), [itemKinds])
   const boardFields = useMemo(() => groupFields.filter(f => f.value !== ''), [groupFields])
-  const tableGroup = groupFields.some(f => f.value === groupBy) ? groupBy : ''
+  // F10 (rabbit A3): the table's screen, the four tables' one hook. The FIRST
+  // sort does what the one sort did besides ordering the rows: it orders the
+  // Phase groups and places the key dates (finding 5); one on a field the
+  // table lacks sorts nothing (R2-4). The Table's grouping is read in the
+  // Group menu's words (groupToTab); in a CHANGE FOR NOW one the menu no
+  // longer offers is forgotten (VW1b R1-10). The search reads the title.
+  const screen = useTableScreen({
+    tab, ctx, tableKey: TASKS_TABLE, description, rows: tasks, canWrite, toolbarSelector: '.rb-task-toolbar',
+    search, searchText: taskTitle, layouts: TASK_LAYOUTS,
+    group: { keyOf: groupToTab, fieldOf: groupFromTab, keys: groupFields.map(f => f.value), layout: 'table' },
+    lookup: itemLookup, groupingWords: { rows: 'tasks', kept: 'items' }, oldViewsKey: OLD_SAVED_VIEWS_KEY,
+  })
+  const {
+    tv, config, viewMode, setViewMode, filters, addFilter, updateFilter, removeFilter, activeFilters,
+    sortField, sortDir, setSortField, reverseSort, setGroupBy,
+    processed, fieldList, savedOf, groupingKind, setGroupingKind, createGrouping, removeGrouping, focusViews,
+  } = screen
+  const tableGroup = screen.groupBy
+  const tableHideEmpty = screen.hideEmpty
+  // The Board's own grouping (its columns), which no other table has.
+  const kanbanGroup = groupToTab(config.board?.field) || 'status'
+  const boardHideEmpty = config.board?.hideEmpty === true
   const boardGroup = boardFields.some(f => f.value === kanbanGroup) ? kanbanGroup : 'status'
-  // VW1b review round 1 (R1-10), as VW1d keeps it: in a CHANGE FOR NOW such
-  // a grouping is forgotten, not kept aside (kept, the table regrouped by
-  // itself the moment a task named that kind again, and a Save stored a
-  // grouping the screen did not show). A saved view keeps its own: it reads
-  // as none until the column is back, and opening it is never a change.
+  const setKanbanGroup = (value) => tv.update(c => {
+    const field = groupFromTab(value) || 'status'
+    return { ...c, board: { field, hideEmpty: description.hideEmptyDefault('board', field) } }
+  })
+  // …and, as the Table's, one the menu no longer offers is forgotten in a
+  // change for now (VW1b review round 1, R1-10).
   const fromDraft = tv.fromDraft
   const update = tv.update
   useEffect(() => {
     if (!fromDraft) return
-    if (groupBy && groupBy !== tableGroup) update(c => ({ ...c, group: null }))
     if (kanbanGroup !== boardGroup) update(c => ({ ...c, board: { field: 'status', hideEmpty: description.hideEmptyDefault('board', 'status') } }))
-  }, [fromDraft, groupBy, tableGroup, kanbanGroup, boardGroup, update, description])
+  }, [fromDraft, kanbanGroup, boardGroup, update, description])
 
   // Collapsed groups
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
@@ -484,20 +446,9 @@ export default function ProjectTasksView() {
     })
   }
 
-  // ── Filtering ── (VW1d: the view's filters, every one that is complete
-  // must match, a condition matching any of its values — her Q13; a row with
-  // no value yet filters nothing, defect 1. The search is the tab's own.)
-  const applyFilters = useCallback((taskList) => {
-    let result = taskList
-    const s = search.trim().toLowerCase()
-    if (s) result = result.filter(t => (t.title || '').toLowerCase().includes(s))
-    return applyViewFilters(result, filters, description)
-  }, [search, filters, description])
-
-  // ── Sorting ── (VW1d: several, in order, Q14)
-  const applySort = useCallback((taskList) => applyViewSorts(taskList, sorts, description), [sorts, description])
-
-  const processed = useMemo(() => applySort(applyFilters(tasks)), [tasks, applyFilters, applySort])
+  // ── Filtering and sorting are the screen's (VW1d: the view's filters, every
+  // one that is complete must match, her Q13; its sorts in order, Q14; the
+  // search is the tab's own): `processed`.
 
   // (The CSV export, handleExportCsv, is below the view's columns, which it
   // writes since R1: a dependency list is read during render.)
@@ -515,11 +466,8 @@ export default function ProjectTasksView() {
   }, [milestones, project?.start_date, project?.end_date])
 
   // The project's groupings of a kind (her Q-D2), each with every item
-  // live: one hides while an item is in the trash (her Q-N4, isGroupingLive).
-  const savedOf = useCallback((kind) => {
-    const list = typeof ctx?.groupingsOf === 'function' ? ctx.groupingsOf(TASKS_TABLE, kind) : []
-    return list.filter(g => isGroupingLive(g, itemLookup.isLive)).map(g => ({ id: g.id, ids: g.entity_ids }))
-  }, [ctx, itemLookup])
+  // live — one hides while an item is in the trash (her Q-N4) — are the
+  // screen's `savedOf`.
 
   // ── Grouping (table) ──
   // VW1d: the view's *Hide empty groups* (her Q15; Q-I's default per field:
@@ -656,57 +604,16 @@ export default function ProjectTasksView() {
     setShowPhaseCreate(false)
   }
 
-  // ── The Filter strip (VW1d): the view's filters in the shared row
-  // (views/tableViews/ViewFilterRow.jsx), the Filters card's own. A new row
-  // is the first field's first condition and no value: it filters nothing
-  // and is not counted until it has one (defect 1).
-  function addFilter() {
-    const first = description.filterFields[0]
-    tv.update(c => ({ ...c, filters: [...(c.filters || []), { field: first.key, op: description.filterOps(first)[0].value, values: [] }] }))
-  }
-  function updateFilter(idx, row) {
-    tv.update(c => ({ ...c, filters: (c.filters || []).map((f, i) => (i === idx ? row : f)) }))
-  }
-  function removeFilter(idx) {
-    tv.update(c => ({ ...c, filters: (c.filters || []).filter((_, i) => i !== idx) }))
-  }
-
-  // ── The project's groupings (VW1d; her Q-D2, Q-D3, Q-D5) ──
-  // Create grouping: beside the Group menu while the layout on screen is
-  // grouped by a linked kind, for a seat that may save views (Q-F).
+  // ── The Filter strip (VW1d), Create grouping and a group's Remove grouping
+  // (her Q-D2, Q-D3, Q-D5), *Filter (n)* and the columns (the Title first,
+  // always shown) are the screen's. Create grouping sits beside the Group menu
+  // while the layout on screen is grouped by a linked kind, for a seat that
+  // may save views (Q-F).
   const groupedKind = viewMode === 'kanban' ? (isItemKind(boardGroup) ? boardGroup : null) : (isItemKind(tableGroup) ? tableGroup : null)
-  async function createGrouping(kind, ids) {
-    await ctx.addItemGrouping({ tableKey: TASKS_TABLE, kind, entityIds: ids })
-  }
-  // A group's … → Remove grouping, asked first; rows keep their items, and a
-  // group that holds rows stays, as any combination with rows does. A
-  // removal the cloud's policies dropped is said (GROUPINGS_GATE_WORDS).
-  async function removeGrouping(group) {
-    const yes = await ask({
-      title: `Remove the grouping ${group.label}?`,
-      body: 'Its tasks keep their items. The group stays while tasks are in it.',
-      confirm: 'Remove grouping',
-      danger: true,
-    })
-    if (!yes) return
-    try {
-      const res = await ctx.removeItemGrouping(group.groupingId)
-      if (res && res.removed === false && res.status === 'filtered') setDropFailure(GROUPINGS_GATE_WORDS)
-      // The group's … is gone with the grouping (and, empty, the group):
-      // the keyboard goes to the Group menu, after the question has closed
-      // (code review round 1, R1-6: it fell to <body>).
-      else setFocusGroupMenu(true)
-    } catch (err) {
-      setDropFailure(`Could not remove the grouping ${group.label}: ${err?.message || err}`)
-    }
-  }
 
-  // ── What the view shows (VW1d) ──
-  // *Filter (n)* counts only the rows that filter (defect 1).
-  const activeFilters = filterCount(filters, description)
   // The columns: the view's fields over the columns the project uses, in its
-  // order, the hidden ones out (her Q6, Q7); the Title first, always shown.
-  const fieldList = useMemo(() => effectiveFields(config.fields, description.fieldKeys, { fixed: description.fixed }), [config.fields, description])
+  // order, the hidden ones out (her Q6, Q7); the Title first, always shown —
+  // read here, beside the Board card's own lines, both from the view's fields.
   const columns = useMemo(() => fieldList.filter(f => f.visible).map(f => description.columns.find(c => c.key === f.key)).filter(Boolean), [fieldList, description])
   // The Board's card: its own fields the view does not hide (her Q-E; finding 6).
   const cardShows = useMemo(() => new Set(fieldList.filter(f => f.visible && CARD_FIELDS.includes(f.key)).map(f => f.key)), [fieldList])
@@ -784,9 +691,7 @@ export default function ProjectTasksView() {
 
       {/* ── The table's one polite live region (VW1d, design §4.9): the
           bar's state and every reorder, always mounted. ── */}
-      <p className="sr-only" role="status" aria-live="polite">
-        <span key={announcement.n}>{announcement.words}</span>
-      </p>
+      {liveRegion}
 
       {/* ── Summary tiles (always visible): the kit's Stat, value under its
           label, the same tile Summary's band uses (review R19, R43). ── */}
@@ -967,14 +872,7 @@ export default function ProjectTasksView() {
       )}
 
       {/* ── A drop that did not land, said (review round 2, R2-2) ── */}
-      {dropFailure && (
-        <Banner
-          tone="danger"
-          action={<IconButton size="sm" Icon={X} title="Dismiss" onClick={() => setDropFailure(null)} />}
-        >
-          {dropFailure}
-        </Banner>
-      )}
+      {failureBanner}
 
       {/* ── The *changed for now* bar (VW1d, design §4.4): only while the
           view on screen has a change of one's own, directly above the

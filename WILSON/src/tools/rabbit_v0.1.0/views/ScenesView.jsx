@@ -39,7 +39,7 @@ import { v4 as uuidv4 } from 'uuid'
 import {
   Table, Th, Td, Row, Toolbar, Tabs, Button, IconButton, CellSelect, Stat, Card,
   StatusDot, StatusBadge, StatusBanner, statusMeta, humanizeStatus, EmptyState, HoverActions, RowTitle, Dialog, Badge, Banner,
-  SectionTitle, Loading, useOptionalToast,
+  SectionTitle, Loading,
   // Post-overhaul F10 (rabbit A6): the kit's own editors, bulk picker,
   // question, label and draft hooks; this file's names below are its look on
   // them.
@@ -134,19 +134,14 @@ import { visibleOverlayOpen, drawerOnScreen, appQuestionOnScreen } from './bins/
 // which list is on screen. Defect 3 (each keeps its own filters, sorts and
 // grouping) and defect 4 (ticked rows a filter or search hides are unticked:
 // these tables have done so since S3b, R1-05).
-import { useRosterMembers } from '../../../components/TeamMembers/useRosterMembers'
-import { useTableView } from './tableViews/useTableView'
+import { useTableTab, useTableScreen } from './tableViews/useTableScreen'
 import { TableViewsMenu } from './tableViews/TableViewsMenu'
 import { ViewBar } from './tableViews/ViewBar'
 import { ViewFilterRow } from './tableViews/ViewFilterRow'
-import { useAsk } from './tableViews/useAsk'
 import {
   SCENES_TABLE, SHOTS_TABLE, SCENE_STATUSES, SCENE_TYPES, TIME_OF_DAY_OPTIONS,
   scenesDescription, shotsDescription, sceneTableMin, nestColumnsOf, nestMin, scenesTableColumns, shotsTableColumns,
 } from './tableViews/scenesTableView'
-import {
-  applyViewFilters, applyViewSorts, effectiveFields, effectiveLeading, filterCount, withFirstSort, withFirstSortReversed,
-} from './tableViews/viewScreenModel'
 
 // ── Status config ──
 // VW1e: the statuses, types and times of day live with the tables'
@@ -218,6 +213,10 @@ const SIZE_KEYS = ['sm', 'md', 'lg']
 // scenesTableView.js; her Q16, two lists). Q17 (her "Start fresh"): the views
 // this browser kept for Scenes before VW1e, removed on the first load.
 const OLD_SAVED_VIEWS_KEY = 'rabbit_scene_saved_views'
+// What the tab's search reads of a scene or a shot (F10's table screen): its
+// name and its description's words, a mention token read as its words.
+// A line break between the two: nobody can type one into the search box.
+const nameAndWords = (r) => `${r.name || ''}\n${mentionPlainText(r.description || '')}`
 // One empty list for a backend with no takes: the same object every render,
 // so the Shots description (which counts takes) is not made anew each time.
 const NO_ROWS = Object.freeze([])
@@ -389,75 +388,58 @@ export default function ScenesView({ pageActive = false } = {}) {
     defaultOrderLabel, takes: supportsTakes, scenes, framings: FRAMING_CHOICES, movements: MOVE_CHOICES,
     takesOf: (sh) => (takesByShotMap.get(sh.id) || []).length,
   }), [defaultOrderLabel, supportsTakes, scenes, takesByShotMap])
-  // Who changed a view, by the workspace roster (design §5.5).
-  const { members: rosterMembers } = useRosterMembers()
-  const rosterById = useMemo(() => { const m = {}; for (const mb of rosterMembers || []) m[mb.id] = mb; return m }, [rosterMembers])
-  const nameOf = useCallback((id) => {
-    const m = Object.prototype.hasOwnProperty.call(rosterById, id) ? rosterById[id] : null
-    return m ? (m.name || m.display_name || m.username || null) : null
-  }, [rosterById])
-  const toast = useOptionalToast()
-  const notify = useCallback((words) => { toast?.push({ tone: 'info', title: words }) }, [toast])
-  const { ask, dialog: askDialog } = useAsk()
-  const [announcement, setAnnouncement] = useState({ words: '', n: 0 })
-  const announce = useCallback((words) => setAnnouncement(a => ({ words, n: a.n + 1 })), [])
-  // Only the list on screen says a teammate's delete (finding 14): the
-  // other goes to All without a word.
-  const tvScenes = useTableView({ ctx, tableKey: SCENES_TABLE, description: sceneDescription, canWrite: canWriteProject, nameOf, notify: contentMode === 'scenes' ? notify : null })
-  const tvShots = useTableView({ ctx, tableKey: SHOTS_TABLE, description: shotDescription, canWrite: canWriteProject, nameOf, notify: contentMode === 'shots' ? notify : null })
+  // F10 (rabbit A3): the four tables' one hook (views/tableViews/
+  // useTableScreen.jsx), here twice over one tab: one roster for who changed
+  // a view (design §5.5), one toast, one question, one live region; and each
+  // table its own screen (her Q16, "Two lists"; defect 3: each keeps its own
+  // filters, sorts and grouping). Only the list on screen says a teammate's
+  // delete (finding 14): the other goes to All without a word. Each bar's
+  // keyboard goes back to its own table's Views button — never the other
+  // table's, when the content tab changed while a save was on its way (code
+  // review round 2, R2-3). The search (the tab's own) finds a name or a
+  // description, as typed; no sort: the rows as they come — in List order, the
+  // list's own. Q17 (her "Start fresh"): this browser's old Scenes views go,
+  // once.
+  const tab = useTableTab()
+  const { ask, askDialog, announce, liveRegion } = tab
+  const sScenes = useTableScreen({
+    tab, ctx, tableKey: SCENES_TABLE, description: sceneDescription, rows: scenes, canWrite: canWriteProject,
+    toolbarSelector: '.rb-scene-toolbar', viewsButton: `.rb-scene-toolbar .rb-tv-button[data-table="${SCENES_TABLE}"]`,
+    search, searchText: nameAndWords, searchTrim: false, notifyOn: contentMode === 'scenes', oldViewsKey: OLD_SAVED_VIEWS_KEY,
+  })
+  const sShots = useTableScreen({
+    tab, ctx, tableKey: SHOTS_TABLE, description: shotDescription, rows: shots, canWrite: canWriteProject,
+    toolbarSelector: '.rb-scene-toolbar', viewsButton: `.rb-scene-toolbar .rb-tv-button[data-table="${SHOTS_TABLE}"]`,
+    search, searchText: nameAndWords, searchTrim: false, notifyOn: contentMode === 'shots',
+  })
+  const tvScenes = sScenes.tv
+  const tvShots = sShots.tv
   const shotsMode = contentMode === 'shots'
-  const tv = shotsMode ? tvShots : tvScenes
+  // The table on screen: its bar, its Filter strip, its Sort and Group.
+  const screen = shotsMode ? sShots : sScenes
+  const tv = screen.tv
   const description = shotsMode ? shotDescription : sceneDescription
-  const viewMode = tv.config.layout === 'gallery' ? 'gallery' : 'table'
-  const firstSortOf = (cfg, desc) => (cfg.sorts || []).find(s => s && desc.field(s.field)?.sortable) || null
-  const onScreenSort = firstSortOf(tv.config, description)
-  const sortField = onScreenSort?.field || ''
-  const sortDir = onScreenSort?.dir === 'desc' ? 'desc' : 'asc'
+  const { viewMode, setViewMode, sortField, sortDir, setSortField, reverseSort, addFilter, updateFilter, removeFilter, activeFilters } = screen
+  const setOnScreenGroup = screen.setGroupBy
   // S3b step 2: "List order" — the list's own positions — is the default
   // sort while a list is on screen: the view of the mode on screen has no
   // sort (VW1e step 0, finding 2). Move up / Move down are offered only in
   // it, the list drag only then, and the nests and the shot table's scene
   // groups keep the list's order in it.
-  const listOrder = viewingList && !onScreenSort
+  const listOrder = viewingList && !screen.firstSort
   // Each table's grouping; one its table no longer offers reads as none.
-  const groupOf = (view, desc) => {
-    const g = view.config.group
-    return g && desc.groupFields.some(f => f.key === g.field) ? g.field : ''
-  }
-  const groupBy = groupOf(tvScenes, sceneDescription)
-  const sceneHideEmpty = tvScenes.config.group ? tvScenes.config.group.hideEmpty !== false : true
-  const shotGroupBy = groupOf(tvShots, shotDescription)
-  const shotHideEmpty = tvShots.config.group ? tvShots.config.group.hideEmpty !== false : true
-  const setViewMode = (mode) => tv.update(c => ({ ...c, layout: mode === 'gallery' ? 'gallery' : 'table' }))
-  const setOnScreenGroup = (value) => tv.update(c => ({ ...c, group: value ? { field: value, hideEmpty: description.hideEmptyDefault(viewMode, value) } : null }))
-  const setSortField = (field) => tv.update(c => ({ ...c, sorts: withFirstSort(c.sorts, field) }))
-  const reverseSort = () => tv.update(c => ({ ...c, sorts: withFirstSortReversed(c.sorts, s => !!description.field(s.field)?.sortable) }))
-  // The keyboard back to the Views button of the table whose bar acted —
-  // never the other table's, when the content tab changed while a save was
-  // on its way (code review round 2, R2-3).
-  const focusViewsOf = useCallback((key) => () => {
-    document.querySelector(`.rb-scene-toolbar .rb-tv-button[data-table="${key}"]`)?.focus({ preventScroll: true })
-  }, [])
-  // Q17 (her "Start fresh"): this browser's old Scenes views go, once.
-  useEffect(() => {
-    try { localStorage.removeItem(OLD_SAVED_VIEWS_KEY) } catch { /* storage unavailable: nothing kept to remove */ }
-  }, [])
-  // The columns each table shows: the view's fields over the table's, the
-  // name first; the leading columns the view shows (her Q-J).
-  const visibleCols = (view, desc) => effectiveFields(view.config.fields, desc.fieldKeys, { fixed: desc.fixed })
-    .filter(f => f.visible).map(f => desc.columns.find(c => c.key === f.key)).filter(Boolean)
-  const leadShown = (view, desc) => new Set(effectiveLeading(view.config.leading, desc.leadingKeys).filter(f => f.visible).map(f => f.key))
-  const sceneCols = visibleCols(tvScenes, sceneDescription)
-  const sceneLead = leadShown(tvScenes, sceneDescription)
-  const shotCols = visibleCols(tvShots, shotDescription)
-  const shotLead = leadShown(tvShots, shotDescription)
-  // The cards' own lines each view shows (her Q-E, Q-P2).
-  const cardShowsOf = (view, desc) => new Set([
-    ...effectiveFields(view.config.fields, desc.fieldKeys, { fixed: desc.fixed }).filter(f => f.visible && desc.cardFields.includes(f.key)).map(f => f.key),
-    ...[...leadShown(view, desc)].filter(k => (desc.cardLeading || []).includes(k)),
-  ])
-  const sceneCardShows = cardShowsOf(tvScenes, sceneDescription)
-  const shotCardShows = cardShowsOf(tvShots, shotDescription)
+  const groupBy = sScenes.groupBy
+  const sceneHideEmpty = sScenes.hideEmpty
+  const shotGroupBy = sShots.groupBy
+  const shotHideEmpty = sShots.hideEmpty
+  // The columns each table shows (the name first), the leading columns it
+  // shows (her Q-J), and the cards' own lines (her Q-E, Q-P2).
+  const sceneCols = sScenes.columns
+  const sceneLead = sScenes.leading
+  const shotCols = sShots.columns
+  const shotLead = sShots.leading
+  const sceneCardShows = sScenes.cardShows
+  const shotCardShows = sShots.cardShows
   const supportsBins = !!ctx?.supportsBins
   const bins = ctx?.bins || []
   const [takesShotId, setTakesShotId] = useState(null)     // the takes dialog, from a row
@@ -1087,32 +1069,11 @@ export default function ScenesView({ pageActive = false } = {}) {
     }).join(' ')
   }, [ctx, sceneById, shotById, allShotsByScene, viewed.mode, viewed.id, viewed.list, canListWrite, listLabel])
 
-  // ── The Filter strip: the view on screen's filters in the shared row
-  // (VW1e; the Filters card draws the same row). A new row is the first
-  // field's first condition and no value: it filters nothing and is not
-  // counted until it has one (defect 1).
-  function addFilter() {
-    const first = description.filterFields[0]
-    tv.update(c => ({ ...c, filters: [...(c.filters || []), { field: first.key, op: description.filterOps(first)[0].value, values: [] }] }))
-  }
-  function updateFilter(index, row) { tv.update(c => ({ ...c, filters: (c.filters || []).map((f, i) => (i === index ? row : f)) })) }
-  function removeFilter(index) { tv.update(c => ({ ...c, filters: (c.filters || []).filter((_, i) => i !== index) })) }
-  const activeFilters = filterCount(tv.config.filters, description)
-
-  // ── Scene filtering + sorting (the Scenes view's own: defect 3) ──
-  // The search (the tab's own) finds a name or a description; every
-  // complete filter must match (Q13); the sorts in order (Q14). No sort: the
-  // rows as they come — in List order, the list's own.
-  const filtered = useMemo(() => {
-    let list = scenes
-    if (search.trim()) {
-      const q = search.toLowerCase()
-      list = list.filter(s => (s.name || '').toLowerCase().includes(q) || mentionPlainText(s.description || '').toLowerCase().includes(q))
-    }
-    return applyViewFilters(list, tvScenes.config.filters, sceneDescription)
-  }, [scenes, search, tvScenes.config.filters, sceneDescription])
-
-  const sorted = useMemo(() => applyViewSorts(filtered, tvScenes.config.sorts, sceneDescription), [filtered, tvScenes.config.sorts, sceneDescription])
+  // ── The Filter strip (the view on screen's filters in the shared row; a new
+  // row filters nothing until it has a value, defect 1) and the Scenes rows
+  // searched, filtered and sorted (the Scenes view's own: defect 3) are the
+  // screens' (above).
+  const sorted = sScenes.processed
 
   // ── Groups ──
   // A group's words in sentence case (a status's are the kit's STATUS
@@ -1147,17 +1108,8 @@ export default function ScenesView({ pageActive = false } = {}) {
 
   // The Shots view's filters and sorts apply to the shot table and gallery
   // only (a Shots filter never empties the Scenes table: defect 3); the
-  // search, the tab's own, to both.
-  const filteredShots = useMemo(() => {
-    let list = shots
-    if (search.trim()) {
-      const q = search.toLowerCase()
-      list = list.filter(s => (s.name || '').toLowerCase().includes(q) || mentionPlainText(s.description || '').toLowerCase().includes(q))
-    }
-    return applyViewFilters(list, tvShots.config.filters, shotDescription)
-  }, [shots, search, tvShots.config.filters, shotDescription])
-
-  const sortedShots = useMemo(() => applyViewSorts(filteredShots, tvShots.config.sorts, shotDescription), [filteredShots, tvShots.config.sorts, shotDescription])
+  // search, the tab's own, to both: its screen's rows.
+  const sortedShots = sShots.processed
 
   const shotGroups = useMemo(() => {
     // No grouping — flat list in one group
@@ -1186,7 +1138,7 @@ export default function ScenesView({ pageActive = false } = {}) {
         // No sort: each scene's shots by number, as before. VW1e: a view's
         // sorts order the shots inside each scene (Q14); they reordered the
         // whole list and each scene then took shot-number order again.
-        if (!firstSortOf(tvShots.config, shotDescription)) {
+        if (!sShots.firstSort) {
           for (const key of Object.keys(buckets)) {
             buckets[key].sort((a, b) => (a.shot_number ?? 0) - (b.shot_number ?? 0))
           }
@@ -1296,9 +1248,7 @@ export default function ScenesView({ pageActive = false } = {}) {
     <div className="rb-scene-page">
       {/* ── The tab's one polite live region (VW1e, design §4.9): the bar's
           state and every reorder, always mounted. ── */}
-      <p className="sr-only" role="status" aria-live="polite">
-        <span key={announcement.n}>{announcement.words}</span>
-      </p>
+      {liveRegion}
 
       {/* ── Summary tiles (always visible): one kit Stat each (R3-10), as
           the Budget's. Stat has no icon slot, so the four icons are gone. ── */}
@@ -1536,7 +1486,7 @@ export default function ScenesView({ pageActive = false } = {}) {
           {editOnScreen
             ? `${cutMatchCount}/${editSession.rows.length}`
             : contentMode === 'scenes'
-              ? `${filtered.length}/${scenes.length}`
+              ? `${sorted.length}/${scenes.length}`
               : `${totalFilteredShots}/${shots.length}`}
         </span>
       </Toolbar>
@@ -1562,7 +1512,7 @@ export default function ScenesView({ pageActive = false } = {}) {
       {/* Keyed per table, as the Views button is (code review round 1, R1-1):
           a name being typed, or a save in flight, belongs to its own table's
           view, never to the other's bar. */}
-      {!editOnScreen && <ViewBar key={shotsMode ? 'shots' : 'scenes'} tv={tv} ask={ask} announce={announce} focusViews={focusViewsOf(shotsMode ? SHOTS_TABLE : SCENES_TABLE)} />}
+      {!editOnScreen && <ViewBar key={shotsMode ? 'shots' : 'scenes'} tv={tv} ask={ask} announce={announce} focusViews={screen.focusViews} />}
 
       {/* Bins could not be loaded for the take chips (milestone 2): said here
           on the page with a retry, not only inside a takes dialog she may
