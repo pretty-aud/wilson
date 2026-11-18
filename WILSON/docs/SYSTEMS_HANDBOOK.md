@@ -4091,11 +4091,21 @@ also used by the theme colours.
 
 The output format is **locked by default, not immutable**: the format and
 system-prompt textareas are editable state gated behind `formatTabLocked` /
-`promptsTabLocked`, both defaulting to `true`, with a Lock/Unlock toggle. Treat
+`promptsTabLocked`, both defaulting to `true`, with a Lock/Unlock toggle.
+Since F6 (REV-04, her answer "Make them work") the two Generation Rules boxes
+and the Single Page and Full Deck Export Schema boxes are what single-slide
+and full-deck generation send (`composeSinglePageInstructions`,
+`composeFullDeckInstructions`: the rules with `{{EXPORT SCHEMA}}` where the
+format goes, the single-page format with `{{SLIDE NUMBER}}` and
+`{{LAYOUT NAME}}`), starting from exactly the text sent before; Regenerate keeps
+its built-in rules; the Visual Deck and Image Prompt schemas are the layouts of
+files D.O.G. writes, read-only. Edits last until WILSON restarts. Treat
 the three canonical filenames and their structure as a contract — downstream
 tooling consumes them.
 
-**Slide geometry** (`prompts/rules.js`): canvas **720 × 405 pt**; margins 36 pt
+**Slide geometry** (the generation rules' COMPONENT GEOMETRY rule, in the
+Generation Rules boxes' text; `prompts/rules.js`, an older copy that was never
+sent, is gone since F6): canvas **720 × 405 pt**; margins 36 pt
 left/right, 30 pt top, 35 pt bottom, 15 pt gutters; safe area x ∈ [36, 684],
 y ∈ [30, 370] (648 × 340 pt of content). Frame types: `image_placeholder`,
 `video_placeholder`, `infograph_placeholder`, `timeline_placeholder` (all

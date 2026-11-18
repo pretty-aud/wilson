@@ -1335,6 +1335,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| F6 (2026-11-18, wave 3 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f6-dog-otter-one-copy` into `feat/post-overhaul-edit-versioning`) — D.O.G. and O.T.T.E.R. without their copies: the Validator on O.T.T.E.R.'s one AI wrapper, one response reader at 82 reads, one slide splitter and asset-line reader, one rewrite request, one pipeline for five generators, and the prompt boxes made to work at her answer; measured before and after; two review rounds and a one-agent check of the last item, whose findings in F6's own work were fixed in the session; no migration, no SQL, no Edge Function | F6-01 to F6-37 | REV-03 and REV-04, fixed. Comment markers: 4 → 4. |
 | F5 (2026-11-17 and 18, wave 3 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f5-one-roster-one-load` into `feat/post-overhaul-edit-versioning`) — one roster, one rate card, one project load: the roster and the rate card as module-level stores (`src/lib/readCache.js`), the project loaded once after its channel joins with the comments of its own rows, the project roster read once, every collection paged in one place, a New shot's folder tree read once and a drop's shared lookups once, one auth snapshot (`src/cloud/auth/authSnapshot.js`) and the company from the token's claim everywhere; measured before and after by counting tests; two review rounds on Opus 5.5, whose security defects (a private project's drop sent to the cloud after one failed privacy probe; a sign-out not superseding an open's load; the privacy probe failing open) and what F5 had made worse were fixed in the session; no migration, no SQL, no Edge Function | F5-01 to F5-12 | none. Comment markers: 4 → 4. |
 | F8 (2026-11-13, wave 2 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f8-edge-shared-plumbing`) — the Edge Functions' shared plumbing: one envelope crypto, one bucket loader, the caller checks once, one raw-HTTP transport and host rule, every body read under a measured cap (413 past it), the master keys and the opened ticket key kept per isolate, one SigV4 key per batch; deployed to wilson-dev; two review rounds. | F8-01 to F8-19 (below, the F8 section). | F1-01's 28 known type errors to 1 (F1-01, lowered). F8-01 and F8-02, closed by F8 as the second merger (`8a0bdb4f`); F8-03 tried there and taken back (`6515a9d2`), open on purpose. |
 | Post-overhaul F4 (2026-11-13, wave 2; `po/f4-rerender-discipline` into `feat/post-overhaul-edit-versioning`) — re-render discipline, nothing new on the screen meant: the pet's state in `PetHost` under App, the agent's value memoized and its input apart, `React.memo` on the pages and the three tools' roots, R.A.B.B.I.T.'s state that moves on its own clock out of the provider's value (`state/rabbitLive.js`), the Assets tab's warnings from one index (rabbit C5), O.T.T.E.R.'s lesson body and reference views memoized, D.O.G.'s preview placeholders at module level and its parse kept; measured in the running app before and after (a minute of the pet 2,105.7 to 2,859.2 ms of drawing → 42.4 to 50.7 ms); the render spy `src/lib/renderSpy.js` and its pins; two review rounds on Opus 5.5, whose security defects (the pet's saves and chat reaching the next person's account or screen) and the five things F4 had made worse were fixed in the session; no migration, no SQL, no Edge Function | F4-01 to F4-03, F4-05 to F4-07, F4-09 to F4-13 (F4-04, the pet's chat kept for the next person, was found and fixed in the session; F4-08, the agent's conversation kept for the next person, was found in the session and fixed after its merge) | P1-16 (the preview's loop, `b151c20e`). Comment markers: 4 → 4. |
@@ -3790,26 +3791,20 @@ the way are recorded below. Nothing becomes a session unless she names it
   `applyMarginAndContingency`, `profit`) have no product caller. MEASURED by
   reading, not run. Fix shape: one money module every Budget surface calls,
   the agency default decided once. Owner: Audrey (1.0 or 1.1, her call).
-- **REV-03 · O.T.T.E.R.'s Validator reads the FIRST text block of a reply.**
-  `src/tools/otter_v0.3.1/Validator.jsx:36` returns
-  `content.find(b => b.type === 'text')` before its `pause_turn` check, so a
-  web search that says "Let me check…" before searching hands that sentence
-  to the JSON parser. The house rule is `textFromMessage` (the last block);
-  `src/cloud/textFromMessage.test.js` scans only for `content[0].text`, so
-  `.find(...)` passes it. MEASURED by reading. Fix shape: the Validator calls
-  O.T.T.E.R.'s own wrapper (`Otter.jsx:1196-1252`) and the guard test learns
-  the `.find` shape. Owner: Audrey.
-- **REV-04 · D.O.G.'s editable prompt boxes change nothing that is sent.** The
-  single-page and full-deck instruction boxes write state whose only readers
-  are their textareas (`DeckOutlineGenerator.jsx:517-518` → `:4999`, `:5034`);
-  what the model receives is inline text at `:1283-1400`, `:1580-1665` and
-  `:1896-2062`, and `prompts/*.js` with `rules.js` (475 lines) never reach it,
-  though `src/data/dogHelpContent.jsx:395-451` says they do. The theme prompt
-  box is live (`:649`). MEASURED by reading for the two instruction boxes; the
-  survey (`docs/reviews/code-review-2026-10-31/dog-otter.md` B1) says the same
-  of the three export-schema editors. Fix shape: one prompt builder composed
-  from the drawer's values with today's sent text as the byte-identical
-  default, or the dead editors removed. Owner: Audrey.
+- **REV-03 · O.T.T.E.R.'s Validator reads the FIRST text block of a reply.** FIXED by F6 (`cb306808`; the
+  wrapper moved to `src/tools/otter_v0.3.1/otterAI.js` in `69abf5e1`): the Validator calls O.T.T.E.R.'s one wrapper, so a
+  paused web search is resumed (at most 3 times), a 429, 503 or 529 (or an overloaded, rate-limit or capacity message) is
+  retried after 3, 6 and 12 s, and the reply is read from its last text block (`textFromMessage`); its sent body is
+  unchanged. The guard in `src/cloud/textFromMessage.test.js` now fails on `content.find(b => b.type === 'text')`.
+  MEASURED by `pauseTurn.test.js`, run against a faked `callAI` (14 tests red before). What remains: F6-24, F6-26, F6-34.
+- **REV-04 · D.O.G.'s editable prompt boxes change nothing that is sent.** FIXED by F6 (`9e95c906`), as Audrey
+  chose in F6's chat on 2026-11-18 (asked in plain words, with pictures of the drawer; her answer, verbatim: "Make them
+  work"): single-slide and full-deck generation now send what the Generation Rules and Export Schema boxes compose
+  (`composeSinglePageInstructions`, `composeFullDeckInstructions`), and the boxes start from exactly the text sent
+  before (pinned by fingerprint in `prompts/promptBoxes.test.js`), so no deck changes until a box is edited. The Image
+  Prompt Export Schema is the layout of a file D.O.G. writes itself, so it is read-only, as the Visual Deck one;
+  `prompts/rules.js` (fed only the old, unsent defaults) is deleted; D.O.G.'s Help says what is true. What remains:
+  F6-17, F6-35, F6-36, F6-37.
 - **REV-05 · Forgot password can silently send nothing.**
   `src/cloud/auth/ForgotPasswordWizard.jsx:50` resolves the username with no
   company; `supabase/functions/resolve-login/index.ts` takes a username and a
@@ -5680,7 +5675,12 @@ Terminal's change requests (MEASURED by grep, comments stripped; `otterRoutes.te
 - **F6-17 · The probes measure a prompt D.O.G. never sends.** `scripts/probes/deck-latency.mjs` and
   `generation-e2e.mjs` import `DEFAULT_FULL_DECK_OUTPUT_FORMAT` and `DEFAULT_FULL_DECK_INSTRUCTIONS` (which carry
   `prompts/rules.js`), and no request carries those (REV-04): a latency measured there is of another prompt than the
-  full deck sends. MEASURED by reading. `scripts/` is outside F6's line.
+  full deck sends. Since item 6 (`9e95c906`) those constants are today's text, but the probes still send them their own
+  way (the rules in the user turn with `{{EXPORT SCHEMA}}` left as written, the format in the system prompt), so they
+  still measure another prompt, now a malformed one: the user turn went from 25,897 to 10,627 characters and the format
+  from 1,508 to 998 (MEASURED by item 6's check), so their figures are not comparable with earlier runs. Fix shape: send
+  `composeFullDeckInstructions(DEFAULT_FULL_DECK_INSTRUCTIONS, DEFAULT_FULL_DECK_OUTPUT_FORMAT)` in the user turn and
+  `DEFAULT_FULL_DECK_SYSTEM` as the system prompt, as the app does. `scripts/` is outside F6's line; F6-introduced, MEDIUM.
 - **F6-18 · The two topic paths now set "Sending request…" again just before the model call** (the pipeline's phase,
   which only the stub fill used to set): after slow duplicate reads the label steps back from "Searching the web…" for
   under a second. Nothing sent or saved differs. Round 1 (1E), LOW, F6's.
@@ -5700,3 +5700,17 @@ Terminal's change requests (MEASURED by grep, comments stripped; `otterRoutes.te
 - **F6-34 · One wrapper, two readers of its reply.** The generators read the last text block through
   `extractTextAndCitations` (cite tags stripped), the Validator through `textFromMessage` (not stripped), so a cited
   Validator reply keeps its `<cite>` tags (as its first-block read did before F6). Round 2 (2B), LOW.
+- **F6-35 · Regenerate has no box.** A page's regeneration still sends D.O.G.'s built-in regeneration rules (with its
+  own 7b, 10b and 12a), written into the component; the Single Page boxes feed new slides only, and the Help says so.
+- **F6-36 · The size meter counts the boxes' starting size.** `FULL_DECK_FIXED_TOKENS` and `SINGLE_PAGE_FIXED_TOKENS`
+  (3,100 and 2,500) are the composed defaults' size (`referenceModel.test.js` reads them there); a longer edit in a
+  box is sent but not counted, so the bar can read low.
+- **F6-37 · Edits in D.O.G.'s drawer last until WILSON restarts.** Every box there (the system messages, the theme and
+  image prompts, the rewrite prompts, and now the four boxes that work) is screen state that nothing saves.
+- **F6-38 · A Page # of exactly `{{LAYOUT NAME}}` is filled with the layout's name.** The single-slide composer fills
+  the number, then the name, so that one absurd page number differs from the old text (188 of 204 odd inputs equal, all
+  16 differences this one). Item 6's check (MEASURED), LOW.
+- **F6-39 · The Help calls "colour preferences" safe to change in the generation rules,** while rule 30, now in the box
+  for anyone to read, forbids colour references. Older. Item 6's check, LOW.
+- **F6-40 · Item 6's wiring is pinned by text.** `promptBoxes.test.js` checks the requests' compose calls and the
+  callbacks' lists as source text; no test edits a box in the mounted screen and reads the request. Item 6's check, LOW.
