@@ -54,6 +54,11 @@ const { refuseToOpen } = require('./openPath.cjs');
 // demo folder's `.wilson\rabbit-data\thumbnails` answers 200 (F3-01).
 const { sendMedia, REVALIDATE } = require('./mediaSend.cjs');
 const POSTER = Object.freeze({ mime: 'image/jpeg', cache: REVALIDATE });
+// F9 (A2): the one poster maker and acceptor, this module's own hardened copy
+// made general (posters.cjs) — so main.cjs's posters and the cloud bins' have
+// it too, and all of them share one in-flight map per process.
+const posters = require('./posters.cjs');
+const BIN_POSTER = Object.freeze({ edge: 256, quality: 80, fit: 'inside' });
 
 // ── Media tables ──────────────────────────────────────────────────────────────
 // The renderer carries the same tables in src/tools/rabbit_v0.1.0/bins/binMedia.js
@@ -930,22 +935,11 @@ function mountRabbitBins(expressApp, deps) {
   function posterMtime(row) {
     try { return fs.statSync(row.source_path).mtime.toISOString(); } catch { return row.mtime || ''; }
   }
-  // A poster is written to `<key>.part` and renamed into place, and one
-  // generation per key runs at a time (review round 2: two tiles asking for
-  // the same still raced on one write, and a torn file would then have been
-  // served for ever because the GET serves on existence alone).
-  const posterInFlight = new Map();
-  function writePosterAtomically(thumbPath, buf) {
-    const part = thumbPath + '.part';
-    fs.writeFileSync(part, buf);
-    fs.renameSync(part, thumbPath);
-  }
-  function posterOnce(thumbPath, make) {
-    if (posterInFlight.has(thumbPath)) return posterInFlight.get(thumbPath);
-    const p = Promise.resolve().then(make).finally(() => posterInFlight.delete(thumbPath));
-    posterInFlight.set(thumbPath, p);
-    return p;
-  }
+  // A poster is written whole to a part of its own and renamed into place,
+  // and one write per key runs at a time (review round 2: two tiles asking
+  // for the same still raced on one write, and a torn file would then have
+  // been served for ever because the GET serves on existence alone). Since F9
+  // that is posters.cjs's makePoster and putPoster, shared with main.cjs.
 
   expressApp.get(`${P}/bin-files/:id/thumbnail`, async (req, res) => {
     const bundle = load(req, res); if (!bundle) return;
@@ -966,16 +960,11 @@ function mountRabbitBins(expressApp, deps) {
     const stillLike = STILL_EXTS.has(row.extension) && !row.is_sequence;
     if (stillLike || (row.is_sequence && ['.png', '.jpg', '.jpeg', '.tif', '.tiff'].includes(row.extension))) {
       try {
-        const sharp = require('sharp');
         // Through a buffer and Node's fs, not libvips's own writer: libvips
         // cannot open a path past MAX_PATH on Windows (measured, review round
         // 2: a 268-character cache path answered "unable to open for write"
-        // while the same source read fine), Node's fs can.
-        await posterOnce(thumbPath, async () => {
-          if (exists(thumbPath)) return;
-          const buf = await sharp(source).resize(256, 256, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer();
-          writePosterAtomically(thumbPath, buf);
-        });
+        // while the same source read fine), Node's fs can (posters.cjs).
+        await posters.makePoster({ src: source, dest: thumbPath, ...BIN_POSTER });
         return sendMedia(res, thumbPath, POSTER);
       } catch (err) {
         if (!ffmpeg.hasFfmpeg()) return res.status(422).json({ error: 'could not read the image', code: 'undecodable' });
@@ -997,19 +986,15 @@ function mountRabbitBins(expressApp, deps) {
   // The renderer decoded a frame itself (no ffmpeg): same narrowing as the
   // managed-files route — row must exist, JPEG magic number, size cap, path
   // contained under the cache dir.
-  expressApp.post(`${P}/bin-files/:id/thumbnail`, (req, res) => {
+  expressApp.post(`${P}/bin-files/:id/thumbnail`, async (req, res) => {
     const bundle = load(req, res); if (!bundle) return;
     const row = bundle.binFiles.find(f => f.id === req.params.id);
     if (!row) return rabbitNotFound(res, 'bin-file');
-    const { base64 } = req.body || {};
-    if (!base64) return res.status(400).json({ error: 'base64 required' });
-    let buf; try { buf = Buffer.from(base64, 'base64'); } catch { buf = null; }
-    if (!buf || buf.length === 0) return res.status(400).json({ error: 'unreadable body' });
-    if (buf.length > 262144) return res.status(413).json({ error: 'thumbnail too large' });
-    if (!(buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff)) return res.status(415).json({ error: 'not a JPEG' });
+    const accepted = posters.acceptPoster(req.body?.base64);
+    if (!accepted.ok) return res.status(accepted.status).json({ error: accepted.error });
     const thumbPath = resolveContainedFilePath(getThumbCacheDir(), thumbKeyFor(row.source_path, posterMtime(row)));
     if (!thumbPath) return res.status(400).json({ error: 'invalid thumbnail path' });
-    try { writePosterAtomically(thumbPath, buf); } catch (err) { return res.status(500).json({ error: 'thumbnail write failed' }); }
+    try { await posters.putPoster(thumbPath, accepted.buf); } catch (err) { return res.status(500).json({ error: 'thumbnail write failed' }); }
     res.json({ ok: true });
   });
 
@@ -2105,15 +2090,11 @@ function mountCloudBins(expressApp, deps) {
     if (!abs) return res.status(403).json({ error: 'the file is not inside a registered footage location', code: 'unauthorized_location' });
     const isSeq = req.body?.is_sequence === true;
     if (!(await hereNow(req.body)) || !(await statKind(abs, isSeq ? 'dir' : 'file'))) return res.status(410).json({ error: 'file missing on this computer', code: 'offline' });
-    const base64 = req.body?.base64;
-    if (!base64 || typeof base64 !== 'string') return res.status(400).json({ error: 'base64 required' });
-    let buf; try { buf = Buffer.from(base64, 'base64'); } catch { buf = null; }
-    if (!buf || buf.length === 0) return res.status(400).json({ error: 'unreadable body' });
-    if (buf.length > 262144) return res.status(413).json({ error: 'thumbnail too large' });
-    if (!(buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff)) return res.status(415).json({ error: 'not a JPEG' });
+    const accepted = posters.acceptPoster(req.body?.base64);
+    if (!accepted.ok) return res.status(accepted.status).json({ error: accepted.error });
     const { thumbPath } = await cloudPosterKey(abs, isSeq, req.body?.mtime);
     if (!thumbPath) return res.status(400).json({ error: 'invalid thumbnail path' });
-    try { fs.writeFileSync(thumbPath + '.part', buf); fs.renameSync(thumbPath + '.part', thumbPath); }
+    try { await posters.putPoster(thumbPath, accepted.buf); }
     catch { return res.status(500).json({ error: 'thumbnail write failed' }); }
     res.json({ ok: true });
   });
@@ -2147,11 +2128,9 @@ function mountCloudBins(expressApp, deps) {
     const stillLike = STILL_EXTS.has(ext) && !isSeq;
     if (stillLike || (isSeq && ['.png', '.jpg', '.jpeg', '.tif', '.tiff'].includes(extOf(source)))) {
       try {
-        const sharp = require('sharp');
-        const buf = await sharp(source).resize(256, 256, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer();
-        const part = thumbPath + '.part';
-        fs.writeFileSync(part, buf);
-        fs.renameSync(part, thumbPath);
+        // F9: the signed-out route's maker, so this route gains its single
+        // flight (two tiles asking for one clip's poster write once).
+        await posters.makePoster({ src: source, dest: thumbPath, ...BIN_POSTER });
         return sendMedia(res, thumbPath, POSTER);
       } catch (err) {
         if (!ffmpeg.hasFfmpeg()) return res.status(422).json({ error: 'could not read the image', code: 'undecodable' });

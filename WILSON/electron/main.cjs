@@ -6,7 +6,10 @@ const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 const { execFile } = require('child_process');
-const sharp = require('sharp');
+// F9 (A2): the one poster maker and acceptor, and its ffmpeg arm; sharp is
+// required there, when a poster is first made.
+const posters = require('./posters.cjs');
+const { generateVideoThumbOnce } = posters;
 const { loadEnv } = require('./env.cjs');
 const { initMainSentry } = require('./sentry.cjs');
 const { resolveContainedFilePath, isPathInside, checkFolderRootShape, dataFilePath } = require('./pathContainment.cjs');
@@ -487,17 +490,8 @@ function isVideoExt(ext) { return VIDEO_EXTENSIONS.has((ext || '').toLowerCase()
 // since F9 in electron/mediaSend.cjs, required at the top of this file, where
 // sendMedia applies it to every file this server sends).
 
-// 🚨 Session 40: the managed-file id is CLIENT-CHOSEN on create
-// (`id: req.body.id || uuidv4()`), and the thumbnail cache is ONE flat
-// directory shared with the asset/scene/shot/level/experience caches, which use
-// the un-namespaced keys `asset-<id>.jpg`, `scene-<id>.jpg` and so on. So a
-// caller could create a managed row with id `asset-<a real asset uuid>` and
-// then POST arbitrary JPEG bytes to it, permanently replacing that asset's
-// thumbnail — those routes serve the cached file before ever consulting the
-// source. resolveContainedFilePath stops traversal but not COLLISION: both
-// namespaces are the same folder. Requiring a bare UUID closes it without
-// touching the existing cache layout. Found by the pre-push adversarial review.
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// (UUID_RE, the bare-uuid rule for a managed file's poster: since F9 beside the
+// one route that needs it, electron/posters.cjs.)
 
 // The file extension becomes part of stored_name, which is joined under the
 // project root — so `/../../..` in it walks out of the project folder. Every
@@ -508,60 +502,9 @@ function safeExtension(ext) {
   return /^\.[a-z0-9]{1,12}$/.test(e) ? e : '';
 }
 
-// ── Session 40: one ffmpeg run per thumbnail, and never a half-written one ───
-//
-// 🚨 THE PARTIAL FILE IS THE DEFECT THAT WOULD HAVE SHIPPED. Every caller of
-// the GET route serves `thumbPath` straight back when it EXISTS — so a run that
-// fails after creating the output leaves a zero-byte or truncated JPEG that is
-// then served, cached and never regenerated. The unlink is what makes a failed
-// decode retry next time instead of pinning a broken tile forever.
-//
-// 🚨 AND ONE RUN AT A TIME PER OUTPUT. A grid renders the same tile from more
-// than one place, React re-renders, and a user can scroll back — all of which
-// issue concurrent GETs for the same key. Two ffmpeg processes writing one path
-// with `-y` means one truncates the file the other is serving. Decoding a frame
-// out of a 5 GB ProRes file is also the most expensive thing this server does,
-// so sharing the in-flight promise is worth it on cost alone.
-// 🚨 AND A FAILURE IS REMEMBERED FOR A WHILE (adversarial review). Nothing
-// recorded that a file is undecodable, so a folder of .r3d or .braw respawned
-// probe + extract for EVERY visible tile on EVERY mount of the Files view —
-// toggling table/gallery, scrolling back, reopening the popup. Each of those
-// costs up to the full deadline. The TTL is short enough that installing
-// ffmpeg, or fixing a NAS that was offline, is picked up without a restart.
-const VIDEO_THUMB_FAIL_TTL_MS = 5 * 60_000;
-const videoThumbFailedAt = new Map();
-
-const videoThumbInFlight = new Map();
-function generateVideoThumbOnce(srcPath, thumbPath) {
-  const failedAt = videoThumbFailedAt.get(thumbPath);
-  if (failedAt !== undefined && Date.now() - failedAt < VIDEO_THUMB_FAIL_TTL_MS) {
-    return Promise.resolve({ ok: false, reason: 'no_frame_cached' });
-  }
-  const existing = videoThumbInFlight.get(thumbPath);
-  if (existing) return existing;
-  const run = (async () => {
-    const out = await ffmpeg.extractFrame({ input: srcPath, output: thumbPath, maxEdge: 256 });
-    if (!out.ok) {
-      // extractFrame now writes to `<output>.part` and renames, so `thumbPath`
-      // should never exist after a failure — this is the belt to that braces,
-      // and cheap. `ffmpeg_missing` is NOT cached: it is a machine state the
-      // user can change by dropping a binary in, not a property of this file.
-      try { if (fs.existsSync(thumbPath)) fs.unlinkSync(thumbPath); } catch { /* next run overwrites */ }
-      if (out.reason !== 'ffmpeg_missing') {
-        if (videoThumbFailedAt.size > 500) {
-          const cutoff = Date.now() - VIDEO_THUMB_FAIL_TTL_MS;
-          for (const [k, t] of videoThumbFailedAt) if (t < cutoff) videoThumbFailedAt.delete(k);
-        }
-        videoThumbFailedAt.set(thumbPath, Date.now());
-      }
-    } else {
-      videoThumbFailedAt.delete(thumbPath);
-    }
-    return out;
-  })().finally(() => videoThumbInFlight.delete(thumbPath));
-  videoThumbInFlight.set(thumbPath, run);
-  return run;
-}
+// (generateVideoThumbOnce — one ffmpeg run per poster, never a half-written
+// one, a failure remembered five minutes — is the ffmpeg arm of the one poster
+// maker since F9: electron/posters.cjs, bound at the top of this file.)
 
 // ═══════════════════════════════════════════════════════════════════
 //  DEFAULT PET DATA
@@ -4356,135 +4299,16 @@ function startLocalServer(distPath) {
       sendMedia(res, diskPath, { mime: mf.mime_type, failText: 'stream failed' });
     });
 
-    // Thumbnail endpoint — generates + caches a 256px-wide JPEG via sharp
-    expressApp.get('/api/rabbit/projects/:projectId/managed-files/:id/thumbnail', async (req, res) => {
-      // F9: a poster is the renderer's own read (FileThumbnail's <img>, the
-      // probe's HEAD through localFetch); sent by sendMedia (F3-01).
-      if (!requireSameOrigin(req, res)) return;
-      const bundle = readRabbitBundle(req.params.projectId);
-      if (!bundle) return rabbitNotFound(res);
-      const mf = (bundle.managedFiles || []).find(f => f.id === req.params.id);
-      if (!mf) return rabbitNotFound(res, 'managed-file');
-      // Session 40: video joins raster here. The two arms are NOT the same
-      // decoder — sharp cannot open a ProRes MOV — so the branch is explicit
-      // rather than a widened extension set feeding one pipeline.
-      const isImage = isThumbableExt(mf.extension);
-      const isVideo = isVideoExt(mf.extension);
-      if (!isImage && !isVideo) {
-        return res.status(415).json({ error: 'not an image or video', code: 'unsupported_type' });
-      }
-      // Session 17 containment (#45). Three of the segments below are
-      // client-writable: mf.id (chosen on create), mf.stored_name, and
-      // asset.folder_slug (the asset POST/PATCH spread req.body). Each is
-      // resolved under its own base and refused on escape, so this route
-      // cannot be turned into an arbitrary-file read or .jpg overwrite.
-      const thumbPath = resolveContainedFilePath(getThumbCacheDir(), `${mf.id}.jpg`);
-      if (!thumbPath) return res.status(400).json({ error: 'invalid thumbnail path' });
-      // Serve cached
-      if (fs.existsSync(thumbPath)) return sendMedia(res, thumbPath, { mime: 'image/jpeg' });
-      // Generate from source file
-      const root = resolveProjectFolderRoot(bundle);
-      if (!root) return res.status(404).json({ error: 'no file root configured' });
-      // Session 40: one resolver, shared with the stream route and modelled on
-      // the hard-DELETE's idiom. It reads the record's OWN folder_path, so a
-      // managed file under SCENES/ or SHOTS/ finally resolves — this route used
-      // to recompute `ASSETS/{assetSlug}` unconditionally and 410'd on both.
-      const srcPath = resolveManagedFileDiskPath(bundle, mf);
-      if (!srcPath) return res.status(400).json({ error: 'invalid source path' });
-      if (!fs.existsSync(srcPath)) return res.status(410).json({ error: 'source file missing' });
-
-      if (isVideo) {
-        // 🚨 THE BINARY'S ABSENCE IS A NAMED STATE, NOT A 500. It is today's
-        // state on every machine, and the renderer uses this code to decide
-        // whether to fall back to decoding the format itself through the
-        // stream route. A generic error would make "no decoder installed"
-        // indistinguishable from "this file is corrupt".
-        if (!ffmpeg.hasFfmpeg()) {
-          return res.status(415).json({
-            error: 'no video decoder installed on this machine',
-            code:  'ffmpeg_missing',
-          });
-        }
-        try {
-          const out = await generateVideoThumbOnce(srcPath, thumbPath);
-          if (!out.ok) {
-            return res.status(422).json({ error: 'could not decode a frame', code: out.reason });
-          }
-          return sendMedia(res, thumbPath, { mime: 'image/jpeg' });
-        } catch (err) {
-          console.error('video thumbnail failed:', err?.message || err);
-          return res.status(500).json({ error: 'thumbnail generation failed' });
-        }
-      }
-
-      try {
-        await sharp(srcPath).resize(256).jpeg({ quality: 80 }).toFile(thumbPath);
-        sendMedia(res, thumbPath, { mime: 'image/jpeg' });
-      } catch (err) {
-        console.error('thumbnail generation failed:', err.message);
-        res.status(500).json({ error: 'thumbnail generation failed' });
-      }
-    });
-
-    // ── Session 40: accept a frame the RENDERER decoded ──────────────────────
-    //
-    // The fallback that makes browser-native video work with no ffmpeg
-    // installed: the renderer points a hidden <video> at the stream route
-    // above, grabs a frame to a canvas, and POSTs the JPEG here. Chromium
-    // handles H.264/AAC MP4, VP8/VP9 WebM and AV1 — which is most of what is
-    // not professional footage — so this is not a degraded path, it is the
-    // same decoder the cloud upload path uses, pointed at a local file.
-    //
-    // ffmpeg still owns ProRes/DNxHD/MXF, and it is preferred when present
-    // because input seeking on local disk beats streaming over HTTP.
-    //
-    // 🚨 THIS WRITES TO DISK FROM THE LOOPBACK SERVER — locked by B3's launch
-    // token since Track B, but a token holder is any script on the renderer's
-    // origin (the cookie rides same-origin), so the caller is still not
-    // trusted and the route is narrowed in four ways: the row must exist and be a
-    // video, the destination is contained under the cache dir by mf.id (which
-    // is client-chosen on create — #45 family), the body is capped, and the
-    // bytes must actually START WITH A JPEG MAGIC NUMBER. Without that last
-    // check this is a "write arbitrary content to a path ending .jpg"
-    // primitive, and the GET above would then serve it back with an image
-    // Content-Type.
-    expressApp.post('/api/rabbit/projects/:projectId/managed-files/:id/thumbnail', (req, res) => {
-      const bundle = readRabbitBundle(req.params.projectId);
-      if (!bundle) return rabbitNotFound(res);
-      const mf = (bundle.managedFiles || []).find(f => f.id === req.params.id);
-      if (!mf) return rabbitNotFound(res, 'managed-file');
-      if (!isVideoExt(mf.extension)) {
-        return res.status(415).json({ error: 'not a video', code: 'unsupported_type' });
-      }
-      // 🚨 THE ID MUST BE A BARE UUID — see UUID_RE for why. The thumbnail
-      // cache is one flat namespace shared with `asset-<id>.jpg` and
-      // `<entity>-<id>.jpg`, and this route is the only one that writes
-      // ARBITRARY bytes into it.
-      if (!UUID_RE.test(String(mf.id))) {
-        return res.status(400).json({ error: 'unsupported file id' });
-      }
-      const { base64 } = req.body || {};
-      if (!base64) return res.status(400).json({ error: 'base64 required' });
-
-      let buf;
-      try { buf = Buffer.from(base64, 'base64'); } catch { buf = null; }
-      if (!buf || buf.length === 0) return res.status(400).json({ error: 'unreadable body' });
-      // Mirrors THUMBNAIL_MAX_BYTES / migration 0053's bucket cap, so the two
-      // tiers agree about how big a preview may be.
-      if (buf.length > 262144) return res.status(413).json({ error: 'thumbnail too large' });
-      if (!(buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff)) {
-        return res.status(415).json({ error: 'not a JPEG' });
-      }
-
-      const thumbPath = resolveContainedFilePath(getThumbCacheDir(), `${mf.id}.jpg`);
-      if (!thumbPath) return res.status(400).json({ error: 'invalid thumbnail path' });
-      try {
-        fs.writeFileSync(thumbPath, buf);
-      } catch (err) {
-        console.error('thumbnail write failed:', err?.message || err);
-        return res.status(500).json({ error: 'thumbnail write failed' });
-      }
-      res.json({ ok: true });
+    // ── Posters: the managed-file GET and POST, the asset GET and the four
+    // entity GETs — electron/posters.cjs since F9 (A2), served there in tests,
+    // with the one maker (sharp to a buffer, a whole write renamed into place,
+    // one in flight per poster), the one acceptor and the one sender. The same
+    // paths and answers; the four rabbit:*-thumbnail channels below ask the
+    // same maker.
+    require('./posters.cjs').mountPosterRoutes(expressApp, {
+      readRabbitBundle, rabbitNotFound, getThumbCacheDir, resolveContainedFilePath, dataFileOrThrow,
+      resolveProjectFolderRoot, resolveManagedFileDiskPath, thumbnailSourceAllowed, isThumbableExt, isVideoExt,
+      ffmpeg,
     });
 
     // Does this machine have the professional-codec decoder? The renderer asks
@@ -4494,73 +4318,6 @@ function startLocalServer(distPath) {
     expressApp.get('/api/rabbit/video-support', (req, res) => {
       res.json({ ffmpeg: ffmpeg.hasFfmpeg() });
     });
-
-    // ── Asset thumbnail endpoint ──
-    // Serves a cached 512px JPEG thumbnail for an asset's thumbnail_image.
-    expressApp.get('/api/rabbit/projects/:projectId/assets/:id/thumbnail', async (req, res) => {
-      // F9: the renderer's own <img> only; sent by sendMedia — through the
-      // demo folder's dot-folder (F3-01) and no-store, where this route said
-      // `public, max-age=60` (TPN-CONT-003's re-audit named those lines).
-      if (!requireSameOrigin(req, res)) return;
-      const bundle = readRabbitBundle(req.params.projectId);
-      if (!bundle) return rabbitNotFound(res);
-      const asset = (bundle.assets || []).find(a => a.id === req.params.id);
-      if (!asset) return rabbitNotFound(res, 'asset');
-      if (!asset.thumbnail_image) return res.status(404).json({ error: 'no thumbnail set' });
-
-      // (review round 2, H2) the id is client-written (the assets POST spreads
-      // req.body) and was joined raw onto the cache dir: contained now.
-      const thumbPath = dataFileOrThrow(getThumbCacheDir(), `asset-${asset.id}`, '.jpg', 'asset');
-
-      // Serve cached version if it exists and source hasn't changed
-      if (fs.existsSync(thumbPath)) return sendMedia(res, thumbPath, { mime: 'image/jpeg' });
-
-      // Generate from source
-      const srcPath = asset.thumbnail_image;
-      if (!fs.existsSync(srcPath)) return res.status(410).json({ error: 'source image missing' });
-      // (review round 2, H2) thumbnail_image is an absolute path the bundle
-      // carries — a copied folder's, or a drive-by POST's; only a picture
-      // under a folder the person chose is opened and transcoded.
-      if (!thumbnailSourceAllowed(bundle, req.params.projectId, srcPath)) return res.status(403).json({ error: 'source image is outside the folders this app may read' });
-
-      try {
-        await sharp(srcPath).resize(512).jpeg({ quality: 85 }).toFile(thumbPath);
-        sendMedia(res, thumbPath, { mime: 'image/jpeg' });
-      } catch (err) {
-        console.error('asset thumbnail generation failed:', err.message);
-        res.status(500).json({ error: 'thumbnail generation failed' });
-      }
-    });
-
-    // ── Generic entity thumbnail endpoints (scene, shot, level, experience) ──
-    for (const etype of ['scenes', 'shots', 'levels', 'experiences']) {
-      const singular = etype.replace(/s$/, ''); // 'scene', 'shot', 'level', 'experience'
-      expressApp.get(`/api/rabbit/projects/:projectId/${etype}/:id/thumbnail`, async (req, res) => {
-        if (!requireSameOrigin(req, res)) return; // F9: as the asset thumbnail above
-        const bundle = readRabbitBundle(req.params.projectId);
-        if (!bundle) return rabbitNotFound(res);
-        const list = bundle[etype] || [];
-        const entity = list.find(e => e.id === req.params.id);
-        if (!entity) return rabbitNotFound(res, singular);
-        if (!entity.thumbnail_image) return res.status(404).json({ error: 'no thumbnail set' });
-
-        const thumbPath = dataFileOrThrow(getThumbCacheDir(), `${singular}-${entity.id}`, '.jpg', singular); // (review 2, H2)
-
-        if (fs.existsSync(thumbPath)) return sendMedia(res, thumbPath, { mime: 'image/jpeg' });
-
-        const srcPath = entity.thumbnail_image;
-        if (!fs.existsSync(srcPath)) return res.status(410).json({ error: 'source image missing' });
-        if (!thumbnailSourceAllowed(bundle, req.params.projectId, srcPath)) return res.status(403).json({ error: 'source image is outside the folders this app may read' }); // (review 2, H2)
-
-        try {
-          await sharp(srcPath).resize(512).jpeg({ quality: 85 }).toFile(thumbPath);
-          sendMedia(res, thumbPath, { mime: 'image/jpeg' });
-        } catch (err) {
-          console.error(`${singular} thumbnail generation failed:`, err.message);
-          res.status(500).json({ error: 'thumbnail generation failed' });
-        }
-      });
-    }
 
     // Import existing folder structure into managed files manifest
     expressApp.post('/api/rabbit/projects/:projectId/managed-files/import-folder', (req, res) => {
@@ -5737,19 +5494,24 @@ ipcMain.handle('rabbit:pick-image', async () => {
 
 // Set asset thumbnail: picks source path, generates cached thumbnail via sharp.
 // Call AFTER updating the asset's thumbnail_image property in the bundle.
+// F9 (A2): the four channels keep their names, arguments and answers (the
+// asset, entity and scenes views call them); their bodies ask the one poster
+// maker (electron/posters.cjs): the new picture is written whole and renamed
+// into place, after any GET making this poster, and wins (`replace`). Whether
+// the channels can go once the GET alone suffices is OUTSTANDING F9-04.
 ipcMain.handle('rabbit:generate-asset-thumbnail', async (_event, { assetId, sourcePath }) => {
   if (!sourcePath || !fs.existsSync(sourcePath)) {
     throw new Error('source image does not exist');
   }
   const thumbPath = dataFileOrThrow(getThumbCacheDir(), `asset-${assetId}`, '.jpg', 'asset'); // (review 2, H2)
-  await sharp(sourcePath).resize(512).jpeg({ quality: 85 }).toFile(thumbPath);
+  await posters.makePoster({ src: sourcePath, dest: thumbPath, edge: 512, quality: 85, replace: true });
   return { ok: true, thumbPath };
 });
 
-// Clear a cached asset thumbnail
-ipcMain.handle('rabbit:clear-asset-thumbnail', (_event, { assetId }) => {
+// Clear a cached asset thumbnail (after a write in flight on it).
+ipcMain.handle('rabbit:clear-asset-thumbnail', async (_event, { assetId }) => {
   const thumbPath = dataFileOrThrow(getThumbCacheDir(), `asset-${assetId}`, '.jpg', 'asset'); // (review 2, H2)
-  if (fs.existsSync(thumbPath)) try { fs.unlinkSync(thumbPath); } catch {}
+  await posters.clearPoster(thumbPath);
   return { ok: true };
 });
 
@@ -5759,13 +5521,13 @@ ipcMain.handle('rabbit:generate-entity-thumbnail', async (_event, { entityType, 
     throw new Error('source image does not exist');
   }
   const thumbPath = dataFileOrThrow(getThumbCacheDir(), `${entityThumbKind(entityType)}-${entityId}`, '.jpg', 'entity'); // (review 2, H2)
-  await sharp(sourcePath).resize(512).jpeg({ quality: 85 }).toFile(thumbPath);
+  await posters.makePoster({ src: sourcePath, dest: thumbPath, edge: 512, quality: 85, replace: true });
   return { ok: true, thumbPath };
 });
 
-ipcMain.handle('rabbit:clear-entity-thumbnail', (_event, { entityType, entityId }) => {
+ipcMain.handle('rabbit:clear-entity-thumbnail', async (_event, { entityType, entityId }) => {
   const thumbPath = dataFileOrThrow(getThumbCacheDir(), `${entityThumbKind(entityType)}-${entityId}`, '.jpg', 'entity'); // (review 2, H2)
-  if (fs.existsSync(thumbPath)) try { fs.unlinkSync(thumbPath); } catch {}
+  await posters.clearPoster(thumbPath);
   return { ok: true };
 });
 

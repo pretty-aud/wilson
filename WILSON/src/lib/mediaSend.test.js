@@ -81,10 +81,10 @@ function liftRoute(head) {
 const ROUTE = {
   download: "expressApp.get('/api/rabbit/projects/:projectId/files/:id/download'",
   managedStream: "expressApp.get('/api/rabbit/projects/:projectId/managed-files/:id/stream'",
-  managedThumb: "expressApp.get('/api/rabbit/projects/:projectId/managed-files/:id/thumbnail'",
-  assetThumb: "expressApp.get('/api/rabbit/projects/:projectId/assets/:id/thumbnail'",
-  entityThumb: 'expressApp.get(`/api/rabbit/projects/:projectId/${etype}/:id/thumbnail`',
 }
+// F9 item 3: the poster routes left main.cjs for posters.cjs and are mounted
+// for real below (on the tip they were lifted from main.cjs like the two above).
+const posters = (() => { try { return requireElectron('./posters.cjs') } catch { return null } })()
 
 // The media allowlist the tip's routes call by name (main.cjs's, word for word).
 const TIP_SAFE = (mime) => {
@@ -148,9 +148,7 @@ beforeAll(async () => {
   const app = express()
   app.get('/api/rabbit/projects/:projectId/files/:id/download', liftRoute(ROUTE.download)(deps))
   app.get('/api/rabbit/projects/:projectId/managed-files/:id/stream', liftRoute(ROUTE.managedStream)(deps))
-  app.get('/api/rabbit/projects/:projectId/managed-files/:id/thumbnail', liftRoute(ROUTE.managedThumb)(deps))
-  app.get('/api/rabbit/projects/:projectId/assets/:id/thumbnail', liftRoute(ROUTE.assetThumb)(deps))
-  app.get('/api/rabbit/projects/:projectId/scenes/:id/thumbnail', liftRoute(ROUTE.entityThumb)({ ...deps, etype: 'scenes', singular: 'scene' }))
+  posters.mountPosterRoutes(app, { ...deps, log: quiet })
   // main.cjs's two tail handlers, in its order.
   app.use((err, req, res, next) => (err && err.code === 'WILSON_PATH_ESCAPE' ? res.status(404).json({ error: 'item not found' }) : next(err)))
   app.use((err, req, res, next) => { quiet.error(err); localServerErrorHandler(err, req, res, next) })

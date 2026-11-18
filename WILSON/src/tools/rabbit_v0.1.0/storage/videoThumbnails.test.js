@@ -1006,15 +1006,19 @@ describe('wiring: the Express routes exist and stream correctly', () => {
     expect(resolver).toMatch(/mf\.folder_path/)
   })
 
+  // F9 (A2): the poster routes and the ffmpeg arm left main.cjs for the one
+  // poster maker, electron/posters.cjs (its routes served in posters.test.js).
+  const postersCjs = executable(readRepo('electron', 'posters.cjs'))
+
   it('the thumbnail route grew a video arm that names ffmpeg_missing', () => {
-    expect(main).toMatch(/code:\s*'ffmpeg_missing'/)
-    expect(main).toMatch(/generateVideoThumbOnce\(srcPath, thumbPath\)/)
+    expect(postersCjs).toMatch(/code:\s*'ffmpeg_missing'/)
+    expect(postersCjs).toMatch(/generateVideoThumbOnce\(srcPath, thumbPath\)/)
   })
 
   it('🚨 a FAILED ffmpeg run unlinks its partial output', () => {
     // Every caller serves thumbPath straight back when it EXISTS, so a
     // truncated JPEG left behind is served, cached and never regenerated.
-    const fn = sliceRoute(main, 'function generateVideoThumbOnce')
+    const fn = sliceRoute(postersCjs, 'function generateVideoThumbOnce')
     expect(fn).toMatch(/if \(!out\.ok\)/)
     expect(fn).toMatch(/unlinkSync\(thumbPath\)/)
   })
@@ -1026,18 +1030,29 @@ describe('wiring: the Express routes exist and stream correctly', () => {
     // ⚠️ SLICED AND ORDERED. Both assertions used to be whole-file matches
     // with no ordering, so the property in the title — "before writing to
     // disk" — was the one thing not tested.
-    const post = sliceBetween(main,
-      "expressApp.post('/api/rabbit/projects/:projectId/managed-files/:id/thumbnail'",
-      "expressApp.get('/api/rabbit/video-support'")
+    // F9: the route (posters.cjs) asks the one acceptor, whose cap and magic
+    // check come before the bytes are handed back, and writes only what it
+    // accepted — whole, through a part (served in posters.test.js).
+    const post = sliceBetween(postersCjs,
+      'expressApp.post(`${P}/managed-files/:id/thumbnail`',
+      'expressApp.get(`${P}/assets/:id/thumbnail`')
     expect(post).toBeTruthy()
-    const magic = post.indexOf('0xff && buf[1] === 0xd8 && buf[2] === 0xff')
-    const cap = post.indexOf('buf.length > 262144')
-    const write = post.indexOf('fs.writeFileSync(thumbPath, buf)')
-    expect(magic).toBeGreaterThan(-1)
+    const accept = post.indexOf('const accepted = acceptPoster(req.body?.base64);')
+    const refuse = post.indexOf('if (!accepted.ok) return res.status(accepted.status)')
+    const write = post.indexOf('await putPoster(thumbPath, accepted.buf);')
+    expect(accept).toBeGreaterThan(-1)
+    expect(refuse).toBeGreaterThan(accept)
+    expect(write).toBeGreaterThan(refuse)
+    expect(post).not.toMatch(/writeFileSync/)
+    const acceptor = sliceRoute(postersCjs, 'function acceptPoster')
+    const cap = acceptor.indexOf('buf.length > POSTER_MAX_BYTES')
+    const magic = acceptor.indexOf('0xff && buf[1] === 0xd8 && buf[2] === 0xff')
+    const handBack = acceptor.indexOf('return { ok: true, buf }')
     expect(cap).toBeGreaterThan(-1)
-    expect(write).toBeGreaterThan(-1)
-    expect(magic).toBeLessThan(write)
-    expect(cap).toBeLessThan(write)
+    expect(magic).toBeGreaterThan(-1)
+    expect(cap).toBeLessThan(handBack)
+    expect(magic).toBeLessThan(handBack)
+    expect(postersCjs).toMatch(/const POSTER_MAX_BYTES = 262144;/)
   })
 
   it('the capability probe exists for the notice to be honest about', () => {
@@ -1298,9 +1313,10 @@ describe('review fixes — S40', () => {
     // mf.id is client-chosen on create, and the cache is shared with
     // `asset-<id>.jpg` / `<entity>-<id>.jpg`, which are served from cache
     // without re-checking their source. Containment stops traversal, not
-    // collision.
-    expect(main).toMatch(/const UUID_RE =/)
-    expect(main).toMatch(/if \(!UUID_RE\.test\(String\(mf\.id\)\)\)/)
+    // collision. F9: beside the one route that needs it (posters.cjs).
+    const posters = executable(readRepo('electron', 'posters.cjs'))
+    expect(posters).toMatch(/const UUID_RE =/)
+    expect(posters).toMatch(/if \(!UUID_RE\.test\(String\(mf\.id\)\)\)/)
   })
 
   it('🚨 HIGH: extractFrame has ONE deadline for the whole call', () => {
@@ -1333,11 +1349,14 @@ describe('review fixes — S40', () => {
     // ⚠️ Strengthened after a breaker proved the first version vacuous: it
     // matched the CONSTANT's name, which survives deleting the code that
     // actually records a failure. Assert the write AND the read.
-    expect(main).toMatch(/videoThumbFailedAt\.set\(thumbPath, Date\.now\(\)\)/)
-    expect(main).toMatch(/if \(failedAt !== undefined && Date\.now\(\) - failedAt < VIDEO_THUMB_FAIL_TTL_MS\)/)
+    // F9: generateVideoThumbOnce is posters.cjs's ffmpeg arm now.
+    const posters = executable(readRepo('electron', 'posters.cjs'))
+    expect(posters).toMatch(/videoThumbFailedAt\.set\(thumbPath, Date\.now\(\)\)/)
+    expect(posters).toMatch(/if \(failedAt !== undefined && Date\.now\(\) - failedAt < VIDEO_THUMB_FAIL_TTL_MS\)/)
     // …but "no binary installed" is a MACHINE state the user can change by
     // dropping a file in, not a property of this video.
-    expect(main).toMatch(/if \(out\.reason !== 'ffmpeg_missing'\)/)
+    expect(posters).toMatch(/if \(out\.reason !== 'ffmpeg_missing'\)/)
+    expect(main).not.toMatch(/function generateVideoThumbOnce\(/)
   })
 
   it('🚨 resolveFfmpegPath demands a FILE, not merely something that exists', () => {
