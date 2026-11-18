@@ -261,8 +261,8 @@ async function privateProjectsAvailable(client) {
     return false;
   }
   // Any other failure (network, RLS) says nothing about the column: answer
-  // "not now" and probe again next time.
-  return false;
+  // "not known" (null, falsy for every other caller) and probe again next time.
+  return null;
 }
 // MO1 (0107, 0109): projects.topic_epoch names the project's realtime topic
 // after a narrowing (rabbit:project:{id}:{n}) — but only 0109 makes the
@@ -395,7 +395,14 @@ async function canAccessProjectLegal(client, projectId) {
 // personal space is is_private and is NOT that: its files go to the company's
 // storage, as any project's do (her answer; MOTH_DESIGN §2.2 PS-6).
 async function projectIsPrivate(client, projectId) {
-  if (!(await privateProjectsAvailable(client))) return false;
+  const available = await privateProjectsAvailable(client);
+  // F5 review round 2 (security): fail CLOSED. A probe that failed says
+  // nothing, and "not private" would send a private project's file to the
+  // cloud; uploadFile, the one caller, refuses that file instead.
+  if (available === null) {
+    throw new Error('[supabase] whether this project is private could not be read, so the file was not added; try again');
+  }
+  if (!available) return false;
   const personal = await personalSpacesAvailable(client);
   const { data, error } = await client
     .from('projects').select(personal ? 'is_private, personal_owner_id' : 'is_private').eq('id', projectId).maybeSingle();
@@ -3302,7 +3309,9 @@ export function supabaseAdapter() {
           // roster takes them instead of reading the table a second time.
           client.from('project_members')
             .select('*')
-            .eq('project_id', projectId).then(unwrap).catch(() => []),
+            // F5 review round 2: a failed read is unknown (null), not an empty
+            // roster: the provider then reads the roster by its own path.
+            .eq('project_id', projectId).then(unwrap).catch(() => null),
           // Ordered by sort_order to match the local bundle, which is an
           // array and therefore ordered by construction. Without this the two
           // adapters would disagree on row order for the same project.
@@ -3362,7 +3371,7 @@ export function supabaseAdapter() {
           project_role: m.project_role,
           project_title: m.project_title || '',
         })),
-        projectMembers: projectMembers || [],
+        projectMembers: Array.isArray(projectMembers) ? projectMembers : null,
       });
     },
 

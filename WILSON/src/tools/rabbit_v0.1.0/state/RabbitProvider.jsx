@@ -722,10 +722,13 @@ export function RabbitProvider({ children }) {
         if (cancelled) return;
         setAdapterStatus(keepStatus(status));
         if (status.online) {
+          // F5 review round 2: the person the list is read FOR, taken before
+          // the read (a sign-in landing meanwhile must not be credited with it).
+          const listedFor = await currentPersonKey();
           const list = await adapterRef.current.listProjects();
           if (cancelled) return;
           setProjectsIndex(indexById(list));
-          listedForRef.current = await currentPersonKey();
+          listedForRef.current = listedFor;
           if (settings.activeProjectId && list.some(p => p.id === settings.activeProjectId)) {
             await setActiveProject(settings.activeProjectId, /*persist*/ false);
           }
@@ -807,6 +810,7 @@ export function RabbitProvider({ children }) {
             listedForRef.current = person;
           } else if (event === 'SIGNED_OUT') {
             listedForRef.current = null;
+            supersedeOpen();
             setProjectsIndex({});
             setBundle(EMPTY_BUNDLE);
             setActiveProjectIdState(null);
@@ -826,6 +830,7 @@ export function RabbitProvider({ children }) {
     setAdapterMode(nextMode);
     adapterModeRef.current = nextMode;
     adapterRef.current = selectAdapter(nextMode);
+    supersedeOpen();
     setProjectsIndex({});
     setBundle(EMPTY_BUNDLE);
     setActiveProjectIdState(null);
@@ -844,9 +849,10 @@ export function RabbitProvider({ children }) {
       const status = await adapterRef.current.status();
       setAdapterStatus(keepStatus(status));
       if (status.online) {
+        const listedFor = await currentPersonKey();
         const list = await adapterRef.current.listProjects();
         setProjectsIndex(indexById(list));
-        listedForRef.current = await currentPersonKey();
+        listedForRef.current = listedFor;
       }
     } catch (err) {
       setError(err.message || String(err));
@@ -912,6 +918,21 @@ export function RabbitProvider({ children }) {
   const loadBufferRef = useRef(null);
   const openRosterRef = useRef(null);
   const refreshProjectMembersRef = useRef(null);
+  // F5 review round 2 (security, F4-08): a sign-out, an adapter switch or a
+  // trashed project supersedes an open still waiting for its join or still
+  // loading, as a close does, so its snapshot and its roster never land after
+  // it (nor load as nobody, or as the next person, at the wait's end).
+  const supersedeOpen = () => {
+    bundleLoadSeqRef.current++;
+    const waiting = joinGateRef.current;
+    if (waiting && !waiting.released) {
+      waiting.released = true;
+      clearTimeout(waiting.timer);
+      waiting.resolve();
+    }
+    loadBufferRef.current = null;
+    openRosterRef.current = null;
+  };
   const pendingFieldsForRef = useRef(null);
   const releaseJoinGate = useCallback((projectId) => {
     const g = joinGateRef.current;
@@ -1039,6 +1060,8 @@ export function RabbitProvider({ children }) {
   // legacy flows are unaffected. Mutations are optimistic with
   // snapshot rollback, like the other mutators.
   const [projectMembers, setProjectMembers] = useState([]);
+  const projectMembersRef = useRef(projectMembers);
+  projectMembersRef.current = projectMembers;
   const [authUserId, setAuthUserId] = useState(null);
   authUserIdRef.current = authUserId;
   // GW3 (review round 1, finding 1): a ticket is one person's. A sign-out, or
@@ -1272,6 +1295,10 @@ export function RabbitProvider({ children }) {
     // of 0086 — a reload begun before a withdraw showed the list live again
     // and ended the "Recently removed" mark).
     const listWriteSeq = shotListWriteSeqRef.current;
+    // F5 review round 2: the roster as it stood when this load began; a seat
+    // given here, or read again after a roster event, while it was out is
+    // newer than the load's rows, which then are not applied.
+    const rosterAtStart = projectMembersRef.current;
     // F5: events that arrive while this is read are shown at once (live) AND
     // kept, then folded over the snapshot, which would otherwise drop them.
     loadBufferRef.current = { loadSeq, events: [], live: true };
@@ -1293,7 +1320,7 @@ export function RabbitProvider({ children }) {
       // F5 review round 1: a refetch's load carries the project roster too
       // (the reconnect's missed-events window covers the seats), and it ends
       // an open's wait for its rows when it overtook that open's landing.
-      if (Array.isArray(next?.projectMembers)) {
+      if (Array.isArray(next?.projectMembers) && projectMembersRef.current === rosterAtStart) {
         rosterReqSeqRef.current++;
         setProjectMembers(next.projectMembers);
         if (openRosterRef.current === pid) openRosterRef.current = null;
@@ -1318,6 +1345,10 @@ export function RabbitProvider({ children }) {
       return next;
     } catch (err) {
       if (loadBufferRef.current?.loadSeq === loadSeq) loadBufferRef.current = null;
+      if (openRosterRef.current === pid) {
+        openRosterRef.current = null;
+        refreshProjectMembersRef.current?.();
+      }
       setError(err.message || String(err));
       return null;
     }
@@ -1424,6 +1455,7 @@ export function RabbitProvider({ children }) {
           // Mirror the local deleteProject teardown: close the project.
           // Undo entries and toasts point at rows that just left this
           // client's world — clearHistory also drops the stale toast.
+          supersedeOpen();
           setActiveProjectIdState(null);
           setBundle(EMPTY_BUNDLE);
           clearHistory();

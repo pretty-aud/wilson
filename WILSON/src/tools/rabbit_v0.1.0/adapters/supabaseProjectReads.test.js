@@ -19,6 +19,8 @@ const MAX_ROWS = 1000
 
 function makeDb(tables) {
   const log = []
+  // The next n selects of a table answer an error (a dropped connection).
+  const failures = {}
   let seq = 0
   const matches = (row, filters) => filters.every(([op, col, val]) => {
     if (col.includes('.')) return true // an embedded filter: not modelled
@@ -48,6 +50,11 @@ function makeDb(tables) {
         log.push({ table, kind: 'update', rows: hit.length })
         const answer = hit.map((r) => ({ ...r }))
         return { data: q.single ? answer[0] ?? null : answer, error: null }
+      }
+      if (failures[table] > 0) {
+        failures[table] -= 1
+        log.push({ table, kind: 'select', rows: 0, ids: [], filters: q.filters, failed: true })
+        return { data: null, error: { code: '08006', message: 'connection lost' } }
       }
       let out = rows.filter((r) => matches(r, q.filters))
       if (q.range) out = out.slice(q.range[0], q.range[1] + 1)
@@ -79,6 +86,7 @@ function makeDb(tables) {
   }
   return {
     log,
+    failures,
     client: {
       auth: { getSession: async () => ({ data: { session: { user: { id: 'u1' }, access_token: 'x.e30.x' } } }) },
       from: (table) => builder(table),
@@ -216,5 +224,18 @@ describe('a New shot and a drop of files', () => {
     // private project's drop to the cloud.
     expect({ folder: count('folders', 'shot_id'), scene: count('shots', 'id'), privacy: count('projects', 'id') }).toEqual({ folder: 1, scene: 1, privacy: 10 })
     expect(db.log.filter((r) => r.table === 'files' && r.kind === 'insert').length).toBe(10)
+  })
+})
+
+describe('review round 2: whether a project is private fails CLOSED', () => {
+  it("a privacy probe that fails refuses the file, and nothing of a private project's goes to the cloud", async () => {
+    const puts = []
+    for (const name of Object.values(FILE_PROVIDERS)) {
+      registerStorageProvider(name, { put: async (path) => { puts.push({ name, path }) }, get: async () => new Blob(['x']), del: async () => {}, exists: async () => true, describe: async () => ({ ok: true }), getUrl: async () => null })
+    }
+    const adapter = use({ projects: [{ id: 'p1', title: 'Secret', is_private: true }], shots: [], folders: [], files: [] })
+    db.failures.projects = 1 // the is_private probe's read
+    await expect(adapter.uploadFile('p1', { assetId: 'a1' }, { name: 'still.txt', type: 'text/plain', size: 3 }, {})).rejects.toThrow(/private/)
+    expect(puts).toEqual([])
   })
 })

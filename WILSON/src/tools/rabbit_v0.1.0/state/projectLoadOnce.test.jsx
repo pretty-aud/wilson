@@ -264,3 +264,35 @@ describe('review round 1: the roster through any landing, the list on a change o
     }
   })
 })
+
+// F5 review round 2: a sign-out during the wait; a seat added during a refetch.
+describe('review round 2: what a sign-out and a refetch must not undo', () => {
+  it('a sign-out while the open waits for its join: the project never loads, nor lands', async () => {
+    holder.adapter.mode = 'supabase'
+    await mountRabbit(<RabbitProvider><StableProbe /></RabbitProvider>, { until: [
+      () => expect(ctx?.activeProjectId).toBe(PROJECT_ID),
+      () => expect(chan.opts?.onStatus).toBeTypeOf('function'),
+    ] })
+    await act(async () => { for (const cb of [...holder.authCbs]) cb('SIGNED_OUT', null) })
+    await pause(900)
+    expect(loads).toBe(0)
+    expect(ctx.project).toBeFalsy()
+  })
+
+  it('a seat added while a refetch is out stays when the refetch lands', async () => {
+    const realLoad = holder.adapter.loadProject
+    const realList = holder.adapter.listProjectMembers.bind(holder.adapter)
+    // The cloud's load reads the members at its start, inside its one Promise.all.
+    holder.adapter.loadProject = async (pid) => { const members = await realList(pid); return { ...(await realLoad(pid)), projectMembers: members } }
+    await openAndJoin()
+    await waitFor(() => expect(ctx?.project?.id).toBe(PROJECT_ID), LONG)
+    await pause(700)
+    loadDelay = 300
+    await act(async () => { chan.opts.onStatus('CLOSED') })
+    await act(async () => { chan.opts.onStatus('SUBSCRIBED') })
+    await pause(550)
+    await act(async () => { await ctx.addProjectMember('u-added-mid', 'member') })
+    await pause(700)
+    expect((ctx.teamAssignments || []).map((a) => a.member_id)).toContain('u-added-mid')
+  })
+})

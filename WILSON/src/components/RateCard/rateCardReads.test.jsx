@@ -155,3 +155,24 @@ describe('review round 1: a reader that opens later reads the card again', () =>
     }
   })
 })
+
+describe('review round 2: an edit made while a read is out', () => {
+  it("a rate added while a later reader's read is out stays when that read lands", async () => {
+    const first = render(<Reader k="rate-card" />)
+    await waitFor(() => expect((seen.get('rate-card') || []).includes('Animator:500')).toBe(true), LONG)
+    const orig = adapter.listRateCardEntries.bind(adapter)
+    // The read's answer is taken, then delivered late: it predates the edit below.
+    adapter.listRateCardEntries = async (id) => { const snap = await orig(id); await new Promise((r) => setTimeout(r, 80)); return snap }
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 5000)
+    try {
+      render(<Reader k="budget" />)
+      await act(async () => { await new Promise((r) => setTimeout(r, 20)) })
+      await act(async () => { await api.get('rate-card').addEntry({ role_label: 'Editor', wage: 400 }) })
+      await act(async () => { await new Promise((r) => setTimeout(r, 200)) })
+      expect((seen.get('rate-card') || []).includes('Editor:400')).toBe(true)
+    } finally {
+      now.mockRestore()
+      first.unmount()
+    }
+  })
+})

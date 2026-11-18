@@ -29,7 +29,7 @@
 //   Entries with day_rate but no wage are migrated on read:
 //   wage = day_rate. The computed total replaces day_rate for consumers.
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { useRabbitOnline } from '../../tools/rabbit_v0.1.0/state/rabbitLive'
@@ -348,8 +348,20 @@ export function useRateCard() {
   const cardsEntry = useReadEntry(cardsCache, cardsKey)
 
   useEffect(() => {
-    if (!cardsKey) return
+    if (!cardsKey) {
+      // Signed out (or not yet known): no retry of the last person's fires.
+      for (const r of retries.values()) clearTimeout(r.timer)
+      retries.clear()
+      return
+    }
     if (cardsKeyNow !== cardsKey) {
+      // Review round 2: a retry armed for another person, company or adapter
+      // never fires for this one.
+      for (const [k, r] of [...retries]) {
+        if (k === cardsKey || k.startsWith(`${cardsKey}|`)) continue
+        clearTimeout(r.timer)
+        retries.delete(k)
+      }
       // Another person, company or adapter: nothing of the last one's is kept.
       cardsKeyNow = cardsKey
       cardsCache.retain(k => k === cardsKey)
@@ -360,8 +372,6 @@ export function useRateCard() {
 
   useEffect(() => {
     if (!cardsKey) return
-    // Back online, the retries start again (review round 1: they were spent once a session).
-    if (adapterOnline === true) settled(cardsKey)
     cardsCache.noteOnline(cardsKey, adapterOnline, cardsReader(adapter, workspaceId, perms?.userId || '-'))
   }, [cardsKey, adapterOnline, adapter, workspaceId])
 
@@ -370,6 +380,18 @@ export function useRateCard() {
     if (cardsEntry.error && !cardsEntry.loading) retryLater(cardsCache, cardsKey, cardsReader(adapter, workspaceId, perms?.userId || '-'))
     else if (cardsEntry.loaded) settled(cardsKey)
   }, [cardsKey, cardsEntry.error, cardsEntry.loading, cardsEntry.loaded, adapter, workspaceId])
+
+  // Back online after being offline, the retries start again (review round 1:
+  // they were spent once a session; round 2: only on a real return, not at
+  // every reader's mount).
+  const wasOnlineRef = useRef(adapterOnline)
+  useEffect(() => {
+    const was = wasOnlineRef.current
+    wasOnlineRef.current = adapterOnline
+    if (adapterOnline === true && was === false && cardsKey) {
+      for (const k of [...retries.keys()]) if (k === cardsKey || k.startsWith(`${cardsKey}|`)) settled(k)
+    }
+  }, [adapterOnline, cardsKey])
 
   const rateCards = cardsEntry.data?.cards || NO_ROWS
   const [chosenId, setChosenId] = useState(null)
@@ -390,7 +412,6 @@ export function useRateCard() {
   // Back online: a card's failed entries read once more too, retries anew.
   useEffect(() => {
     if (!entriesKey) return
-    if (adapterOnline === true) settled(entriesKey)
     entriesCache.noteOnline(entriesKey, adapterOnline, entriesReader(adapter, activeRateCardId))
   }, [entriesKey, adapterOnline, adapter, activeRateCardId])
 

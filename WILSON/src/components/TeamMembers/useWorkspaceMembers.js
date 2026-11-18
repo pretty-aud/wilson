@@ -244,7 +244,15 @@ export function useWorkspaceMembers() {
     })
   }, [setRows])
 
-  const clearError = useCallback(() => setError(null), [])
+  // Dismiss clears what this reader shows: its edit's refusal and the
+  // roster's own read error (review round 2: the Admin terminal's Dismiss).
+  const clearError = useCallback(() => {
+    setError(null)
+    if (key) rosterCache.setError(key, null)
+  }, [key])
+  // An edit's refusal is the person's who made it: a change of person or
+  // company on a reader that stays mounted drops it.
+  useEffect(() => { setError(null) }, [key])
 
   return useMemo(() => ({
     ready: perms.ready,

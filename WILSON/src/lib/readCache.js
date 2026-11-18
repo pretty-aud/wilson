@@ -55,7 +55,7 @@ export function createReadCache({ empty } = {}) {
   const entryOf = (key) => {
     let e = entries.get(key)
     if (!e) {
-      e = { snap: IDLE, gen: 0, promise: null, online: undefined, at: 0 }
+      e = { snap: IDLE, gen: 0, promise: null, online: undefined, at: 0, mut: 0 }
       entries.set(key, e)
       sweep(key) // a read nobody subscribes to is not kept
     }
@@ -66,12 +66,21 @@ export function createReadCache({ empty } = {}) {
   function read(key, reader) {
     const e = entryOf(key)
     const gen = ++e.gen
+    const mut = e.mut
     e.snap = Object.freeze({ ...e.snap, loading: true, error: null })
     emit(key)
     const p = (async () => {
       try {
         const data = await reader()
         if (!live(key, e, gen)) return
+        if (e.mut !== mut) {
+          // An edit landed while this read was out (review round 2): its
+          // answer may predate the edit, so the edit stands and the next
+          // reader that mounts reads again (the answer's age is reset).
+          e.snap = Object.freeze({ ...e.snap, loading: false })
+          e.at = 0
+          return
+        }
         e.snap = Object.freeze({ data, loading: false, error: null, loaded: true })
         e.at = Date.now()
       } catch (err) {
@@ -152,6 +161,7 @@ export function createReadCache({ empty } = {}) {
       if (!e) return false
       if (!e.snap.loaded && empty === undefined) return false
       e.snap = Object.freeze({ ...e.snap, data: fn(e.snap.loaded ? e.snap.data : (e.snap.data ?? empty)) })
+      e.mut += 1
       emit(key)
       return true
     },

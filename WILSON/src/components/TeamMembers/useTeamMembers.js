@@ -127,6 +127,7 @@ export function useTeamMembers() {
   // one local entry, which every reader sees.
   const setMembers = useCallback((fn) => { if (localKey) localCache.mutate(localKey, fn) }, [localKey])
   const setError = setWriteError
+  useEffect(() => { setWriteError(null) }, [localKey, directory.key])
 
   const addMember = useCallback(async (draft) => {
     if (!getAdapter || !workspaceId) return null
