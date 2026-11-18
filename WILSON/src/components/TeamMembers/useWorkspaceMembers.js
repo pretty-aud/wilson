@@ -21,7 +21,7 @@
 // relies on the DB (RLS policies + the 0010 guard trigger) as the real
 // gate. The UI's PermissionGate/role checks are presentation only.
 
-import { useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../../cloud/auth/supabaseClient'
 import { usePermissions } from '../../permissions/usePermissions'
 import { devFixtures } from '../../dev/devFixtures'
@@ -65,7 +65,7 @@ const MISSING_RPC_CODES = new Set(['PGRST202', '42883'])
 // Keyed on the PERSON as well as the company (F4's rule): the RPC answers
 // emails to admins, managers and the caller only, so an admin's roster must
 // never be shown to the member who signs in after them in the same company.
-const rosterCache = createReadCache()
+const rosterCache = createReadCache({ empty: [] })
 let rosterKeyNow = null
 let rosterTimer = null
 // The pages' own debounce before F5 (TeamMembersPage, DashboardPage).
@@ -167,7 +167,10 @@ export function useWorkspaceMembers() {
   const { key, rows: members, loading, error, reload } = useRosterEntry(perms)
 
   const setRows = useCallback((fn) => rosterCache.mutate(key, fn), [key])
-  const setError = useCallback((msg) => rosterCache.setError(key, msg), [key])
+  // F5 review round 1: an edit's refusal is THIS reader's to show (the guard
+  // trigger's words), not the one roster's: a shared error read as "the roster
+  // failed to load" on every page and picker.
+  const [writeError, setError] = useState(null)
 
   // ── Mutations (optimistic, snapshot rollback) ──
   // The DB decides what's actually allowed; surfaced errors include the
@@ -241,7 +244,7 @@ export function useWorkspaceMembers() {
     })
   }, [setRows])
 
-  const clearError = useCallback(() => setError(null), [setError])
+  const clearError = useCallback(() => setError(null), [])
 
   return useMemo(() => ({
     ready: perms.ready,
@@ -251,14 +254,14 @@ export function useWorkspaceMembers() {
     can: perms.can,
     members,
     loading,
-    error,
+    error: writeError ?? error,
     clearError,
     reload,
     updateMember,
     setRole,
     setActive,
     injectMember,
-  }), [perms.ready, workspaceId, perms.role, perms.userId, perms.can, members, loading, error,
+  }), [perms.ready, workspaceId, perms.role, perms.userId, perms.can, members, loading, error, writeError,
     clearError, reload, updateMember, setRole, setActive, injectMember])
 }
 

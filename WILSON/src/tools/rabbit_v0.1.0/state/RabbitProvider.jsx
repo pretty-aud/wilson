@@ -69,6 +69,7 @@ import {
 } from './selectors';
 import { applyRealtimeEvent, isStaleIncoming } from './realtimeMerge';
 import { workspaceFromSession } from '../../../cloud/auth/authSnapshot';
+import { readJwtClaims } from '../../../cloud/auth/sessionTimeouts';
 import { isPersonalSpace } from '../../../cloud/personalSpace';
 import { useTableViewsState, groupingsNaming, sweepGroupings, restoreGroupingsInTurn, groupingRestoreNotice } from './tableViewsState';
 import { byMilestoneDate } from './milestoneOrder';
@@ -169,7 +170,13 @@ const keepStatus = (next) => (prev) => (
 function personKeyOf(session) {
   const uid = session?.user?.id;
   if (!uid) return null;
-  return `${uid}|${workspaceFromSession(session) ?? ''}`;
+  // F5 review round 1: the role and the operator flag too. projects_select
+  // admits private projects by the claim's app_role (current_app_role()), so
+  // a person demoted (or promoted) in the same company must have the list
+  // read again at the refresh that carries the new role, as before F5.
+  const claims = readJwtClaims(session?.access_token);
+  const md = (claims ? claims.app_metadata : session?.user?.app_metadata) || {};
+  return `${uid}|${workspaceFromSession(session) ?? ''}|${md.app_role ?? ''}|${md.is_platform_operator ? 1 : 0}`;
 }
 
 // ─── Settings persistence (otter-settings via localData: Express in
@@ -1014,6 +1021,11 @@ export function RabbitProvider({ children }) {
       }
     } catch (err) {
       if (loadBufferRef.current?.loadSeq === loadSeq) loadBufferRef.current = null;
+      // F5 review round 1: no load brought the rows; the roster reads them.
+      if (openRosterRef.current === projectId) {
+        openRosterRef.current = null;
+        refreshProjectMembersRef.current?.();
+      }
       setError(err.message || String(err));
     } finally {
       setLoadingProject(false);
@@ -1278,6 +1290,17 @@ export function RabbitProvider({ children }) {
       const binCaps = binsCapabilitiesOf(binBackend);
       const kept = loadBufferRef.current?.loadSeq === loadSeq ? loadBufferRef.current : null;
       if (kept) loadBufferRef.current = null;
+      // F5 review round 1: a refetch's load carries the project roster too
+      // (the reconnect's missed-events window covers the seats), and it ends
+      // an open's wait for its rows when it overtook that open's landing.
+      if (Array.isArray(next?.projectMembers)) {
+        rosterReqSeqRef.current++;
+        setProjectMembers(next.projectMembers);
+        if (openRosterRef.current === pid) openRosterRef.current = null;
+      } else if (openRosterRef.current === pid) {
+        openRosterRef.current = null;
+        refreshProjectMembersRef.current?.();
+      }
       setBundle(prev => {
         const binFiles = markLoadedBinFiles(next?.binFiles, prev.binFiles, binCaps, { markOnline: binBackend?.markOnline });
         let merged = { ...EMPTY_BUNDLE, ...next, ...(binFiles ? { binFiles } : {}) };
@@ -1775,25 +1798,17 @@ export function RabbitProvider({ children }) {
     try {
       const fk = `${entityType}_id`;
       const had = (bundleRef.current?.folders || []).find(f => f && f[fk] && String(f[fk]) === String(entity?.id));
-      // F5 (rabbit C4): the folders and scenes already held, so a create does
-      // not read the tree (twice for a shot) nor the scene; a rename leaves
-      // the tree it ends with in `out`, taken instead of listing again.
-      const b = bundleRef.current;
-      const mine = b?.project?.id === projectId;
-      const out = {};
       const row = await adapter.ensureEntityFolder(
-        projectId, b?.project, entityType, entity,
-        mine ? { folders: b.folders, scenes: b.scenes, out } : { out },
+        projectId, bundleRef.current?.project, entityType, entity,
       );
       // A RENAME re-paths the rows under the folder too (a scene's shot
       // folders since S4c), and the adapter answers only the folder's own
-      // row: the tree again so the shots' Folder lines and the Files tab
-      // say the new path at once (round 2, item 6), from the rename's own
-      // walk (F5) or, from an adapter that leaves none, a read. A new row,
-      // or a name unchanged, merges as before.
-      if (row && had && had.path !== row.path && (out.folders || typeof adapter.listFolders === 'function')) {
-        let folders = out.folders || null;
-        if (!folders) { try { folders = await adapter.listFolders(projectId); } catch { folders = null; } }
+      // row: read the tree again so the shots' Folder lines and the Files
+      // tab say the new path at once (round 2, item 6). A new row, or a
+      // name unchanged, merges as before.
+      if (row && had && had.path !== row.path && typeof adapter.listFolders === 'function') {
+        let folders = null;
+        try { folders = await adapter.listFolders(projectId); } catch { folders = null; }
         if (Array.isArray(folders) && activeProjectIdRef.current === projectId) {
           setBundle(prev => ({ ...prev, folders }));
           return row;

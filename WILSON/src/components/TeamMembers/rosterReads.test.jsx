@@ -42,7 +42,11 @@ const client = vi.hoisted(() => ({
     await (holder.hold ? holder.hold : new Promise((r) => setTimeout(r, 5)))
     return { data: rows, error: null }
   },
-  from: () => { throw new Error('the fallback table read is not expected here') },
+  // An edit's write: the guard trigger refuses it (review round 1).
+  from: () => {
+    const b = { update: () => b, eq: () => b, select: () => b, maybeSingle: async () => ({ data: null, error: { message: 'self-role change not allowed' } }) }
+    return b
+  },
 }))
 
 vi.mock('../../cloud/auth/supabaseClient', () => ({ supabase: client }))
@@ -174,7 +178,7 @@ describe('the roster across a change of person, a rejoin and the Local Server', 
     expect(directoryCalls().length).toBe(before + 1)
   })
 
-  it('on the Local Server the registry is read once for every reader, and the RPC is not called by them', async () => {
+  it('on the Local Server the registry is read once for every reader', async () => {
     let listed = 0
     const localAdapter = {
       async listTeamMembers() { listed += 1; await new Promise((r) => setTimeout(r, 5)); return [{ id: 'tm-1', name: 'Local Lee' }] },
@@ -185,5 +189,17 @@ describe('the roster across a change of person, a rejoin and the Local Server', 
     await waitFor(() => expect(['a', 'b', 'c', 'd'].every((k) => (seen.get(k) || []).includes('Local Lee'))).toBe(true), LONG)
     await settle()
     expect(listed).toBe(1)
+  })
+})
+
+describe('review round 1: an edit refused is its reader\'s', () => {
+  it('a refused edit shows on the reader that made it, not as every reader\'s roster failing to load', async () => {
+    const api = new Map()
+    function Editor({ k }) { const wm = useWorkspaceMembers(); api.set(k, wm); return null }
+    await act(async () => { render(<><Editor k="admin-terminal" /><Editor k="dashboard" /><RosterProbe k="picker" /></>) })
+    await waitFor(() => expect(api.get('dashboard').members.length).toBe(2), LONG)
+    await act(async () => { await api.get('admin-terminal').setRole('u-ada', 'admin').catch(() => {}) })
+    expect(api.get('admin-terminal').error).toBe('self-role change not allowed')
+    expect(api.get('dashboard').error).toBeNull()
   })
 })

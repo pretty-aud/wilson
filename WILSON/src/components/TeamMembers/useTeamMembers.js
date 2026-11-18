@@ -10,7 +10,7 @@
 //     email, pronouns (array), profile_picture_url,
 //     created_at, updated_at }
 
-import { useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { useRabbitOnline } from '../../tools/rabbit_v0.1.0/state/rabbitLive'
@@ -42,7 +42,7 @@ export const EMPLOYMENT_TYPES = [
 // it onto the team-member shape. Elsewhere (the Local Server's registry) the
 // adapter's listTeamMembers is read once per mode, person and company into
 // one module-level entry, which every reader and every write shares.
-const localCache = createReadCache()
+const localCache = createReadCache({ empty: [] })
 let localKeyNow = null
 const NO_MEMBERS = Object.freeze([])
 
@@ -112,7 +112,9 @@ export function useTeamMembers() {
 
   const members = cloud ? cloudMembers : (local.data || NO_MEMBERS)
   const loading = cloud ? directory.loading : local.loading
-  const error = cloud ? directory.error : local.error
+  // F5 review round 1: an edit's refusal is this reader's (setError below).
+  const [writeError, setWriteError] = useState(null)
+  const error = writeError ?? (cloud ? directory.error : local.error)
 
   const reload = useCallback(() => {
     if (cloud) return directory.reload()
@@ -124,7 +126,7 @@ export function useTeamMembers() {
   // membership), so these feature-detect exactly as before and change the
   // one local entry, which every reader sees.
   const setMembers = useCallback((fn) => { if (localKey) localCache.mutate(localKey, fn) }, [localKey])
-  const setError = useCallback((msg) => { if (localKey) localCache.setError(localKey, msg) }, [localKey])
+  const setError = setWriteError
 
   const addMember = useCallback(async (draft) => {
     if (!getAdapter || !workspaceId) return null

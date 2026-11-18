@@ -210,3 +210,57 @@ describe('the project roster: read once, held once', () => {
     expect(loads).toBe(loadsBefore)
   })
 })
+
+// F5 review round 1 (reviewer 2's findings 1 to 3): the roster through every
+// load that lands, and the project list read again when the role changes.
+describe('review round 1: the roster through any landing, the list on a change of role', () => {
+  function cloudShape() {
+    const realLoad = holder.adapter.loadProject
+    const realList = holder.adapter.listProjectMembers.bind(holder.adapter)
+    holder.adapter.loadProject = async (pid) => ({ ...(await realLoad(pid)), projectMembers: await realList(pid) })
+    return realList
+  }
+
+  it('an open overtaken by its late join\'s refetch still gets its roster', async () => {
+    cloudShape()
+    loadDelay = 700
+    await mountRabbit(<RabbitProvider><StableProbe /></RabbitProvider>, { until: [
+      () => expect(ctx?.activeProjectId).toBe(PROJECT_ID),
+      () => expect(chan.opts?.onStatus).toBeTypeOf('function'),
+    ] })
+    // The wait ends (500 ms) and the open's load is out; the join comes late.
+    await pause(650)
+    await act(async () => { chan.opts.onStatus('SUBSCRIBED') })
+    await waitFor(() => expect(ctx?.project?.id).toBe(PROJECT_ID), { timeout: 4000 })
+    await waitFor(() => expect((ctx.projectMembers || []).length).toBeGreaterThan(0), { timeout: 4000 })
+    expect((ctx.teamAssignments || []).length).toBe(ctx.projectMembers.length)
+  })
+
+  it('a rejoin\'s refetch brings a seat given while this window was away', async () => {
+    cloudShape()
+    await openAndJoin()
+    await waitFor(() => expect(ctx?.project?.id).toBe(PROJECT_ID), LONG)
+    await pause(700)
+    await holder.adapter.upsertProjectMember({ project_id: PROJECT_ID, user_id: 'u-seated-away', project_role: 'member' })
+    await act(async () => { chan.opts.onStatus('CLOSED') })
+    await act(async () => { chan.opts.onStatus('SUBSCRIBED') })
+    await waitFor(() => expect((ctx.teamAssignments || []).map((a) => a.member_id)).toContain('u-seated-away'), LONG)
+  })
+
+  it('a token refresh that carries a new role re-reads the project list', async () => {
+    const was = holder.session
+    try {
+      holder.adapter.mode = 'supabase'
+      holder.session = { user: { id: 'u-open', app_metadata: { workspace_id: 'ws-open', app_role: 'admin' } } }
+      await openAndJoin()
+      await waitFor(() => expect(ctx?.project?.id).toBe(PROJECT_ID), LONG)
+      await pause(700)
+      const before = lists
+      const demoted = { user: { id: 'u-open', app_metadata: { workspace_id: 'ws-open', app_role: 'user' } } }
+      await act(async () => { for (const cb of [...holder.authCbs]) cb('TOKEN_REFRESHED', demoted) })
+      await waitFor(() => expect(lists).toBe(before + 1), LONG)
+    } finally {
+      holder.session = was
+    }
+  })
+})

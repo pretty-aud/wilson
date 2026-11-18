@@ -189,55 +189,32 @@ describe('a New shot and a drop of files', () => {
   }
   const folderReads = () => db.log.filter((r) => r.table === 'folders' && r.kind === 'select').length
 
-  it("ensuring a shot's folder, given the project's folders and scenes, reads no folder and no scene", async () => {
+  it("a New shot reads the folder tree once, its scene's ensure sharing it, and its scene's row once", async () => {
     const adapter = use(tree())
-    // The bundle as the provider holds it after the scene was made.
     await adapter.ensureEntityFolder('p1', project, 'scene', { id: 's1', name: 'Opening' })
-    const folders = await adapter.listFolders('p1')
     db.log.length = 0
-    const shot = { id: 'sh2', project_id: 'p1', scene_id: 's1', name: 'Close' }
-    await adapter.ensureEntityFolder('p1', project, 'shot', shot, { folders, scenes: [{ id: 's1', project_id: 'p1', name: 'Opening' }] })
-    expect({ folderReads: folderReads(), sceneReads: db.log.filter((r) => r.table === 'scenes').length }).toEqual({ folderReads: 0, sceneReads: 0 })
+    await adapter.ensureEntityFolder('p1', project, 'shot', { id: 'sh2', project_id: 'p1', scene_id: 's1', name: 'Close' })
+    expect({ folderReads: folderReads(), sceneReads: db.log.filter((r) => r.table === 'scenes').length }).toEqual({ folderReads: 1, sceneReads: 1 })
   })
 
-  it("a hint gone stale (another window made the shot's folder) still ends with one folder for the shot", async () => {
-    const adapter = use(tree())
-    await adapter.ensureEntityFolder('p1', project, 'scene', { id: 's1', name: 'Opening' })
-    const stale = await adapter.listFolders('p1')
-    const shot = { id: 'sh2', project_id: 'p1', scene_id: 's1', name: 'Close' }
-    await adapter.ensureEntityFolder('p1', project, 'shot', shot) // the other window's
-    await adapter.ensureEntityFolder('p1', project, 'shot', shot, { folders: stale, scenes: [{ id: 's1', name: 'Opening' }] })
-    expect(db.client && (await adapter.listFolders('p1')).filter((f) => f.shot_id === 'sh2').length).toBe(1)
-  })
-
-  it("a shot's scene renamed in another window (its folder moved, the hint stale): the shot's folder goes under the scene's folder as it is now", async () => {
-    const adapter = use(tree())
-    await adapter.ensureEntityFolder('p1', project, 'scene', { id: 's1', name: 'Opening' })
-    const stale = await adapter.listFolders('p1')
-    // Another window renames the scene: its folder moves; this window's bundle has the new name, the old folders.
-    await adapter.ensureEntityFolder('p1', project, 'scene', { id: 's1', name: 'Cold Open' })
-    const now = (await adapter.listFolders('p1')).find((f) => f.scene_id === 's1')
-    const shot = { id: 'sh3', project_id: 'p1', scene_id: 's1', name: 'Insert' }
-    db.log.length = 0
-    await adapter.ensureEntityFolder('p1', project, 'shot', shot, { folders: stale, scenes: [{ id: 's1', project_id: 'p1', name: 'Cold Open' }] })
-    // No folder is rewritten from the stale copy (the scene's own ensure would re-path it, and walk its children, from old paths).
-    expect(db.log.filter((r) => r.table === 'folders' && r.kind === 'update').length).toBe(0)
-    const made = (await adapter.listFolders('p1')).find((f) => f.shot_id === 'sh3')
-    expect(made.path.startsWith(`${now.path}/`)).toBe(true)
-  })
-
-  it('ten files dropped on a shot read its folder, its scene and the privacy once, not ten times', async () => {
+  it("ten files dropped on a shot read its folder and its scene once, and the project's privacy for every file", async () => {
     for (const name of Object.values(FILE_PROVIDERS)) {
       registerStorageProvider(name, { put: async () => {}, get: async () => new Blob(['x']), del: async () => {}, exists: async () => true, describe: async () => ({ ok: true }), getUrl: async () => null })
     }
-    const adapter = use(tree())
+    const tables = tree()
+    // The shot's folder, under its scene (not under SHOTS/: the scene is asked).
+    tables.folders = [{ id: 'f-shot', project_id: 'p1', shot_id: 'sh1', path: 'SCENES/opening/wide', kind: 'entity' }]
+    const adapter = use(tables)
     const batch = {}
     db.log.length = 0
     for (let i = 0; i < 10; i += 1) {
       await adapter.uploadFile('p1', { shotId: 'sh1' }, { name: `take-${i}.txt`, type: 'text/plain', size: 3 }, { batch })
     }
     const count = (table, col) => db.log.filter((r) => r.table === table && r.kind === 'select' && r.filters.some(([, c]) => c === col)).length
-    expect({ folder: count('folders', 'shot_id'), scene: count('shots', 'id'), privacy: count('projects', 'id') }).toEqual({ folder: 1, scene: 1, privacy: 1 })
+    // Privacy for every file (review round 1, security): its probe answers
+    // "not private" on an error, so a kept answer could send the rest of a
+    // private project's drop to the cloud.
+    expect({ folder: count('folders', 'shot_id'), scene: count('shots', 'id'), privacy: count('projects', 'id') }).toEqual({ folder: 1, scene: 1, privacy: 10 })
     expect(db.log.filter((r) => r.table === 'files' && r.kind === 'insert').length).toBe(10)
   })
 })

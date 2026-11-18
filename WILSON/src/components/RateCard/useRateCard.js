@@ -242,7 +242,14 @@ export function sharedLoadRateCards(adapter, workspaceId, who = '') {
 // entry however many readers see it; a return online reads a failed entry
 // once more.
 const cardsCache = createReadCache()
-const entriesCache = createReadCache()
+const entriesCache = createReadCache({ empty: { entries: [], deptDefaults: [] } })
+// F5 review round 1: before F5 every reader read the card at its own mount;
+// the Rate Card, Settings and Team Members pages now hold the one entry all
+// session, so a reader that mounts later than this after the last read reads
+// it again (one read for every reader): a Budget opened in the afternoon shows
+// the rates the server has now, and a grant revoked since shows none. No
+// channel event carries a rate card.
+const REVALIDATE_MS = 2000
 let cardsKeyNow = null
 const retries = new Map() // cache key → { timer, tries }
 const RETRY_MS = [1500, 4000]
@@ -348,11 +355,14 @@ export function useRateCard() {
       cardsCache.retain(k => k === cardsKey)
       entriesCache.retain(k => k.startsWith(`${cardsKey}|`))
     }
-    cardsCache.ensure(cardsKey, cardsReader(adapter, workspaceId, perms?.userId || '-'))
+    cardsCache.revalidate(cardsKey, cardsReader(adapter, workspaceId, perms?.userId || '-'), REVALIDATE_MS)
   }, [cardsKey, adapter, workspaceId])
 
   useEffect(() => {
-    if (cardsKey) cardsCache.noteOnline(cardsKey, adapterOnline, cardsReader(adapter, workspaceId, perms?.userId || '-'))
+    if (!cardsKey) return
+    // Back online, the retries start again (review round 1: they were spent once a session).
+    if (adapterOnline === true) settled(cardsKey)
+    cardsCache.noteOnline(cardsKey, adapterOnline, cardsReader(adapter, workspaceId, perms?.userId || '-'))
   }, [cardsKey, adapterOnline, adapter, workspaceId])
 
   useEffect(() => {
@@ -374,8 +384,15 @@ export function useRateCard() {
   const entriesEntry = useReadEntry(entriesCache, entriesKey)
 
   useEffect(() => {
-    if (entriesKey) entriesCache.ensure(entriesKey, entriesReader(adapter, activeRateCardId))
+    if (entriesKey) entriesCache.revalidate(entriesKey, entriesReader(adapter, activeRateCardId), REVALIDATE_MS)
   }, [entriesKey, adapter, activeRateCardId])
+
+  // Back online: a card's failed entries read once more too, retries anew.
+  useEffect(() => {
+    if (!entriesKey) return
+    if (adapterOnline === true) settled(entriesKey)
+    entriesCache.noteOnline(entriesKey, adapterOnline, entriesReader(adapter, activeRateCardId))
+  }, [entriesKey, adapterOnline, adapter, activeRateCardId])
 
   useEffect(() => {
     if (!entriesKey) return

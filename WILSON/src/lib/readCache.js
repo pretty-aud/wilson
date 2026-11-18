@@ -36,8 +36,10 @@ export function sourceId(obj) {
   return id
 }
 
-export function createReadCache() {
-  const entries = new Map() // key → { snap, gen, promise, online }
+// `empty` is what an edit starts from on an entry with no answer (a read that
+// failed): the edit shows, as it did on each reader's own state before F5.
+export function createReadCache({ empty } = {}) {
+  const entries = new Map() // key → { snap, gen, promise, online, at }
   const subs = new Map()    // key → Set of the readers' listeners
 
   const emit = (key) => {
@@ -53,7 +55,7 @@ export function createReadCache() {
   const entryOf = (key) => {
     let e = entries.get(key)
     if (!e) {
-      e = { snap: IDLE, gen: 0, promise: null, online: undefined }
+      e = { snap: IDLE, gen: 0, promise: null, online: undefined, at: 0 }
       entries.set(key, e)
       sweep(key) // a read nobody subscribes to is not kept
     }
@@ -71,6 +73,7 @@ export function createReadCache() {
         const data = await reader()
         if (!live(key, e, gen)) return
         e.snap = Object.freeze({ data, loading: false, error: null, loaded: true })
+        e.at = Date.now()
       } catch (err) {
         if (!live(key, e, gen)) return
         e.snap = Object.freeze({ ...e.snap, loading: false, error: err?.message || String(err) })
@@ -111,6 +114,20 @@ export function createReadCache() {
       if (e.snap.loaded) return Promise.resolve()
       return read(key, reader)
     },
+    /**
+     * A reader that mounts after the answer it would share is older than
+     * `maxAgeMs` reads it again (one read, shared by every reader), so a view
+     * opened later sees what the server says now, a revoked grant included
+     * (F5's first review round). Readers that mount together share one read.
+     */
+    revalidate(key, reader, maxAgeMs) {
+      if (key == null) return Promise.resolve()
+      const e = entryOf(key)
+      if (e.promise) return e.promise
+      if (!e.snap.loaded) return read(key, reader)
+      if (Date.now() - e.at > maxAgeMs) return read(key, reader)
+      return Promise.resolve()
+    },
     /** Read it again now; an answer still on its way is dropped. */
     reload(key, reader) {
       if (key == null) return Promise.resolve()
@@ -132,8 +149,9 @@ export function createReadCache() {
     /** Change the held answer in place (an optimistic write, its rollback). */
     mutate(key, fn) {
       const e = entries.get(key)
-      if (!e || !e.snap.loaded) return false
-      e.snap = Object.freeze({ ...e.snap, data: fn(e.snap.data) })
+      if (!e) return false
+      if (!e.snap.loaded && empty === undefined) return false
+      e.snap = Object.freeze({ ...e.snap, data: fn(e.snap.loaded ? e.snap.data : (e.snap.data ?? empty)) })
       emit(key)
       return true
     },

@@ -134,3 +134,24 @@ describe('the rate card across a change of person and a remount', () => {
     expect(adapter.reads.cards).toBe(cards + 1)
   })
 })
+
+describe('review round 1: a reader that opens later reads the card again', () => {
+  it('a Budget opened after the rates changed on the server shows them, read once for every reader', async () => {
+    const first = render(<Reader k="rate-card" />)
+    await waitFor(() => expect((seen.get('rate-card') || []).includes('Animator:500')).toBe(true), LONG)
+    // Another window changes the rate; this one's pages stay mounted.
+    await adapter.upsertRateCardEntry({ id: 'e-1', rate_card_id: 'card-general', role_label: 'Animator', role_slug: 'animator', wage: 650 })
+    const reads = { ...adapter.reads }
+    const later = Date.now() + 5000
+    const now = vi.spyOn(Date, 'now').mockReturnValue(later)
+    try {
+      render(<Reader k="budget" />)
+      await waitFor(() => expect((seen.get('budget') || []).includes('Animator:650')).toBe(true), LONG)
+      await waitFor(() => expect((seen.get('rate-card') || []).includes('Animator:650')).toBe(true), LONG)
+      expect(adapter.reads.entries).toBe(reads.entries + 1)
+    } finally {
+      now.mockRestore()
+      first.unmount()
+    }
+  })
+})
