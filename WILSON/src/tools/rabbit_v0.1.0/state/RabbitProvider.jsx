@@ -68,7 +68,7 @@ import {
   selectVarianceForProject,
 } from './selectors';
 import { applyRealtimeEvent, isStaleIncoming } from './realtimeMerge';
-import { readJwtClaims } from '../../../cloud/auth/sessionTimeouts';
+import { workspaceFromSession } from '../../../cloud/auth/authSnapshot';
 import { isPersonalSpace } from '../../../cloud/personalSpace';
 import { useTableViewsState, groupingsNaming, sweepGroupings, restoreGroupingsInTurn, groupingRestoreNotice } from './tableViewsState';
 import { byMilestoneDate } from './milestoneOrder';
@@ -163,14 +163,13 @@ const keepStatus = (next) => (prev) => (
 
 // F5 (rabbit C2): the person AND company a session is for: the access
 // token's claim (the rule, handbook §4.3), else the user object when there is
-// no token to read (a test's session). The project list is read again only
-// when this changes, not on every token refresh or return to the window.
+// no token to read (a test's session) — workspaceFromSession, the one place
+// that rule is written (F5 item 7). The project list is read again only when
+// this changes, not on every token refresh or return to the window.
 function personKeyOf(session) {
   const uid = session?.user?.id;
   if (!uid) return null;
-  const claims = readJwtClaims(session?.access_token);
-  const ws = claims ? claims.app_metadata?.workspace_id : session?.user?.app_metadata?.workspace_id;
-  return `${uid}|${ws ?? ''}`;
+  return `${uid}|${workspaceFromSession(session) ?? ''}`;
 }
 
 // ─── Settings persistence (otter-settings via localData: Express in
@@ -1561,16 +1560,20 @@ export function RabbitProvider({ children }) {
   // Kept in state via the auth listener so sign-in AFTER mount still
   // subscribes, while token refreshes (same workspace) don't tear the
   // channel down — the id doesn't change, so the effect doesn't re-run.
+  // F5 item 7 (the review's shared B4): the ACCESS TOKEN's claim, through
+  // workspaceFromSession — the user object keeps what issue-session last
+  // wrote, so after a deactivated membership it named a company RLS no longer
+  // answers for, and the channel joined it.
   const [wsAuthKey, setWsAuthKey] = useState(null);
   useEffect(() => {
     let disposed = false;
     sharedAuthedClient.auth.getSession()
       .then(({ data }) => {
-        if (!disposed) setWsAuthKey(data?.session?.user?.app_metadata?.workspace_id ?? null);
+        if (!disposed) setWsAuthKey(workspaceFromSession(data?.session));
       })
       .catch(() => { /* signed out — stays null */ });
     const { data: sub } = sharedAuthedClient.auth.onAuthStateChange((_evt, session) => {
-      setWsAuthKey(session?.user?.app_metadata?.workspace_id ?? null);
+      setWsAuthKey(workspaceFromSession(session));
     });
     return () => {
       disposed = true;

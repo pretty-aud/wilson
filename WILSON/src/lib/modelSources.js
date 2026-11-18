@@ -46,6 +46,7 @@
 // =============================================================================
 
 import { supabase } from '../cloud/auth/supabaseClient'
+import { workspaceFromSession } from '../cloud/auth/authSnapshot'
 import { devFixtures, devWriteRefused } from '../dev/devFixtures'
 import { withTimeout, AUTH_TIMEOUT_MS } from '../cloud/auth/withTimeout'
 import { BY_KEY, isWellFormedModelId } from './aiModels'
@@ -254,7 +255,10 @@ async function currentIdentity() {
     return { error: `${err?.message ?? 'could not read your session'} — nothing was saved` }
   }
   const userId = sess?.session?.user?.id
-  const workspaceId = sess?.session?.user?.app_metadata?.workspace_id
+  // The token's claim, which the 0031 policies check the row against — not the
+  // user object's, which can name a company the member has left, where the
+  // write is refused (F5 item 7, the review's shared B4).
+  const workspaceId = workspaceFromSession(sess?.session)
   if (!userId || !workspaceId) return { error: 'not signed in' }
   return { userId, workspaceId }
 }

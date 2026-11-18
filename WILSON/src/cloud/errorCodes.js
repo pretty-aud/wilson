@@ -17,6 +17,7 @@
 // =============================================================================
 
 import { supabase } from './auth/supabaseClient'
+import { workspaceFromSession } from './auth/authSnapshot'
 import { initSentry } from './sentry'
 
 export const ERROR_CODES = Object.freeze({
@@ -91,7 +92,9 @@ export async function reportAppEvent(fields = {}) {
 
   try {
     const { data } = await supabase.auth.getSession()
-    const workspaceId = data?.session?.user?.app_metadata?.workspace_id ?? null
+    // The token's claim, which RLS checks the row against — not the user
+    // object's, which can name a company the member has left (F5 item 7, B4).
+    const workspaceId = workspaceFromSession(data?.session)
     if (workspaceId) {
       await supabase.from('app_events').insert({
         workspace_id: workspaceId,
