@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import SyntaxHighlighter from '../../components/codeHighlighter';
 import { LESSON_CODE_THEME, WELL_CODE_TEXT } from './otterLanguage.js';
 
 // ═══════════════════════════════════════════════════════════════════

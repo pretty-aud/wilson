@@ -5,7 +5,7 @@
 // "remove there too". The faces of who is online stay, their names in words.
 // =============================================================================
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, cleanup } from '@testing-library/react'
+import { render, cleanup, screen, fireEvent } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -25,7 +25,9 @@ vi.mock('../TeamMembers/useWorkspaceMembers', () => ({
 // The three tabs' bodies are not this test's subject.
 vi.mock('../settings/ProfileSection', () => ({ default: () => null }))
 vi.mock('./DashboardTasksView', () => ({ default: () => null }))
-vi.mock('./NotesView', () => ({ default: () => null }))
+// F11: the editor's module counts its own loads, for the first-open test at the end.
+const notes = vi.hoisted(() => ({ loads: 0 }))
+vi.mock('./NotesView', () => { notes.loads += 1; return { default: () => 'the notes editor' } })
 
 // eslint-disable-next-line import/first
 import DashboardPage from './DashboardPage'
@@ -62,5 +64,25 @@ describe('the Dashboard header (FX11): the faces, no Live badge', () => {
   it('the source keeps no Live badge and imports no StatusBadge', () => {
     const src = readFileSync(join(here, 'DashboardPage.jsx'), 'utf8')
     expect(src).not.toMatch(/label="Live"|StatusBadge/)
+  })
+})
+
+// F11 (the review's shared-client C3). Failing control, run before the commit: drawing the Notes part without the
+// `notesOpened` gate loads the editor at the first draw and turns this red.
+describe('F11: the Notes editor loads the first time its tab is shown, and stays', () => {
+  it('not at the page’s first draw; at the first click on Notes; kept mounted after', async () => {
+    rabbit.value = { workspaceRealtimeStatus: 'off', workspacePresentUsers: [], subscribeWorkspaceEvents: () => () => {} }
+    render(<DashboardPage />)
+    // Give a stray load every chance to happen before judging.
+    await new Promise((r) => setTimeout(r, 20))
+    expect(notes.loads).toBe(0)
+    expect(screen.queryByText('the notes editor')).toBeNull()
+    fireEvent.click(screen.getByRole('tab', { name: 'Notes' }))
+    expect(await screen.findByText('the notes editor')).toBeTruthy()
+    expect(notes.loads).toBe(1)
+    fireEvent.click(screen.getByRole('tab', { name: 'My tasks' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Notes' }))
+    expect(screen.getByText('the notes editor')).toBeTruthy()
+    expect(notes.loads).toBe(1)
   })
 })

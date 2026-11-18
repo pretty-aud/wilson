@@ -180,11 +180,21 @@ describe('main.cjs mounts these and nothing of its own', () => {
     const at = MAIN.indexOf("expressApp.get('/api/rabbit/projects/:projectId/files/:id/download'")
     const body = MAIN.slice(at, MAIN.indexOf('\n    });', at))
     expect(body).toContain("require('./fileReads.cjs').attachWhenAsked(req, res, file.name, require('./localMedia.cjs').contentDisposition);")
-    expect(body.indexOf('attachWhenAsked(')).toBeLessThan(body.indexOf('res.sendFile(diskPath'))
+    // F9: the bytes go through the one sender (mediaSend.cjs); the attachment
+    // header is still set before it sends.
+    expect(body.indexOf('sendMedia(res, diskPath')).toBeGreaterThan(-1)
+    expect(body.indexOf('attachWhenAsked(')).toBeLessThan(body.indexOf('sendMedia(res, diskPath'))
   })
   it('the download and managed-file stream routes read through a dot-folder too (round 2, R2-SEC-05)', () => {
+    // F9: both send through sendMedia, which reads through a dot-folder
+    // (`dotfiles: 'allow'`, served in mediaSend.test.js, a demo folder's
+    // `.wilson\rabbit-data` among them); neither sends a file itself.
     const route = (sig) => { const at = MAIN.indexOf(sig); expect(at, sig).toBeGreaterThan(-1); return MAIN.slice(at, MAIN.indexOf('\n    });', at)) }
-    expect(route("expressApp.get('/api/rabbit/projects/:projectId/files/:id/download'")).toContain("res.sendFile(diskPath, { dotfiles: 'allow' });")
-    expect(route("managed-files/:id/stream'")).toContain("res.sendFile(diskPath, { dotfiles: 'allow' }, (err) => {")
+    for (const sig of ["expressApp.get('/api/rabbit/projects/:projectId/files/:id/download'", "managed-files/:id/stream'"]) {
+      expect(route(sig), sig).toContain('sendMedia(res, diskPath, {')
+      expect(route(sig), sig).not.toContain('res.sendFile(')
+    }
+    const sender = readFileSync(resolve(here, '../../electron/mediaSend.cjs'), 'utf8')
+    expect(sender).toContain("dotfiles: 'allow'")
   })
 })

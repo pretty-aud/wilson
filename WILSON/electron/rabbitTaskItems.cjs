@@ -19,9 +19,9 @@
 // planLegacyFieldWrite); a read never reorders.
 //
 // The RULES are src/tools/rabbit_v0.1.0/state/taskItemsModel.js's (the
-// backends' half), copied here in CommonJS (this file cannot import an ES
-// module from a synchronous route); taskItemsParity.test.js runs the same
-// cases through both and fails when they part.
+// backends' half); since F9 they are not copied here but generated from it
+// into electron/rules/taskItems.cjs (a synchronous route cannot import an ES
+// module), and src/lib/electronRules.test.js holds the generated file current.
 //
 // Mounted from main.cjs, beside the shot lists, with the same injected
 // helpers; its write hooks ride on main.cjs's generic routes through
@@ -36,75 +36,20 @@
 
 const crypto = require('node:crypto');
 
-const ITEM_KINDS = Object.freeze(['asset', 'scene', 'shot', 'level', 'experience']);
-const KIND_FIELD = Object.freeze({
-  asset: 'asset_id', scene: 'scene_id', shot: 'shot_id', level: 'level_id', experience: 'experience_id',
-});
-const LINK_FIELDS = Object.freeze(ITEM_KINDS.map(k => KIND_FIELD[k]));
-const FIELD_KIND = Object.freeze(Object.fromEntries(ITEM_KINDS.map(k => [KIND_FIELD[k], k])));
-// Where each kind's rows live in the bundle.
+// F9 (B1): the rules are taskItemsModel.js's own, GENERATED into
+// electron/rules/taskItems.cjs by scripts/build-electron-rules.mjs (esbuild's
+// CommonJS bundle of the module) — no longer copied here by hand.
+// src/lib/electronRules.test.js fails while the generated file is stale;
+// after changing a rule in the module: npm run build:rules.
+const {
+  ITEM_KINDS, KIND_FIELD, LINK_FIELDS, FIELD_KIND, isItemKind, compareItems, itemsOfTask,
+  copyFieldsFromItems, nextPosition, planLegacyFieldWrite, seedItemsFor, itemShapeProblem,
+} = require('./rules/taskItems.cjs');
+
+// Where each kind's rows live in the bundle (this file's own).
 const KIND_COLLECTION = Object.freeze({
   asset: 'assets', scene: 'scenes', shot: 'shots', level: 'levels', experience: 'experiences',
 });
-
-function isItemKind(kind) {
-  return ITEM_KINDS.includes(kind);
-}
-
-// Milliseconds, with the database's microseconds as a fraction (review
-// round 2, R2-7) — taskItemsModel.js's timeOf.
-function timeOf(v) {
-  if (v == null || v === '') return 0;
-  const t = Date.parse(v);
-  if (!Number.isFinite(t)) return 0;
-  const m = /\.(\d{4,})/.exec(String(v));
-  return m ? t + Number(m[1].slice(3, 6).padEnd(3, '0')) / 1000 : t;
-}
-
-// ── The rules (taskItemsModel.js's, in the same words) ──────────────────
-
-function compareItems(a, b) {
-  const pa = Number(a && a.position) || 0;
-  const pb = Number(b && b.position) || 0;
-  if (pa !== pb) return pa - pb;
-  const ta = timeOf(a && a.created_at);
-  const tb = timeOf(b && b.created_at);
-  if (ta !== tb) return ta - tb;
-  const ia = String(a && a.id != null ? a.id : '');
-  const ib = String(b && b.id != null ? b.id : '');
-  return ia < ib ? -1 : ia > ib ? 1 : 0;
-}
-
-function itemsOfTask(items, taskId, kind) {
-  if (!Array.isArray(items) || taskId == null) return [];
-  const id = String(taskId);
-  const mine = items.filter(i => i && String(i.task_id) === id && (kind == null || i.entity_type === kind));
-  return mine.sort((a, b) => {
-    if (a.entity_type !== b.entity_type) return ITEM_KINDS.indexOf(a.entity_type) - ITEM_KINDS.indexOf(b.entity_type);
-    return compareItems(a, b);
-  });
-}
-
-// The older builds' copy: each kind's first item in the stored order, or null.
-function copyFieldsFromItems(taskItems) {
-  const out = {};
-  for (const kind of ITEM_KINDS) out[KIND_FIELD[kind]] = null;
-  const sorted = (Array.isArray(taskItems) ? taskItems.slice() : []).sort(compareItems);
-  for (const i of sorted) {
-    const f = KIND_FIELD[i && i.entity_type];
-    if (f && out[f] == null) out[f] = i.entity_id;
-  }
-  return out;
-}
-
-function nextPosition(items, taskId, kind) {
-  let max = -1;
-  for (const i of itemsOfTask(items, taskId, kind)) {
-    const p = Number(i.position) || 0;
-    if (p > max) max = p;
-  }
-  return Math.min(max + 1, MAX_ITEM_POSITION);
-}
 
 // An older build's reorder only (VW1m: this app has no Move buttons). VW1m
 // review round 1 (R1-8): this and applyPositions are this file's own, for
@@ -138,63 +83,6 @@ function applyPositions(items, changes) {
 }
 
 const idOrNull = (v) => (v == null || v === '' ? null : String(v));
-
-// 0097 §7b, ADD-ONLY: the same value, nothing; cleared, the item for
-// `previous` goes (only it); a value the task has, nothing; a new value,
-// inserted at the end. Nothing ever moves.
-function planLegacyFieldWrite(items, taskId, kind, value, previous, make) {
-  const none = { remove: [], insert: null };
-  if (!isItemKind(kind) || taskId == null) return none;
-  const mine = itemsOfTask(items, taskId, kind);
-  const want = idOrNull(value);
-  const prev = idOrNull(previous);
-  if (want == null) {
-    if (prev == null) return none;
-    return { remove: mine.filter(i => String(i.entity_id) === prev), insert: null };
-  }
-  if (want === prev) return none;
-  if (mine.some(i => String(i.entity_id) === want)) return none;
-  return {
-    remove: [],
-    insert: make({ task_id: taskId, entity_type: kind, entity_id: value, position: nextPosition(items, taskId, kind) }),
-  };
-}
-
-// 0096 §7c and §8: one item per set field the task does not already have, at
-// position 0 (a pre-FX2 row's fields become its items once).
-function seedItemsFor(task, items, make, fields = LINK_FIELDS) {
-  if (!task || task.id == null) return [];
-  const out = [];
-  for (const f of fields) {
-    const kind = FIELD_KIND[f];
-    const v = task[f];
-    if (!kind || v == null || v === '') continue;
-    const has = (Array.isArray(items) ? items : []).some(i => i
-      && String(i.task_id) === String(task.id) && i.entity_type === kind && String(i.entity_id) === String(v));
-    if (!has) out.push(make({ task_id: task.id, entity_type: kind, entity_id: v, position: 0 }));
-  }
-  return out;
-}
-
-// FX2 review round 1 (R1-4): ids are strings, a position fits the cloud's
-// INTEGER, created_at (when sent) is a date — taskItemsModel.js's rule.
-const MAX_ITEM_POSITION = 2147483647;
-const isIdString = (v) => typeof v === 'string' && v.trim() !== '';
-function itemShapeProblem(row) {
-  if (!row || typeof row !== 'object') return 'an item needs a task, a kind and an entity';
-  if (row.task_id == null || row.task_id === '') return 'an item needs its task';
-  if (!isIdString(row.task_id)) return 'an item\'s task is named by its id, as text';
-  if (!isItemKind(row.entity_type)) return `${row.entity_type} is not a kind of item (asset, scene, shot, level, experience)`;
-  if (row.entity_id == null || row.entity_id === '') return 'an item needs the asset, scene, shot, level or experience it names';
-  if (!isIdString(row.entity_id)) return 'an item names its asset, scene, shot, level or experience by its id, as text';
-  if (row.id != null && !isIdString(row.id)) return 'an item\'s own id is text';
-  const p = row.position == null ? 0 : Number(row.position);
-  if (!Number.isInteger(p) || p < 0 || p > MAX_ITEM_POSITION) return 'an item\'s position is a whole number from 0 to 2147483647';
-  if (row.created_at != null && (typeof row.created_at !== 'string' || Number.isNaN(Date.parse(row.created_at)))) {
-    return 'an item\'s created_at is a date';
-  }
-  return null;
-}
 
 // sha1 of the name as a v5-style UUID (rabbitShotLists.cjs's stableUuid): an
 // item the read backfill makes has the same id on every read, so a read whose

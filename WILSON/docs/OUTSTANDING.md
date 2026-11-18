@@ -1336,6 +1336,7 @@ Kept so the file's own history is visible without `git log`.
 | Session | Added | Removed |
 |---|---|---|
 | F10 (2026-11-18, wave 4 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f10-rabbit-twins` into `feat/post-overhaul-edit-versioning`) — R.A.B.B.I.T.'s twins: the kit's inline edit (`useInlineText`), bulk select and confirm in place of twenty copies, one `useTableScreen` for the four table views, one factory for the twelve entity writers, one thumbnail pair and one window behaviour for scenes, shots, levels and experiences. P1-06 closed for the eight inline editors (what is left: F10-01). Review rounds 1 and 2 found and fixed five regressions of its own in a browser (the editor's focus, Enter and scroll, the Dialog's Tab from a span). | F10-01 to F10-24 (the end of this file). | P1-06's eight editors (the entry keeps what is left, F10-01). |
+| F11 (2026-11-18, wave 4 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f11-bundle-and-sign-in` into `feat/post-overhaul-edit-versioning`) — the bundle and the sign-in: the highlighter with the app's languages (297 grammars to 46 and their dependencies), three parts of pages loaded on first open through one helper, one Edge Function caller with words for F8's 413, one sign-in module, and Forgot password asking for the company at her answer; the main chunk 5,093,158 → 4,289,154 bytes; two review rounds, whose findings in F11's own work were fixed in the session; no migration, no SQL, no Edge Function | F11-01 to F11-24 | REV-05 and F8-06, fixed. Comment markers: 4 → 4. |
 | F6 (2026-11-18, wave 3 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f6-dog-otter-one-copy` into `feat/post-overhaul-edit-versioning`) — D.O.G. and O.T.T.E.R. without their copies: the Validator on O.T.T.E.R.'s one AI wrapper, one response reader at 82 reads, one slide splitter and asset-line reader, one rewrite request, one pipeline for five generators, and the prompt boxes made to work at her answer; measured before and after; two review rounds and a one-agent check of the last item, whose findings in F6's own work were fixed in the session; no migration, no SQL, no Edge Function | F6-01 to F6-37 | REV-03 and REV-04, fixed. Comment markers: 4 → 4. |
 | F5 (2026-11-17 and 18, wave 3 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f5-one-roster-one-load` into `feat/post-overhaul-edit-versioning`) — one roster, one rate card, one project load: the roster and the rate card as module-level stores (`src/lib/readCache.js`), the project loaded once after its channel joins with the comments of its own rows, the project roster read once, every collection paged in one place, a New shot's folder tree read once and a drop's shared lookups once, one auth snapshot (`src/cloud/auth/authSnapshot.js`) and the company from the token's claim everywhere; measured before and after by counting tests; two review rounds on Opus 5.5, whose security defects (a private project's drop sent to the cloud after one failed privacy probe; a sign-out not superseding an open's load; the privacy probe failing open) and what F5 had made worse were fixed in the session; no migration, no SQL, no Edge Function | F5-01 to F5-12 | none. Comment markers: 4 → 4. |
 | F8 (2026-11-13, wave 2 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f8-edge-shared-plumbing`) — the Edge Functions' shared plumbing: one envelope crypto, one bucket loader, the caller checks once, one raw-HTTP transport and host rule, every body read under a measured cap (413 past it), the master keys and the opened ticket key kept per isolate, one SigV4 key per batch; deployed to wilson-dev; two review rounds. | F8-01 to F8-19 (below, the F8 section). | F1-01's 28 known type errors to 1 (F1-01, lowered). F8-01 and F8-02, closed by F8 as the second merger (`8a0bdb4f`); F8-03 tried there and taken back (`6515a9d2`), open on purpose. |
@@ -1905,7 +1906,9 @@ S4a's notes. Questions for Audrey are in walkthrough 52 §5, not here.
   included, fits the stage the bar and a refusal leave (review round 2,
   R2-UI-04, measured at 1280x700 and 1440x900). Owner: the kit
   (S4a-KR-1, "a lightbox-sized Dialog").
-- **S4a-06 · The thumbnail routes may answer 500 under a dot-folder.**
+- ~~**S4a-06 · The thumbnail routes may answer 500 under a dot-folder.**~~ **CLOSED by F9 (2026-11-18; `a273a7cc`),
+  MEASURED:** it was real, for all fourteen thumbnail sends (seven in `main.cjs`, seven in `rabbitBins.cjs`); F3-01 says
+  how it was shown and fixed. The original entry:
   S4a's review round 2 measured that `send` refuses an absolute path
   through any dot-folder (`dotfiles: 'ignore'`, its default). That broke
   the SPA fallback from a `.claude` worktree (fixed in `d3963c4`) and the
@@ -3806,13 +3809,13 @@ the way are recorded below. Nothing becomes a session unless she names it
   Prompt Export Schema is the layout of a file D.O.G. writes itself, so it is read-only, as the Visual Deck one;
   `prompts/rules.js` (fed only the old, unsent defaults) is deleted; D.O.G.'s Help says what is true. What remains:
   F6-17, F6-35, F6-36, F6-37.
-- **REV-05 · Forgot password can silently send nothing.**
-  `src/cloud/auth/ForgotPasswordWizard.jsx:50` resolves the username with no
-  company; `supabase/functions/resolve-login/index.ts` takes a username and a
-  company and answers a miss when a bare username exists in two companies, and
-  the wizard then shows its uniform "sent" screen. The wizard's body MEASURED
-  by reading; the two-company miss INFERRED (would settle it: one username in
-  two companies on wilson-dev, Forgot password, no mail). Owner: Audrey.
+- ~~**REV-05 · Forgot password can silently send nothing.**~~ **CLOSED by F11 (2026-11-18, `058f5c8a` and
+  `79049d64`).** The wizard asks for the company the way the login does (her answer in F11's chat: the device's last
+  company, or a `?company=` link, shown above the username with *Change company*; a company field when none is
+  known), verifies it and sends `{ username, workspace_slug }`, so a username in two companies gets its reset at that
+  company's address; a company step that cannot be answered is the timeout sentence, never a guessed slug
+  (`signInScreens.test.jsx`, red on the wizard as it was). What remains: the two-company miss is still INFERRED from
+  resolve-login's code, not run on wilson-dev (walkthrough 101, F11, look 3); the hit/miss timing as before (F11-06).
 - **REV-06 · Listing a course's subjects on the Local Server rewrites every
   subject file.** `electron/main.cjs:796-821` (`renumberSubjects`: `writeJSON`
   per subject) runs on the GET at `:824-830`; O.T.T.E.R.'s warm-up calls it
@@ -3864,7 +3867,12 @@ the way are recorded below. Nothing becomes a session unless she names it
 Found while keeping the desktop's project file in memory; outside the brief's
 list (`PLAN_TO_1_0.md` §5, rule 1), so recorded and left.
 
-- **F3-01 · In a demo folder every cached thumbnail answers 500.** MEASURED
+- ~~**F3-01 · In a demo folder every cached thumbnail answers 500.**~~ **CLOSED by F9 (2026-11-18; `a273a7cc`):** every
+  file the Local Server sends goes through `electron/mediaSend.cjs`'s `sendMedia`, which passes `dotfiles: 'allow'`
+  (containment is decided first by each route). Reproduced before the fix (main.cjs's shape and the real bins module, the
+  cache under `<folder>/.wilson/rabbit-data/thumbnails`: 500 "internal error", the bins' first and cached GET alike) and
+  served after it (200 with the JPEG for the asset, entity, managed-file and bin posters: `src/lib/mediaSend.test.js`,
+  `storage/posters.test.js`). Nothing of this entry remains. The original entry: MEASURED
   (a development build, the fixtures' project in a scratch demo folder): the
   asset thumbnail GET answered 500 fifteen times in fifteen, on the tip and on
   F3's build alike; on a userData root, 200. The thumbnail cache is under
@@ -5138,10 +5146,11 @@ recorded out of scope:
   alone reads it as `{}`. The same for resolve-login's `{ "username": 5 }` or a non-string `workspace_slug`
   (`:323-324`), after the limiter has counted it: no floor, not the uniform body. All as at `a71cd144`: F8 is a
   refactor and kept them. No app sends either. Fix shape: one object check per function, each a change of answer.
-- **F8-06 · The clients' message tables have no `too_large`.** An admin, operator or AI request refused for size
-  reads "Request failed (413)." or "AI request failed (413)." (`src/cloud/adminApi.js:77`, `src/admin/operatorApi.js`,
-  `src/cloud/aiProxy.js:30-57,130`); storage shows the `detail`. No app request comes near a cap (the design round and
-  review round 1 re-read every caller). For a session in `src/`.
+- ~~**F8-06 · The clients' message tables have no `too_large`.**~~ **CLOSED by F11 (2026-11-18, `f50383b1` and
+  `79049d64`).** The one Edge Function caller's base words (`EDGE_WORDS.too_large`, `http_413`) answer it for the
+  admin, operator, invite, upload, file-store and clean-up calls; callAI has its own (attach fewer documents), for the
+  house body and a bare 413; storage and the gateway still show the function's `detail` ("the request is too large").
+  Pinned in `src/cloud/edgeFunctions.test.js` (red on the helpers as they were). Nothing remains.
 - **F8-07 · A client made with no `auth` options starts a refresh timer that is never stopped.** INFERRED from
   auth-js 2.65.0 (the library supabase-js 2.45.4 ships): outside a browser, `GoTrueClient` starts a 30 s auto-refresh
   ticker. The guards', issue-session's, resolve-login's and the two storage functions' clients are made that way, as
@@ -5715,6 +5724,169 @@ Terminal's change requests (MEASURED by grep, comments stripped; `otterRoutes.te
   for anyone to read, forbids colour references. Older. Item 6's check, LOW.
 - **F6-40 · Item 6's wiring is pinned by text.** `promptBoxes.test.js` checks the requests' compose calls and the
   callbacks' lists as source text; no test edits a box in the mounted screen and reads the request. Item 6's check, LOW.
+
+## F11 (2026-11-18, wave 4 of `docs/sessions/PLAN_WEEK_2026-11-04.md`) — left open
+
+From the design round and review round 1 (1A to 1E) and round 2; each left as found, by the brief's rule.
+"As before" marks behaviour F11 did not change.
+
+- **F11-01 · The Notes editor's stack stays in the main chunk: 496,756 bytes.** MEASURED (sourcemap bytes, a
+  module-graph cut: the NotesView cut removes 41,379). `src/components/Dashboard/noteText.js` imports yjs, tiptap and
+  ProseMirror and is imported statically by D.O.G.'s `references/useReferences.js:40`; its `readNoteText` (:306-311)
+  is async, so one dynamic import there releases them. D.O.G.'s file, not F11's.
+- **F11-02 · `binsMigration.js` stays in the main chunk (9,952 bytes)** through `rabbitHelpContent.jsx:19` (two word
+  constants). MEASURED. F10's file.
+- **F11-03 · An admin's terminal sections load at launch, not on first open.** The body mounts at launch for an admin
+  (`AdminTerminalPage` takes no `isActive`); one prop at `App.jsx:2199` would defer it. Seen in the dev app. LOW.
+- **F11-04 · The storage functions' calls have no ceiling of their own.** FX11's contract
+  (`storageApiProbe.test.js`) pins the probe's signal reaching fetch as itself and no signal for other callers, so a
+  presign or the secret's calls from uploads, previews and Settings still wait on a dead connection, as before. Fix
+  shape: `AbortSignal.any` for the probe, a ceiling for the rest, the pins moved with them. LOW.
+- **F11-05 · 247 grammars the full build had draw as plain text** (297, less the 46 registered and 4 they bring).
+  MEASURED (1A; counted again by 2B after the doc grammars). Closest to her field: tcl,
+  maxscript, opencl, wgsl, cmake, unrealscript, processing, docker; also json5, graphql, nginx, latex, haskell, scala,
+  dart, matlab, julia, fsharp and the `vb` alias (`.vb` files use vbnet, kept). One import and one line each in
+  `src/components/codeHighlighter.js`. LOW.
+- **F11-06 · Forgot password's hit and miss differ in time, as before.** A hit waits for the reset request (bounded at
+  15 s since F11), a miss 220 ms: 1,225 ms against 264 ms with a slow auth server (1E, measured). resolve-login answers
+  the same to anyone with the anon key, so the screen adds nothing. LOW.
+- **F11-07 · A refused issue-session at the login is ignored, as before** (`LoginScreen.jsx` completeSignIn): the
+  sign-in completes into the token's workspace with no words. LOW.
+- **F11-08 · A dead network at the login's company step advances to step 2 on a derived slug, as before.** The reset
+  wizard no longer does (round 1). LOW.
+- **F11-09 · Unbounded still, as before:** MfaSection's `listFactors`, `enroll` and `unenroll`; the switcher's
+  load-time `getSession`, its `refreshSession` and `saveSession`; `fetchUserWorkspaces`. And the second factor is
+  skipped (an aal1 sign-in) when the level or factor read RETURNS an error rather than throwing; only a stall is
+  rethrown (1E, INFERRED). LOW.
+- **F11-10 · The 420 s and 600 s ceilings rest on the platform's documented run limits** (150 s free, 400 s paid), not
+  on a measurement of this project's plan. The app's and the agent's own retry loops (`App.jsx:3375`,
+  `AgentProvider.jsx:453`) retry a timeout up to three times, so a dead connection is waited out about 30 minutes;
+  before F11 it hung (1D). LOW.
+- **F11-11 · On the web, a tab left open across a deploy cannot open Notes or the migration tools for the first
+  time.** The old chunk is gone (Vercel's rewrite answers `index.html`, 200), so the sentence and *Reload the page*
+  show and *Try again* cannot succeed (1B, INFERRED); whether *Try again* refetches a failed import is
+  browser-dependent, as for M.O.T.H. The desktop reads its chunks from disk. Fix shape: call the loaders at idle after
+  launch. LOW.
+- **F11-12 · The boundary also holds a part that throws after it loaded,** and replaces the whole pane with "could not
+  open" (the Admin terminal's seven sections at once; *Try again* resets their state) (1B, measured). Before F11 the
+  same throw blanked the whole app. LOW.
+- **F11-13 · A pending note can outlive a failed Notes load** (1B, INFERRED): opened much later, Notes jumps to it. LOW.
+- **F11-14 · At an offline launch with a held session, every Edge Function call reads "sign in again", as before**
+  (1D, measured): the SDK holds no session then, so `getSession` answers null. LOW.
+- **F11-15 · callAI's raw mode keeps its abort listener on a reused signal** (one per call until it aborts; otterAI's
+  loops reuse one for up to 16) (1D, measured, harmless in size). As before: its refusal body read after the headers is
+  unbounded and swallows a caller's abort; the caller's signal is not watched during the bounded session read. LOW.
+- **F11-16 · The bulk-invite dialog reads the session per row:** a stall costs 15 s a row, a hung server 60 s (1C). LOW.
+- **F11-17 · `inviteMember` (`adminApi.js`) has no dev-fixtures guard of its own;** the two dialogs guard first (1C;
+  dev builds only). LOW.
+- **F11-18 · Test gaps:** the two invite dialogs have no behavioural test (201, `onInvited`'s argument, a throwing
+  `onInvited`: round 1's fix of it is unpinned); `FilePreview.test.jsx`'s "code is highlighted" checks no colour;
+  OperatorLogin has no screen test; nothing pins the 220 ms or a pending note at launch through the real pair (1A, 1B,
+  1C, 1E). LOW.
+- **F11-19 · Two full-suite failures not F11's:** `aiFilesProbe.test.js`'s retry control timed out once under the full
+  run's load (green alone and in every other run); the Windows-only `gateway/test/platform.test.mjs` check-state reads
+  this machine's folder owners, as at the baseline. LOW.
+- **F11-20 · Failure words that changed, stated:** no answer reads "Network error — check your connection." in the
+  switcher, the invite dialogs and the clean-up card (it was the browser's "Failed to fetch"); an unreadable 2xx the
+  `bad_answer` sentence in the switcher (it was a SyntaxError's text). Visible in a failure only. LOW.
+- **F11-21 · The login and the reset weigh a `?company=` link differently** (2A, INFERRED): the login takes the link
+  first, the wizard the remembered company. After a login company step answered `unavailable` (not saved), the wizard
+  can show the device's older company; it is shown on screen. LOW.
+- **F11-22 · A caller's abort with a reason, on a call with no ceiling, rejects with that reason** (the storage probe's
+  path), not an AbortError (2A, INFERRED; no caller aborts with a reason today). LOW.
+- **F11-23 · LazyPart's later-visit path draws outside a Suspense** (2A, INFERRED): a part that later suspended would
+  reach the page's own boundary, not its sentence. None of the eleven files suspends today. LOW.
+- **F11-24 · A sent invite whose `onInvited` throws is shown as failed** (2A, INFERRED): Retry failed invites an
+  existing member again. LOW.
+
+## F9 (2026-11-18, wave 3 of `docs/sessions/PLAN_WEEK_2026-11-04.md`) — left open
+
+The desktop's twins (`po/f9-desktop-twins`; brief `docs/sessions/briefs/po-f9-desktop-twins.md`): one media sender, one
+project-folder resolver, one poster maker, the rules written once (desktop-build A5, A1, A2, B1). What each finding has
+left, what F9 met outside its list, and what its review rounds recorded. None is fixed unless it says so.
+
+- **F9-01 · The bins' posters keep `send`'s `public, max-age=0`; everything else the desktop sends is `no-store`.**
+  `rabbitBins.routes.test.js:487` pins that a bin poster is NOT no-store (the control beside the stream's assertion), and
+  the bins' tests stay unedited this session, so the seven bin and cloud-bin poster sends pass `cache: 'revalidate'`
+  (`mediaSend.cjs`, REVALIDATE). `rabbitBins.cjs` also keeps its own `isSameOrigin`, the same rule as
+  `mediaSend.cjs`'s `isSameOriginRequest`. Fix shape: drop the option for them and retire that control; require the one
+  rule. TPN-CONT-003's class. LOW.
+- **F9-02 · A name with nothing to slug made a project's folder the storage root, and an asset's folder ASSETS itself:
+  CLOSED for new rows by F9 (`b1b1510a`, round 1's fix), MEASURED** (`storage/projectFolders.test.js`, on the tip): a
+  project titled 東京 was created with `folder_root` = the configured root and bare `_DATABASES` and `_FILES` there; both
+  resolvers answered the root for a null or empty slug; deleting an asset named 東京 moved every asset's folder to
+  `.trash`. `projectSlugOf` and `assetSlugOf` never answer an empty slug — the fallback names the row,
+  `Untitled-Project-<id8>` and `Untitled-Asset-<id8>`, so two such rows never share a folder — and `folderRootRefusal`
+  refuses the folder every project sits in. **What remains:** (a) a project ALREADY stored with `folder_root` equal to
+  the configured root keeps it (a stored root that exists is honoured), so its copy fence still reaches every project's
+  folder and its sub-folders sit in the root; a repair gives it its own folder and moves its files, which is hers to
+  rule. MEDIUM, security-adjacent. (b) An asset stored with `folder_slug: ''` keeps its bodies directly in `ASSETS/`
+  (their records' `folder_path` `ASSETS//` still resolves them); its asset folder is now its own fallback. (c) A stored
+  asset slug that is one plain segment is trusted as it is (the import route stores a folder's own name). LOW.
+- **F9-03 · Five lines keep the project slug's rule in their own words.** `reconcileRabbitBundle`,
+  `rebaseGoneFolderRoot`, `mirrorProjectDatabases`, `planProjectFolderList` and the managed-files POST (with its
+  `'Untitled-Asset'`): other tests lift them from `main.cjs` with fixed lists of names (`jsonFile.test.js`,
+  `setAsideDesktop.test.js`, the folder planner's, `desktopShotRefiling.test.js`). On a reconciled bundle each answers
+  as `projectSlugOf`. Fold them when those tests serve the routes instead. LOW.
+- **F9-04 · The four thumbnail channels could go once the GET alone suffices.** `rabbit:generate-*-thumbnail` and
+  `rabbit:clear-*-thumbnail` are kept, thin (F10's views call them this week). Fix shape: key the asset and entity
+  posters by source path and mtime (as the bins' `thumbKeyFor`), so a new picture is a new key; then the views stop
+  clearing and generating. Also: the generate channels transcode any image path the page names (no
+  `thumbnailSourceAllowed`), and the id-keyed GETs serve the cache before re-reading the source (TPN-CONT-004). And the
+  ffmpeg arm (`generateVideoThumbOnce`, moved verbatim) is outside the poster turn order: a run that fails after a
+  renderer-decoded frame was accepted unlinks it (a narrow race, as before). F12's to weigh. LOW.
+- **F9-05 · Two rule twins stay hand-written, and a few helpers with them.** `main.cjs`'s folder rules
+  (`FOLDER_CATEGORIES` and the maps, `slugOrFallback`, `planProjectFolderList`, `planEntityFolderFor`,
+  `pendingShotRefilingFor`, `fileSlugify`): `projectFileStream.test.js`, `desktopShotRefiling.test.js` and
+  `folderParity.test.js` lift them by source text, and the module's planners have another shape (`ENTITY_FK_COLUMN`
+  against `fk` and `entityId`). `VIDEO_EXTENSIONS`: bundling `storage/videoThumbnails.js` drags `storage/index.js` in.
+  With no parity test: `rabbitTableViews.cjs`'s `isPlainObject`, `byText` and `SAFE_ID` and `rabbitTaskItems.cjs`'s
+  `idOrNull` (exporting them from the models is a rule-module edit). And `esbuild` is Vite's, not a declared
+  dependency: a lockfile that moves it can turn the five generated files stale with no rule changed (the check fails
+  closed; `npm run build:rules` fixes it). LOW.
+- **F9-06 · Local media's same-origin gate is opt-in.** `mountLocalMedia`'s `sameOriginOnly` (main passes
+  `requireSameOrigin`; `localMedia.test.js` calls the routes bare): a mount that omits it fails open. Its PUT, DELETE,
+  move and retire are ungated (behind the launch token). LOW.
+- **F9-07 · The managed-file poster POST writes to disk with no same-origin gate** (the bins' acceptors have one,
+  router-level). Behind the launch token; the only caller is the renderer's `localFetch`. LOW.
+- **F9-08 · `rabbit:open-in-explorer` reveals any path the page names, and `rabbit:get-file-stats` stats any path** (an
+  existence and size probe). The renderer helper stops four copies of the path drifting; it does not narrow the
+  channels (B5 is F12's). LOW.
+- **F9-09 · `main.cjs`'s `fileSlugify` throws on a non-string** (a number in a body answers 500 where it is called
+  bare); `projectSlugOf` and `assetSlugOf` wrap it. LOW.
+- **F9-10 · A poster's part, left by a crash between its write and its rename, is never swept**
+  (`<poster>.<pid>.<random>.part`, one poster's bytes each; the one shared `.part` was overwritten by the next write).
+  Fix shape: delete stale parts in the cache at start-up. LOW.
+- **F9-11 · An asset rename whose folder move fails still rewrites its managed files' `folder_path`** (the move's error
+  is logged and the records follow regardless). Older than F9. LOW.
+- **F9-12 · Every asset and entity poster now asks the server again on each remount** (`no-store`, where they said
+  `public, max-age=60`): one kept-bundle read and one JPEG each, 3.7 ms a request as F3 measured. Wanted by
+  TPN-CONT-003; NOTE.
+- **F9-13 · Flaky under a full run, fine alone:** `gateway/test/platform.test.mjs` (a 5 s PowerShell timeout; it failed
+  in the baseline too), `src/cloud/edgeStorage.test.js` (once: a timeout and an HMAC count),
+  `Dashboard/NotesView.review.test.jsx` (one or two unhandled `getClientRects is not a function` from the editor's
+  scroll under jsdom, in the baseline too) and, in one run, 5 s timeouts in `enterKey.render.test.jsx`,
+  `rabbitScenesRender.test.jsx` and `timelineVersions.test.jsx`. None is in F9's code; each passes alone. NOTE.
+- **F9-14 · Rows made before F9 with a name that slugs to nothing keep the shared fallback.** The reconcile and the rebase
+  (kept in their words, F9-03) store `Untitled-Project` for a stored slug of `''`, the same for every such project, and
+  never fill a `null` slug; where such a project's stored root is unusable they meet in one `<root>/Untitled-Project`.
+  For a `null` slug the renderer's `folderPaths.projectFolderSlug` says `Untitled-Project` and main's `projectSlugOf`
+  `Untitled-Project-<id8>`, so the copy fence refuses its uploads (safe, but a regression for that shape;
+  `projectDiskPath.js`'s "never empty there" holds only for a filled slug). Fix shape: the reconcile stores
+  `projectSlugOf(project)` when the slug is null or empty, with the lifting tests handed that name. Review round 2. LOW.
+- **F9-15 · The managed-files POST still slugs an asset in its own words** (lifted, F9-03): for a legacy asset whose
+  stored slug is `''` or not a plain segment its records say `ASSETS//` (or `ASSETS/./`) while the rename and delete use
+  `assetSlugOf`; and an upsert POST that names an asset and brings no slug overwrites an imported asset's stored slug
+  (`Hero.v2` → `Hero-V2`), older than F9. `plainSegment` also refuses `:` and `\` on every platform, legal folder-name
+  characters on macOS and Linux (the desktop ships for Windows). Review round 2. LOW.
+- **F9-16 · Two projects whose titles slug the same share `<root>/<Slug>`** (two "Demo"s): the create route only makes the
+  folder when it is not there. Older than F9 and far commoner than F9-02's case; the same fix shape (a suffix when the
+  folder belongs to another bundle). Review round 2. LOW.
+- **F9-17 · The poster deadline's clock and its neighbours.** The 30 s counts time queued behind other encodes, so a
+  very large still on a slow share can now fail where it used to succeed (remembered two minutes per source, then
+  asked again); a bin poster's POSTER_TIMEOUT falls through to the ffmpeg arm on the same source; `keyOf`'s per-platform
+  case rule has no test; `electronRules.test.js`'s re-declaration regex misses nested destructuring, parameters,
+  generators and a second declarator. Review round 2. LOW.
 
 ## F10 (2026-11-18, wave 4 of `docs/sessions/PLAN_WEEK_2026-11-04.md`) — left open
 

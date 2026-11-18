@@ -20,12 +20,16 @@
 // path is how gap #21 happened (locked #21).
 // =============================================================================
 
-import { supabase } from './auth/supabaseClient'
-import { withTimeout, TimeoutError, AUTH_TIMEOUT_MS } from './auth/withTimeout'
 import { assembleStreamedMessage } from './anthropicStream'
+import { callEdgeFunction } from './edgeFunctions'
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
-const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY
+// F11 (A1): the transport is callEdgeFunction's, in its raw mode: the Response
+// comes back unread, and this file reads it as it always did. The ceiling, on
+// purpose, bounds only the wait for the answer to START, never its reading: ten
+// minutes, past anything the platform lets a function run (150 s on the free
+// plan, 400 s on a paid one, with the upload of the request inside that), so it
+// can only end a connection that has died, never a long answer or a slow upload.
+export const AI_START_MS = 600000
 
 const FRIENDLY = {
   unauthorized: 'Sign in to use AI features.',
@@ -54,6 +58,13 @@ const FRIENDLY = {
   // it can relay, not a limit on the user's work. The message says so rather
   // than telling someone their deck is too ambitious.
   http_546: 'WILSON could not pass a request this large through to the AI — it was stopped before it got there. This is a limit in WILSON’s AI relay, not in your work. Attaching fewer documents will get through in the meantime.',
+  // F11 (OUTSTANDING F8-06): ai-proxy's own size cap (F8) answers 413 `too_large`, which had no words here
+  // ("AI request failed (413)."). It is the same remedy as the 546's.
+  too_large: 'This request is too large for WILSON’s AI relay — it was refused before it reached the AI. Attaching fewer documents will get through.',
+  // Review round 1 (1C): a 413 with no house body (the platform refusing before the function runs) is the same.
+  http_413: 'This request is too large for WILSON’s AI relay — it was refused before it reached the AI. Attaching fewer documents will get through.',
+  // F11: the answer did not start within AI_START_MS. Not retried (isRetryableAIError): the wait would repeat.
+  timeout: 'The AI did not start answering in time. Check your connection and try again.',
 }
 
 export class AIProxyError extends Error {
@@ -87,38 +98,15 @@ export async function callAI(body, { signal } = {}) {
   // signed-in user whose network stalled — the precise misdiagnosis
   // modelSources.js:233 exists to prevent, and it sends them to a remedy that
   // cannot work. A stall gets its own code and message.
-  let token = null
-  try {
-    const { data } = await withTimeout(
-      supabase.auth.getSession(), AUTH_TIMEOUT_MS, 'reading your session',
-    )
-    token = data?.session?.access_token ?? null
-  } catch (err) {
-    if (err instanceof TimeoutError) {
-      throw new AIProxyError(FRIENDLY.session_stalled, 0, 'session_stalled')
-    }
-    /* anything else: fall through to the !token branch */
-  }
-  if (!token) {
-    throw new AIProxyError(FRIENDLY.unauthorized, 401, 'unauthorized')
-  }
-
-  let res
-  try {
-    res = await fetch(`${SUPABASE_URL}/functions/v1/ai-proxy`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        apikey: SUPABASE_ANON,
-        authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(body ?? {}),
-      signal,
-    })
-  } catch (err) {
-    if (err?.name === 'AbortError') throw err
+  // (F11: the bounded read is readSessionToken's now, through callEdgeFunction; a stall still has its own code.)
+  const r = await callEdgeFunction('ai-proxy', body ?? {}, { signal, timeoutMs: AI_START_MS, raw: true })
+  if (!r.ok) {
+    if (r.code === 'session_stalled') throw new AIProxyError(FRIENDLY.session_stalled, 0, 'session_stalled')
+    if (r.code === 'unauthorized') throw new AIProxyError(FRIENDLY.unauthorized, 401, 'unauthorized')
+    if (r.code === 'timeout') throw new AIProxyError(FRIENDLY.timeout, 0, 'timeout')
     throw new AIProxyError(FRIENDLY.network, 0, 'network')
   }
+  const res = r.res
 
   const ctype = res.headers.get('content-type') || ''
   if (!res.ok || !ctype.includes('text/event-stream')) {

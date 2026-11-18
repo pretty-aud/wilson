@@ -11,12 +11,17 @@
 // adminResetPassword — callers must not persist them.
 // =============================================================================
 
-import { supabase } from './auth/supabaseClient'
 import { devFixtures, devWriteRefused } from '../dev/devFixtures'
 import { reportAppEvent } from './errorCodes'
+import { callEdgeFunction } from './edgeFunctions'
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
-const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY
+// F11 (A1): the transport is callEdgeFunction's; the words, the answers and the
+// reports are this file's, as they were. Ceilings, chosen on purpose: a read
+// (the security posture) 15 s; a write 60 s, far past the second or so these
+// take, because a write cut short may have landed (admin-create-user's answer
+// carries a show-once password), and the timeout's words say to check first.
+const READ_MS = 15000
+const WRITE_MS = 60000
 
 const FRIENDLY = {
   unauthorized: 'Session expired — sign in again.',
@@ -54,41 +59,63 @@ async function callAdminFn(name, body, { write = true } = {}) {
       : 'Security details are not available on fixture data.'
     return { ok: false, status: 501, data: { error: 'dev_fixtures_refused', friendly } }
   }
-  let token = null
-  try {
-    const { data } = await supabase.auth.getSession()
-    token = data?.session?.access_token ?? null
-  } catch { /* fall through to unauthorized */ }
-  if (!token) {
+  const r = await callEdgeFunction(name, body ?? {}, { timeoutMs: write ? WRITE_MS : READ_MS, words: FRIENDLY })
+  if (r.ok) return { ok: true, status: r.status, data: r.data }
+  if (r.code === 'unauthorized' && !r.data) {
     return { ok: false, status: 401, data: { error: 'unauthorized', friendly: FRIENDLY.unauthorized } }
   }
-  try {
-    const res = await fetch(`${SUPABASE_URL}/functions/v1/${name}`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        apikey: SUPABASE_ANON,
-        authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(body ?? {}),
-    })
-    const json = await res.json().catch(() => ({}))
-    if (!res.ok) {
-      const friendly = FRIENDLY[json.error] ?? `Request failed (${res.status}).`
-      // eventType 'error' (not 'admin'): the 0021 insert policy reserves the
-      // 'admin' stream for server-stamped Edge Function writes.
-      if (json.error === 'last_admin') {
-        reportAppEvent({ code: 'WIL-4202', severity: 'warning', eventType: 'error', context: { fn: name } })
-      } else if (res.status >= 500) {
-        reportAppEvent({ code: 'WIL-4201', severity: 'error', eventType: 'error', context: { fn: name, error: json.error ?? res.status } })
-      }
-      return { ok: false, status: res.status, data: { ...json, friendly } }
+  if (r.status === 0) {
+    // No answer: the network, the ceiling, or a session read that stalled. Reported as a network failure was.
+    if (r.code !== 'session_stalled') {
+      reportAppEvent({ code: 'WIL-4201', severity: 'error', eventType: 'error', context: { fn: name, error: r.code }, error: r.cause })
     }
-    return { ok: true, status: res.status, data: json }
-  } catch (err) {
-    reportAppEvent({ code: 'WIL-4201', severity: 'error', eventType: 'error', context: { fn: name, error: 'network' }, error: err })
-    return { ok: false, status: 0, data: { error: 'network', friendly: 'Network error — check your connection.' } }
+    return { ok: false, status: 0, data: { error: r.code, friendly: r.words } }
   }
+  const json = r.data ?? {}
+  if (r.code === 'bad_answer') {
+    return { ok: false, status: r.status, data: { error: 'bad_answer', friendly: r.words } }
+  }
+  const friendly = r.words ?? `Request failed (${r.status}).`
+  // eventType 'error' (not 'admin'): the 0021 insert policy reserves the
+  // 'admin' stream for server-stamped Edge Function writes.
+  if (json.error === 'last_admin') {
+    reportAppEvent({ code: 'WIL-4202', severity: 'warning', eventType: 'error', context: { fn: name } })
+  } else if (r.status >= 500) {
+    reportAppEvent({ code: 'WIL-4201', severity: 'error', eventType: 'error', context: { fn: name, error: json.error ?? r.status } })
+  }
+  return { ok: false, status: r.status, data: { ...json, friendly } }
+}
+
+// The invite's own words (one table where the two dialogs kept a copy each, "one vocabulary app-wide").
+const INVITE_WORDS = {
+  forbidden:         'You must be a workspace admin to invite members.',
+  unauthorized:      'Session expired — sign in again.',
+  username_taken:    'That username is already in use in this workspace.',
+  email_taken:       'That email is already associated with a WILSON account.',
+  validation_failed: 'Please check the form for errors.',
+  invite_failed:     'Email delivery failed. Try again in a minute.',
+  // Session 17: invite-member enforces the MFA step-up (§6 #46).
+  mfa_required:      'This action needs a fresh MFA sign-in. Sign out and back in with your authenticator code.',
+  mfa_check_failed:  'Could not verify your MFA status. Try again in a moment.',
+}
+
+/**
+ * F11 (A1): invite one member (InviteMemberDialog, MultiInviteDialog), the request
+ * each dialog built by hand. Answers { ok, status, data } and never throws; on a
+ * failure `data.friendly` is the sentence, `Invite failed (<status>).` for a code
+ * nobody words. Each dialog keeps its own dev-fixtures refusal before this call.
+ * Not through callAdminFn: an invite reports nothing to app_events, as before.
+ */
+export async function inviteMember({ email, username, displayName = null, appRole }) {
+  const r = await callEdgeFunction('invite-member', {
+    email,
+    username,
+    display_name: displayName || null,
+    app_role: appRole,
+  }, { timeoutMs: WRITE_MS, words: INVITE_WORDS })
+  if (r.ok) return { ok: true, status: r.status, data: r.data }
+  const friendly = r.words ?? `Invite failed (${r.status}).`
+  return { ok: false, status: r.status, data: { ...(r.data ?? {}), error: r.code, friendly } }
 }
 
 /** Create a user with show-once credentials. */

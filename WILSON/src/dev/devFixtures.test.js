@@ -97,12 +97,15 @@ describe('the dev fixtures switch is gated on import.meta.env.DEV', () => {
   })
 
   it('in the three seams that guard a network call, the guard comes BEFORE the call (an inert guard below a token check passed round 1)', () => {
+    // F11 (A1): since the one Edge Function caller, the network call in adminApi.js and gatewayApi.js is
+    // `callEdgeFunction(` and in the two invite dialogs `inviteMember(` (which reads the session itself);
+    // the rule is the one this test always held: the guard comes first.
     const guarded = [
-      ['cloud/adminApi.js', /fetch\(/],
-      ['cloud/auth/InviteMemberDialog.jsx', /supabase\.auth\.getSession\(\)/],
-      ['components/AdminTerminal/MultiInviteDialog.jsx', /supabase\.auth\.getSession\(\)/],
+      ['cloud/adminApi.js', /callEdgeFunction\(/],
+      ['cloud/auth/InviteMemberDialog.jsx', /inviteMember\(/],
+      ['components/AdminTerminal/MultiInviteDialog.jsx', /inviteMember\(/],
       // GW1: Check reach is the one function call of the gateway's API.
-      ['cloud/gatewayApi.js', /fetch\(/],
+      ['cloud/gatewayApi.js', /callEdgeFunction\(/],
     ]
     for (const [f, call] of guarded) {
       const code = codeLines(read(join(SRC, f))).join('\n')

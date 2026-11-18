@@ -69,14 +69,11 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
-import { supabase } from './supabaseClient'
 import { usePermissions } from '../../permissions/usePermissions'
 import { Banner, Button, Dialog, Field, Input, Select } from '../../ui'
 import { devFixtures, devWriteRefused } from '../../dev/devFixtures'
 import { FONT_MONO, PAPER_RECESSED, RADIUS_CONTROL, RULE, TYPE } from '../../ui/tokens'
-
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
-const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY
+import { inviteMember } from '../adminApi'
 
 const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{1,31}$/
 const EMAIL_RE    = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
@@ -169,44 +166,13 @@ export default function InviteMemberDialog({ open, onClose, onInvited }) {
         setBusy(false)
         return
       }
-      const { data: sess } = await supabase.auth.getSession()
-      const token = sess?.session?.access_token
-      if (!token) {
-        setError('Session expired — sign in again.')
-        setBusy(false)
-        return
-      }
-
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/invite-member`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          apikey: SUPABASE_ANON,
-          authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          email:        emailV,
-          username:     usernameV,
-          display_name: displayV || null,
-          app_role:     appRole,
-        }),
-      })
-      const json = await res.json().catch(() => ({}))
+      // F11 (A1): the request, its token and its words are adminApi.js's inviteMember now, the one table this
+      // dialog and MultiInviteDialog shared by copy ("Session expired — sign in again." when there is no token).
+      const res = await inviteMember({ email: emailV, username: usernameV, displayName: displayV, appRole })
+      const json = res.data
 
       if (!res.ok) {
-        const map = {
-          forbidden:         'You must be a workspace admin to invite members.',
-          unauthorized:      'Session expired — sign in again.',
-          username_taken:    'That username is already in use in this workspace.',
-          email_taken:       'That email is already associated with a WILSON account.',
-          validation_failed: 'Please check the form for errors.',
-          invite_failed:     'Email delivery failed. Try again in a minute.',
-          // Session 17: invite-member enforces the MFA step-up (§6 #46).
-          // Same vocabulary as adminApi.js / operatorApi.js.
-          mfa_required:      'This action needs a fresh MFA sign-in. Sign out and back in with your authenticator code.',
-          mfa_check_failed:  'Could not verify your MFA status. Try again in a moment.',
-        }
-        setError(map[json.error] ?? `Invite failed (${res.status}).`)
+        setError(json.friendly)
         setBusy(false)
         return
       }

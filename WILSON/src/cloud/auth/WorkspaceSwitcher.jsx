@@ -57,9 +57,8 @@ import { supabase } from './supabaseClient'
 import { saveSession } from './sessionStorage'
 import { AUTH_ERROR_STYLE } from './AuthShell'
 import { SectionTitle } from '../../ui'
-
-const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL
-const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY
+// F11 (A2): issue-session is signIn.js's, shared with the login; bounded now, where it could hang.
+import { issueSession } from './signIn'
 
 // Read the JWT payload without verifying it. The payload is advisory for
 // UI — real enforcement happens at the DB via RLS.
@@ -71,19 +70,8 @@ function decodeJwtClaims(token) {
   } catch { return {} }
 }
 
-async function issueSession(accessToken, workspaceId) {
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/issue-session`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      apikey: SUPABASE_ANON,
-      authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify({ workspace_id: workspaceId }),
-  })
-  if (!res.ok) throw new Error(`issue-session failed: ${res.status}`)
-  return res.json()
-}
+// The one timeout voice of the auth screens (LoginScreen's TIMEOUT_ERROR): a stall is not a refusal.
+const TIMEOUT_ERROR = 'The server did not respond. Check your connection and try again.'
 
 export default function WorkspaceSwitcher() {
   const [loading, setLoading]         = useState(true)
@@ -142,7 +130,8 @@ export default function WorkspaceSwitcher() {
     try {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) throw new Error('No active session')
-      await issueSession(session.access_token, wsId)
+      const issued = await issueSession(session.access_token, wsId)
+      if (!issued.ok) throw new Error(`issue-session failed: ${issued.status}`)
       const { data: refreshed, error: refreshErr } = await supabase.auth.refreshSession()
       if (refreshErr) throw refreshErr
       const s = refreshed?.session
@@ -156,7 +145,7 @@ export default function WorkspaceSwitcher() {
       // Reload so every provider re-reads the new JWT + RLS scope.
       window.location.reload()
     } catch (err) {
-      setError(err.message || String(err))
+      setError(err?.name === 'TimeoutError' ? TIMEOUT_ERROR : (err.message || String(err)))
       setSwitchingId(null)
     }
   }, [switchingId, activeWsId])

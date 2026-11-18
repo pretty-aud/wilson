@@ -707,9 +707,11 @@ describe('main.cjs — the project PATCH, the writers, the body limit', () => {
     expect(at).toBeGreaterThan(post.indexOf('const bundle = emptyBundle(project);'))
     expect(at).toBeLessThan(post.indexOf('writeRabbitBundle(project.id, bundle);'))
   })
-  it('every JSON file main.cjs writes goes through the one writer: the only writeFileSync left write bytes (a thumbnail, the sealed session)', () => {
+  it('every JSON file main.cjs writes goes through the one writer: the only writeFileSync left writes bytes (the sealed session)', () => {
+    // F9 (A2): the managed-file poster's in-place write left with its route
+    // for posters.cjs, which writes every poster whole through a part.
     const left = MAIN.split('\n').filter((l) => l.includes('writeFileSync(')).map((l) => l.trim())
-    expect(left).toEqual(['fs.writeFileSync(thumbPath, buf);', 'fs.writeFileSync(getSessionPath(), encrypted);'])
+    expect(left).toEqual(['fs.writeFileSync(getSessionPath(), encrypted);'])
     expect(MAIN).not.toMatch(/renameSync\([^)]*\.part/)
     expect(extractFunction(MAIN, 'writeJSON')).toMatch(/return writeJsonAtomic\(filePath, data, opts\);/)
     expect(extractFunction(MAIN, 'archiveLocalRabbitData')).toMatch(/writeJsonAtomic\(archivePath, snapshot, \{ fs, durable: true \}\)/)

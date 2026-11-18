@@ -970,9 +970,14 @@ describe('wiring: the Express routes exist and stream correctly', () => {
     // A hand-rolled createReadStream does NOT support Range unless it is
     // implemented explicitly, and without Range a <video> cannot seek and the
     // browser pulls the whole file first. On a 5 GB master that is a hang.
+    // F9: through the one sender, mediaSend.cjs — res.sendFile with
+    // acceptRanges (its 206 and If-Range are served in mediaSend.test.js).
     const route = sliceRoute(main, 'managed-files/:id/stream')
-    expect(route).toMatch(/res\.sendFile\(diskPath/)
+    expect(route).toMatch(/sendMedia\(res, diskPath/)
     expect(route).not.toMatch(/createReadStream/)
+    const sender = executable(readRepo('electron', 'mediaSend.cjs'))
+    expect(sender).toMatch(/res\.sendFile\(path\.resolve\(String\(diskPath\)\), \{ acceptRanges: true/)
+    expect(sender).not.toMatch(/createReadStream/)
   })
 
   it('🚨 AS-2.9: the read is logged, with touch:false, and THROTTLED', () => {
@@ -1001,15 +1006,19 @@ describe('wiring: the Express routes exist and stream correctly', () => {
     expect(resolver).toMatch(/mf\.folder_path/)
   })
 
+  // F9 (A2): the poster routes and the ffmpeg arm left main.cjs for the one
+  // poster maker, electron/posters.cjs (its routes served in posters.test.js).
+  const postersCjs = executable(readRepo('electron', 'posters.cjs'))
+
   it('the thumbnail route grew a video arm that names ffmpeg_missing', () => {
-    expect(main).toMatch(/code:\s*'ffmpeg_missing'/)
-    expect(main).toMatch(/generateVideoThumbOnce\(srcPath, thumbPath\)/)
+    expect(postersCjs).toMatch(/code:\s*'ffmpeg_missing'/)
+    expect(postersCjs).toMatch(/generateVideoThumbOnce\(srcPath, thumbPath\)/)
   })
 
   it('🚨 a FAILED ffmpeg run unlinks its partial output', () => {
     // Every caller serves thumbPath straight back when it EXISTS, so a
     // truncated JPEG left behind is served, cached and never regenerated.
-    const fn = sliceRoute(main, 'function generateVideoThumbOnce')
+    const fn = sliceRoute(postersCjs, 'function generateVideoThumbOnce')
     expect(fn).toMatch(/if \(!out\.ok\)/)
     expect(fn).toMatch(/unlinkSync\(thumbPath\)/)
   })
@@ -1021,18 +1030,29 @@ describe('wiring: the Express routes exist and stream correctly', () => {
     // ⚠️ SLICED AND ORDERED. Both assertions used to be whole-file matches
     // with no ordering, so the property in the title — "before writing to
     // disk" — was the one thing not tested.
-    const post = sliceBetween(main,
-      "expressApp.post('/api/rabbit/projects/:projectId/managed-files/:id/thumbnail'",
-      "expressApp.get('/api/rabbit/video-support'")
+    // F9: the route (posters.cjs) asks the one acceptor, whose cap and magic
+    // check come before the bytes are handed back, and writes only what it
+    // accepted — whole, through a part (served in posters.test.js).
+    const post = sliceBetween(postersCjs,
+      'expressApp.post(`${P}/managed-files/:id/thumbnail`',
+      'expressApp.get(`${P}/assets/:id/thumbnail`')
     expect(post).toBeTruthy()
-    const magic = post.indexOf('0xff && buf[1] === 0xd8 && buf[2] === 0xff')
-    const cap = post.indexOf('buf.length > 262144')
-    const write = post.indexOf('fs.writeFileSync(thumbPath, buf)')
-    expect(magic).toBeGreaterThan(-1)
+    const accept = post.indexOf('const accepted = acceptPoster(req.body?.base64);')
+    const refuse = post.indexOf('if (!accepted.ok) return res.status(accepted.status)')
+    const write = post.indexOf('await putPoster(thumbPath, accepted.buf);')
+    expect(accept).toBeGreaterThan(-1)
+    expect(refuse).toBeGreaterThan(accept)
+    expect(write).toBeGreaterThan(refuse)
+    expect(post).not.toMatch(/writeFileSync/)
+    const acceptor = sliceRoute(postersCjs, 'function acceptPoster')
+    const cap = acceptor.indexOf('buf.length > POSTER_MAX_BYTES')
+    const magic = acceptor.indexOf('0xff && buf[1] === 0xd8 && buf[2] === 0xff')
+    const handBack = acceptor.indexOf('return { ok: true, buf }')
     expect(cap).toBeGreaterThan(-1)
-    expect(write).toBeGreaterThan(-1)
-    expect(magic).toBeLessThan(write)
-    expect(cap).toBeLessThan(write)
+    expect(magic).toBeGreaterThan(-1)
+    expect(cap).toBeLessThan(handBack)
+    expect(magic).toBeLessThan(handBack)
+    expect(postersCjs).toMatch(/const POSTER_MAX_BYTES = 262144;/)
   })
 
   it('the capability probe exists for the notice to be honest about', () => {
@@ -1220,14 +1240,22 @@ describe('review fixes — S40', () => {
     //
     // The resolver is the load-bearing half: a bundle ALREADY ON DISK may
     // carry a poisoned slug, so fixing only the writers leaves it live.
+    // F9: the resolver is the one in electron/projectFolders.cjs (main.cjs
+    // keeps two bindings of it); its slug is projectSlugOf, which slugifies
+    // the stored folder_slug every time (a poisoned slug is served in
+    // projectFolders.test.js and cannot leave the root).
     const fn = sliceBetween(main, 'function resolveProjectFolderRoot', 'function ensureAssetFolder')
     expect(fn).toBeTruthy()
-    expect(fn).toMatch(/fileSlugify\(String\(stored\)\)/)
-    expect(fn).not.toMatch(/path\.join\(rootBase, bundle\.project\?\.folder_slug/)
+    expect(fn).toMatch(/projectFolders\.projectFolderOf\(bundle, \{ mustExist: false \}\)/)
+    const folders = executable(readRepo('electron', 'projectFolders.cjs'))
+    expect(folders).toMatch(/return slug\(project\?\.folder_slug\) \|\| slug\(project\?\.title\) \|\| fallback\(PROJECT_FALLBACK, project\?\.id\);/)
+    expect(folders).toMatch(/const slug = \(value\) => fileSlugify\(String\(value \?\? ''\)\);/)
+    expect(folders).toMatch(/path\.join\(rootBase, projectSlugOf\(bundle\?\.project\)\)/)
+    expect(folders).not.toMatch(/path\.join\(rootBase, bundle\.project\?\.folder_slug/)
   })
 
   it('🚨 HIGH: and at both writers — the create route and the PATCH spread', () => {
-    expect(main).toMatch(/folder_slug:\s*fileSlugify\(String\(req\.body\.folder_slug/)
+    expect(main).toMatch(/folder_slug:\s*projectSlugOf\(\{ id: newProjectId, folder_slug: req\.body\.folder_slug/)
     expect(main).toMatch(/if \('folder_slug' in req\.body\)/)
   })
 
@@ -1244,12 +1272,17 @@ describe('review fixes — S40', () => {
     // The renderer is served from http://127.0.0.1:<port> by this same Express
     // app, so bytes returned as text/html execute as script on WILSON's own
     // origin — with the Supabase session in that origin's localStorage.
+    // F9: the route hands the row's type to sendMedia (mediaSend.cjs), which
+    // types every file it sends through the allowlist and nosniffs it — served
+    // in mediaSend.test.js (text/html and SVG answer application/octet-stream).
     const route = sliceRoute(main, "managed-files/:id/stream'")
-    expect(route).toMatch(/safeMediaContentType\(mf\.mime_type\)/)
-    expect(route).toMatch(/X-Content-Type-Options', 'nosniff'/)
-    expect(route).not.toMatch(/setHeader\('Content-Type', mf\.mime_type/)
+    expect(route).toMatch(/sendMedia\(res, diskPath, \{ mime: mf\.mime_type/)
+    expect(route).not.toMatch(/setHeader\('Content-Type'/)
+    const sender = executable(readRepo('electron', 'mediaSend.cjs'))
+    expect(sender).toMatch(/res\.setHeader\('Content-Type', safeMediaContentType\(mime\)\)/)
+    expect(sender).toMatch(/X-Content-Type-Options', 'nosniff'/)
     // SVG matches the media shape and is scriptable, so it is excluded by name.
-    expect(main).toMatch(/if \(m === 'image\/svg\+xml'\) return 'application\/octet-stream'/)
+    expect(sender).toMatch(/if \(m === 'image\/svg\+xml'\) return 'application\/octet-stream'/)
   })
 
   it('🚨 the stream route refuses a SOFT-DELETED row', () => {
@@ -1280,9 +1313,10 @@ describe('review fixes — S40', () => {
     // mf.id is client-chosen on create, and the cache is shared with
     // `asset-<id>.jpg` / `<entity>-<id>.jpg`, which are served from cache
     // without re-checking their source. Containment stops traversal, not
-    // collision.
-    expect(main).toMatch(/const UUID_RE =/)
-    expect(main).toMatch(/if \(!UUID_RE\.test\(String\(mf\.id\)\)\)/)
+    // collision. F9: beside the one route that needs it (posters.cjs).
+    const posters = executable(readRepo('electron', 'posters.cjs'))
+    expect(posters).toMatch(/const UUID_RE =/)
+    expect(posters).toMatch(/if \(!UUID_RE\.test\(String\(mf\.id\)\)\)/)
   })
 
   it('🚨 HIGH: extractFrame has ONE deadline for the whole call', () => {
@@ -1315,11 +1349,14 @@ describe('review fixes — S40', () => {
     // ⚠️ Strengthened after a breaker proved the first version vacuous: it
     // matched the CONSTANT's name, which survives deleting the code that
     // actually records a failure. Assert the write AND the read.
-    expect(main).toMatch(/videoThumbFailedAt\.set\(thumbPath, Date\.now\(\)\)/)
-    expect(main).toMatch(/if \(failedAt !== undefined && Date\.now\(\) - failedAt < VIDEO_THUMB_FAIL_TTL_MS\)/)
+    // F9: generateVideoThumbOnce is posters.cjs's ffmpeg arm now.
+    const posters = executable(readRepo('electron', 'posters.cjs'))
+    expect(posters).toMatch(/videoThumbFailedAt\.set\(thumbPath, Date\.now\(\)\)/)
+    expect(posters).toMatch(/if \(failedAt !== undefined && Date\.now\(\) - failedAt < VIDEO_THUMB_FAIL_TTL_MS\)/)
     // …but "no binary installed" is a MACHINE state the user can change by
     // dropping a file in, not a property of this video.
-    expect(main).toMatch(/if \(out\.reason !== 'ffmpeg_missing'\)/)
+    expect(posters).toMatch(/if \(out\.reason !== 'ffmpeg_missing'\)/)
+    expect(main).not.toMatch(/function generateVideoThumbOnce\(/)
   })
 
   it('🚨 resolveFfmpegPath demands a FILE, not merely something that exists', () => {

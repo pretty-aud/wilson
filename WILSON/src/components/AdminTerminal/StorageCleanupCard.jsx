@@ -23,13 +23,14 @@
 
 import { useRef, useState } from 'react'
 import { Trash2, Check, AlertTriangle } from 'lucide-react'
-import { supabase } from '../../cloud/auth/supabaseClient'
+import { callEdgeFunction } from '../../cloud/edgeFunctions'
 import Card from '../../ui/Card'
 import Button from '../../ui/Button'
 import Banner from '../../ui/Banner'
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
-const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY
+// A cleanup run's ceiling, seven minutes: past the platform's own limit on a function's run (150 s free, 400 s
+// paid), so it only ends a connection that has died.
+const GC_MS = 420000
 
 // 🚨 TRACK C OWNS THIS FILE'S LOGIC. C3b changes tokens and components here
 // and NOTHING else — the staged `stage` gate is untouched, in place, and
@@ -60,20 +61,11 @@ export default function StorageCleanupCard() {
     setStage('running')
     setError(null)
     try {
-      const { data: sess } = await supabase.auth.getSession()
-      const token = sess?.session?.access_token
-      if (!token) throw new Error(ERROR_MAP.unauthorized)
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/storage-gc`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          apikey: SUPABASE_ANON,
-          authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({}),
-      })
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(ERROR_MAP[json.error] ?? json.detail ?? `Cleanup failed (${res.status}).`)
+      // F11 (A1): through callEdgeFunction, with this card's words; GC_MS is the operator console's reasoning
+      // (a run is long, and the platform ends the function long before), so it never cuts a run off.
+      const r = await callEdgeFunction('storage-gc', {}, { timeoutMs: GC_MS, words: ERROR_MAP })
+      if (!r.ok) throw new Error(r.code === 'unauthorized' && !r.data ? ERROR_MAP.unauthorized : (r.words ?? r.data?.detail ?? `Cleanup failed (${r.status}).`))
+      const json = r.data
       if (!mountedRef.current) return
       setCounts(json.counts || null)
       setStage('done')
