@@ -231,7 +231,7 @@ roughly 144 endpoints at runtime.
 | R.A.B.B.I.T. sub-entities | factory-generated POST/PATCH/DELETE for phases, tasks, dependencies, task-links, asset-versions, comments, ingestion-runs, team-assignments, budget-versions, expenses, budget-lines, budget-actuals, scenes, shots, levels, experiences, milestones, project-team | RABBIT |
 | Files | `POST /api/rabbit/projects/:p/files`, `…/files/:id/download`, PATCH/DELETE, `…/files/:id/events`, `…/file-events`, `…/files/relink-scan`, `…/files/relink-apply` | RABBIT attachments + relink |
 | Managed files | `GET/POST /api/rabbit/projects/:p/managed-files`, PATCH/DELETE (`?hard=true`), `…/:id/thumbnail`, `…/import-folder` | RABBIT production media |
-| Thumbnails | `…/assets/:id/thumbnail`, and the same for scenes/shots/levels/experiences | RABBIT galleries |
+| Thumbnails | `…/assets/:id/thumbnail`, and the same for scenes/shots/levels/experiences (since F9 mounted from `electron/posters.cjs` with the managed-file poster GET and POST) | RABBIT galleries |
 | Workspace-scoped stores | `…/workspaces/:id/rate-cards`, `…/team-members`, `…/task-templates` (+ entry/dept-default routes) | Rate Card, Team, Templates |
 
 **The project file, kept in memory, written whole (F3, 2026-10-31;
@@ -488,7 +488,7 @@ stores and their record together.
 | Updates | `wilson:update-{state,check,download,install}`, `wilson:update-status` | §11 |
 | Drive | `rabbit:{read,write}-gdrive-{config,tokens}`, `rabbit:clear-gdrive` | Google Drive credentials |
 | Files | `rabbit:pick-directory`, `rabbit:pick-files`, `rabbit:pick-image`, `rabbit:copy-file` (+ `rabbit:copy-progress`), `rabbit:get-file-stats`, `rabbit:open-in-explorer`, `rabbit:ensure-project-folder`, `rabbit:{read,write}-files-config` | RABBIT file plane |
-| Thumbnails | `rabbit:{generate,clear}-{asset,entity}-thumbnail` | Sharp-based cache |
+| Thumbnails | `rabbit:{generate,clear}-{asset,entity}-thumbnail` | The poster cache: since F9 thin calls into `electron/posters.cjs` (names, arguments and answers unchanged; OUTSTANDING F9-04 weighs removing them) |
 | Data | `rabbit:archive-local-data` | Post-migration archive + clear |
 | Diagnostics | `wilson:sentry-test` | Manual main-process Sentry throw |
 
@@ -3186,6 +3186,20 @@ the sibling files download.** `mime_type` is client-writable and the renderer is
 served from `http://127.0.0.1:<port>` by this same Express app, so bytes
 returned as `text/html` would execute on WILSON's own origin.
 
+**One sender (F9, 2026-11-18).** Every file the Local Server answers with goes
+through `sendMedia` in `electron/mediaSend.cjs` (21 sends in six modules; only
+the SPA fallback's `index.html` is sent otherwise): the allowlisted type,
+`nosniff`, `Cache-Control: no-store` with `Pragma: no-cache` (TPN-CONT-003 and
+-019), Range and If-Range, `dotfiles: 'allow'` (containment is the caller's,
+decided first; a demo folder lives under `.wilson`), and a completion callback
+that ignores an aborted range. A range past the end answers 416 (it was 500 on
+this route). A media route's first line is `requireSameOrigin`, so a refused
+read writes no `downloaded` event: the files download and stream, this route,
+every poster, a private project's media and the office server's files answer
+the renderer only. One family keeps `send`'s own `public, max-age=0`: the bins'
+posters, which their route test pins (OUTSTANDING F9-01). Before F9 a cached
+thumbnail under a demo folder answered 500 (F3-01, S4a-06).
+
 #### ffmpeg
 
 **LGPL build, invoked as a separate executable, never linked.** That combination
@@ -3271,7 +3285,11 @@ NAMES AND SIGNATURES and asks the module where they resolve:
   H3: `resolveProjectFolder`, `ensureProjectFolders`, `mirrorProjectDatabases`
   and `resolveProjectFilesDir` join the RAW value; S40 hardened only
   `resolveProjectFolderRoot`, and a copied demo folder is a bundle somebody
-  else wrote), and rebases a stored `folder_root` that points OUTSIDE the
+  else wrote. Since F9 both resolvers are bindings of one,
+  `projectFolderOf(bundle, { mustExist })` in `electron/projectFolders.cjs`,
+  whose `projectSlugOf` re-slugifies the stored slug every time and is never
+  empty: a title like 東京 had made a project's folder the configured root
+  itself, OUTSTANDING F9-02), and rebases a stored `folder_root` that points OUTSIDE the
   open folder **and no longer exists** to `<folder>/projects/<slug>`,
   logging a `relinked` event in the bundle. A live folder elsewhere keeps
   its pointer (L9) but is NOT followed while a demo folder is open (review
@@ -5109,7 +5127,8 @@ Every failure the adapter throws carries the route's `status` and `code`.
 The view is `views/BinsView.jsx` with `views/bins/*` — its keys and the OS
 drop are bound on the document while the tab is mounted, so they survive
 the focused control unmounting; the pure logic is `bins/binMedia.js`
-(the vocabulary, mirrored from the server and pinned by a parity test) and
+(the vocabulary; since F9 the server's copy is generated from it,
+`electron/rules/binMedia.cjs`) and
 `bins/binSelectors.js`. **Shot takes** (milestone 2, `bundle.shotTakes`)
 assign bin files to shots many-to-many: a row per (shot, file) with a `role`
 (`primary` — one per shot that has any — `part` or `alt`), a `position` and
@@ -5201,8 +5220,24 @@ backfill gave every
 project with scenes or shots "Shot list 1 · v1", active, in the cloud (the
 migration) and on the Local Server (on read, once, for bundles that predate
 the keys). The Local Server routes live in `electron/rabbitShotLists.cjs`;
-the pure model in `state/shotListModel.js`; the API is documented in
-`docs/sessions/handoffs/po-s3a-2026-09-30.md`.
+the pure model in `state/shotListModel.js` (since F9 the routes' backfill
+order is the model's own, generated into `electron/rules/shotLists.cjs`);
+the API is documented in `docs/sessions/handoffs/po-s3a-2026-09-30.md`.
+
+**The desktop's rule copies (F9, 2026-11-18).** A synchronous Local Server
+route cannot import an ES module, so the renderer's rules were kept a second
+time by hand in CommonJS, eight parity tests holding the pairs. Now
+`scripts/build-electron-rules.mjs` (`npm run build:rules`) bundles each rule
+module with esbuild (CommonJS, for node, only the names the desktop uses) into
+`electron/rules/` — `taskItems`, `tableViews`, `shotLists`, `otterMerges`
+(O.T.T.E.R.'s two library merges, which `main.cjs` kept inline) and
+`binMedia` — and the twins `require` them. The files are committed, so a
+checkout, the dev run, CI and a packaged build (electron-builder packs
+`electron/**/*`) need no step; `src/lib/electronRules.test.js` rebuilds them
+in memory and fails while one is stale. After changing a rule module, run
+`npm run build:rules`. Two twins stay hand-written: the folder rules in
+`main.cjs` and `VIDEO_EXTENSIONS` (OUTSTANDING F9-05), still held by
+`folderParity.test.js` and `videoThumbnails.test.js`.
 
 ### 13.4 The shell and the shared surfaces
 
@@ -7021,7 +7056,9 @@ of a session — this section is limits by design, that file is faults.
   is `ON DELETE SET NULL`; `tasks_select` hops to the task's own project for
   every task). `tasks` has no level or experience column: on the cloud
   those live only as items. The Local Server (`electron/rabbitTaskItems.cjs`)
-  and the fixtures run the same rules; the desktop's read never reorders.
+  and the fixtures run the same rules — since F9 the desktop's are the
+  model's own, generated into `electron/rules/taskItems.cjs` (see "The
+  desktop's rule copies" in §13.3) — and the desktop's read never reorders.
 - **RLS.** Reads hop to `projects` and `tasks` under the caller's own RLS (a
   private project's items stay hidden; a task the caller cannot see hides its
   items); writes add `has_active_membership` and `can_write_project` (a
@@ -7075,8 +7112,9 @@ of a session — this section is limits by design, that file is faults.
   never on a rename or a reorder) and `item_groupings` (a set of 1 to 100
   items of one kind, sorted and distinct, unique per project, table and
   kind; it holds no rows). The rules are `state/tableViewsModel.js`, pure;
-  the Local Server's copy is `electron/rabbitTableViews.cjs`, held to it by
-  `tableViewsParity.test.js`; the provider's half is
+  the Local Server's routes are `electron/rabbitTableViews.cjs`, which since
+  F9 run the model's own rules, generated into `electron/rules/tableViews.cjs`
+  (held current by `src/lib/electronRules.test.js`); the provider's half is
   `state/tableViewsState.js`. The design is
   `docs/design/CUSTOM_VIEWS_DESIGN.md` §5.
 - **Who:** RLS forced, four policies each, every arm restated (workspace,
