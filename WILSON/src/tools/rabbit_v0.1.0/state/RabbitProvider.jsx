@@ -72,6 +72,8 @@ import { workspaceFromSession } from '../../../cloud/auth/authSnapshot';
 import { readJwtClaims } from '../../../cloud/auth/sessionTimeouts';
 import { isPersonalSpace } from '../../../cloud/personalSpace';
 import { useTableViewsState, groupingsNaming, sweepGroupings, restoreGroupingsInTurn, groupingRestoreNotice } from './tableViewsState';
+// Post-overhaul F10 (rabbit A7): the four 0040 entities' writers, made once.
+import { ENTITY_SPECS, makeEntityMutators, makeDeleteScene } from './entityMutators';
 import { byMilestoneDate } from './milestoneOrder';
 import { buildRevertPlan } from '../components/editHistoryRevert';
 import { hasLocalServer, loadOtterSettings, saveOtterSettings } from '../../../lib/localData';
@@ -4090,466 +4092,42 @@ export function RabbitProvider({ children }) {
     discard: () => discardOpenDrafts(),
   }), [saveOpenDrafts, discardOpenDrafts]);
 
-  // ── Scenes ─────────────────────────────────────────────
+  // ── Scenes, shots, levels and experiences (post-overhaul F10, rabbit A7) ──
   //
-  // S3a: a new scene joins a list — opts.listId (the list the Scenes tab is
-  // viewing, S3b), else the ACTIVE list. opts.restoreItems /
-  // opts.restoreTaskLinks are the undo path of deleteScene: the memberships
-  // and task links the delete removed.
-  const addScene = useCallback(async (scene, opts = {}) => {
-    if (!adapterRef.current) throw new Error('no adapter');
-    if (!activeProjectId)    throw new Error('no project');
-    // R2-07, as addAsset: answering after a project switch, the scene stays in
-    // its own project. It is not placed in a list then (the lists read now are
-    // the other project's): there it shows under "Not in any list", whose
-    // Add to list… places it.
-    const visit = projectVisitRef.current;
-    // Refuse an archived or unknown target list BEFORE the scene is written,
-    // or the scene would land outside the list the caller is showing. A list
-    // this client has not loaded yet is read first (another window made it).
-    if (opts && Object.prototype.hasOwnProperty.call(opts, 'listId') && opts.listId) {
-      if (!findShotList(opts.listId)) await refreshShotListsNow().catch(() => null);
-      requireEditableShotList(opts.listId);
-    }
-    const row = {
-      id:           scene.id || uuidv4(),
-      project_id:   activeProjectId,
-      sort_order:   bundleRef.current.scenes.length,
-      ...scene,
-    };
-    const created = await adapterRef.current.upsertScene(row);
-    const finalRow = created || row;
-    if (projectVisitRef.current !== visit) return finalRow;
-    // De-duplicated by id: an undo can re-add a row that a parallel undo
-    // (ScenesView's un-awaited bulk delete) already brought back (round 2).
-    setBundle(prev => ({ ...prev, scenes: [...prev.scenes.filter(x => x.id !== finalRow.id), finalRow] }));
-    // Session 26: the entity's own folder. Audrey — five scenes means
-    // FIVE folders under SCENES/, not one shared one. Deliberately NOT
-    // awaited: the scene is already saved and in state, and a folder that
-    // cannot be written must not undo that. ensureEntityFolderFor warns
-    // and the next create or reload reconciles.
-    ensureEntityFolderFor('scene', finalRow);
-    let listId = null;
-    if (opts?.restoreItems) {
-      // The undo of a delete: memberships and task links are restored
-      // independently, so a failed membership never costs the task links.
-      try { await restoreMemberships(opts.restoreItems); } catch (err) {
-        console.warn('[rabbit] scene restored but a shot-list membership was not:', err?.message || err);
-      }
-      // FX2 (0096): the task items the delete took come back first; where
-      // the backend keeps items they ARE the tasks' links, so the old
-      // single-column restore would only re-write what they already say.
-      if (opts.restoreTaskItems) await restoreItemRows(opts.restoreTaskItems);
-      if (!taskItemsOnRef.current) await restoreTaskLinks('scene_id', finalRow.id, opts.restoreTaskLinks);
-    } else {
-      try {
-        listId = await addNewEntityToList('scene', finalRow, opts);
-      } catch (err) {
-        // D10 as ruled: a scene in no list shows on no other tab. Rather than
-        // leave one there by accident, take it back out and say why (round
-        // 2) — the person sees the error and nothing half-made.
-        try { await adapterRef.current.deleteScene(finalRow.id, activeProjectId); } catch { /* reported below */ }
-        setBundle(prev => ({ ...prev, scenes: prev.scenes.filter(x => x.id !== finalRow.id) }));
-        throw err;
-      }
-    }
-    pushHistory({
-      undoOps: [() => mutationsRef.current.deleteScene(finalRow.id)],
-      redoOps: [() => mutationsRef.current.addScene(finalRow, { listId })],
-    }, visit);
-    return finalRow;
-  }, [activeProjectId, ensureEntityFolderFor]);
-
-  const updateScene = useCallback(async (id, patch) => {
-    const oldScene = bundleRef.current.scenes.find(s => s.id === id);
-    const oldValues = {};
-    if (oldScene) {
-      for (const k of Object.keys(patch)) oldValues[k] = oldScene[k];
-    }
-    const result = await optimistic(
-      prev => ({ ...prev, scenes: prev.scenes.map(s => s.id === id ? { ...s, ...patch } : s) }),
-      () => adapterRef.current.upsertScene({ ...bundleRef.current.scenes.find(s => s.id === id), ...patch, id }),
-    );
-    // Session 26: a rename MOVES the folder — folderPaths.js records why
-    // that was chosen over keeping the slug and changing only the label.
-    // Only fires when the name actually rides in the patch; every other
-    // edit leaves the tree alone.
-    if (patch?.name !== undefined) {
-      ensureEntityFolderFor('scene', { ...oldScene, ...patch, id });
-    }
-    if (oldScene) {
-      pushHistory({
-        undoOps: [() => mutationsRef.current.updateScene(id, oldValues)],
-        redoOps: [() => mutationsRef.current.updateScene(id, patch)],
-      });
-    }
-    return result;
-  }, [optimistic, ensureEntityFolderFor]);
-
-  // S3a: deleting a scene deletes its SHOTS on every backend (0040's CASCADE
-  // in the cloud; the Local Server and the fixtures match it since review
-  // round 1), takes the scene and those shots out of EVERY list (0084's
-  // CASCADE; the Local Server's sweep) and un-links their tasks (SET NULL).
-  // State mirrors all of it, and the undo puts every piece back — the scene,
-  // each shot, every membership and every task link. Without the membership
-  // half an undone delete would come back outside the active list.
-  const deleteScene = useCallback(async (id) => {
-    const oldScene = bundleRef.current.scenes.find(s => s.id === id);
-    const childShots = (bundleRef.current.shots || []).filter(s => s.scene_id === id).map(s => ({ ...s }));
-    const childIds = new Set(childShots.map(s => s.id));
-    const items = bundleRef.current.shotListItems || [];
-    const tasks = bundleRef.current.tasks || [];
-    // FX2 (0096): the scene's and its shots' task items go with them (the
-    // CASCADE; the Local Server's sweep); the undo puts them back.
-    const namesGone = (i) => (i.entity_type === 'scene' && i.entity_id === id)
-      || (i.entity_type === 'shot' && childIds.has(i.entity_id));
-    const taskItemsGone = (bundleRef.current.taskItems || []).filter(namesGone).map(i => ({ ...i }));
-    const sceneItems = items.filter(i => i.scene_id === id).map(i => ({ ...i }));
-    // VW1m (2026-10-16): where the backend keeps items the task rows' single
-    // fields are the older apps' copy, which the backend writes and nothing
-    // here reads, so the delete leaves them alone (the items' sweep above is
-    // the whole change); where it keeps none, the fields ARE the links, nulled
-    // as before (0040's SET NULL) and put back by the undo.
-    const itemsKept = taskItemsOnRef.current;
-    const sceneTaskIds = tasks.filter(t => t.scene_id === id).map(t => t.id);
-    const shotRestore = childShots.map(sh => ({
-      shot: sh,
-      items: items.filter(i => i.shot_id === sh.id).map(i => ({ ...i })),
-      taskIds: tasks.filter(t => t.shot_id === sh.id).map(t => t.id),
-    }));
-    // VW1c (0098): the scene and its shots leave every grouping that names
-    // them (the sweep, on every backend: scenes and shots have no trash).
-    const groupingsGone = [
-      ...groupingsNaming(bundleRef.current.itemGroupings, 'scene', [id]),
-      ...groupingsNaming(bundleRef.current.itemGroupings, 'shot', [...childIds]),
-    ];
-    const result = await optimistic(
-      prev => ({
-        ...prev,
-        scenes: prev.scenes.filter(s => s.id !== id),
-        shots: prev.shots.filter(s => !childIds.has(s.id)),
-        shotListItems: (prev.shotListItems || []).filter(i => i.scene_id !== id && !childIds.has(i.shot_id)),
-        taskItems: (prev.taskItems || []).filter(i => !namesGone(i)),
-        itemGroupings: sweepGroupings(sweepGroupings(prev.itemGroupings || [], 'scene', [id]), 'shot', [...childIds]),
-        tasks: itemsKept ? prev.tasks : prev.tasks.map(t => {
-          if (t.scene_id !== id && !childIds.has(t.shot_id)) return t;
-          return {
-            ...t,
-            ...(t.scene_id === id ? { scene_id: null } : {}),
-            ...(childIds.has(t.shot_id) ? { shot_id: null } : {}),
-          };
-        }),
-      }),
-      () => adapterRef.current.deleteScene(id, activeProjectId),
-    );
-    if (oldScene) {
-      pushHistory({
-        undoOps: [
-          () => mutationsRef.current.addScene(oldScene, {
-            restoreItems: sceneItems, restoreTaskLinks: sceneTaskIds,
-            restoreTaskItems: taskItemsGone.filter(i => i.entity_type === 'scene'),
-          }),
-          ...shotRestore.map(r => () => mutationsRef.current.addShot(r.shot, {
-            restoreItems: r.items, restoreTaskLinks: r.taskIds,
-            restoreTaskItems: taskItemsGone.filter(i => i.entity_type === 'shot' && i.entity_id === r.shot.id),
-          })),
-          () => restoreGroupingsAfterDelete(groupingsGone),
-        ],
-        redoOps: [() => mutationsRef.current.deleteScene(id)],
-      });
-    }
-    return result;
-  }, [optimistic, activeProjectId]);
-
-  // ── Shots ──────────────────────────────────────────────
-  // S3a: the same list rules as addScene — see its comment.
-  const addShot = useCallback(async (shot, opts = {}) => {
-    if (!adapterRef.current) throw new Error('no adapter');
-    if (!activeProjectId)    throw new Error('no project');
-    // R2-07, as addScene.
-    const visit = projectVisitRef.current;
-    if (opts && Object.prototype.hasOwnProperty.call(opts, 'listId') && opts.listId) {
-      if (!findShotList(opts.listId)) await refreshShotListsNow().catch(() => null);
-      requireEditableShotList(opts.listId);
-    }
-    const row = {
-      id:           shot.id || uuidv4(),
-      project_id:   activeProjectId,
-      sort_order:   bundleRef.current.shots.length,
-      ...shot,
-    };
-    const created = await adapterRef.current.upsertShot(row);
-    const finalRow = created || row;
-    if (projectVisitRef.current !== visit) return finalRow;
-    // De-duplicated by id: an undo can re-add a row that a parallel undo
-    // (ScenesView's un-awaited bulk delete) already brought back (round 2).
-    setBundle(prev => ({ ...prev, shots: [...prev.shots.filter(x => x.id !== finalRow.id), finalRow] }));
-    // Session 26: the entity's own folder. Audrey — five scenes means
-    // FIVE folders under SCENES/, not one shared one. Deliberately NOT
-    // awaited: the shot is already saved and in state, and a folder that
-    // cannot be written must not undo that. ensureEntityFolderFor warns
-    // and the next create or reload reconciles.
-    ensureEntityFolderFor('shot', finalRow);
-    let listId = null;
-    if (opts?.restoreItems) {
-      try { await restoreMemberships(opts.restoreItems); } catch (err) {
-        console.warn('[rabbit] shot restored but a shot-list membership was not:', err?.message || err);
-      }
-      // FX2 (0096): as addScene — the items first, and they carry the links.
-      if (opts.restoreTaskItems) await restoreItemRows(opts.restoreTaskItems);
-      if (!taskItemsOnRef.current) await restoreTaskLinks('shot_id', finalRow.id, opts.restoreTaskLinks);
-    } else {
-      try {
-        listId = await addNewEntityToList('shot', finalRow, opts);
-      } catch (err) {
-        // See addScene: no shot is left in no list by accident.
-        try { await adapterRef.current.deleteShot(finalRow.id, activeProjectId); } catch { /* reported below */ }
-        setBundle(prev => ({ ...prev, shots: prev.shots.filter(x => x.id !== finalRow.id) }));
-        throw err;
-      }
-    }
-    pushHistory({
-      undoOps: [() => mutationsRef.current.deleteShot(finalRow.id)],
-      redoOps: [() => mutationsRef.current.addShot(finalRow, { listId })],
-    }, visit);
-    return finalRow;
-  }, [activeProjectId, ensureEntityFolderFor]);
-
-  const updateShot = useCallback(async (id, patch) => {
-    const oldShot = bundleRef.current.shots.find(s => s.id === id);
-    const oldValues = {};
-    if (oldShot) {
-      for (const k of Object.keys(patch)) oldValues[k] = oldShot[k];
-    }
-    const result = await optimistic(
-      prev => ({ ...prev, shots: prev.shots.map(s => s.id === id ? { ...s, ...patch } : s) }),
-      () => adapterRef.current.upsertShot({ ...bundleRef.current.shots.find(s => s.id === id), ...patch, id }),
-    );
-    // Session 26: a rename MOVES the folder — folderPaths.js records why
-    // that was chosen over keeping the slug and changing only the label.
-    // Only fires when the name actually rides in the patch; every other
-    // edit leaves the tree alone.
-    if (patch?.name !== undefined) {
-      ensureEntityFolderFor('shot', { ...oldShot, ...patch, id });
-    }
-    if (oldShot) {
-      pushHistory({
-        undoOps: [() => mutationsRef.current.updateShot(id, oldValues)],
-        redoOps: [() => mutationsRef.current.updateShot(id, patch)],
-      });
-    }
-    return result;
-  }, [optimistic, ensureEntityFolderFor]);
-
-  // S3a: the deleteScene rule, for a shot — out of every list, tasks un-linked,
-  // both restored by the undo.
-  const deleteShot = useCallback(async (id) => {
-    const oldShot = bundleRef.current.shots.find(s => s.id === id);
-    const removedItems = (bundleRef.current.shotListItems || []).filter(i => i.shot_id === id).map(i => ({ ...i }));
-    const linkedTaskIds = (bundleRef.current.tasks || []).filter(t => t.shot_id === id).map(t => t.id);
-    // FX2 (0096): the shot's task items go with it; the undo puts them back.
-    const taskItemsGone = (bundleRef.current.taskItems || [])
-      .filter(i => i.entity_type === 'shot' && i.entity_id === id).map(i => ({ ...i }));
-    // BC2 (BC1's Deferred): the shot's TAKES, before the delete. On the
-    // cloud they go with the shot (0091's shot_takes_shot_fk CASCADE); the
-    // Local Server keeps them as orphans. The undo puts them back through
-    // replaceShotTakes after the shot — exact on every backend, as
-    // removeBinFiles' undo does for a clip's takes.
-    const takesBefore = (bundleRef.current.shotTakes || []).filter(t => t.shot_id === id).map(t => ({ ...t }));
-    // VW1m (2026-10-16): as deleteScene, the raw shot_id is nulled only where
-    // the backend keeps no items (where it does, it is the older apps' copy).
-    const itemsKept = taskItemsOnRef.current;
-    // VW1c (0098): the shot leaves every grouping that names it (the sweep).
-    const groupingsGone = groupingsNaming(bundleRef.current.itemGroupings, 'shot', [id]);
-    const result = await optimistic(
-      prev => ({
-        ...prev,
-        shots: prev.shots.filter(s => s.id !== id),
-        shotListItems: (prev.shotListItems || []).filter(i => i.shot_id !== id),
-        tasks: itemsKept ? prev.tasks : prev.tasks.map(t => (t.shot_id === id ? { ...t, shot_id: null } : t)),
-        taskItems: (prev.taskItems || []).filter(i => !(i.entity_type === 'shot' && i.entity_id === id)),
-        itemGroupings: sweepGroupings(prev.itemGroupings || [], 'shot', [id]),
-      }),
-      () => adapterRef.current.deleteShot(id, activeProjectId),
-    );
-    if (oldShot) {
-      pushHistory({
-        undoOps: [async () => {
-          await mutationsRef.current.addShot(oldShot, { restoreItems: removedItems, restoreTaskLinks: linkedTaskIds, restoreTaskItems: taskItemsGone });
-          if (takesBefore.length) await mutationsRef.current.replaceShotTakes([id], takesBefore);
-          await restoreGroupingsAfterDelete(groupingsGone);
-        }],
-        redoOps: [() => mutationsRef.current.deleteShot(id)],
-      });
-    }
-    return result;
-  }, [optimistic, activeProjectId]);
-
-  // ── Levels ─────────────────────────────────────────────
-  const addLevel = useCallback(async (level) => {
-    if (!adapterRef.current) throw new Error('no adapter');
-    if (!activeProjectId)    throw new Error('no project');
-    const visit = projectVisitRef.current; // R2-07, as addAsset
-    const row = {
-      id:           level.id || uuidv4(),
-      project_id:   activeProjectId,
-      sort_order:   bundleRef.current.levels.length,
-      ...level,
-    };
-    const created = await adapterRef.current.upsertLevel(row);
-    const finalRow = created || row;
-    if (projectVisitRef.current !== visit) return finalRow;
-    setBundle(prev => ({ ...prev, levels: [...prev.levels, finalRow] }));
-    // Session 26: the entity's own folder. Audrey — five scenes means
-    // FIVE folders under SCENES/, not one shared one. Deliberately NOT
-    // awaited: the level is already saved and in state, and a folder that
-    // cannot be written must not undo that. ensureEntityFolderFor warns
-    // and the next create or reload reconciles.
-    ensureEntityFolderFor('level', finalRow);
-    pushHistory({
-      undoOps: [() => mutationsRef.current.deleteLevel(finalRow.id)],
-      redoOps: [() => mutationsRef.current.addLevel(finalRow)],
-    }, visit);
-    return finalRow;
-  }, [activeProjectId, ensureEntityFolderFor]);
-
-  const updateLevel = useCallback(async (id, patch) => {
-    const oldLevel = bundleRef.current.levels.find(l => l.id === id);
-    const oldValues = {};
-    if (oldLevel) {
-      for (const k of Object.keys(patch)) oldValues[k] = oldLevel[k];
-    }
-    const result = await optimistic(
-      prev => ({ ...prev, levels: prev.levels.map(l => l.id === id ? { ...l, ...patch } : l) }),
-      () => adapterRef.current.upsertLevel({ ...bundleRef.current.levels.find(l => l.id === id), ...patch, id }),
-    );
-    // Session 26: a rename MOVES the folder — folderPaths.js records why
-    // that was chosen over keeping the slug and changing only the label.
-    // Only fires when the name actually rides in the patch; every other
-    // edit leaves the tree alone.
-    if (patch?.name !== undefined) {
-      ensureEntityFolderFor('level', { ...oldLevel, ...patch, id });
-    }
-    if (oldLevel) {
-      pushHistory({
-        undoOps: [() => mutationsRef.current.updateLevel(id, oldValues)],
-        redoOps: [() => mutationsRef.current.updateLevel(id, patch)],
-      });
-    }
-    return result;
-  }, [optimistic, ensureEntityFolderFor]);
-
-  const deleteLevel = useCallback(async (id) => {
-    const oldLevel = bundleRef.current.levels.find(l => l.id === id);
-    // FX2 (0096): the level's task items go with it; the undo puts them back.
-    const taskItemsGone = (bundleRef.current.taskItems || [])
-      .filter(i => i.entity_type === 'level' && i.entity_id === id).map(i => ({ ...i }));
-    // VW1c (0098): the level leaves every grouping that names it (the sweep).
-    const groupingsGone = groupingsNaming(bundleRef.current.itemGroupings, 'level', [id]);
-    const result = await optimistic(
-      prev => ({
-        ...prev,
-        levels: prev.levels.filter(l => l.id !== id),
-        taskItems: (prev.taskItems || []).filter(i => !(i.entity_type === 'level' && i.entity_id === id)),
-        itemGroupings: sweepGroupings(prev.itemGroupings || [], 'level', [id]),
-      }),
-      () => adapterRef.current.deleteLevel(id, activeProjectId),
-    );
-    if (oldLevel) {
-      pushHistory({
-        undoOps: [async () => {
-          await mutationsRef.current.addLevel(oldLevel);
-          if (taskItemsOnRef.current) await restoreItemRows(taskItemsGone);
-          await restoreGroupingsAfterDelete(groupingsGone);
-        }],
-        redoOps: [() => mutationsRef.current.deleteLevel(id)],
-      });
-    }
-    return result;
-  }, [optimistic, activeProjectId]);
-
-  // ── Experiences ────────────────────────────────────────
-  const addExperience = useCallback(async (experience) => {
-    if (!adapterRef.current) throw new Error('no adapter');
-    if (!activeProjectId)    throw new Error('no project');
-    const visit = projectVisitRef.current; // R2-07, as addAsset
-    const row = {
-      id:           experience.id || uuidv4(),
-      project_id:   activeProjectId,
-      sort_order:   bundleRef.current.experiences.length,
-      ...experience,
-    };
-    const created = await adapterRef.current.upsertExperience(row);
-    const finalRow = created || row;
-    if (projectVisitRef.current !== visit) return finalRow;
-    setBundle(prev => ({ ...prev, experiences: [...prev.experiences, finalRow] }));
-    // Session 26: the entity's own folder. Audrey — five scenes means
-    // FIVE folders under SCENES/, not one shared one. Deliberately NOT
-    // awaited: the experience is already saved and in state, and a folder that
-    // cannot be written must not undo that. ensureEntityFolderFor warns
-    // and the next create or reload reconciles.
-    ensureEntityFolderFor('experience', finalRow);
-    pushHistory({
-      undoOps: [() => mutationsRef.current.deleteExperience(finalRow.id)],
-      redoOps: [() => mutationsRef.current.addExperience(finalRow)],
-    }, visit);
-    return finalRow;
-  }, [activeProjectId, ensureEntityFolderFor]);
-
-  const updateExperience = useCallback(async (id, patch) => {
-    const oldExperience = bundleRef.current.experiences.find(e => e.id === id);
-    const oldValues = {};
-    if (oldExperience) {
-      for (const k of Object.keys(patch)) oldValues[k] = oldExperience[k];
-    }
-    const result = await optimistic(
-      prev => ({ ...prev, experiences: prev.experiences.map(e => e.id === id ? { ...e, ...patch } : e) }),
-      () => adapterRef.current.upsertExperience({ ...bundleRef.current.experiences.find(e => e.id === id), ...patch, id }),
-    );
-    // Session 26: a rename MOVES the folder — folderPaths.js records why
-    // that was chosen over keeping the slug and changing only the label.
-    // Only fires when the name actually rides in the patch; every other
-    // edit leaves the tree alone.
-    if (patch?.name !== undefined) {
-      ensureEntityFolderFor('experience', { ...oldExperience, ...patch, id });
-    }
-    if (oldExperience) {
-      pushHistory({
-        undoOps: [() => mutationsRef.current.updateExperience(id, oldValues)],
-        redoOps: [() => mutationsRef.current.updateExperience(id, patch)],
-      });
-    }
-    return result;
-  }, [optimistic, ensureEntityFolderFor]);
-
-  const deleteExperience = useCallback(async (id) => {
-    const oldExperience = bundleRef.current.experiences.find(e => e.id === id);
-    // FX2 (0096): the experience's task items go with it; the undo puts them back.
-    const taskItemsGone = (bundleRef.current.taskItems || [])
-      .filter(i => i.entity_type === 'experience' && i.entity_id === id).map(i => ({ ...i }));
-    // VW1c (0098): the experience leaves every grouping that names it (the sweep).
-    const groupingsGone = groupingsNaming(bundleRef.current.itemGroupings, 'experience', [id]);
-    const result = await optimistic(
-      prev => ({
-        ...prev,
-        experiences: prev.experiences.filter(e => e.id !== id),
-        taskItems: (prev.taskItems || []).filter(i => !(i.entity_type === 'experience' && i.entity_id === id)),
-        itemGroupings: sweepGroupings(prev.itemGroupings || [], 'experience', [id]),
-      }),
-      () => adapterRef.current.deleteExperience(id, activeProjectId),
-    );
-    if (oldExperience) {
-      pushHistory({
-        undoOps: [async () => {
-          await mutationsRef.current.addExperience(oldExperience);
-          if (taskItemsOnRef.current) await restoreItemRows(taskItemsGone);
-          await restoreGroupingsAfterDelete(groupingsGone);
-        }],
-        redoOps: [() => mutationsRef.current.deleteExperience(id)],
-      });
-    }
-    return result;
-  }, [optimistic, activeProjectId]);
+  // The four 0040 entities' twelve writers, made once (state/entityMutators.js):
+  // eleven from one factory over each kind's spec, deleteScene by hand beside
+  // them (it takes another kind's rows: every shot of the scene in every
+  // list). Each keeps its name, its useCallback and the dependencies it
+  // always had, so a writer's identity changes exactly when it did (F4's
+  // render counts), and each reads what its body read from `entityEnv`, made
+  // here in render: every name in it is declared above or hoisted. A const
+  // declared below this line would be in its temporal dead zone on the first
+  // render, and a blank app bundles fine (see writeManifestSoon's note).
+  // The rules each keeps — the database's gate, the undo and its visit, the
+  // folder on an add and a rename, no live echo for these four kinds — are
+  // written at the top of that module.
+  const entityEnv = {
+    adapterRef, bundleRef, projectVisitRef, taskItemsOnRef, mutationsRef, activeProjectId,
+    setBundle, optimistic, ensureEntityFolderFor, pushHistory, newId: uuidv4,
+    findShotList, refreshShotListsNow, requireEditableShotList, addNewEntityToList,
+    restoreMemberships, restoreTaskLinks, restoreItemRows, restoreGroupingsAfterDelete,
+  };
+  const sceneFns = makeEntityMutators(ENTITY_SPECS.scene, entityEnv);
+  const shotFns = makeEntityMutators(ENTITY_SPECS.shot, entityEnv);
+  const levelFns = makeEntityMutators(ENTITY_SPECS.level, entityEnv);
+  const experienceFns = makeEntityMutators(ENTITY_SPECS.experience, entityEnv);
+  const addScene = useCallback(sceneFns.add, [activeProjectId, ensureEntityFolderFor]);
+  const updateScene = useCallback(sceneFns.update, [optimistic, ensureEntityFolderFor]);
+  const deleteScene = useCallback(makeDeleteScene(entityEnv), [optimistic, activeProjectId]);
+  const addShot = useCallback(shotFns.add, [activeProjectId, ensureEntityFolderFor]);
+  const updateShot = useCallback(shotFns.update, [optimistic, ensureEntityFolderFor]);
+  const deleteShot = useCallback(shotFns.remove, [optimistic, activeProjectId]);
+  const addLevel = useCallback(levelFns.add, [activeProjectId, ensureEntityFolderFor]);
+  const updateLevel = useCallback(levelFns.update, [optimistic, ensureEntityFolderFor]);
+  const deleteLevel = useCallback(levelFns.remove, [optimistic, activeProjectId]);
+  const addExperience = useCallback(experienceFns.add, [activeProjectId, ensureEntityFolderFor]);
+  const updateExperience = useCallback(experienceFns.update, [optimistic, ensureEntityFolderFor]);
+  const deleteExperience = useCallback(experienceFns.remove, [optimistic, activeProjectId]);
 
   // ── Milestones ──────────────────────────────────────────
   const addMilestone = useCallback(async (milestone) => {
