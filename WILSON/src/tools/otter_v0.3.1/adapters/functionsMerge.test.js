@@ -20,6 +20,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import {
   mergeFunctions, functionCategoryName, DOC_MERGERS, CR_DOC_MERGE, parseOtterRoute,
 } from './otterRoutes.js'
@@ -54,15 +55,19 @@ function extractFunction(source, name) {
   }
   throw new Error(`unbalanced braces extracting ${name}() from main.cjs`)
 }
-// eslint-disable-next-line no-new-func
-const SHIPPED_HELPER = new Function(`return ${extractFunction(MAIN_CJS, 'mergeFunctionsDoc')}`)()
+// F9 (B1): main.cjs's route merges through otterRoutes.js's own mergeFunctions,
+// generated into electron/rules/otterMerges.cjs (src/lib/electronRules.test.js
+// holds it current), where it kept a second copy (mergeFunctionsDoc) by hand.
+const SHIPPED_HELPER = createRequire(import.meta.url)('../../../../electron/rules/otterMerges.cjs').mergeFunctions
 
 /** A route body as a merge: the disk is a Map of JSON text, so a read is a
  *  parsed COPY and only what the route writes is kept, as on the desktop.
- *  The route's helper is handed in, lifted from the same file. */
+ *  The route's merge is handed in, as main.cjs requires it (the controls'
+ *  older bodies name it mergeFunctionsDoc). */
 function routeAsMerge(body, helper = SHIPPED_HELPER) {
   // eslint-disable-next-line no-new-func
-  const run = new Function('req', 'res', 'readJSON', 'writeJSON', 'path', 'getSoftwareDir', 'mergeFunctionsDoc', body)
+  const run0 = new Function('req', 'res', 'readJSON', 'writeJSON', 'path', 'getSoftwareDir', 'mergeFunctionsDoc', 'mergeFunctions', body)
+  const run = (...args) => run0(...args, args[args.length - 1])
   return (existing, incoming) => {
     const disk = new Map()
     const file = '/sw/python/_functions.json'
@@ -341,16 +346,19 @@ describe('the function library merge keys categories as the client writes them (
     expect(apart, JSON.stringify(apart, null, 1)).toEqual([])
   })
 
-  it('main.cjs defines the helper exactly once (a second, later definition would win at runtime and go unread here)', () => {
-    expect(MAIN_CJS.match(/function mergeFunctionsDoc\(/g)).toHaveLength(1)
+  it('main.cjs defines no merge of its own: the route merges through the module\'s (F9; was "exactly once")', () => {
+    // Retired by F9: this pinned that main.cjs's own mergeFunctionsDoc was
+    // defined once. It is gone; the route is handed the generated module's
+    // mergeFunctions, which the cases and the 600 documents above ran.
+    expect(MAIN_CJS).not.toMatch(/function mergeFunctionsDoc\(/)
+    expect(MAIN_CJS).toContain("const { mergeFunctions, mergeHotkeys } = require('./rules/otterMerges.cjs');")
   })
 
   it('CONTROL: the route reader lifts the shipped route, not a stale copy', () => {
     const shipped = extractRouteBody(MAIN_CJS, ROUTE_HEAD)
     expect(shipped).toMatch(/_functions\.json/)
-    expect(shipped, 'the route merges through its helper').toMatch(/mergeFunctionsDoc\(/)
+    expect(shipped, 'the route merges through the module\'s merge').toMatch(/mergeFunctions\(readJSON\(filePath/)
     expect(shipped).not.toMatch(/c\.name === inCat\.name/)
-    expect(extractFunction(MAIN_CJS, 'mergeFunctionsDoc')).toMatch(/^function mergeFunctionsDoc\(stored, incoming\) \{[\s\S]*return out;\s*\}$/)
     expect(() => extractRouteBody('nothing here', ROUTE_HEAD)).toThrow(/no longer registers/)
     expect(() => extractFunction('nothing here', 'mergeFunctionsDoc')).toThrow(/no longer defines/)
   })

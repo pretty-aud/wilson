@@ -24,16 +24,13 @@
 // And the bins' gate (rabbitBins.cjs): same-origin only, failing closed — the
 // page's own <img>, <video> and fetch carry `Sec-Fetch-Site: same-origin`; a
 // page on another local origin (another port is `same-site`) cannot forge it.
+//
+// F9 (A5): the gate's rule and the sending live in mediaSend.cjs, one each for
+// every route that answers with a file; isSameOriginRequest is re-exported
+// here, the same function, for networkShare.cjs and main.cjs's share mount.
 // =============================================================================
 
-/** True only for the renderer's own requests (failing closed). */
-function isSameOriginRequest(req) {
-  const site = req.headers['sec-fetch-site'];
-  if (site) return site === 'same-origin';
-  const origin = req.headers.origin;
-  const host = req.headers.host;
-  return !!origin && !!host && (origin === `http://${host}` || origin === `https://${host}`);
-}
+const { isSameOriginRequest, requireSameOrigin, sendMedia } = require('./mediaSend.cjs');
 
 /**
  * The download route's `?download=1`: an ATTACHMENT under the file's own name,
@@ -53,7 +50,7 @@ function mountFileStreamRead(expressApp, deps) {
     warn = (...args) => console.warn(...args),
   } = deps;
   expressApp.get('/api/rabbit/projects/:projectId/files/:id/stream', (req, res) => {
-    if (!isSameOriginRequest(req)) return res.status(403).json({ error: 'file streams answer WILSON only', code: 'cross_origin' });
+    if (!requireSameOrigin(req, res)) return;
     const bundle = readRabbitBundle(req.params.projectId);
     if (!bundle) return rabbitNotFound(res);
     const file = (bundle.files || []).find(f => f.id === req.params.id);
@@ -81,17 +78,11 @@ function mountFileStreamRead(expressApp, deps) {
         warn('file read not logged:', e?.message || e);
       }
     }
-    res.setHeader('Content-Type', safeMediaContentType(file.mime_type));
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    // `dotfiles: 'allow'` (review round 2, R2-SEC-05, measured): `send`
-    // refuses an absolute path through any dot-folder — a demo folder's
-    // `.wilson\rabbit-data` — and the read answered 500. Containment was
+    // sendMedia: the allowlisted type, nosniff, no-store (F9), Range, the
+    // cancel-tolerant callback and `dotfiles: 'allow'` (review round 2,
+    // R2-SEC-05: a demo folder's `.wilson\rabbit-data`). Containment was
     // decided above by resolveContainedFilePath.
-    res.sendFile(diskPath, { dotfiles: 'allow' }, (err) => {
-      if (!err) return;
-      if (res.headersSent || res.writableEnded) return;
-      res.status(500).json({ error: 'stream failed' });
-    });
+    sendMedia(res, diskPath, { mime: safeMediaContentType(file.mime_type), failText: 'stream failed' });
   });
 }
 

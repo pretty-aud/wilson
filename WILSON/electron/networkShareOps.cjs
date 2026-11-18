@@ -30,6 +30,7 @@ const crypto = require('node:crypto');
 const { classifySequence, SEQUENCE_EXTS } = require('./frameSequence.cjs');
 const { mimeForLeaf, contentDisposition } = require('./localMedia.cjs');
 const { attachWhenAsked } = require('./fileReads.cjs');
+const { sendMedia } = require('./mediaSend.cjs');
 const { copyVerified } = require('./copyInWorker.cjs');
 const { isShareRoot: isShareRootReal, personalOwnerOf, STALE_UPLOAD_MS } = require('./networkShare.cjs');
 
@@ -428,13 +429,10 @@ function mountNetworkShareOps(expressApp, {
     if (!found.ok) return found.code === 'unreachable' ? refuse(res, 503, 'unreachable', OFF) : refuse(res, 404, 'not_there', NOT_HERE);
     if (!found.stat.isFile()) return refuse(res, 404, 'not_there', NOT_HERE);
     const leaf = locator.split('/').pop();
-    res.setHeader('Content-Type', safeMediaContentType(mimeForLeaf(leaf)));
-    res.setHeader('X-Content-Type-Options', 'nosniff');
     attachWhenAsked(req, res, leaf, contentDisposition);
-    // A <video> aborts range requests on every seek, so an aborted send is the normal case here.
-    return res.sendFile(found.abs, { dotfiles: 'allow' }, (err) => {
-      if (err && !res.headersSent) res.status(err.statusCode || 500).end();
-    });
+    // sendMedia (F9): the allowlisted type, nosniff, no-store, Range, and an aborted send (a <video> aborts
+    // a range request on every seek) is the normal case; a failed read answers its status and no body.
+    return sendMedia(res, found.abs, { mime: safeMediaContentType(mimeForLeaf(leaf)), failText: null });
   });
 }
 

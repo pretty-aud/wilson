@@ -1905,7 +1905,9 @@ S4a's notes. Questions for Audrey are in walkthrough 52 §5, not here.
   included, fits the stage the bar and a refusal leave (review round 2,
   R2-UI-04, measured at 1280x700 and 1440x900). Owner: the kit
   (S4a-KR-1, "a lightbox-sized Dialog").
-- **S4a-06 · The thumbnail routes may answer 500 under a dot-folder.**
+- ~~**S4a-06 · The thumbnail routes may answer 500 under a dot-folder.**~~ **CLOSED by F9 (2026-11-18; `a273a7cc`),
+  MEASURED:** it was real, for all fourteen thumbnail sends (seven in `main.cjs`, seven in `rabbitBins.cjs`); F3-01 says
+  how it was shown and fixed. The original entry:
   S4a's review round 2 measured that `send` refuses an absolute path
   through any dot-folder (`dotfiles: 'ignore'`, its default). That broke
   the SPA fallback from a `.claude` worktree (fixed in `d3963c4`) and the
@@ -3864,7 +3866,12 @@ the way are recorded below. Nothing becomes a session unless she names it
 Found while keeping the desktop's project file in memory; outside the brief's
 list (`PLAN_TO_1_0.md` §5, rule 1), so recorded and left.
 
-- **F3-01 · In a demo folder every cached thumbnail answers 500.** MEASURED
+- ~~**F3-01 · In a demo folder every cached thumbnail answers 500.**~~ **CLOSED by F9 (2026-11-18; `a273a7cc`):** every
+  file the Local Server sends goes through `electron/mediaSend.cjs`'s `sendMedia`, which passes `dotfiles: 'allow'`
+  (containment is decided first by each route). Reproduced before the fix (main.cjs's shape and the real bins module, the
+  cache under `<folder>/.wilson/rabbit-data/thumbnails`: 500 "internal error", the bins' first and cached GET alike) and
+  served after it (200 with the JPEG for the asset, entity, managed-file and bin posters: `src/lib/mediaSend.test.js`,
+  `storage/posters.test.js`). Nothing of this entry remains. The original entry: MEASURED
   (a development build, the fixtures' project in a scratch demo folder): the
   asset thumbnail GET answered 500 fifteen times in fifteen, on the tip and on
   F3's build alike; on a userData root, 200. The thumbnail cache is under
@@ -5790,3 +5797,89 @@ From the design round and review round 1 (1A to 1E) and round 2; each left as fo
   reach the page's own boundary, not its sentence. None of the eleven files suspends today. LOW.
 - **F11-24 · A sent invite whose `onInvited` throws is shown as failed** (2A, INFERRED): Retry failed invites an
   existing member again. LOW.
+
+## F9 (2026-11-18, wave 3 of `docs/sessions/PLAN_WEEK_2026-11-04.md`) — left open
+
+The desktop's twins (`po/f9-desktop-twins`; brief `docs/sessions/briefs/po-f9-desktop-twins.md`): one media sender, one
+project-folder resolver, one poster maker, the rules written once (desktop-build A5, A1, A2, B1). What each finding has
+left, what F9 met outside its list, and what its review rounds recorded. None is fixed unless it says so.
+
+- **F9-01 · The bins' posters keep `send`'s `public, max-age=0`; everything else the desktop sends is `no-store`.**
+  `rabbitBins.routes.test.js:487` pins that a bin poster is NOT no-store (the control beside the stream's assertion), and
+  the bins' tests stay unedited this session, so the seven bin and cloud-bin poster sends pass `cache: 'revalidate'`
+  (`mediaSend.cjs`, REVALIDATE). `rabbitBins.cjs` also keeps its own `isSameOrigin`, the same rule as
+  `mediaSend.cjs`'s `isSameOriginRequest`. Fix shape: drop the option for them and retire that control; require the one
+  rule. TPN-CONT-003's class. LOW.
+- **F9-02 · A name with nothing to slug made a project's folder the storage root, and an asset's folder ASSETS itself:
+  CLOSED for new rows by F9 (`b1b1510a`, round 1's fix), MEASURED** (`storage/projectFolders.test.js`, on the tip): a
+  project titled 東京 was created with `folder_root` = the configured root and bare `_DATABASES` and `_FILES` there; both
+  resolvers answered the root for a null or empty slug; deleting an asset named 東京 moved every asset's folder to
+  `.trash`. `projectSlugOf` and `assetSlugOf` never answer an empty slug — the fallback names the row,
+  `Untitled-Project-<id8>` and `Untitled-Asset-<id8>`, so two such rows never share a folder — and `folderRootRefusal`
+  refuses the folder every project sits in. **What remains:** (a) a project ALREADY stored with `folder_root` equal to
+  the configured root keeps it (a stored root that exists is honoured), so its copy fence still reaches every project's
+  folder and its sub-folders sit in the root; a repair gives it its own folder and moves its files, which is hers to
+  rule. MEDIUM, security-adjacent. (b) An asset stored with `folder_slug: ''` keeps its bodies directly in `ASSETS/`
+  (their records' `folder_path` `ASSETS//` still resolves them); its asset folder is now its own fallback. (c) A stored
+  asset slug that is one plain segment is trusted as it is (the import route stores a folder's own name). LOW.
+- **F9-03 · Five lines keep the project slug's rule in their own words.** `reconcileRabbitBundle`,
+  `rebaseGoneFolderRoot`, `mirrorProjectDatabases`, `planProjectFolderList` and the managed-files POST (with its
+  `'Untitled-Asset'`): other tests lift them from `main.cjs` with fixed lists of names (`jsonFile.test.js`,
+  `setAsideDesktop.test.js`, the folder planner's, `desktopShotRefiling.test.js`). On a reconciled bundle each answers
+  as `projectSlugOf`. Fold them when those tests serve the routes instead. LOW.
+- **F9-04 · The four thumbnail channels could go once the GET alone suffices.** `rabbit:generate-*-thumbnail` and
+  `rabbit:clear-*-thumbnail` are kept, thin (F10's views call them this week). Fix shape: key the asset and entity
+  posters by source path and mtime (as the bins' `thumbKeyFor`), so a new picture is a new key; then the views stop
+  clearing and generating. Also: the generate channels transcode any image path the page names (no
+  `thumbnailSourceAllowed`), and the id-keyed GETs serve the cache before re-reading the source (TPN-CONT-004). And the
+  ffmpeg arm (`generateVideoThumbOnce`, moved verbatim) is outside the poster turn order: a run that fails after a
+  renderer-decoded frame was accepted unlinks it (a narrow race, as before). F12's to weigh. LOW.
+- **F9-05 · Two rule twins stay hand-written, and a few helpers with them.** `main.cjs`'s folder rules
+  (`FOLDER_CATEGORIES` and the maps, `slugOrFallback`, `planProjectFolderList`, `planEntityFolderFor`,
+  `pendingShotRefilingFor`, `fileSlugify`): `projectFileStream.test.js`, `desktopShotRefiling.test.js` and
+  `folderParity.test.js` lift them by source text, and the module's planners have another shape (`ENTITY_FK_COLUMN`
+  against `fk` and `entityId`). `VIDEO_EXTENSIONS`: bundling `storage/videoThumbnails.js` drags `storage/index.js` in.
+  With no parity test: `rabbitTableViews.cjs`'s `isPlainObject`, `byText` and `SAFE_ID` and `rabbitTaskItems.cjs`'s
+  `idOrNull` (exporting them from the models is a rule-module edit). And `esbuild` is Vite's, not a declared
+  dependency: a lockfile that moves it can turn the five generated files stale with no rule changed (the check fails
+  closed; `npm run build:rules` fixes it). LOW.
+- **F9-06 · Local media's same-origin gate is opt-in.** `mountLocalMedia`'s `sameOriginOnly` (main passes
+  `requireSameOrigin`; `localMedia.test.js` calls the routes bare): a mount that omits it fails open. Its PUT, DELETE,
+  move and retire are ungated (behind the launch token). LOW.
+- **F9-07 · The managed-file poster POST writes to disk with no same-origin gate** (the bins' acceptors have one,
+  router-level). Behind the launch token; the only caller is the renderer's `localFetch`. LOW.
+- **F9-08 · `rabbit:open-in-explorer` reveals any path the page names, and `rabbit:get-file-stats` stats any path** (an
+  existence and size probe). The renderer helper stops four copies of the path drifting; it does not narrow the
+  channels (B5 is F12's). LOW.
+- **F9-09 · `main.cjs`'s `fileSlugify` throws on a non-string** (a number in a body answers 500 where it is called
+  bare); `projectSlugOf` and `assetSlugOf` wrap it. LOW.
+- **F9-10 · A poster's part, left by a crash between its write and its rename, is never swept**
+  (`<poster>.<pid>.<random>.part`, one poster's bytes each; the one shared `.part` was overwritten by the next write).
+  Fix shape: delete stale parts in the cache at start-up. LOW.
+- **F9-11 · An asset rename whose folder move fails still rewrites its managed files' `folder_path`** (the move's error
+  is logged and the records follow regardless). Older than F9. LOW.
+- **F9-12 · Every asset and entity poster now asks the server again on each remount** (`no-store`, where they said
+  `public, max-age=60`): one kept-bundle read and one JPEG each, 3.7 ms a request as F3 measured. Wanted by
+  TPN-CONT-003; NOTE.
+- **F9-13 · Flaky under a full run, fine alone:** `gateway/test/platform.test.mjs` (a 5 s PowerShell timeout; it failed
+  in the baseline too) and `src/cloud/edgeStorage.test.js` (once: a timeout and an HMAC count). NOTE.
+- **F9-14 · Rows made before F9 with a name that slugs to nothing keep the shared fallback.** The reconcile and the rebase
+  (kept in their words, F9-03) store `Untitled-Project` for a stored slug of `''`, the same for every such project, and
+  never fill a `null` slug; where such a project's stored root is unusable they meet in one `<root>/Untitled-Project`.
+  For a `null` slug the renderer's `folderPaths.projectFolderSlug` says `Untitled-Project` and main's `projectSlugOf`
+  `Untitled-Project-<id8>`, so the copy fence refuses its uploads (safe, but a regression for that shape;
+  `projectDiskPath.js`'s "never empty there" holds only for a filled slug). Fix shape: the reconcile stores
+  `projectSlugOf(project)` when the slug is null or empty, with the lifting tests handed that name. Review round 2. LOW.
+- **F9-15 · The managed-files POST still slugs an asset in its own words** (lifted, F9-03): for a legacy asset whose
+  stored slug is `''` or not a plain segment its records say `ASSETS//` (or `ASSETS/./`) while the rename and delete use
+  `assetSlugOf`; and an upsert POST that names an asset and brings no slug overwrites an imported asset's stored slug
+  (`Hero.v2` → `Hero-V2`), older than F9. `plainSegment` also refuses `:` and `\` on every platform, legal folder-name
+  characters on macOS and Linux (the desktop ships for Windows). Review round 2. LOW.
+- **F9-16 · Two projects whose titles slug the same share `<root>/<Slug>`** (two "Demo"s): the create route only makes the
+  folder when it is not there. Older than F9 and far commoner than F9-02's case; the same fix shape (a suffix when the
+  folder belongs to another bundle). Review round 2. LOW.
+- **F9-17 · The poster deadline's clock and its neighbours.** The 30 s counts time queued behind other encodes, so a
+  very large still on a slow share can now fail where it used to succeed (remembered two minutes per source, then
+  asked again); a bin poster's POSTER_TIMEOUT falls through to the ffmpeg arm on the same source; `keyOf`'s per-platform
+  case rule has no test; `electronRules.test.js`'s re-declaration regex misses nested destructuring, parameters,
+  generators and a second declarator. Review round 2. LOW.

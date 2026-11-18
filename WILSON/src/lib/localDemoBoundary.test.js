@@ -147,11 +147,17 @@ describe('main.cjs — every round-two seam reaches its module (source scan)', (
   it('H2: the thumbnail cache paths are contained in the routes AND the IPC twins; the source image must be under a folder the person chose', () => {
     expect(MAIN).not.toMatch(/path\.join\(thumbDir, `/)
     expect(MAIN).not.toMatch(/path\.join\(getThumbCacheDir\(\), `/)
-    expect(MAIN).toContain("dataFileOrThrow(getThumbCacheDir(), `asset-${asset.id}`, '.jpg', 'asset')")
-    expect(MAIN).toContain("dataFileOrThrow(getThumbCacheDir(), `${singular}-${entity.id}`, '.jpg', singular)")
+    // F9: the routes are posters.cjs's (served in storage/posters.test.js),
+    // mounted with main's dataFileOrThrow and thumbnailSourceAllowed; the IPC
+    // twins stay in main.cjs.
+    const POSTERS = readFileSync(fileURLToPath(new URL('../../electron/posters.cjs', import.meta.url)), 'utf8')
+    expect(POSTERS).not.toMatch(/path\.join\(getThumbCacheDir\(\), `/)
+    expect(POSTERS).toContain("dataFileOrThrow(getThumbCacheDir(), `asset-${asset.id}`, '.jpg', 'asset')")
+    expect(POSTERS).toContain("dataFileOrThrow(getThumbCacheDir(), `${singular}-${entity.id}`, '.jpg', singular)")
     expect((MAIN.match(/dataFileOrThrow\(getThumbCacheDir\(\), `asset-\$\{assetId\}`, '\.jpg', 'asset'\)/g) || []).length).toBe(2)
     expect((MAIN.match(/dataFileOrThrow\(getThumbCacheDir\(\), `\$\{entityThumbKind\(entityType\)\}-\$\{entityId\}`, '\.jpg', 'entity'\)/g) || []).length).toBe(2)
-    expect((MAIN.match(/if \(!thumbnailSourceAllowed\(bundle, req\.params\.projectId, srcPath\)\) return res\.status\(403\)/g) || []).length).toBe(2)
+    expect((POSTERS.match(/if \(!thumbnailSourceAllowed\(bundle, req\.params\.projectId, srcPath\)\) return res\.status\(403\)/g) || []).length).toBe(2)
+    expect(MAIN).toMatch(/mountPosterRoutes\(expressApp, \{[^}]*dataFileOrThrow,[^}]*thumbnailSourceAllowed,/)
     // the picked picture itself counts (the renderer stores the path before it
     // generates the cache, so the first <img> request lands between the two)
     const helper = MAIN.slice(MAIN.indexOf('function thumbnailSourceAllowed('), MAIN.indexOf('function thumbnailSourceAllowed(') + 400)
@@ -161,8 +167,12 @@ describe('main.cjs — every round-two seam reaches its module (source scan)', (
     expect(pick).toContain('userAuthorizedImages.add(path.resolve(result.filePaths[0]).toLowerCase())')
   })
   it('H3: both project-folder resolvers and the relink roots consult storedRootUsable (real path, inside the open folder)', () => {
-    expect(MAIN).toContain('if (root && fs.existsSync(root) && storedRootUsable(root)) return root;')
-    expect(MAIN).toContain('if (projectRoot && fs.existsSync(projectRoot) && storedRootUsable(projectRoot)) return projectRoot;')
+    // F9: the two resolvers are bindings of the one in projectFolders.cjs,
+    // made with main's storedRootUsable (a stored root that is not usable is
+    // served in storage/projectFolders.test.js).
+    const FOLDERS = readFileSync(fileURLToPath(new URL('../../electron/projectFolders.cjs', import.meta.url)), 'utf8')
+    expect(FOLDERS).toContain('if (stored && fs.existsSync(stored) && storedRootUsable(stored)) return stored;')
+    expect(MAIN).toMatch(/createProjectFolders\(\{[^}]*storedRootUsable, resolveConfiguredRootDir,/)
     expect(MAIN).toContain('const fd = bundle.project?.files_dir; if (fd && storedRootUsable(fd)) roots.push(fd);')
     const fn = MAIN.slice(MAIN.indexOf('function storedRootUsable('), MAIN.indexOf('function storedRootUsable(') + 400)
     expect(fn).toContain('fs.realpathSync.native(root)')

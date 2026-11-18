@@ -47,33 +47,33 @@ const { classifySequence, SEQUENCE_EXTS: SEQUENCE_EXT_LIST } = require('./frameS
 const ffmpeg = require('./ffmpeg.cjs');
 const { resolveContainedFilePath } = require('./pathContainment.cjs');
 const { refuseToOpen } = require('./openPath.cjs');
+// F9 (A5): every byte these routes answer with goes through the one sender.
+// A poster is sent as before but for `send`'s own revalidating Cache-Control
+// (REVALIDATE: rabbitBins.routes.test.js pins that a poster is not no-store;
+// OUTSTANDING F9-01) — and now through a dot-folder too, so a poster in a
+// demo folder's `.wilson\rabbit-data\thumbnails` answers 200 (F3-01).
+const { sendMedia, REVALIDATE } = require('./mediaSend.cjs');
+const POSTER = Object.freeze({ mime: 'image/jpeg', cache: REVALIDATE });
+// F9 (A2): the one poster maker and acceptor, this module's own hardened copy
+// made general (posters.cjs) — so main.cjs's posters and the cloud bins' have
+// it too, and all of them share one in-flight map per process.
+const posters = require('./posters.cjs');
+const BIN_POSTER = Object.freeze({ edge: 256, quality: 80, fit: 'inside' });
 
 // ── Media tables ──────────────────────────────────────────────────────────────
-// The renderer carries the same tables in src/tools/rabbit_v0.1.0/bins/binMedia.js
-// and binMedia.test.js asserts the two agree (the S40 pattern for
-// VIDEO_EXTENSIONS: ESM in one process, CJS in another, agreement by test).
-const VIDEO_EXTS = new Set([
-  '.mp4', '.m4v', '.mov', '.webm', '.mkv', '.avi', '.wmv', '.flv', '.mpg',
-  '.mpeg', '.m2v', '.mts', '.m2ts',
-  '.mxf', '.r3d', '.ari', '.arri', '.braw', '.dnx', '.dnxhd', '.dnxhr',
-]);
-const STILL_EXTS = new Set([
-  '.jpg', '.jpeg', '.png', '.gif', '.webp', '.tiff', '.tif', '.bmp', '.avif', '.heic', '.heif',
-]);
-const AUDIO_EXTS = new Set(['.wav', '.bwf', '.aif', '.aiff', '.mp3', '.flac', '.m4a', '.ogg', '.aac', '.wma']);
-const GRAPHIC_EXTS = new Set(['.psd', '.psb', '.ai', '.svg', '.eps', '.indd', '.afdesign', '.sketch', '.fig']);
-const VFX_EXTS = new Set(['.exr', '.dpx', '.tga', '.hdr', '.cin']);
-const DOC_EXTS = new Set(['.pdf', '.txt', '.md', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.rtf', '.pages', '.numbers']);
-// A folder whose files all share a prefix and a frame number is ONE item.
+// src/tools/rabbit_v0.1.0/bins/binMedia.js's own, GENERATED (F9, B1) into
+// electron/rules/binMedia.cjs by scripts/build-electron-rules.mjs — no longer
+// copied here by hand (src/lib/electronRules.test.js fails while it is stale;
+// npm run build:rules): the extension sets, the type, flag, colour and kind
+// lists, and guessMediaType. BROWSER_VIDEO_EXTS: what Chromium decodes
+// natively — the only ones the stream route can PLAY (as opposed to serve).
+const {
+  VIDEO_EXTS, STILL_EXTS, AUDIO_EXTS, GRAPHIC_EXTS, VFX_EXTS, DOC_EXTS, BROWSER_VIDEO_EXTS,
+  MEDIA_TYPES, REVIEW_FLAGS, COLORS, BIN_KINDS, guessMediaType,
+} = require('./rules/binMedia.cjs');
+// A folder whose files all share a prefix and a frame number is ONE item
+// (frameSequence.cjs's list; this file's own).
 const SEQUENCE_EXTS = new Set(SEQUENCE_EXT_LIST);
-// Chromium decodes these natively — the only ones the stream route can PLAY
-// (as opposed to serve); the renderer decides the notice, this decides nothing.
-const BROWSER_VIDEO_EXTS = new Set(['.mp4', '.m4v', '.webm']);
-
-const MEDIA_TYPES = ['video', 'still', 'sequence', 'audio', 'graphic', 'vfx', 'document', 'other'];
-const REVIEW_FLAGS = ['unflagged', 'select', 'reject'];
-const COLORS = ['red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'purple', 'pink'];
-const BIN_KINDS = ['footage', 'audio', 'stills', 'graphics', 'vfx', 'selects', 'other'];
 
 const MIME_BY_EXT = {
   '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm',
@@ -89,19 +89,11 @@ const MIME_BY_EXT = {
   '.aac': 'audio/aac', '.pdf': 'application/pdf', '.txt': 'text/plain', '.csv': 'text/csv',
 };
 
+// This file's own: path.extname, so `.bashrc` has no extension here, where the
+// renderer's extOf (lastIndexOf('.')) reads one — the two are not the same rule.
 function extOf(name) {
   const e = path.extname(String(name || '')).toLowerCase();
   return /^\.[a-z0-9]{1,12}$/.test(e) ? e : '';
-}
-function guessMediaType(ext) {
-  const e = String(ext || '').toLowerCase();
-  if (VIDEO_EXTS.has(e)) return 'video';
-  if (STILL_EXTS.has(e)) return 'still';
-  if (AUDIO_EXTS.has(e)) return 'audio';
-  if (VFX_EXTS.has(e)) return 'vfx';
-  if (GRAPHIC_EXTS.has(e)) return 'graphic';
-  if (DOC_EXTS.has(e)) return 'document';
-  return 'other';
 }
 function guessMime(ext) { return MIME_BY_EXT[String(ext || '').toLowerCase()] || null; }
 
@@ -923,22 +915,11 @@ function mountRabbitBins(expressApp, deps) {
   function posterMtime(row) {
     try { return fs.statSync(row.source_path).mtime.toISOString(); } catch { return row.mtime || ''; }
   }
-  // A poster is written to `<key>.part` and renamed into place, and one
-  // generation per key runs at a time (review round 2: two tiles asking for
-  // the same still raced on one write, and a torn file would then have been
-  // served for ever because the GET serves on existence alone).
-  const posterInFlight = new Map();
-  function writePosterAtomically(thumbPath, buf) {
-    const part = thumbPath + '.part';
-    fs.writeFileSync(part, buf);
-    fs.renameSync(part, thumbPath);
-  }
-  function posterOnce(thumbPath, make) {
-    if (posterInFlight.has(thumbPath)) return posterInFlight.get(thumbPath);
-    const p = Promise.resolve().then(make).finally(() => posterInFlight.delete(thumbPath));
-    posterInFlight.set(thumbPath, p);
-    return p;
-  }
+  // A poster is written whole to a part of its own and renamed into place,
+  // and one write per key runs at a time (review round 2: two tiles asking
+  // for the same still raced on one write, and a torn file would then have
+  // been served for ever because the GET serves on existence alone). Since F9
+  // that is posters.cjs's makePoster and putPoster, shared with main.cjs.
 
   expressApp.get(`${P}/bin-files/:id/thumbnail`, async (req, res) => {
     const bundle = load(req, res); if (!bundle) return;
@@ -946,7 +927,7 @@ function mountRabbitBins(expressApp, deps) {
     if (!row) return rabbitNotFound(res, 'bin-file');
     const thumbPath = resolveContainedFilePath(getThumbCacheDir(), thumbKeyFor(row.source_path, posterMtime(row)));
     if (!thumbPath) return res.status(400).json({ error: 'invalid thumbnail path' });
-    if (exists(thumbPath)) { res.setHeader('Content-Type', 'image/jpeg'); return res.sendFile(thumbPath); }
+    if (exists(thumbPath)) return sendMedia(res, thumbPath, POSTER);
     if (!(row.is_sequence ? isDir(row.source_path) : isFile(row.source_path))) {
       return res.status(410).json({ error: 'file missing on disk', code: 'offline' });
     }
@@ -959,18 +940,12 @@ function mountRabbitBins(expressApp, deps) {
     const stillLike = STILL_EXTS.has(row.extension) && !row.is_sequence;
     if (stillLike || (row.is_sequence && ['.png', '.jpg', '.jpeg', '.tif', '.tiff'].includes(row.extension))) {
       try {
-        const sharp = require('sharp');
         // Through a buffer and Node's fs, not libvips's own writer: libvips
         // cannot open a path past MAX_PATH on Windows (measured, review round
         // 2: a 268-character cache path answered "unable to open for write"
-        // while the same source read fine), Node's fs can.
-        await posterOnce(thumbPath, async () => {
-          if (exists(thumbPath)) return;
-          const buf = await sharp(source).resize(256, 256, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer();
-          writePosterAtomically(thumbPath, buf);
-        });
-        res.setHeader('Content-Type', 'image/jpeg');
-        return res.sendFile(thumbPath);
+        // while the same source read fine), Node's fs can (posters.cjs).
+        await posters.makePoster({ src: source, dest: thumbPath, ...BIN_POSTER });
+        return sendMedia(res, thumbPath, POSTER);
       } catch (err) {
         if (!ffmpeg.hasFfmpeg()) return res.status(422).json({ error: 'could not read the image', code: 'undecodable' });
       }
@@ -981,8 +956,7 @@ function mountRabbitBins(expressApp, deps) {
     try {
       const out = await generateVideoThumbOnce(source, thumbPath);
       if (!out.ok) return res.status(422).json({ error: 'could not decode a frame', code: out.reason || 'no_frame' });
-      res.setHeader('Content-Type', 'image/jpeg');
-      return res.sendFile(thumbPath);
+      return sendMedia(res, thumbPath, POSTER);
     } catch (err) {
       console.error('bin thumbnail failed:', err?.message || err);
       return res.status(500).json({ error: 'thumbnail generation failed' });
@@ -992,19 +966,15 @@ function mountRabbitBins(expressApp, deps) {
   // The renderer decoded a frame itself (no ffmpeg): same narrowing as the
   // managed-files route — row must exist, JPEG magic number, size cap, path
   // contained under the cache dir.
-  expressApp.post(`${P}/bin-files/:id/thumbnail`, (req, res) => {
+  expressApp.post(`${P}/bin-files/:id/thumbnail`, async (req, res) => {
     const bundle = load(req, res); if (!bundle) return;
     const row = bundle.binFiles.find(f => f.id === req.params.id);
     if (!row) return rabbitNotFound(res, 'bin-file');
-    const { base64 } = req.body || {};
-    if (!base64) return res.status(400).json({ error: 'base64 required' });
-    let buf; try { buf = Buffer.from(base64, 'base64'); } catch { buf = null; }
-    if (!buf || buf.length === 0) return res.status(400).json({ error: 'unreadable body' });
-    if (buf.length > 262144) return res.status(413).json({ error: 'thumbnail too large' });
-    if (!(buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff)) return res.status(415).json({ error: 'not a JPEG' });
+    const accepted = posters.acceptPoster(req.body?.base64);
+    if (!accepted.ok) return res.status(accepted.status).json({ error: accepted.error });
     const thumbPath = resolveContainedFilePath(getThumbCacheDir(), thumbKeyFor(row.source_path, posterMtime(row)));
     if (!thumbPath) return res.status(400).json({ error: 'invalid thumbnail path' });
-    try { writePosterAtomically(thumbPath, buf); } catch (err) { return res.status(500).json({ error: 'thumbnail write failed' }); }
+    try { await posters.putPoster(thumbPath, accepted.buf); } catch (err) { return res.status(500).json({ error: 'thumbnail write failed' }); }
     res.json({ ok: true });
   });
 
@@ -1022,19 +992,13 @@ function mountRabbitBins(expressApp, deps) {
       abs = seq.middle_frame_path;
     }
     if (!isFile(abs)) return res.status(410).json({ error: 'file missing on disk', code: 'offline' });
-    res.setHeader('Content-Type', safeMediaContentType(row.is_sequence ? guessMime(extOf(abs)) : (row.mime_type || guessMime(row.extension))));
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    // P8 (TPN-CONT-019): footage never lands in the window's HTTP cache.
-    // `cacheControl: false` only keeps send from writing its own header; a
-    // Cache-Control set here survives it (send sets one only when none is
-    // set), so these two are the gateway's BASE_HEADERS on the desktop's own
-    // streams.
-    res.setHeader('Cache-Control', 'no-store');
-    res.setHeader('Pragma', 'no-cache');
-    res.sendFile(path.resolve(abs), { acceptRanges: true, dotfiles: 'allow', cacheControl: false }, (err) => {
-      if (!err) return;
-      if (err.code === 'ECONNABORTED' || err.code === 'EPIPE' || res.headersSent) return;
-      res.status(err.status || 500).json({ error: 'could not read the file' });
+    // P8 (TPN-CONT-019): footage never lands in the window's HTTP cache —
+    // sendMedia's no-store and Pragma, the gateway's BASE_HEADERS on the
+    // desktop's own streams, with the allowlisted type, nosniff, Range and
+    // the cancel-tolerant callback (F9: this route's own copy, made general).
+    sendMedia(res, abs, {
+      mime: safeMediaContentType(row.is_sequence ? guessMime(extOf(abs)) : (row.mime_type || guessMime(row.extension))),
+      failText: 'could not read the file',
     });
   });
 
@@ -2106,15 +2070,11 @@ function mountCloudBins(expressApp, deps) {
     if (!abs) return res.status(403).json({ error: 'the file is not inside a registered footage location', code: 'unauthorized_location' });
     const isSeq = req.body?.is_sequence === true;
     if (!(await hereNow(req.body)) || !(await statKind(abs, isSeq ? 'dir' : 'file'))) return res.status(410).json({ error: 'file missing on this computer', code: 'offline' });
-    const base64 = req.body?.base64;
-    if (!base64 || typeof base64 !== 'string') return res.status(400).json({ error: 'base64 required' });
-    let buf; try { buf = Buffer.from(base64, 'base64'); } catch { buf = null; }
-    if (!buf || buf.length === 0) return res.status(400).json({ error: 'unreadable body' });
-    if (buf.length > 262144) return res.status(413).json({ error: 'thumbnail too large' });
-    if (!(buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff)) return res.status(415).json({ error: 'not a JPEG' });
+    const accepted = posters.acceptPoster(req.body?.base64);
+    if (!accepted.ok) return res.status(accepted.status).json({ error: accepted.error });
     const { thumbPath } = await cloudPosterKey(abs, isSeq, req.body?.mtime);
     if (!thumbPath) return res.status(400).json({ error: 'invalid thumbnail path' });
-    try { fs.writeFileSync(thumbPath + '.part', buf); fs.renameSync(thumbPath + '.part', thumbPath); }
+    try { await posters.putPoster(thumbPath, accepted.buf); }
     catch { return res.status(500).json({ error: 'thumbnail write failed' }); }
     res.json({ ok: true });
   });
@@ -2130,7 +2090,7 @@ function mountCloudBins(expressApp, deps) {
       // route finds an offline row's. Nothing is made while it is out.
       const stored = keyTime(req.query?.mtime);
       const cached = stored ? resolveContainedFilePath(getThumbCacheDir(), thumbKeyFor(abs, stored)) : null;
-      if (cached && fs.existsSync(cached)) { res.setHeader('Content-Type', 'image/jpeg'); return res.sendFile(cached); }
+      if (cached && fs.existsSync(cached)) return sendMedia(res, cached, POSTER);
       return res.status(410).json({ error: 'file missing on this computer', code: 'offline' });
     }
     const ext = extOf(abs);
@@ -2141,20 +2101,17 @@ function mountCloudBins(expressApp, deps) {
     let { seq, thumbPath, gone } = await cloudPosterKey(abs, isSeq, req.query?.mtime);
     if (gone) return res.status(422).json({ error: 'not a sequence any more', code: 'no_frame' });
     if (!thumbPath) return res.status(400).json({ error: 'invalid thumbnail path' });
-    if (fs.existsSync(thumbPath)) { res.setHeader('Content-Type', 'image/jpeg'); return res.sendFile(thumbPath); }
+    if (fs.existsSync(thumbPath)) return sendMedia(res, thumbPath, POSTER);
     // A miss: only now is a sequence's folder read, to make its poster.
     if (isSeq && !seq) { seq = detectSequence(abs); if (!seq) return res.status(422).json({ error: 'not a sequence any more', code: 'no_frame' }); }
     const source = isSeq ? seq.middle_frame_path : abs;
     const stillLike = STILL_EXTS.has(ext) && !isSeq;
     if (stillLike || (isSeq && ['.png', '.jpg', '.jpeg', '.tif', '.tiff'].includes(extOf(source)))) {
       try {
-        const sharp = require('sharp');
-        const buf = await sharp(source).resize(256, 256, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer();
-        const part = thumbPath + '.part';
-        fs.writeFileSync(part, buf);
-        fs.renameSync(part, thumbPath);
-        res.setHeader('Content-Type', 'image/jpeg');
-        return res.sendFile(thumbPath);
+        // F9: the signed-out route's maker, so this route gains its single
+        // flight (two tiles asking for one clip's poster write once).
+        await posters.makePoster({ src: source, dest: thumbPath, ...BIN_POSTER });
+        return sendMedia(res, thumbPath, POSTER);
       } catch (err) {
         if (!ffmpeg.hasFfmpeg()) return res.status(422).json({ error: 'could not read the image', code: 'undecodable' });
       }
@@ -2163,8 +2120,7 @@ function mountCloudBins(expressApp, deps) {
     try {
       const out = await generateVideoThumbOnce(source, thumbPath);
       if (!out.ok) return res.status(422).json({ error: 'could not decode a frame', code: out.reason || 'no_frame' });
-      res.setHeader('Content-Type', 'image/jpeg');
-      return res.sendFile(thumbPath);
+      return sendMedia(res, thumbPath, POSTER);
     } catch (err) {
       return res.status(500).json({ error: 'thumbnail generation failed' });
     }
@@ -2223,20 +2179,9 @@ function mountCloudBins(expressApp, deps) {
       abs = seq.middle_frame_path;
     }
     if (!(await statKind(abs, 'file'))) return res.status(410).json({ error: 'file missing on this computer', code: 'offline' });
-    res.setHeader('Content-Type', safeMediaContentType(guessMime(extOf(abs))));
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    // P8 (TPN-CONT-019): footage never lands in the window's HTTP cache.
-    // `cacheControl: false` only keeps send from writing its own header; a
-    // Cache-Control set here survives it (send sets one only when none is
-    // set), so these two are the gateway's BASE_HEADERS on the desktop's own
-    // streams.
-    res.setHeader('Cache-Control', 'no-store');
-    res.setHeader('Pragma', 'no-cache');
-    res.sendFile(path.resolve(abs), { acceptRanges: true, dotfiles: 'allow', cacheControl: false }, (err) => {
-      if (!err) return;
-      if (err.code === 'ECONNABORTED' || err.code === 'EPIPE' || res.headersSent) return;
-      res.status(err.status || 500).json({ error: 'could not read the file' });
-    });
+    // P8 (TPN-CONT-019): footage never lands in the window's HTTP cache —
+    // sendMedia's no-store and Pragma, as the signed-out stream above.
+    sendMedia(res, abs, { mime: safeMediaContentType(guessMime(extOf(abs))), failText: 'could not read the file' });
   });
 }
 

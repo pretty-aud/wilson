@@ -6,10 +6,19 @@ const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 const { execFile } = require('child_process');
-const sharp = require('sharp');
+// F9 (A2): the one poster maker and acceptor, and its ffmpeg arm; sharp is
+// required there, when a poster is first made.
+const posters = require('./posters.cjs');
+const { generateVideoThumbOnce } = posters;
+// F9 (B1): O.T.T.E.R.'s two library merges, generated from otterRoutes.js by
+// scripts/build-electron-rules.mjs (they were kept here a second time by hand).
+const { mergeFunctions, mergeHotkeys } = require('./rules/otterMerges.cjs');
 const { loadEnv } = require('./env.cjs');
 const { initMainSentry } = require('./sentry.cjs');
 const { resolveContainedFilePath, isPathInside, checkFolderRootShape, dataFilePath } = require('./pathContainment.cjs');
+// F9 (A5): every file this server answers with goes through sendMedia, and a
+// media route's first line is requireSameOrigin (electron/mediaSend.cjs).
+const { safeMediaContentType, sendMedia, requireSameOrigin } = require('./mediaSend.cjs');
 // Demo sprint (2026-09-10): the local demo folder — one user-chosen folder
 // that holds the whole signed-out demo. See localDemoRoot.cjs.
 const { makeLocalDemoRoot, checkDemoFolderShape, storedRootAllowed } = require('./localDemoRoot.cjs');
@@ -369,6 +378,9 @@ function folderRootRefusal(candidate) {
     if (resolved.toLowerCase() === demoRoot.toLowerCase()) {
       return { error: 'the project folder cannot be the demo folder itself — pick a folder inside it' };
     }
+    if (resolved.toLowerCase() === path.resolve(localDemoProjectsDir()).toLowerCase()) { // F9-02
+      return { error: 'the project folder cannot be the folder every project sits in — pick one inside it' };
+    }
     if (!isPathInside(demoRoot, resolved)) {
       return { error: `the project folder must be inside the local demo folder (${demoRoot})` };
     }
@@ -390,6 +402,11 @@ function folderRootRefusal(candidate) {
     return { resolved };
   }
   const dflt = readFilesConfig().defaultRootDir;
+  // F9 (review round 1; OUTSTANDING F9-02): never the folder every project
+  // sits in — its fence would then reach every project's folder.
+  if (dflt && (resolved.toLowerCase() === path.resolve(dflt).toLowerCase() || isPathInside(resolved, path.resolve(dflt)))) {
+    return { error: 'the project folder cannot be the folder every project sits in — pick one inside it' };
+  }
   if (dflt && isPathInside(dflt, resolved)) return { resolved };
   for (const dir of userAuthorizedDirs) {
     if (isPathInside(dir, resolved)) return { resolved };
@@ -480,31 +497,12 @@ const VIDEO_EXTENSIONS = new Set([
 ]);
 function isVideoExt(ext) { return VIDEO_EXTENSIONS.has((ext || '').toLowerCase()); }
 
-// 🚨 Session 40: never echo a client-supplied Content-Type from a route this
-// app's own renderer shares an origin with. `mime_type` is written verbatim
-// from req.body, and text/html served from 127.0.0.1:<port> executes as script
-// on WILSON's origin. Only obvious media passes; everything else becomes an
-// opaque download, which a <video> ignores and a browser cannot run.
-const SAFE_MEDIA_TYPE_RE = /^(video|audio|image)\/[a-z0-9][a-z0-9.+-]*$/;
-function safeMediaContentType(mime) {
-  const m = String(mime || '').trim().toLowerCase();
-  // image/svg+xml is scriptable in its own right, so it is excluded even though
-  // it matches the media shape.
-  if (m === 'image/svg+xml') return 'application/octet-stream';
-  return SAFE_MEDIA_TYPE_RE.test(m) ? m : 'application/octet-stream';
-}
+// 🚨 Session 40: never echo a client-supplied Content-Type (safeMediaContentType:
+// since F9 in electron/mediaSend.cjs, required at the top of this file, where
+// sendMedia applies it to every file this server sends).
 
-// 🚨 Session 40: the managed-file id is CLIENT-CHOSEN on create
-// (`id: req.body.id || uuidv4()`), and the thumbnail cache is ONE flat
-// directory shared with the asset/scene/shot/level/experience caches, which use
-// the un-namespaced keys `asset-<id>.jpg`, `scene-<id>.jpg` and so on. So a
-// caller could create a managed row with id `asset-<a real asset uuid>` and
-// then POST arbitrary JPEG bytes to it, permanently replacing that asset's
-// thumbnail — those routes serve the cached file before ever consulting the
-// source. resolveContainedFilePath stops traversal but not COLLISION: both
-// namespaces are the same folder. Requiring a bare UUID closes it without
-// touching the existing cache layout. Found by the pre-push adversarial review.
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// (UUID_RE, the bare-uuid rule for a managed file's poster: since F9 beside the
+// one route that needs it, electron/posters.cjs.)
 
 // The file extension becomes part of stored_name, which is joined under the
 // project root — so `/../../..` in it walks out of the project folder. Every
@@ -515,60 +513,9 @@ function safeExtension(ext) {
   return /^\.[a-z0-9]{1,12}$/.test(e) ? e : '';
 }
 
-// ── Session 40: one ffmpeg run per thumbnail, and never a half-written one ───
-//
-// 🚨 THE PARTIAL FILE IS THE DEFECT THAT WOULD HAVE SHIPPED. Every caller of
-// the GET route serves `thumbPath` straight back when it EXISTS — so a run that
-// fails after creating the output leaves a zero-byte or truncated JPEG that is
-// then served, cached and never regenerated. The unlink is what makes a failed
-// decode retry next time instead of pinning a broken tile forever.
-//
-// 🚨 AND ONE RUN AT A TIME PER OUTPUT. A grid renders the same tile from more
-// than one place, React re-renders, and a user can scroll back — all of which
-// issue concurrent GETs for the same key. Two ffmpeg processes writing one path
-// with `-y` means one truncates the file the other is serving. Decoding a frame
-// out of a 5 GB ProRes file is also the most expensive thing this server does,
-// so sharing the in-flight promise is worth it on cost alone.
-// 🚨 AND A FAILURE IS REMEMBERED FOR A WHILE (adversarial review). Nothing
-// recorded that a file is undecodable, so a folder of .r3d or .braw respawned
-// probe + extract for EVERY visible tile on EVERY mount of the Files view —
-// toggling table/gallery, scrolling back, reopening the popup. Each of those
-// costs up to the full deadline. The TTL is short enough that installing
-// ffmpeg, or fixing a NAS that was offline, is picked up without a restart.
-const VIDEO_THUMB_FAIL_TTL_MS = 5 * 60_000;
-const videoThumbFailedAt = new Map();
-
-const videoThumbInFlight = new Map();
-function generateVideoThumbOnce(srcPath, thumbPath) {
-  const failedAt = videoThumbFailedAt.get(thumbPath);
-  if (failedAt !== undefined && Date.now() - failedAt < VIDEO_THUMB_FAIL_TTL_MS) {
-    return Promise.resolve({ ok: false, reason: 'no_frame_cached' });
-  }
-  const existing = videoThumbInFlight.get(thumbPath);
-  if (existing) return existing;
-  const run = (async () => {
-    const out = await ffmpeg.extractFrame({ input: srcPath, output: thumbPath, maxEdge: 256 });
-    if (!out.ok) {
-      // extractFrame now writes to `<output>.part` and renames, so `thumbPath`
-      // should never exist after a failure — this is the belt to that braces,
-      // and cheap. `ffmpeg_missing` is NOT cached: it is a machine state the
-      // user can change by dropping a binary in, not a property of this file.
-      try { if (fs.existsSync(thumbPath)) fs.unlinkSync(thumbPath); } catch { /* next run overwrites */ }
-      if (out.reason !== 'ffmpeg_missing') {
-        if (videoThumbFailedAt.size > 500) {
-          const cutoff = Date.now() - VIDEO_THUMB_FAIL_TTL_MS;
-          for (const [k, t] of videoThumbFailedAt) if (t < cutoff) videoThumbFailedAt.delete(k);
-        }
-        videoThumbFailedAt.set(thumbPath, Date.now());
-      }
-    } else {
-      videoThumbFailedAt.delete(thumbPath);
-    }
-    return out;
-  })().finally(() => videoThumbInFlight.delete(thumbPath));
-  videoThumbInFlight.set(thumbPath, run);
-  return run;
-}
+// (generateVideoThumbOnce — one ffmpeg run per poster, never a half-written
+// one, a failure remembered five minutes — is the ffmpeg arm of the one poster
+// maker since F9: electron/posters.cjs, bound at the top of this file.)
 
 // ═══════════════════════════════════════════════════════════════════
 //  DEFAULT PET DATA
@@ -1018,63 +965,14 @@ function startLocalServer(distPath) {
     });
 
     expressApp.post('/api/software/:slug/hotkeys/merge', (req, res) => {
-      // Post-overhaul S2c (S2b-02): the SAME rules, line for line, as
-      // otterRoutes.js's mergeHotkeys (the cloud and the dev fixtures);
-      // hotkeysMerge.test.js replays both and demands the same document for
-      // every case. The keying is mergeFunctionsDoc's (S2b), above: a sent
-      // category's name is its `category`, else its `name`, else "General" —
-      // a non-empty string, trimmed, invisible characters dropped — and it
-      // joins a stored heading with case and punctuation aside, letters of
-      // any script kept. The a-z0-9 key this replaces made "文字列" and "数学"
-      // one category, joined either to a category with no `category`, and
-      // threw on a name that was not a string, on every later merge.
-      //  - It joins only a category the Hotkeys page and the Search dialog
-      //    draw: a `shortcuts` list headed by its `category` (a non-empty
-      //    string). One they do not draw (a `hotkeys` list alone, no
-      //    `category`) is never joined; what was sent gets its own heading.
-      //  - A shortcut is not added again under the same heading: the same
-      //    action, case and surrounding spaces aside; an action that is not a
-      //    string reads as none. A sent category's shortcuts are its
-      //    `shortcuts`, else its `hotkeys`.
-      //  - Stored categories are kept exactly as stored: only a category a
-      //    shortcut joins is rewritten (a copy, the new ones after its own).
-      //    A new category is written `{ category, shortcuts }` when it brings
-      //    a shortcut or was sent with none.
-      //  - Entries that are not categories are carried over untouched; the
-      //    document's other keys are kept; a stored document that is not a
-      //    library is left exactly as it is.
+      // Post-overhaul S2c (S2b-02): the hotkeys merge is otterRoutes.js's
+      // mergeHotkeys (the cloud and the dev fixtures) — since F9 the very
+      // function, generated into electron/rules/otterMerges.cjs (B1), where it
+      // was kept inline here line for line. Its rules are stated there.
       const filePath = path.join(getSoftwareDir(), req.params.slug, '_hotkeys.json');
       const stored = readJSON(filePath, { categories: [] });
       const incoming = (req.body || {}).categories;
-      const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
-      const clean = (v) => (typeof v === 'string' ? v.replace(/\p{Cf}/gu, '').trim() : '');
-      const catName = (c) => clean(c && c.category) || clean(c && c.name) || 'General';
-      const catKey = (n) => n.toLowerCase().replace(/[^\p{L}\p{N}#+]+/gu, ' ').trim() || n.toLowerCase();
-      const heading = (c) => (isObj(c) && Array.isArray(c.shortcuts) ? clean(c.category) : '');
-      const actionKey = (h) => (typeof h.action === 'string' ? h.action.toLowerCase().trim() : '');
-      const doc = stored == null ? {} : stored;
-      let merged = stored;
-      if (isObj(doc) && (doc.categories === undefined || Array.isArray(doc.categories))) {
-        const out = { ...doc, categories: [...(doc.categories || [])] };
-        for (const inCat of (Array.isArray(incoming) ? incoming : [])) {
-          if (!isObj(inCat)) continue;
-          const name = catName(inCat);
-          const key = catKey(name);
-          const i = out.categories.findIndex(c => { const h = heading(c); return !!h && catKey(h) === key; });
-          const into = i < 0 ? null : out.categories[i];
-          const have = new Set((into ? into.shortcuts : []).filter(isObj).map(actionKey));
-          const list = Array.isArray(inCat.shortcuts) ? inCat.shortcuts : Array.isArray(inCat.hotkeys) ? inCat.hotkeys : [];
-          const add = [];
-          for (const hk of list) {
-            if (!isObj(hk) || have.has(actionKey(hk))) continue;
-            have.add(actionKey(hk));
-            add.push(hk);
-          }
-          if (i < 0) { if (add.length || !list.length) out.categories.push({ category: name, shortcuts: add }); }
-          else if (add.length) out.categories[i] = { ...into, shortcuts: [...into.shortcuts, ...add] };
-        }
-        merged = out;
-      }
+      const merged = mergeHotkeys(stored, incoming);
       writeJSON(filePath, merged);
       res.json(merged);
     });
@@ -1085,69 +983,14 @@ function startLocalServer(distPath) {
       res.json(data);
     });
 
-    // Post-overhaul S2b (C10): the function library's merge — the SAME rules,
-    // line for line, as otterRoutes.js's mergeFunctions (the cloud and the
-    // dev fixtures); functionsMerge.test.js replays both and demands the same
-    // document for every case. The `name` keying this replaces matched every
-    // incoming category (the client posts `category`) to the first nameless
-    // one and collapsed a generated library into one category with no name.
-    //  - A category's name is its `category`, else its `name`, else
-    //    "General" — a non-empty string, trimmed, invisible characters
-    //    dropped; anything else is no name.
-    //  - Categories match on that name with case and punctuation aside —
-    //    letters of any script, digits, '#' and '+' kept ("C" is not "C++").
-    //  - A function is not added again where it already is: under the same
-    //    heading by its exact name, or anywhere in a NAMELESS category (the
-    //    collapsed library the old keying wrote — hers holds 46). Functions
-    //    that differ in case or sit under different headings are different
-    //    (`map` and `Map`, `split` in "String methods" and in "os.path");
-    //    a function with no name is never taken for another.
-    //  - Stored categories are kept exactly as stored: only a category a
-    //    function is added to is rewritten (a copy, with the new functions
-    //    after its own). A new category is written `{ category, functions }`
-    //    when it brings a function or was sent with none, never when every
-    //    function it brought was already there (an empty heading). Entries
-    //    that are not categories (null, a string, `functions` not a list)
-    //    are carried over untouched and never matched. A stored document
-    //    that is not a library (an array, `categories` not a list) is left
-    //    exactly as it is.
-    function mergeFunctionsDoc(stored, incoming) {
-      const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
-      const clean = (v) => (typeof v === 'string' ? v.replace(/\p{Cf}/gu, '').trim() : '');
-      const catName = (c) => clean(c && c.category) || clean(c && c.name) || 'General';
-      const named = (c) => !!(clean(c.category) || clean(c.name));
-      const catKey = (n) => n.toLowerCase().replace(/[^\p{L}\p{N}#+]+/gu, ' ').trim() || n.toLowerCase();
-      const fnKey = (f) => clean(f && f.name);
-      const isCat = (c) => isObj(c) && (c.functions === undefined || Array.isArray(c.functions));
-      const doc = stored == null ? {} : stored;
-      if (!isObj(doc) || (doc.categories !== undefined && !Array.isArray(doc.categories))) return stored;
-      const out = { ...doc, categories: [...(doc.categories || [])] };
-      const unfiled = new Set();
-      for (const c of out.categories) if (isCat(c) && !named(c)) for (const f of (c.functions || [])) if (fnKey(f)) unfiled.add(fnKey(f));
-      for (const inCat of (Array.isArray(incoming) ? incoming : [])) {
-        if (!isObj(inCat)) continue;
-        const name = catName(inCat);
-        const i = out.categories.findIndex(c => isCat(c) && catKey(catName(c)) === catKey(name));
-        const into = i < 0 ? null : out.categories[i];
-        const have = new Set((into ? into.functions || [] : []).map(fnKey).filter(Boolean));
-        const add = [];
-        for (const fn of (Array.isArray(inCat.functions) ? inCat.functions : [])) {
-          if (!isObj(fn)) continue;
-          const k = fnKey(fn);
-          if (k && (have.has(k) || unfiled.has(k))) continue;
-          if (k) { have.add(k); if (into && !named(into)) unfiled.add(k); }
-          add.push(fn);
-        }
-        const sentEmpty = !(Array.isArray(inCat.functions) && inCat.functions.length);
-        if (i < 0) { if (add.length || sentEmpty) out.categories.push({ category: name, functions: add }); }
-        else if (add.length) out.categories[i] = { ...into, functions: [...(into.functions || []), ...add] };
-      }
-      return out;
-    }
+    // Post-overhaul S2b (C10): the function library's merge is otterRoutes.js's
+    // mergeFunctions (the cloud and the dev fixtures) — since F9 the very
+    // function, generated into electron/rules/otterMerges.cjs and required at
+    // the top of this file (B1), where it was kept here line for line.
 
     expressApp.post('/api/software/:slug/functions/merge', (req, res) => {
       const filePath = path.join(getSoftwareDir(), req.params.slug, '_functions.json');
-      const merged = mergeFunctionsDoc(readJSON(filePath, { categories: [] }), (req.body || {}).categories);
+      const merged = mergeFunctions(readJSON(filePath, { categories: [] }), (req.body || {}).categories);
       writeJSON(filePath, merged);
       res.json(merged);
     });
@@ -1506,6 +1349,15 @@ function startLocalServer(distPath) {
     // outside rabbit-data (electron/personalSpace.cjs).
     const { createPersonalSpace, mountPersonalSpace } = require('./personalSpace.cjs');
     const personalSpace = createPersonalSpace({ fs, path, userDataDir: app.getPath('userData'), newId: uuidv4 });
+    // F9 (A1): "where is this project's folder on this computer", once —
+    // electron/projectFolders.cjs. resolveProjectFolder and
+    // resolveProjectFolderRoot below are its two bindings; projectSlugOf and
+    // assetSlugOf are the one slug of a project's folder and of an asset's.
+    const projectFolders = require('./projectFolders.cjs').createProjectFolders({
+      fs, path, fileSlugify, isPersonalBundle: personalSpace.isPersonalBundle,
+      storedRootUsable, resolveConfiguredRootDir,
+    });
+    const { projectSlugOf, assetSlugOf } = projectFolders;
 
     function getRabbitProjectsDir() {
       const dir = path.join(getRabbitDataDir(), 'projects');
@@ -1873,20 +1725,15 @@ function startLocalServer(distPath) {
     //   {Slug}_FILES/                 — uploaded files (docs, etc.; NOT
     //                                   receipts since C4 — see INVOICES/)
 
+    // The project's folder, only if it is there (the tree, the mirrors, the
+    // files and invoices folders, relink, the manifest, the rates file, the
+    // shot re-filing, Legal). F9: projectFolders.cjs holds the rule — the
+    // personal space has none (MO1); a stored root only where the person
+    // could have chosen it (review round 2, H3); else the configured root
+    // (Session 34) and projectSlugOf.
     function resolveProjectFolder(bundle) {
-      // MO1: the personal space has no project folder and no _DATABASES mirror.
-      if (personalSpace.isPersonalBundle(bundle)) return null;
-      const root = bundle?.project?.folder_root;
-      // (review round 2, H3) a stored root is followed only where the person
-      // could have chosen it — inside the open demo folder, or anywhere when
-      // none is open; a copied folder's bundle is somebody else's record.
-      if (root && fs.existsSync(root) && storedRootUsable(root)) return root;
-      // Session 34: workspace root (byos) outranks the machine default.
-      const rootBase = resolveConfiguredRootDir();
-      if (!rootBase) return null;
-      const slug = bundle?.project?.folder_slug || fileSlugify(bundle?.project?.title || 'Untitled-Project');
-      const resolved = path.join(rootBase, slug);
-      return fs.existsSync(resolved) ? resolved : null;
+      if (personalSpace.isPersonalBundle(bundle)) return null; // MO1, asked first (personalSpace.routes.test.js pins it here)
+      return projectFolders.projectFolderOf(bundle, { mustExist: true });
     }
 
     // ── Session 26: the folder categories ────────────────────
@@ -1946,7 +1793,7 @@ function startLocalServer(distPath) {
     function ensureProjectFolders(bundle) {
       const root = resolveProjectFolder(bundle);
       if (!root) return;
-      const slug = bundle.project.folder_slug || fileSlugify(bundle.project.title || 'Untitled-Project');
+      const slug = projectSlugOf(bundle.project);
       const dirs = [
         path.join(root, 'ASSETS'),
         // 🚨 NOT ported to the folders TABLE, and it must not be. On `main`
@@ -2292,7 +2139,7 @@ function startLocalServer(distPath) {
       if (override && fs.existsSync(override)) return override;
       const root = resolveProjectFolder(bundle);
       if (root) {
-        const slug = bundle.project.folder_slug || fileSlugify(bundle.project.title || 'Untitled-Project');
+        const slug = projectSlugOf(bundle.project);
         const dir = path.join(root, `${slug}_FILES`);
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         return dir;
@@ -2623,12 +2470,14 @@ function startLocalServer(distPath) {
       // legitimate files_dir: it is the relink BASE, set only by the guarded
       // relink-apply route, never at create. Force it null.
       let filesDirIn = null;
+      // The id first: a title with nothing to slug names its folder by it (F9).
+      const newProjectId = req.body.id || uuidv4();
       // Spread req.body first so DOG-side fields (documents, visualAssets,
       // startDate, endDate, etc.) ride through, then enforce the canonical
       // identity / timestamp fields so they can't be overridden.
       const project = {
         ...req.body,
-        id:              req.body.id || uuidv4(),
+        id:              newProjectId,
         workspace_id:    req.body.workspace_id || '00000000-0000-0000-0000-000000000001',
         title:           req.body.title || 'Untitled Project',
         description:     req.body.description || '',
@@ -2648,7 +2497,9 @@ function startLocalServer(distPath) {
         // against (resolveProjectFolderRoot), so `../../../..` here reparents
         // the whole project. Idempotent for a legitimate slug — the renderer
         // produces the same form — so nothing that works today changes.
-        folder_slug:     fileSlugify(String(req.body.folder_slug || req.body.title || 'Untitled-Project')),
+        // F9 (OUTSTANDING F9-02): and never empty — a title like 東京
+        // slugified to '' and the folder below was the configured root itself.
+        folder_slug:     projectSlugOf({ id: newProjectId, folder_slug: req.body.folder_slug, title: req.body.title }),
         folder_root:     folderRootIn,
         files_dir:       filesDirIn,
         // Post-overhaul S3a (0084): a new project has no shot list, so it can
@@ -2767,15 +2618,19 @@ function startLocalServer(distPath) {
         const next = req.body.folder_slug;
         const cur = bundle.project.folder_slug || null;
         if (String(next ?? '') !== String(cur ?? '')) {
-          req.body.folder_slug = fileSlugify(String(next || bundle.project.title || 'Untitled-Project'));
+          req.body.folder_slug = projectSlugOf({ id: bundle.project.id, folder_slug: next, title: bundle.project.title });
         }
       }
       const oldTitle = bundle.project.title;
       const oldSlug = bundle.project.folder_slug;
       bundle.project = { ...bundle.project, ...req.body, id: bundle.project.id };
-      // If title changed, update folder_slug and rename folder
+      // If title changed, update folder_slug and rename folder. F9: the one
+      // slug rule — a title with nothing to slug renames to the fallback, where
+      // '' left the folder behind and the write's reconcile then named another.
       if (req.body.title && req.body.title !== oldTitle) {
-        const newSlug = fileSlugify(req.body.title);
+        // A new title with nothing to slug keeps the slug the project has
+        // (review round 2: it renamed nothing and orphaned the sub-folders).
+        const newSlug = fileSlugify(String(req.body.title)) || oldSlug || projectSlugOf({ id: bundle.project.id, title: req.body.title });
         if (newSlug !== oldSlug && oldSlug) {
           const root = bundle.project.folder_root
             ? path.dirname(bundle.project.folder_root)
@@ -3025,35 +2880,18 @@ function startLocalServer(distPath) {
     // ── Assets: custom routes with folder lifecycle side-effects ──
     // Replaces rabbitSubentityRoutes('assets','assets') so we can
     // create/rename/soft-delete OS folders when assets change.
+    // The project's folder whether or not it is there yet (asset folders,
+    // managed-file bodies and thumbnails, the hard delete, the copy fence's
+    // roots). 🚨 SESSION 40 (adversarial review, HIGH — CONFIRMED BY
+    // MEASUREMENT): the containment base was client-controlled — folder_slug
+    // reaches a bundle verbatim from req.body, and `'../../../..'` turned a
+    // root of D:\WilsonRoot\Projects into D:\. Slugifying at the RESOLVER is
+    // the load-bearing half (a bundle already on disk may carry a poisoned
+    // slug): projectSlugOf (projectFolders.cjs) re-slugifies it, and since F9
+    // never answers an empty slug, so never the configured root itself.
     function resolveProjectFolderRoot(bundle) {
       if (personalSpace.isPersonalBundle(bundle)) return null; // MO1: as resolveProjectFolder
-      const projectRoot = bundle.project?.folder_root;
-      if (projectRoot && fs.existsSync(projectRoot) && storedRootUsable(projectRoot)) return projectRoot; // (review 2, H3)
-      // Session 34: workspace root (byos) outranks the machine default.
-      const rootBase = resolveConfiguredRootDir();
-      if (!rootBase) return null;
-      const slug = fileSlugify(bundle.project?.title || 'Untitled-Project');
-      // 🚨 SESSION 40 (adversarial review, HIGH — CONFIRMED BY MEASUREMENT).
-      // THE CONTAINMENT BASE WAS ITSELF CLIENT-CONTROLLED, which makes every
-      // resolveContainedFilePath below it faithfully contain against a
-      // directory the caller chose. `folder_slug` reaches a bundle verbatim
-      // from req.body (the project POST's `req.body.folder_slug || ...`, and
-      // the PATCH's spread), so `folder_slug: '../../../..'` turns a root of
-      // D:\WilsonRoot\Projects into D:\ — measured, exactly that.
-      //
-      // Slugifying HERE and not only at the writers is the load-bearing half:
-      // a bundle already on disk may carry a poisoned slug, and fileSlugify
-      // strips every character that is not alphanumeric or a space, so a
-      // traversal cannot survive it. Idempotent for every legitimate slug
-      // (the renderer produces the same form via entityNaming.fileSlugify),
-      // so no existing project's folder moves.
-      //
-      // Pre-existing since the folder tree; S40 is where it stopped being
-      // survivable, because the stream route returns ORIGINAL BYTES of ANY
-      // type with Range support rather than a 256px JPEG of an image.
-      const stored = bundle.project?.folder_slug;
-      const safe = stored ? fileSlugify(String(stored)) : '';
-      return path.join(rootBase, safe || slug);
+      return projectFolders.projectFolderOf(bundle, { mustExist: false });
     }
     // ── Session 40: the ONE place a managed file's body is located on disk ────
     //
@@ -3086,15 +2924,15 @@ function startLocalServer(distPath) {
         return resolveContainedFilePath(root, path.join(...segs, mf.stored_name));
       }
       const asset = (bundle.assets || []).find(a => a.id === mf.asset_id);
-      const assetSlug = asset?.folder_slug || fileSlugify(asset?.name || 'Untitled-Asset');
+      const assetSlug = assetSlugOf(asset);
       return resolveContainedFilePath(root, path.join('ASSETS', assetSlug, mf.stored_name));
     }
-    function ensureAssetFolder(bundle, assetName) {
+    function ensureAssetFolder(bundle, asset) {
       const root = resolveProjectFolderRoot(bundle);
       if (!root) return null;
       const assetsDir = path.join(root, 'ASSETS');
       if (!fs.existsSync(assetsDir)) fs.mkdirSync(assetsDir, { recursive: true });
-      const assetSlug = fileSlugify(assetName || 'Untitled-Asset');
+      const assetSlug = assetSlugOf(asset); // its stored slug, as every later route reads it (F9)
       const folderPath = path.join(assetsDir, assetSlug);
       if (!fs.existsSync(folderPath)) fs.mkdirSync(folderPath, { recursive: true });
       return { folderPath, assetSlug };
@@ -3105,9 +2943,13 @@ function startLocalServer(distPath) {
       if (!bundle) return rabbitNotFound(res);
       if (!bundle.assets) bundle.assets = [];
       const row = rabbitTouch({ ...req.body, project_id: req.params.projectId });
-      if (!row.folder_slug && row.name) row.folder_slug = fileSlugify(row.name);
+      // F9 (review round 1): the asset's one slug, stored — never '' (a name
+      // like 東京 slugged to nothing and its folder was ASSETS itself) — so the
+      // managed files' folder_path, the rename and the delete read the same
+      // one. Only when the body names the asset and brings no slug, as before.
+      if (!row.folder_slug && row.name) row.folder_slug = assetSlugOf({ id: row.id, name: row.name });
       const result = rabbitUpsertInto(bundle.assets, row);
-      ensureAssetFolder(bundle, result.name);
+      ensureAssetFolder(bundle, result);
       // Session 26: the directory was already being made; now it is also
       // RECORDED, so an asset folder is part of the same tree as a scene's
       // and survives a move to another backend.
@@ -3129,8 +2971,11 @@ function startLocalServer(distPath) {
       if (req.body.name && req.body.name !== oldAsset.name) {
         const root = resolveProjectFolderRoot(bundle);
         if (root) {
-          const oldSlug = oldAsset.folder_slug || fileSlugify(oldAsset.name || 'Untitled-Asset');
-          const newSlug = fileSlugify(req.body.name);
+          // F9: never an empty slug (OUTSTANDING F9-02) — a name with nothing
+          // to slug joined to ASSETS itself, and this rename then tried to move
+          // the whole ASSETS folder.
+          const oldSlug = assetSlugOf(oldAsset);
+          const newSlug = assetSlugOf({ id: req.params.id, name: req.body.name });
           const assetsDir = path.join(root, 'ASSETS');
           if (!fs.existsSync(assetsDir)) fs.mkdirSync(assetsDir, { recursive: true });
           // Session 17 (#45 family): newSlug is fileSlugify output and safe,
@@ -3174,7 +3019,10 @@ function startLocalServer(distPath) {
       if (asset) {
         const root = resolveProjectFolderRoot(bundle);
         if (root) {
-          const slug = asset.folder_slug || fileSlugify(asset.name || 'Untitled-Asset');
+          // F9 (OUTSTANDING F9-02): never an empty slug — '' resolved to
+          // ASSETS itself, and this renameSync moved EVERY asset's folder to
+          // .trash with the one deleted (projectFolders.test.js).
+          const slug = assetSlugOf(asset);
           // Contained for the same reason as the rename above: folder_slug
           // is client-writable, and this renameSync moves a directory.
           const folderPath = resolveContainedFilePath(path.join(root, 'ASSETS'), slug);
@@ -3828,6 +3676,9 @@ function startLocalServer(distPath) {
     });
 
     expressApp.get('/api/rabbit/projects/:projectId/files/:id/download', (req, res) => {
+      // F9: the renderer's own read only, refused BEFORE the bundle is read
+      // or the 'downloaded' event below is written (mediaSend.cjs).
+      if (!requireSameOrigin(req, res)) return;
       const bundle = readRabbitBundle(req.params.projectId);
       if (!bundle) return rabbitNotFound(res);
       const file = bundle.files.find(f => f.id === req.params.id);
@@ -3861,22 +3712,15 @@ function startLocalServer(distPath) {
       } catch (e) {
         console.warn('download not logged:', e?.message || e);
       }
-      // 🚨 S40: the same guard the new stream route carries, applied here
-      // because it is the identical shape one route over — `mime_type` is
-      // client-writable and this app's own renderer is served from
-      // 127.0.0.1:<port>, so text/html returned here would execute on WILSON's
-      // origin. Found while reviewing the stream route; leaving a known,
-      // identical hole in the neighbour is the S35 lesson ("guarding a field
-      // means guarding whatever outranks it") pointed the other way.
-      res.setHeader('Content-Type', safeMediaContentType(file.mime_type));
-      res.setHeader('X-Content-Type-Options', 'nosniff');
       // S4a: `?download=1` makes it an ATTACHMENT under the file's own name
       // (fileReads.cjs, served for real in fileReads.test.js).
       require('./fileReads.cjs').attachWhenAsked(req, res, file.name, require('./localMedia.cjs').contentDisposition);
-      // `dotfiles: 'allow'`: under a dot-folder (a demo folder's
-      // `.wilson\rabbit-data`) `send` refused the absolute path and the read
-      // answered "internal error" (S4a review round 2, R2-SEC-05, measured).
-      res.sendFile(diskPath, { dotfiles: 'allow' });
+      // 🚨 S40: `mime_type` is client-writable and this app's own renderer is
+      // served from 127.0.0.1:<port>, so text/html returned here would execute
+      // on WILSON's origin: sendMedia types it through the media allowlist,
+      // nosniffs it, says no-store (TPN-CONT-003) and reads through a
+      // dot-folder (S4a R2-SEC-05; F9: mediaSend.cjs, mediaSend.test.js).
+      sendMedia(res, diskPath, { mime: file.mime_type, failText: 'stream failed' });
     });
 
     // ── Post-overhaul S4a: stream a project file's bytes, with Range ─────────
@@ -4147,6 +3991,9 @@ function startLocalServer(distPath) {
       if (!bundle) return rabbitNotFound(res);
       if (!bundle.managedFiles) bundle.managedFiles = [];
       const now = new Date().toISOString();
+      // Kept in its own words (not projectSlugOf / assetSlugOf below): the shot
+      // re-filing test lifts this route with a fixed list of names. Every bundle
+      // it meets is reconciled, where it answers as projectSlugOf (F9-03).
       const projectSlug = bundle.project?.folder_slug || fileSlugify(bundle.project?.title || 'Untitled');
       const version = getNextVersion(bundle.managedFiles, req.body.file_name, req.body.asset_id, req.body.shot_id, req.body.scene_id, req.body.level_id, req.body.experience_id);
       const vLabel = formatVersion(version);
@@ -4285,6 +4132,10 @@ function startLocalServer(distPath) {
     // case here, not a fault. Without the callback those surface as unhandled
     // stream errors.
     expressApp.get('/api/rabbit/projects/:projectId/managed-files/:id/stream', (req, res) => {
+      // F9: the renderer's own read only (its <video>, the probe's hidden
+      // <video> and FilePreviewDialog are same-origin), refused BEFORE the
+      // bundle is read or the 'downloaded' event below is written.
+      if (!requireSameOrigin(req, res)) return;
       const bundle = readRabbitBundle(req.params.projectId);
       if (!bundle) return rabbitNotFound(res);
       // 🚨 !deleted_at, MATCHING THE LIST ROUTE. FileManager's delete is the
@@ -4355,152 +4206,24 @@ function startLocalServer(distPath) {
       //
       // An allowlist rather than a denylist: anything that is not obviously
       // media is served as an opaque download, which a <video> ignores and a
-      // browser cannot execute.
-      res.setHeader('Content-Type', safeMediaContentType(mf.mime_type));
-      res.setHeader('X-Content-Type-Options', 'nosniff');
-      // `dotfiles: 'allow'` (post-overhaul S4a review round 2, R2-SEC-05,
-      // measured): `send` refused any absolute path through a dot-folder —
-      // a demo folder's `.wilson\rabbit-data` — and the read answered 500.
-      // Containment is resolveManagedFileDiskPath's, already decided above.
-      res.sendFile(diskPath, { dotfiles: 'allow' }, (err) => {
-        if (!err) return;
-        // A cancelled range request is the normal shape of video playback.
-        if (res.headersSent || res.writableEnded) return;
-        res.status(500).json({ error: 'stream failed' });
-      });
+      // browser cannot execute. sendMedia applies it (safeMediaContentType),
+      // with nosniff, no-store, Range, the cancel-tolerant callback a seeking
+      // <video> needs, and `dotfiles: 'allow'` (S4a R2-SEC-05: a demo folder's
+      // `.wilson\rabbit-data`); containment is resolveManagedFileDiskPath's,
+      // already decided above.
+      sendMedia(res, diskPath, { mime: mf.mime_type, failText: 'stream failed' });
     });
 
-    // Thumbnail endpoint — generates + caches a 256px-wide JPEG via sharp
-    expressApp.get('/api/rabbit/projects/:projectId/managed-files/:id/thumbnail', async (req, res) => {
-      const bundle = readRabbitBundle(req.params.projectId);
-      if (!bundle) return rabbitNotFound(res);
-      const mf = (bundle.managedFiles || []).find(f => f.id === req.params.id);
-      if (!mf) return rabbitNotFound(res, 'managed-file');
-      // Session 40: video joins raster here. The two arms are NOT the same
-      // decoder — sharp cannot open a ProRes MOV — so the branch is explicit
-      // rather than a widened extension set feeding one pipeline.
-      const isImage = isThumbableExt(mf.extension);
-      const isVideo = isVideoExt(mf.extension);
-      if (!isImage && !isVideo) {
-        return res.status(415).json({ error: 'not an image or video', code: 'unsupported_type' });
-      }
-      // Session 17 containment (#45). Three of the segments below are
-      // client-writable: mf.id (chosen on create), mf.stored_name, and
-      // asset.folder_slug (the asset POST/PATCH spread req.body). Each is
-      // resolved under its own base and refused on escape, so this route
-      // cannot be turned into an arbitrary-file read or .jpg overwrite.
-      const thumbPath = resolveContainedFilePath(getThumbCacheDir(), `${mf.id}.jpg`);
-      if (!thumbPath) return res.status(400).json({ error: 'invalid thumbnail path' });
-      // Serve cached
-      if (fs.existsSync(thumbPath)) {
-        res.setHeader('Content-Type', 'image/jpeg');
-        return res.sendFile(thumbPath);
-      }
-      // Generate from source file
-      const root = resolveProjectFolderRoot(bundle);
-      if (!root) return res.status(404).json({ error: 'no file root configured' });
-      // Session 40: one resolver, shared with the stream route and modelled on
-      // the hard-DELETE's idiom. It reads the record's OWN folder_path, so a
-      // managed file under SCENES/ or SHOTS/ finally resolves — this route used
-      // to recompute `ASSETS/{assetSlug}` unconditionally and 410'd on both.
-      const srcPath = resolveManagedFileDiskPath(bundle, mf);
-      if (!srcPath) return res.status(400).json({ error: 'invalid source path' });
-      if (!fs.existsSync(srcPath)) return res.status(410).json({ error: 'source file missing' });
-
-      if (isVideo) {
-        // 🚨 THE BINARY'S ABSENCE IS A NAMED STATE, NOT A 500. It is today's
-        // state on every machine, and the renderer uses this code to decide
-        // whether to fall back to decoding the format itself through the
-        // stream route. A generic error would make "no decoder installed"
-        // indistinguishable from "this file is corrupt".
-        if (!ffmpeg.hasFfmpeg()) {
-          return res.status(415).json({
-            error: 'no video decoder installed on this machine',
-            code:  'ffmpeg_missing',
-          });
-        }
-        try {
-          const out = await generateVideoThumbOnce(srcPath, thumbPath);
-          if (!out.ok) {
-            return res.status(422).json({ error: 'could not decode a frame', code: out.reason });
-          }
-          res.setHeader('Content-Type', 'image/jpeg');
-          return res.sendFile(thumbPath);
-        } catch (err) {
-          console.error('video thumbnail failed:', err?.message || err);
-          return res.status(500).json({ error: 'thumbnail generation failed' });
-        }
-      }
-
-      try {
-        await sharp(srcPath).resize(256).jpeg({ quality: 80 }).toFile(thumbPath);
-        res.setHeader('Content-Type', 'image/jpeg');
-        res.sendFile(thumbPath);
-      } catch (err) {
-        console.error('thumbnail generation failed:', err.message);
-        res.status(500).json({ error: 'thumbnail generation failed' });
-      }
-    });
-
-    // ── Session 40: accept a frame the RENDERER decoded ──────────────────────
-    //
-    // The fallback that makes browser-native video work with no ffmpeg
-    // installed: the renderer points a hidden <video> at the stream route
-    // above, grabs a frame to a canvas, and POSTs the JPEG here. Chromium
-    // handles H.264/AAC MP4, VP8/VP9 WebM and AV1 — which is most of what is
-    // not professional footage — so this is not a degraded path, it is the
-    // same decoder the cloud upload path uses, pointed at a local file.
-    //
-    // ffmpeg still owns ProRes/DNxHD/MXF, and it is preferred when present
-    // because input seeking on local disk beats streaming over HTTP.
-    //
-    // 🚨 THIS WRITES TO DISK FROM THE LOOPBACK SERVER — locked by B3's launch
-    // token since Track B, but a token holder is any script on the renderer's
-    // origin (the cookie rides same-origin), so the caller is still not
-    // trusted and the route is narrowed in four ways: the row must exist and be a
-    // video, the destination is contained under the cache dir by mf.id (which
-    // is client-chosen on create — #45 family), the body is capped, and the
-    // bytes must actually START WITH A JPEG MAGIC NUMBER. Without that last
-    // check this is a "write arbitrary content to a path ending .jpg"
-    // primitive, and the GET above would then serve it back with an image
-    // Content-Type.
-    expressApp.post('/api/rabbit/projects/:projectId/managed-files/:id/thumbnail', (req, res) => {
-      const bundle = readRabbitBundle(req.params.projectId);
-      if (!bundle) return rabbitNotFound(res);
-      const mf = (bundle.managedFiles || []).find(f => f.id === req.params.id);
-      if (!mf) return rabbitNotFound(res, 'managed-file');
-      if (!isVideoExt(mf.extension)) {
-        return res.status(415).json({ error: 'not a video', code: 'unsupported_type' });
-      }
-      // 🚨 THE ID MUST BE A BARE UUID — see UUID_RE for why. The thumbnail
-      // cache is one flat namespace shared with `asset-<id>.jpg` and
-      // `<entity>-<id>.jpg`, and this route is the only one that writes
-      // ARBITRARY bytes into it.
-      if (!UUID_RE.test(String(mf.id))) {
-        return res.status(400).json({ error: 'unsupported file id' });
-      }
-      const { base64 } = req.body || {};
-      if (!base64) return res.status(400).json({ error: 'base64 required' });
-
-      let buf;
-      try { buf = Buffer.from(base64, 'base64'); } catch { buf = null; }
-      if (!buf || buf.length === 0) return res.status(400).json({ error: 'unreadable body' });
-      // Mirrors THUMBNAIL_MAX_BYTES / migration 0053's bucket cap, so the two
-      // tiers agree about how big a preview may be.
-      if (buf.length > 262144) return res.status(413).json({ error: 'thumbnail too large' });
-      if (!(buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff)) {
-        return res.status(415).json({ error: 'not a JPEG' });
-      }
-
-      const thumbPath = resolveContainedFilePath(getThumbCacheDir(), `${mf.id}.jpg`);
-      if (!thumbPath) return res.status(400).json({ error: 'invalid thumbnail path' });
-      try {
-        fs.writeFileSync(thumbPath, buf);
-      } catch (err) {
-        console.error('thumbnail write failed:', err?.message || err);
-        return res.status(500).json({ error: 'thumbnail write failed' });
-      }
-      res.json({ ok: true });
+    // ── Posters: the managed-file GET and POST, the asset GET and the four
+    // entity GETs — electron/posters.cjs since F9 (A2), served there in tests,
+    // with the one maker (sharp to a buffer, a whole write renamed into place,
+    // one in flight per poster), the one acceptor and the one sender. The same
+    // paths and answers; the four rabbit:*-thumbnail channels below ask the
+    // same maker.
+    require('./posters.cjs').mountPosterRoutes(expressApp, {
+      readRabbitBundle, rabbitNotFound, getThumbCacheDir, resolveContainedFilePath, dataFileOrThrow,
+      resolveProjectFolderRoot, resolveManagedFileDiskPath, thumbnailSourceAllowed, isThumbableExt, isVideoExt,
+      ffmpeg,
     });
 
     // Does this machine have the professional-codec decoder? The renderer asks
@@ -4510,80 +4233,6 @@ function startLocalServer(distPath) {
     expressApp.get('/api/rabbit/video-support', (req, res) => {
       res.json({ ffmpeg: ffmpeg.hasFfmpeg() });
     });
-
-    // ── Asset thumbnail endpoint ──
-    // Serves a cached 512px JPEG thumbnail for an asset's thumbnail_image.
-    expressApp.get('/api/rabbit/projects/:projectId/assets/:id/thumbnail', async (req, res) => {
-      const bundle = readRabbitBundle(req.params.projectId);
-      if (!bundle) return rabbitNotFound(res);
-      const asset = (bundle.assets || []).find(a => a.id === req.params.id);
-      if (!asset) return rabbitNotFound(res, 'asset');
-      if (!asset.thumbnail_image) return res.status(404).json({ error: 'no thumbnail set' });
-
-      // (review round 2, H2) the id is client-written (the assets POST spreads
-      // req.body) and was joined raw onto the cache dir: contained now.
-      const thumbPath = dataFileOrThrow(getThumbCacheDir(), `asset-${asset.id}`, '.jpg', 'asset');
-
-      // Serve cached version if it exists and source hasn't changed
-      if (fs.existsSync(thumbPath)) {
-        res.setHeader('Content-Type', 'image/jpeg');
-        res.setHeader('Cache-Control', 'public, max-age=60');
-        return res.sendFile(thumbPath);
-      }
-
-      // Generate from source
-      const srcPath = asset.thumbnail_image;
-      if (!fs.existsSync(srcPath)) return res.status(410).json({ error: 'source image missing' });
-      // (review round 2, H2) thumbnail_image is an absolute path the bundle
-      // carries — a copied folder's, or a drive-by POST's; only a picture
-      // under a folder the person chose is opened and transcoded.
-      if (!thumbnailSourceAllowed(bundle, req.params.projectId, srcPath)) return res.status(403).json({ error: 'source image is outside the folders this app may read' });
-
-      try {
-        await sharp(srcPath).resize(512).jpeg({ quality: 85 }).toFile(thumbPath);
-        res.setHeader('Content-Type', 'image/jpeg');
-        res.setHeader('Cache-Control', 'public, max-age=60');
-        res.sendFile(thumbPath);
-      } catch (err) {
-        console.error('asset thumbnail generation failed:', err.message);
-        res.status(500).json({ error: 'thumbnail generation failed' });
-      }
-    });
-
-    // ── Generic entity thumbnail endpoints (scene, shot, level, experience) ──
-    for (const etype of ['scenes', 'shots', 'levels', 'experiences']) {
-      const singular = etype.replace(/s$/, ''); // 'scene', 'shot', 'level', 'experience'
-      expressApp.get(`/api/rabbit/projects/:projectId/${etype}/:id/thumbnail`, async (req, res) => {
-        const bundle = readRabbitBundle(req.params.projectId);
-        if (!bundle) return rabbitNotFound(res);
-        const list = bundle[etype] || [];
-        const entity = list.find(e => e.id === req.params.id);
-        if (!entity) return rabbitNotFound(res, singular);
-        if (!entity.thumbnail_image) return res.status(404).json({ error: 'no thumbnail set' });
-
-        const thumbPath = dataFileOrThrow(getThumbCacheDir(), `${singular}-${entity.id}`, '.jpg', singular); // (review 2, H2)
-
-        if (fs.existsSync(thumbPath)) {
-          res.setHeader('Content-Type', 'image/jpeg');
-          res.setHeader('Cache-Control', 'public, max-age=60');
-          return res.sendFile(thumbPath);
-        }
-
-        const srcPath = entity.thumbnail_image;
-        if (!fs.existsSync(srcPath)) return res.status(410).json({ error: 'source image missing' });
-        if (!thumbnailSourceAllowed(bundle, req.params.projectId, srcPath)) return res.status(403).json({ error: 'source image is outside the folders this app may read' }); // (review 2, H2)
-
-        try {
-          await sharp(srcPath).resize(512).jpeg({ quality: 85 }).toFile(thumbPath);
-          res.setHeader('Content-Type', 'image/jpeg');
-          res.setHeader('Cache-Control', 'public, max-age=60');
-          res.sendFile(thumbPath);
-        } catch (err) {
-          console.error(`${singular} thumbnail generation failed:`, err.message);
-          res.status(500).json({ error: 'thumbnail generation failed' });
-        }
-      });
-    }
 
     // Import existing folder structure into managed files manifest
     expressApp.post('/api/rabbit/projects/:projectId/managed-files/import-folder', (req, res) => {
@@ -4602,7 +4251,7 @@ function startLocalServer(distPath) {
         return res.status(403).json({ error: 'folder not authorized by the user' });
       }
       const now = new Date().toISOString();
-      const projectSlug = bundle.project?.folder_slug || fileSlugify(bundle.project?.title || 'Untitled');
+      const projectSlug = projectSlugOf(bundle.project);
       const created = [];
       // Scan top-level subdirs as asset folders
       const entries = fs.readdirSync(folderPath, { withFileTypes: true });
@@ -4913,6 +4562,8 @@ function startLocalServer(distPath) {
     // guard, BEFORE the static/SPA fallback.
     require('./localMedia.cjs').mountLocalMedia(expressApp, {
       getRoot: getLocalMediaRoot, resolveContainedFilePath, safeMediaContentType,
+      // F9: its bytes answer the renderer only (its <video>, <img> and <a>).
+      sameOriginOnly: requireSameOrigin,
       log: (line) => console.info(line),
       movesDir: () => path.join(getRabbitDataDir(), 'moves'),
       writeJsonAtomic,
@@ -5758,19 +5409,24 @@ ipcMain.handle('rabbit:pick-image', async () => {
 
 // Set asset thumbnail: picks source path, generates cached thumbnail via sharp.
 // Call AFTER updating the asset's thumbnail_image property in the bundle.
+// F9 (A2): the four channels keep their names, arguments and answers (the
+// asset, entity and scenes views call them); their bodies ask the one poster
+// maker (electron/posters.cjs): the new picture is written whole and renamed
+// into place, after any GET making this poster, and wins (`replace`). Whether
+// the channels can go once the GET alone suffices is OUTSTANDING F9-04.
 ipcMain.handle('rabbit:generate-asset-thumbnail', async (_event, { assetId, sourcePath }) => {
   if (!sourcePath || !fs.existsSync(sourcePath)) {
     throw new Error('source image does not exist');
   }
   const thumbPath = dataFileOrThrow(getThumbCacheDir(), `asset-${assetId}`, '.jpg', 'asset'); // (review 2, H2)
-  await sharp(sourcePath).resize(512).jpeg({ quality: 85 }).toFile(thumbPath);
+  await posters.makePoster({ src: sourcePath, dest: thumbPath, edge: 512, quality: 85, replace: true });
   return { ok: true, thumbPath };
 });
 
-// Clear a cached asset thumbnail
-ipcMain.handle('rabbit:clear-asset-thumbnail', (_event, { assetId }) => {
+// Clear a cached asset thumbnail (after a write in flight on it).
+ipcMain.handle('rabbit:clear-asset-thumbnail', async (_event, { assetId }) => {
   const thumbPath = dataFileOrThrow(getThumbCacheDir(), `asset-${assetId}`, '.jpg', 'asset'); // (review 2, H2)
-  if (fs.existsSync(thumbPath)) try { fs.unlinkSync(thumbPath); } catch {}
+  await posters.clearPoster(thumbPath);
   return { ok: true };
 });
 
@@ -5780,13 +5436,13 @@ ipcMain.handle('rabbit:generate-entity-thumbnail', async (_event, { entityType, 
     throw new Error('source image does not exist');
   }
   const thumbPath = dataFileOrThrow(getThumbCacheDir(), `${entityThumbKind(entityType)}-${entityId}`, '.jpg', 'entity'); // (review 2, H2)
-  await sharp(sourcePath).resize(512).jpeg({ quality: 85 }).toFile(thumbPath);
+  await posters.makePoster({ src: sourcePath, dest: thumbPath, edge: 512, quality: 85, replace: true });
   return { ok: true, thumbPath };
 });
 
-ipcMain.handle('rabbit:clear-entity-thumbnail', (_event, { entityType, entityId }) => {
+ipcMain.handle('rabbit:clear-entity-thumbnail', async (_event, { entityType, entityId }) => {
   const thumbPath = dataFileOrThrow(getThumbCacheDir(), `${entityThumbKind(entityType)}-${entityId}`, '.jpg', 'entity'); // (review 2, H2)
-  if (fs.existsSync(thumbPath)) try { fs.unlinkSync(thumbPath); } catch {}
+  await posters.clearPoster(thumbPath);
   return { ok: true };
 });
 

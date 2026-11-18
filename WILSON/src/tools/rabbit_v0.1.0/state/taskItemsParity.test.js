@@ -52,18 +52,24 @@ const SHARED = [
 // buttons went (her Q-N1).
 const TWIN_OWN = ['planReorder', 'applyPositions']
 
+// F9 (B1): the copy is no longer kept by hand. Every rule both carry is the
+// generated module's own (electron/rules/taskItems.cjs, esbuild's bundle of
+// taskItemsModel.js), and src/lib/electronRules.test.js fails while it is
+// stale — the one check in place of this file's pairwise comparisons, which ran
+// unedited on the generated copy before they were retired. What stays: the
+// CONTROLs (the model's rules, stated absolutely), the twin's export list, and
+// the twin's own reorder below.
 describe('the CommonJS copy says what the model says', () => {
-  it('the same kinds and fields', () => {
-    expect([...cjs.ITEM_KINDS]).toEqual([...esm.ITEM_KINDS])
-    expect({ ...cjs.KIND_FIELD }).toEqual({ ...esm.KIND_FIELD })
-    expect([...cjs.LINK_FIELDS]).toEqual([...esm.LINK_FIELDS])
-    expect({ ...cjs.FIELD_KIND }).toEqual({ ...esm.FIELD_KIND })
+  it('F9: each rule both carry IS the generated module\'s, the very function', () => {
+    const gen = require('../../../../electron/rules/taskItems.cjs')
+    for (const name of SHARED) expect(cjs[name], name).toBe(gen[name])
   })
-
-  it('the same order, every pair', () => {
-    for (const a of ITEMS) for (const b of ITEMS) {
-      expect(Math.sign(cjs.compareItems(a, b)), `${a.id} vs ${b.id}`).toBe(Math.sign(esm.compareItems(a, b)))
-    }
+  it('review round 1: the refusals the desktop\'s route sends a client, word for word', () => {
+    expect(cjs.itemShapeProblem(null)).toBe('an item needs a task, a kind and an entity')
+    expect(cjs.itemShapeProblem({ task_id: T, entity_type: 'phase', entity_id: 'x' })).toBe('phase is not a kind of item (asset, scene, shot, level, experience)')
+    expect(cjs.itemShapeProblem({ task_id: T, entity_type: 'asset', entity_id: 'x', position: -1 })).toBe('an item\'s position is a whole number from 0 to 2147483647')
+    expect(cjs.itemShapeProblem({ task_id: T, entity_type: 'asset', entity_id: 'x', created_at: 'soon' })).toBe('an item\'s created_at is a date')
+    expect(cjs.itemShapeProblem({ task_id: T, entity_type: 'asset', entity_id: 'x' })).toBeNull()
   })
   it('CONTROL: the pairs tell position-first from time-first and from id-first', () => {
     const byTime = (a, b) => Date.parse(a.created_at) - Date.parse(b.created_at)
@@ -73,20 +79,6 @@ describe('the CommonJS copy says what the model says', () => {
     expect(differs(byId)).toBe(true)
   })
 
-  it('the same items of a task, kind by kind', () => {
-    for (const kind of [null, ...esm.ITEM_KINDS]) {
-      expect(cjs.itemsOfTask(ITEMS, T, kind).map(i => i.id), String(kind)).toEqual(esm.itemsOfTask(ITEMS, T, kind).map(i => i.id))
-    }
-  })
-
-  it('the same older apps\' copy, for the task and for each kind alone', () => {
-    expect(cjs.copyFieldsFromItems(ITEMS.filter(i => i.task_id === T))).toEqual(esm.copyFieldsFromItems(ITEMS.filter(i => i.task_id === T)))
-    for (const kind of esm.ITEM_KINDS) {
-      const only = ITEMS.filter(i => i.task_id === T && i.entity_type === kind)
-      expect(cjs.copyFieldsFromItems(only), kind).toEqual(esm.copyFieldsFromItems(only))
-    }
-    expect(cjs.copyFieldsFromItems(undefined)).toEqual(esm.copyFieldsFromItems(undefined))
-  })
   it('CONTROL: the copy is the first in the STORED order, not the first to arrive, the oldest or the lowest id', () => {
     const assets = ITEMS.filter(i => i.task_id === T && i.entity_type === 'asset')
     const copy = esm.copyFieldsFromItems(assets).asset_id
@@ -96,12 +88,6 @@ describe('the CommonJS copy says what the model says', () => {
     expect(assets.slice().sort((a, b) => (a.id < b.id ? -1 : 1))[0].entity_id).not.toBe(copy) // lowest id
   })
 
-  it('the same next position for every kind and task', () => {
-    for (const task of [T, 'task-2', 'nobody']) for (const kind of esm.ITEM_KINDS) {
-      expect(cjs.nextPosition(ITEMS, task, kind), `${task} ${kind}`).toBe(esm.nextPosition(ITEMS, task, kind))
-    }
-    expect(cjs.nextPosition([row('z', 'asset', 'Z', 2147483647)], T, 'asset')).toBe(esm.nextPosition([row('z', 'asset', 'Z', 2147483647)], T, 'asset'))
-  })
   it('CONTROL: the next position is after the highest, not the count and not after the last to arrive', () => {
     const assets = ITEMS.filter(i => i.task_id === T && i.entity_type === 'asset')
     const next = esm.nextPosition(ITEMS, T, 'asset')
@@ -110,21 +96,6 @@ describe('the CommonJS copy says what the model says', () => {
     expect(assets[assets.length - 1].position + 1).not.toBe(next)
   })
 
-  it('the same older app\'s write of one field for every kind: no-op, has it, add, clear, first item, unknown kind', () => {
-    const cases = [
-      ['asset', 'A1', 'A1'], ['asset', 'A2', 'A1'], ['asset', 'A9', 'A1'], ['asset', 'A9', null], ['asset', null, 'A2'],
-      ['asset', '', 'A9'], ['asset', null, null], ['scene', 'S1', 'S2'], ['scene', 'S7', null], ['shot', null, 'H1'],
-      ['shot', 'H9', 'H1'], ['level', 'L2', 'L1'], ['experience', 'X1', null], ['phase', 'P', null],
-    ]
-    for (const [kind, value, previous] of cases) {
-      const a = cjs.planLegacyFieldWrite(ITEMS, T, kind, value, previous, maker())
-      const b = esm.planLegacyFieldWrite(ITEMS, T, kind, value, previous, maker())
-      expect({ remove: a.remove.map(i => i.id), insert: a.insert }, `${kind} ${value} over ${previous}`)
-        .toEqual({ remove: b.remove.map(i => i.id), insert: b.insert })
-      expect(Object.keys(a).sort()).toEqual(Object.keys(b).sort())
-    }
-    expect(cjs.planLegacyFieldWrite(ITEMS, null, 'asset', 'A9', null, maker())).toEqual(esm.planLegacyFieldWrite(ITEMS, null, 'asset', 'A9', null, maker()))
-  })
   it('CONTROL: the cases tell add-only from FX2\'s replace-the-first and move-first', () => {
     // A new value over A1: FX2 removed A1 and put the new one first (position 0).
     const add = esm.planLegacyFieldWrite(ITEMS, T, 'asset', 'A9', 'A1', maker())
@@ -136,33 +107,9 @@ describe('the CommonJS copy says what the model says', () => {
     expect(esm.planLegacyFieldWrite(ITEMS, T, 'asset', null, 'A2', maker()).remove.map(i => i.id)).toEqual(['a2'])
   })
 
-  it('the same seeds from a task\'s own fields, all five or the cloud\'s three', () => {
-    const tasks = [
-      { id: T, asset_id: 'A1', scene_id: 'S9', shot_id: '', level_id: 'L1', experience_id: 'X9' },
-      { id: 'task-2', asset_id: 'A1', scene_id: null }, { id: null, asset_id: 'A1' }, null,
-    ]
-    for (const t of tasks) {
-      expect(cjs.seedItemsFor(t, ITEMS, maker()), JSON.stringify(t)).toEqual(esm.seedItemsFor(t, ITEMS, maker()))
-      expect(cjs.seedItemsFor(t, ITEMS, maker(), ['asset_id', 'scene_id', 'shot_id'])).toEqual(esm.seedItemsFor(t, ITEMS, maker(), ['asset_id', 'scene_id', 'shot_id']))
-    }
-  })
   it('CONTROL: a seed checks the task\'s own items, not another task\'s', () => {
     // task-2 has AO, not A1: an A1 seed is due though task-1 has A1.
     expect(esm.seedItemsFor({ id: 'task-2', asset_id: 'A1' }, ITEMS, maker()).map(i => i.entity_id)).toEqual(['A1'])
-  })
-
-  it('the same refusals, word for word', () => {
-    const shapes = [
-      null, {}, { task_id: T }, { task_id: T, entity_type: 'phase', entity_id: 'x' },
-      { task_id: T, entity_type: 'asset' }, { task_id: T, entity_type: 'asset', entity_id: 'x', position: -1 },
-      { task_id: T, entity_type: 'asset', entity_id: 'x', position: 2.5 }, { task_id: T, entity_type: 'shot', entity_id: 'x', position: 3 },
-      // Review round 1, R1-4.
-      { task_id: T, entity_type: 'asset', entity_id: ['x'] }, { task_id: 7, entity_type: 'asset', entity_id: 'x' },
-      { id: {}, task_id: T, entity_type: 'asset', entity_id: 'x' }, { task_id: T, entity_type: 'asset', entity_id: 'x', position: 1e300 },
-      { task_id: T, entity_type: 'asset', entity_id: 'x', created_at: {} }, { task_id: T, entity_type: 'asset', entity_id: 'x', created_at: 'soon' },
-      { task_id: T, entity_type: 'asset', entity_id: 'x', created_at: '2026-10-11T00:00:00Z', position: 2147483647 },
-    ]
-    for (const s of shapes) expect(cjs.itemShapeProblem(s), JSON.stringify(s)).toEqual(esm.itemShapeProblem(s))
   })
 
   it('every rule the twin carries is one the model states, and the rules that picked one item are gone from both', () => {
