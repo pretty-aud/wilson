@@ -21,7 +21,7 @@ import { DEFAULT_SINGLE_PAGE_SYSTEM, DEFAULT_SINGLE_PAGE_OUTPUT_FORMAT, DEFAULT_
 import { DEFAULT_FULL_DECK_SYSTEM, DEFAULT_FULL_DECK_OUTPUT_FORMAT, DEFAULT_FULL_DECK_INSTRUCTIONS } from './prompts/fullDeckPrompts';
 import { DEFAULT_THEME_COLOR_PROMPT } from './prompts/themePrompt';
 import { DEFAULT_IMG_PROMPT_API_SYSTEM, DEFAULT_IMG_PROMPT_SHARED_SYSTEM, DEFAULT_IMG_PROMPT_MIDJOURNEY, DEFAULT_IMG_PROMPT_FLUX, DEFAULT_IMG_PROMPT_NANOBANANA, DEFAULT_IMG_PROMPT_CHATGPT, DEFAULT_IMG_PROMPT_OUTPUT_FORMAT } from './prompts/imagePrompts';
-import { parseSlideContent, correctGeometryIconOrder, parsePlacedAssets } from './parser';
+import { parseSlideContent, parsePlacedAssets, splitSlides, parseAssetLine } from './parser';
 import { saveFileToFolder, deriveDeckTitle, exportHistory, exportVisHistory } from './export';
 import LayoutVisualizer from './LayoutVisualizer';
 import DuplicateResolverModal from './modals/DuplicateResolverModal';
@@ -900,180 +900,18 @@ Generate 3 color themes for this deck.`;
     setUploadedFiles([]);
   }, []);
 
-  // Parse output into individual pages
+  // Parse output into individual pages. The slide format is read in parser.js
+  // (splitSlides; F6, A2), beside the reader the visualiser and the exports
+  // use; the ids and the time stay here.
   const parseOutputToPages = useCallback((output) => {
-    const pages = [];
-    
-    console.log('parseOutputToPages input:', output.substring(0, 500));
-    
-    // Try multiple parsing strategies
-    
-    // Strategy 1: Split by the delimiter lines with SLIDE headers
-    const blocks = output.split(/═{5,}/);
-    console.log('Split into blocks:', blocks.length);
-    
-    for (let i = 0; i < blocks.length; i++) {
-      const block = blocks[i].trim();
-      if (!block) continue;
-      
-      // Look for SLIDE header in this block - try both formats
-      // Format 1: SLIDE #X — [LAYOUT TYPE: Layout Name]
-      let headerMatch = block.match(/SLIDE\s*#\s*(\d+|X)\s*[—–\-]+\s*\[?\s*LAYOUT\s*TYPE\s*:?\s*([^\]\n]+)/i);
-      // Format 2: SLIDE #X — Layout Name (no brackets)
-      if (!headerMatch) {
-        headerMatch = block.match(/SLIDE\s*#\s*(\d+|X)\s*[—–\-]+\s*([^\n═]+)/i);
-      }
-      
-      if (headerMatch) {
-        const pageNum = headerMatch[1].trim();
-        const layout = headerMatch[2].trim().replace(/\]$/, '').trim();
-        
-        // Get content - either rest of this block or next block
-        let contentBody = block.replace(headerMatch[0], '').trim();
-        
-        // If content is empty, check next block
-        if (!contentBody && blocks[i + 1]) {
-          contentBody = blocks[i + 1].trim();
-          i++; // Skip next block since we used it
-        }
-        
-        // Extract title - try ▸ TITLE: format first (newline then same-line), then markdown # format
-        let titleMatch = contentBody.match(/▸\s*TITLE\s*:\s*\n\s*([^\n]+)/i);
-        if (!titleMatch) titleMatch = contentBody.match(/▸\s*TITLE\s*:\s+([^\n]+)/i);
-        if (!titleMatch) {
-          titleMatch = contentBody.match(/^#\s+([^\n]+)/m);
-        }
-        const title = titleMatch ? titleMatch[1].trim() : 'Untitled';
-
-        console.log('Strategy 1 - Parsed slide:', { pageNum, layout, title: title.substring(0, 30) });
-        
-        // Reconstruct the full slide content - use simpler format
-        const fullContentRaw = `SLIDE #${pageNum} — ${layout}
-═══════════════════════════════════════════════════════════════
-
-${contentBody}
-
-═══════════════════════════════════════════════════════════════`;
-        const fullContent = correctGeometryIconOrder(fullContentRaw);
-
-        pages.push({
-          id: Date.now() + Math.random() * 1000 + pages.length,
-          pageNum: pageNum,
-          layout: layout,
-          title: title,
-          content: fullContent,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        });
-      }
-    }
-
-    // Strategy 2: If strategy 1 failed, try finding SLIDE # patterns directly
-    if (pages.length === 0) {
-      console.log('Strategy 1 failed, trying strategy 2');
-      
-      // Try format 1 first
-      let slideMatches = [...output.matchAll(/SLIDE\s*#\s*(\d+|X)\s*[—–\-]+\s*\[?\s*LAYOUT\s*TYPE\s*:?\s*([^\]\n]+)/gi)];
-      // If no matches, try format 2
-      if (slideMatches.length === 0) {
-        slideMatches = [...output.matchAll(/SLIDE\s*#\s*(\d+|X)\s*[—–\-]+\s*([^\n═]+)/gi)];
-      }
-      console.log('Found slide headers:', slideMatches.length);
-      
-      for (let i = 0; i < slideMatches.length; i++) {
-        const match = slideMatches[i];
-        const pageNum = match[1].trim();
-        const layout = match[2].trim().replace(/\]$/, '').trim();
-        
-        // Get content until next slide or end
-        const startIdx = match.index + match[0].length;
-        const endIdx = slideMatches[i + 1] ? slideMatches[i + 1].index : output.length;
-        let contentBody = output.substring(startIdx, endIdx).trim();
-        
-        // Clean up delimiters from content
-        contentBody = contentBody.replace(/^[═\s]+/g, '').replace(/[═\s]+$/g, '').trim();
-        
-        // Extract title - try ▸ TITLE: format first (newline then same-line), then markdown # format
-        let titleMatch = contentBody.match(/▸\s*TITLE\s*:\s*\n\s*([^\n]+)/i);
-        if (!titleMatch) titleMatch = contentBody.match(/▸\s*TITLE\s*:\s+([^\n]+)/i);
-        if (!titleMatch) {
-          titleMatch = contentBody.match(/^#\s+([^\n]+)/m);
-        }
-        const title = titleMatch ? titleMatch[1].trim() : 'Untitled';
-
-        console.log('Strategy 2 - Parsed slide:', { pageNum, layout, title: title.substring(0, 30) });
-        
-        const fullContentRaw = `SLIDE #${pageNum} — ${layout}
-═══════════════════════════════════════════════════════════════
-
-${contentBody}
-
-═══════════════════════════════════════════════════════════════`;
-        const fullContent = correctGeometryIconOrder(fullContentRaw);
-
-        pages.push({
-          id: Date.now() + Math.random() * 1000 + pages.length,
-          pageNum: pageNum,
-          layout: layout,
-          title: title,
-          content: fullContent,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        });
-      }
-    }
-
-    // Strategy 3: Last resort - try very loose pattern
-    if (pages.length === 0) {
-      console.log('Strategy 2 failed, trying strategy 3');
-      
-      // Just look for any SLIDE # pattern
-      const loosePattern = /SLIDE\s*#?\s*(\d+)/gi;
-      const looseMatches = [...output.matchAll(loosePattern)];
-      console.log('Loose matches found:', looseMatches.length);
-      
-      if (looseMatches.length > 0) {
-        // Try to extract at least something
-        for (let i = 0; i < looseMatches.length; i++) {
-          const match = looseMatches[i];
-          const pageNum = match[1];
-          
-          const startIdx = match.index;
-          const endIdx = looseMatches[i + 1] ? looseMatches[i + 1].index : output.length;
-          const blockContent = output.substring(startIdx, endIdx).trim();
-          
-          // Try to find layout
-          const layoutMatch = blockContent.match(/LAYOUT\s*(?:TYPE)?\s*:?\s*([^\]\n]+)/i);
-          let layout = layoutMatch ? layoutMatch[1].trim().replace(/\]$/, '').trim() : '';
-          
-          // Also try to get layout from SLIDE # — Layout Name format
-          if (!layout) {
-            const slideLayoutMatch = blockContent.match(/SLIDE\s*#\s*\d+\s*[—–\-]+\s*([^\n═]+)/i);
-            layout = slideLayoutMatch ? slideLayoutMatch[1].trim() : 'Title and body';
-          }
-          
-          // Try to find title - ▸ TITLE: format first (newline then same-line), then markdown # format
-          let titleMatch = blockContent.match(/▸?\s*TITLE\s*:\s*\n\s*([^\n▸]+)/i);
-          if (!titleMatch) titleMatch = blockContent.match(/▸?\s*TITLE\s*:\s+([^\n▸]+)/i);
-          if (!titleMatch) {
-            titleMatch = blockContent.match(/^#\s+([^\n]+)/m);
-          }
-          const title = titleMatch ? titleMatch[1].trim() : 'Slide ' + pageNum;
-          
-          console.log('Strategy 3 - Parsed slide:', { pageNum, layout, title: title.substring(0, 30) });
-          
-          pages.push({
-            id: Date.now() + Math.random() * 1000 + pages.length,
-            pageNum: pageNum,
-            layout: layout,
-            title: title,
-            content: correctGeometryIconOrder(blockContent),
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-          });
-        }
-      }
-    }
-
-    console.log('Final parsed pages:', pages.length, pages.map(p => ({ num: p.pageNum, title: p.title })));
-    return pages;
+    return splitSlides(output).map((page, i) => ({
+      id: Date.now() + Math.random() * 1000 + i,
+      pageNum: page.pageNum,
+      layout: page.layout,
+      title: page.title,
+      content: page.content,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    }));
   }, []);
 
   // Build asset placement prompt additions when placement checkboxes are active
@@ -3690,19 +3528,14 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${srcFiles.some(f => 
         if (parsed.requiredAssets) {
           const assetLines = parsed.requiredAssets.split('\n').filter(l => l.trim().startsWith('•'));
           assetLines.forEach(line => {
-            const assetMatch = line.match(/•\s*\[([^\]]+)\]\s*-\s*(.+)/);
-            if (assetMatch) {
-              const typeAndRatio = assetMatch[1].trim();
-              const description = assetMatch[2].trim();
-              const ratioParts = typeAndRatio.split('|').map(s => s.trim());
-              const assetType = ratioParts[0];
-              const ratio = ratioParts[1] || 'N/A';
+            const asset = parseAssetLine(line);
+            if (asset) {
               allAssets.push({
                 slideNum: item.pageNum,
                 layoutName: parsed.layoutType || item.layout || '',
-                assetType,
-                ratio,
-                description
+                assetType: asset.type,
+                ratio: asset.ratio || 'N/A',
+                description: asset.description
               });
             }
           });
