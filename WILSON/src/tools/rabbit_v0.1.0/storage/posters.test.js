@@ -145,13 +145,13 @@ describe('makePoster: one write in flight per poster, never torn', () => {
     await expect(p).rejects.toThrow('corrupt source')
     expect(realFs.readdirSync(cache).filter((n) => n.startsWith('asset-torn'))).toEqual([])
   })
-  it('a rename that fails leaves no part behind, and the old poster stands', async () => {
+  it('a rename that fails leaves no part behind, and no torn poster; a new picture that failed leaves no old one (round 2)', async () => {
     const dest = path.join(cache, 'asset-keep.jpg')
     realFs.writeFileSync(dest, JPEG_A)
     const failing = new Proxy(realFs, { get: (t, k) => (k === 'renameSync' ? () => { throw Object.assign(new Error('EIO'), { code: 'EIO' }) } : t[k]) })
     await expect(posters.makePoster({ src: SRC, dest, edge: 512, quality: 85, replace: true, encode: async () => JPEG_B, fsImpl: failing })).rejects.toThrow('EIO')
-    expect(realFs.readdirSync(cache).filter((n) => n.startsWith('asset-keep'))).toEqual(['asset-keep.jpg'])
-    expect(realFs.readFileSync(dest).equals(JPEG_A)).toBe(true)
+    // The old picture's poster is not served for the new one: the next GET makes it from the new source.
+    expect(realFs.readdirSync(cache).filter((n) => n.startsWith('asset-keep'))).toEqual([])
   })
   it('CONTROL: libvips\'s toFile wrote in place, so a failed encode left a torn poster the GET then served', async () => {
     const dest = path.join(cache, 'asset-torn-tip.jpg')
@@ -200,11 +200,25 @@ describe('makePoster: one write in flight per poster, never torn', () => {
   })
   it('review round 1: a make that takes too long fails, writes nothing, and lets the next one go', async () => {
     const dest = path.join(cache, 'asset-stalled.jpg')
-    const stalled = posters.makePoster({ src: SRC, dest, edge: 512, quality: 85, encode: () => new Promise(() => {}), deadlineMs: 30 })
+    // Its own source: a timed-out source is remembered for two minutes (round 2).
+    const stalled = posters.makePoster({ src: path.join(tmp, 'stalled.png'), dest, edge: 512, quality: 85, encode: () => new Promise(() => {}), deadlineMs: 30 })
     const next = posters.makePoster({ src: SRC, dest, edge: 512, quality: 85, replace: true, encode: async () => JPEG_B })
     await expect(stalled).rejects.toMatchObject({ code: 'POSTER_TIMEOUT' })
     await next
     expect(realFs.readFileSync(dest).equals(JPEG_B)).toBe(true)
+  })
+  it('review round 2: a source that timed out is not asked again at once; another picture is; a failed new picture removes the old poster', async () => {
+    const dest = path.join(cache, 'asset-dead-share.jpg')
+    const dead = path.join(tmp, 'dead-share.png')
+    let asked = 0
+    const hang = () => { asked += 1; return new Promise(() => {}) }
+    await expect(posters.makePoster({ src: dead, dest, edge: 512, quality: 85, encode: hang, deadlineMs: 20 })).rejects.toMatchObject({ code: 'POSTER_TIMEOUT' })
+    await expect(posters.makePoster({ src: dead, dest, edge: 512, quality: 85, encode: hang, deadlineMs: 20 })).rejects.toMatchObject({ code: 'POSTER_TIMEOUT' })
+    expect(asked).toBe(1) // the second ask did not start another stuck encode
+    await posters.makePoster({ src: SRC, dest, edge: 512, quality: 85, encode: async () => JPEG_A })
+    expect(realFs.readFileSync(dest).equals(JPEG_A)).toBe(true)
+    await expect(posters.makePoster({ src: SRC, dest, edge: 512, quality: 85, replace: true, encode: async () => { throw new Error('unreadable') } })).rejects.toThrow('unreadable')
+    expect(realFs.existsSync(dest)).toBe(false)
   })
   it('a make after a failed one on the same poster still runs; a poster already there is not made again', async () => {
     const dest = path.join(cache, 'asset-after.jpg')

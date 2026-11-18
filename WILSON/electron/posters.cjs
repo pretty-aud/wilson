@@ -115,13 +115,35 @@ async function encodePoster(src, { edge, quality, fit = 'width' }) {
   return sized.jpeg({ quality }).toBuffer();
 }
 
+// A source that timed out is not asked again for a while (review round 2): the
+// encode the deadline abandoned still holds a worker thread, and a grid asking
+// again would fill the pool. Keyed by the SOURCE, so a new picture is not held.
+const TIMED_OUT_TTL_MS = 2 * 60_000;
+const timedOutAt = new Map();
+const timeoutError = () => Object.assign(new Error('the poster took too long to make'), { code: 'POSTER_TIMEOUT' });
+
 function makePoster({ src, dest, edge, quality, fit = 'width', replace = false, encode = encodePoster, fsImpl = nodeFs, deadlineMs = ENCODE_DEADLINE_MS, pauseMs }) {
   if (fit !== 'width' && fit !== 'inside') return Promise.reject(new Error(`makePoster: unknown fit ${fit}`));
   return inTurn(dest, async () => {
     if (!replace && fsImpl.existsSync(dest)) return { made: false };
-    const buf = await withDeadline(Promise.resolve().then(() => encode(src, { edge, quality, fit })), deadlineMs);
-    await writePosterAtomically(dest, buf, { fsImpl, pauseMs });
-    return { made: true };
+    const srcKey = keyOf(src);
+    const at = timedOutAt.get(srcKey);
+    try {
+      if (at !== undefined && Date.now() - at < TIMED_OUT_TTL_MS) throw timeoutError();
+      const buf = await withDeadline(Promise.resolve().then(() => encode(src, { edge, quality, fit })), deadlineMs);
+      timedOutAt.delete(srcKey);
+      await writePosterAtomically(dest, buf, { fsImpl, pauseMs });
+      return { made: true };
+    } catch (err) {
+      if (err?.code === 'POSTER_TIMEOUT' && at === undefined) {
+        if (timedOutAt.size > 500) timedOutAt.clear();
+        timedOutAt.set(srcKey, Date.now());
+      }
+      // A new picture that could not be made must not leave the old one served
+      // for it (review round 2): the next GET makes it again from the new source.
+      if (replace) { try { if (fsImpl.existsSync(dest)) fsImpl.unlinkSync(dest); } catch { /* next replace */ } }
+      throw err;
+    }
   });
 }
 

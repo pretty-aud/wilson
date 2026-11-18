@@ -404,7 +404,7 @@ function folderRootRefusal(candidate) {
   const dflt = readFilesConfig().defaultRootDir;
   // F9 (review round 1; OUTSTANDING F9-02): never the folder every project
   // sits in — its fence would then reach every project's folder.
-  if (dflt && resolved.toLowerCase() === path.resolve(dflt).toLowerCase()) {
+  if (dflt && (resolved.toLowerCase() === path.resolve(dflt).toLowerCase() || isPathInside(resolved, path.resolve(dflt)))) {
     return { error: 'the project folder cannot be the folder every project sits in — pick one inside it' };
   }
   if (dflt && isPathInside(dflt, resolved)) return { resolved };
@@ -2628,7 +2628,9 @@ function startLocalServer(distPath) {
       // slug rule — a title with nothing to slug renames to the fallback, where
       // '' left the folder behind and the write's reconcile then named another.
       if (req.body.title && req.body.title !== oldTitle) {
-        const newSlug = projectSlugOf({ id: bundle.project.id, title: req.body.title });
+        // A new title with nothing to slug keeps the slug the project has
+        // (review round 2: it renamed nothing and orphaned the sub-folders).
+        const newSlug = fileSlugify(String(req.body.title)) || oldSlug || projectSlugOf({ id: bundle.project.id, title: req.body.title });
         if (newSlug !== oldSlug && oldSlug) {
           const root = bundle.project.folder_root
             ? path.dirname(bundle.project.folder_root)

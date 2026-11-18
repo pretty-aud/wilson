@@ -117,15 +117,16 @@ function sendMedia(res, diskPath, { mime = null, attachmentName = null, cache = 
   res.sendFile(path.resolve(String(diskPath)), { acceptRanges: true, dotfiles: 'allow', cacheControl: revalidate }, (err) => {
     if (!err) return;
     // A cancelled range request is the normal shape of video playback.
-    const aborted = err.code === 'ECONNABORTED' || err.code === 'EPIPE';
     if (res.headersSent) {
       // A read that failed mid-body (a network share that dropped): end it,
       // or the window waits for ever — the server sets no request timeout
-      // (F9 review round 1; the error handler ended these before).
-      if (!aborted && !res.writableEnded) res.destroy();
+      // (F9 review rounds 1 and 2; the error handler ended these before).
+      // Whatever the code: a read error can carry ECONNABORTED too, and for
+      // a client that really left, destroying its closed socket does nothing.
+      if (!res.writableEnded) res.destroy();
       return;
     }
-    if (aborted || res.writableEnded) return;
+    if (res.writableEnded || res.destroyed) return;
     // The answer is an error, not the file: none of the file's own headers.
     for (const h of ['Content-Disposition', 'ETag', 'Last-Modified', 'Accept-Ranges']) res.removeHeader(h);
     res.status(err.status || err.statusCode || 500);

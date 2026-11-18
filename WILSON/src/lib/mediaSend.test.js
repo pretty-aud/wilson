@@ -504,10 +504,17 @@ describe('sendMedia: what it sends, and seeking', () => {
     }
     media.sendMedia(fakeRes, path.join(dir, 'big.bin'), {})
     expect(destroyed).toBe(1)
-    // CONTROL: a cancelled range (every <video> seek) is left alone.
-    const seeking = { ...fakeRes, headersSent: false, sendFile(_p, _o, cb) { this.headersSent = true; cb(Object.assign(new Error('aborted'), { code: 'ECONNABORTED' })) } }
-    media.sendMedia(seeking, path.join(dir, 'big.bin'), {})
-    expect(destroyed).toBe(1)
+    // Round 2: a read error coded like a cancel is ended too (destroying a socket a client closed does nothing),
+    // and nothing is answered a second time.
+    let answered = 0
+    const coded = { ...fakeRes, headersSent: false, status() { answered += 1; return this }, sendFile(_p, _o, cb) { this.headersSent = true; cb(Object.assign(new Error('read'), { code: 'ECONNABORTED' })) } }
+    media.sendMedia(coded, path.join(dir, 'big.bin'), {})
+    expect(destroyed).toBe(2)
+    expect(answered).toBe(0)
+    // CONTROL: a response already finished is left alone.
+    const done = { ...fakeRes, headersSent: false, sendFile(_p, _o, cb) { this.headersSent = true; this.writableEnded = true; cb(Object.assign(new Error('late'), { code: 'EIO' })) } }
+    media.sendMedia(done, path.join(dir, 'big.bin'), {})
+    expect(destroyed).toBe(2)
   })
   it('an unknown cache rule is a programming error', () => {
     expect(() => media.sendMedia({ setHeader() {} }, 'x', { cache: 'public' })).toThrow(/unknown cache rule/)

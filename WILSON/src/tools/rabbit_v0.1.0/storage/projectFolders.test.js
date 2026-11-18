@@ -308,10 +308,21 @@ describe('folderRootRefusal: never the folder every project sits in (review roun
       path, checkFolderRootShape, checkDemoFolderShape, isPathInside, () => demoRoot, () => (demoRoot ? path.join(demoRoot, 'projects') : null),
       workspaceRootDir, () => ({ defaultRootDir }), new Set(picked))
   }
-  it('the machine\'s storage folder itself is refused; a folder inside it is not', () => {
-    const refuse = refusalWith({ defaultRootDir: root })
+  it('the machine\'s storage folder itself, or a folder holding it, is refused; a folder inside it is not', () => {
+    // checkFolderRootShape is Windows-only by design (a NAS root is a UNC or drive path).
+    if (process.platform !== 'win32') return
+    const refuse = refusalWith({ defaultRootDir: root, picked: [tmp] })
     expect(refuse(root).error).toMatch(/every project sits in/)
+    expect(refuse(tmp).error).toMatch(/every project sits in/) // review round 2: picked, but it holds the root
     expect(refuse(path.join(root, 'Salt-Hours')).resolved).toBe(path.join(root, 'Salt-Hours'))
+  })
+  it('the routes pass the row\'s id to the slug, and the asset create stores it (review round 2: unpinned)', () => {
+    expect(MAIN).toContain('if (!row.folder_slug && row.name) row.folder_slug = assetSlugOf({ id: row.id, name: row.name });')
+    expect(MAIN).toContain('ensureAssetFolder(bundle, result);')
+    expect(MAIN).toContain('const assetSlug = assetSlugOf(asset); // its stored slug')
+    expect(MAIN).toContain('const newSlug = assetSlugOf({ id: req.params.id, name: req.body.name });')
+    expect(MAIN).toContain('req.body.folder_slug = projectSlugOf({ id: bundle.project.id, folder_slug: next, title: bundle.project.title });')
+    expect(MAIN).toContain('const newSlug = fileSlugify(String(req.body.title)) || oldSlug || projectSlugOf({ id: bundle.project.id, title: req.body.title });')
   })
   it('a demo folder\'s projects folder itself is refused; a project inside it is not', () => {
     const demo = path.join(tmp, 'DemoRoot')
