@@ -25,7 +25,7 @@
 // =============================================================================
 
 import { useEffect, useRef, useState } from 'react'
-import { supabase } from '../../cloud/auth/supabaseClient'
+import { inviteMember } from '../../cloud/adminApi'
 import { parseInviteList, USERNAME_RE } from '../../cloud/auth/inviteParsing'
 import { devFixtures, devWriteRefused } from '../../dev/devFixtures'
 import Dialog from '../../ui/Dialog'
@@ -36,23 +36,6 @@ import Select from '../../ui/Select'
 import Spinner from '../../ui/Spinner'
 import StatusBadge from '../../ui/StatusBadge'
 import Banner from '../../ui/Banner'
-
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
-const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY
-
-// Same error map InviteMemberDialog uses — one vocabulary app-wide.
-const ERROR_MAP = {
-  forbidden:         'You must be a workspace admin to invite members.',
-  unauthorized:      'Session expired — sign in again.',
-  username_taken:    'That username is already in use in this workspace.',
-  email_taken:       'That email is already associated with a WILSON account.',
-  validation_failed: 'Please check the form for errors.',
-  invite_failed:     'Email delivery failed. Try again in a minute.',
-  // Session 17: invite-member enforces the MFA step-up (§6 #46). Kept in the
-  // same vocabulary as adminApi.js / operatorApi.js.
-  mfa_required:      'This action needs a fresh MFA sign-in. Sign out and back in with your authenticator code.',
-  mfa_check_failed:  'Could not verify your MFA status. Try again in a moment.',
-}
 
 // 🚨 THE TWO FIELD STYLE OBJECTS ARE GONE, and the trap they were written to
 // avoid is gone with them. Every field here is now `Input` / `TextArea` /
@@ -148,48 +131,20 @@ export default function MultiInviteDialog({ open, onClose, onInvited }) {
       return
     }
 
-    const { data: sess } = await supabase.auth.getSession()
-    if (!mountedRef.current) return
-    const token = sess?.session?.access_token
-    if (!token) {
-      setRows(prev => prev.map(r => (targets.some(t => t.email === r.email)
-        ? { ...r, status: 'failed', error: 'Session expired — sign in again.' }
-        : r)))
-      setBusy(false)
-      setDone(true)
-      return
-    }
-
+    // F11 (A1): each row is adminApi.js's inviteMember, the request and the words this dialog and
+    // InviteMemberDialog kept a copy each of. It reads the session itself (bounded); a person whose
+    // session has gone reads "Session expired — sign in again." on each row, as on the whole batch before.
     let sent = 0
     for (const target of targets) {
       if (!mountedRef.current) return
       patchRow(target.email, { status: 'sending', error: null })
-      try {
-        const res = await fetch(`${SUPABASE_URL}/functions/v1/invite-member`, {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            apikey: SUPABASE_ANON,
-            authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            email: target.email,
-            username: target.username,
-            display_name: null,
-            app_role: target.role,
-          }),
-        })
-        const json = await res.json().catch(() => ({}))
-        if (!mountedRef.current) return
-        if (res.status === 201) {
-          patchRow(target.email, { status: 'ok', error: null })
-          onInvited?.({ ...json, display_name: json.username })
-        } else {
-          patchRow(target.email, { status: 'failed', error: ERROR_MAP[json.error] ?? `Invite failed (${res.status}).` })
-        }
-      } catch (err) {
-        if (!mountedRef.current) return
-        patchRow(target.email, { status: 'failed', error: err?.message ?? 'Network error.' })
+      const res = await inviteMember({ email: target.email, username: target.username, displayName: null, appRole: target.role })
+      if (!mountedRef.current) return
+      if (res.status === 201 && res.ok) {
+        patchRow(target.email, { status: 'ok', error: null })
+        onInvited?.({ ...res.data, display_name: res.data.username })
+      } else {
+        patchRow(target.email, { status: 'failed', error: res.data.friendly })
       }
       sent += 1
       setProgress({ sent, total: targets.length })
