@@ -777,15 +777,20 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
     return false;
   }, []);
 
-  // F6 (review round 1): which selectSoftware call is the latest, so a refused
-  // read clears only the course it was reading.
+  // F6 (review rounds 1 and 2): which selectSoftware call is the latest, and
+  // whose documents are on screen. Only the latest pick fills the screen (a
+  // slow earlier load no longer lands under a newer course's name), and a
+  // refused read clears only a course being switched TO; a failed reload of
+  // the course already on screen keeps it.
   const softwareReqRef = useRef(0);
+  const shownSoftwareRef = useRef(null);
   const selectSoftware = useCallback((slug, forceReload = false) => {
     const req = ++softwareReqRef.current;
     setActiveSoftwareSlug(slug);
     setExpandedSoftware(slug);
     const cached = softwareCacheRef.current[slug];
     if (cached && !forceReload) {
+      shownSoftwareRef.current = slug;
       setActiveSoftware(cached.meta);
       setSubjectList(cached.subjects);
       setActiveProgress(cached.progress);
@@ -805,13 +810,16 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       otterFetch(`/api/software/${slug}/references`).then(needBody).catch(() => ({ urls: [] })),
     ]).then(([meta, subjects, progress, hotkeys, functions, nodes, refs]) => {
       softwareCacheRef.current[slug] = { meta, subjects, progress, hotkeys, functions, nodes, references: refs.urls || [] };
-      setActiveSoftware(meta);
-      setSubjectList(subjects);
-      setActiveProgress(progress);
-      setSoftwareHotkeys(hotkeys);
-      setSoftwareFunctions(functions);
-      setSoftwareNodes(nodes);
-      setReferenceUrls(refs.urls || []);
+      if (softwareReqRef.current === req) {
+        shownSoftwareRef.current = slug;
+        setActiveSoftware(meta);
+        setSubjectList(subjects);
+        setActiveProgress(progress);
+        setSoftwareHotkeys(hotkeys);
+        setSoftwareFunctions(functions);
+        setSoftwareNodes(nodes);
+        setReferenceUrls(refs.urls || []);
+      }
       for (const sub of subjects) {
         const cacheKey = `${slug}/${sub.slug}`;
         if (!subjectCacheRef.current[cacheKey]) {
@@ -823,12 +831,15 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       }
     }).catch(e => {
       console.error('Failed to load software:', e);
-      // F6 (review round 1): a refused course opens EMPTY, as it did when the
-      // refusal was cached as its meta, and nothing of it is cached. Left as
-      // it was, the previous course's subjects, progress and documents stayed
-      // on screen under this one's name, and a lesson ticked there would have
-      // saved them to this course.
-      if (softwareReqRef.current !== req) return;
+      // F6 (review rounds 1 and 2): a refused course opens EMPTY, as it did
+      // when the refusal was cached as its meta, and nothing of it is cached.
+      // Left as it was, the previous course's subjects, progress and documents
+      // stayed on screen under this one's name, and a lesson ticked there
+      // would have saved them to this course. A failed reload of the course
+      // already on screen keeps it (blanking it would make the next generation
+      // read the course as plain software).
+      if (softwareReqRef.current !== req || shownSoftwareRef.current === slug) return;
+      shownSoftwareRef.current = null;
       setActiveSoftware(null);
       setSubjectList([]);
       setActiveProgress(null);
@@ -851,8 +862,8 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       const slug = e?.detail?.slug
       if (!slug) return
       // The dispatcher already probed readability, but re-check here anyway:
-      // if the review window closed in between, selectSoftware would cache the
-      // 404's error JSON as course meta and hand the render a poisoned object.
+      // if the review window closed in between, the course would open empty
+      // (before F6, selectSoftware cached the 404's error JSON as course meta).
       try {
         const probe = await otterFetch(`/api/software/${slug}`)
         if (!probe.ok) return

@@ -84,8 +84,23 @@ describe('a refused course opens empty, for the latest pick only (review round 1
     expect(start).toBeGreaterThan(0)
     expect(body).toContain('const req = ++softwareReqRef.current;')
     const onRefusal = body.slice(body.indexOf('.catch(e => {'))
-    expect(onRefusal).toMatch(/if \(softwareReqRef\.current !== req\) return;/)
+    // Review round 2: the guard comes BEFORE any clear, and it also keeps a
+    // course whose own reload failed (the course on screen is this one).
+    const guard = onRefusal.search(/if \(softwareReqRef\.current !== req \|\| shownSoftwareRef\.current === slug\) return;/)
+    expect(guard).toBeGreaterThan(0)
     for (const clear of ['setActiveSoftware(null)', 'setSubjectList([])', 'setActiveProgress(null)', 'setSoftwareHotkeys(null)',
-      'setSoftwareFunctions(null)', 'setSoftwareNodes(null)', 'setReferenceUrls([])']) expect(onRefusal).toContain(clear)
+      'setSoftwareFunctions(null)', 'setSoftwareNodes(null)', 'setReferenceUrls([])']) {
+      expect(onRefusal.indexOf(clear), clear).toBeGreaterThan(guard)
+    }
+  })
+
+  it('only the latest pick fills the screen, and the screen knows whose course it shows (review round 2)', () => {
+    const onAnswer = body.slice(body.indexOf('.then(([meta, subjects'), body.indexOf('.catch(e => {'))
+    const latest = onAnswer.indexOf('if (softwareReqRef.current === req) {')
+    expect(latest).toBeGreaterThan(0)
+    expect(onAnswer.indexOf('setActiveSoftware(meta)')).toBeGreaterThan(latest)
+    expect(onAnswer.indexOf('shownSoftwareRef.current = slug;')).toBeGreaterThan(latest)
+    // The cached pick says so too.
+    expect(body.slice(0, body.indexOf('Promise.all(['))).toContain('shownSoftwareRef.current = slug;')
   })
 })

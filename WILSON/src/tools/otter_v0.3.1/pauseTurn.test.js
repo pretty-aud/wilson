@@ -104,7 +104,11 @@ describe('one wrapper, in otterAI.js, and every O.T.T.E.R. caller uses it', () =
 
   it('prompts.js stays prompt text with no imports: scripts/probes load it under plain node (review round 1)', () => {
     expect(PROMPTS).toContain('export const FULL_COURSE_OUTLINE_PROMPT')
-    expect(PROMPTS).not.toMatch(/^\s*import\s/m)
+    // Review round 2: the module's own code, its prompt texts set aside (a
+    // prompt may one day hold a Python sample whose line starts "import").
+    const code = PROMPTS.replace(/`[\s\S]*?`/g, '``')
+    expect(code).toMatch(/export const COMPANION_PROMPT = ``/)
+    expect(code).not.toMatch(/^\s*import\s|^\s*export\s[^\n]*\sfrom\s|\brequire\(|\bimport\(/m)
   })
 
   it('the wrapper resumes a pause_turn, bounded, by appending the ASSISTANT turn', () => {
