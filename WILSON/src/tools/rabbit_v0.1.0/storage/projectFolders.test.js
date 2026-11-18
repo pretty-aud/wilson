@@ -357,32 +357,42 @@ describe('the renderer\'s path, judged by the unchanged copy fence', () => {
       copy({ sender: { send() {} } }, { sourcePath: source, destDir, destFileName, projectId })
   }
   const api = (cfg) => ({ readFilesConfig: async () => cfg })
+  // The helper answers in Windows separators, the desktop's (it ships for
+  // Windows). On another host (CI is Linux) the fence's `path` reads `\tmp\…`
+  // as a relative name and lands it inside the asking project's folder, so
+  // there the answer goes to the fence in the host's separators; on Windows,
+  // exactly as the helper gave it. (Run 44397277056, on Linux, was red without this.)
+  async function destFor(project, cfg, rel) {
+    const raw = await projectDiskPath({ project, api: api(cfg), rel })
+    expect(raw).not.toContain('/')
+    return process.platform === 'win32' ? raw : raw.replace(/\\/g, '/')
+  }
 
   it('a project with its own folder: the helper\'s destination is accepted', async () => {
     const project = { id: 'p1', folder_root: elsewhere, folder_slug: 'Salt-Hours' }
-    const dest = await projectDiskPath({ project, api: api({}), rel: 'ASSETS/Hero/' })
+    const dest = await destFor(project, {}, 'ASSETS/Hero/')
     const out = await fenceFor({ p1: { project } })('p1', dest)
     expect(out.finalPath).toBe(path.join(elsewhere, 'ASSETS', 'Hero', 'Salt-Hours_Take_v001.mov'))
   })
   it('a project under the configured root, its folder not made yet: accepted, and made', async () => {
     const project = { id: 'p2', folder_slug: 'Moon-Rise', title: 'Moon Rise' }
-    const dest = await projectDiskPath({ project, api: api({ effectiveRootDir: root }), rel: 'SCENES/Dawn' })
+    const dest = await destFor(project, { effectiveRootDir: root }, 'SCENES/Dawn')
     const out = await fenceFor({ p2: { project } })('p2', dest)
     expect(out.finalPath).toBe(path.join(root, 'Moon-Rise', 'SCENES', 'Dawn', 'Salt-Hours_Take_v001.mov'))
   })
   it('a stored root that is not usable here is refused, as it was', async () => {
     usable = (p) => p !== elsewhere
     const project = { id: 'p3', folder_root: elsewhere, folder_slug: 'Salt-Hours' }
-    const dest = await projectDiskPath({ project, api: api({ effectiveRootDir: root }), rel: 'ASSETS/Hero' })
+    const dest = await destFor(project, { effectiveRootDir: root }, 'ASSETS/Hero')
     await expect(fenceFor({ p3: { project } })('p3', dest)).rejects.toThrow("WILSON copies files only into this project's own folder.")
   })
   it('review round 1: two projects whose titles slug to nothing cannot copy into each other\'s folders', async () => {
     const tokyo = { id: '1a2b3c4d-1', title: '東京', folder_slug: 'Untitled-Project-1a2b3c4d' }
     const osaka = { id: '9f8e7d6c-2', title: '大阪', folder_slug: 'Untitled-Project-9f8e7d6c' }
     const fence = fenceFor({ t: { project: tokyo }, o: { project: osaka } })
-    const intoOsaka = await projectDiskPath({ project: osaka, api: api({ effectiveRootDir: root }), rel: 'ASSETS/Shrine' })
+    const intoOsaka = await destFor(osaka, { effectiveRootDir: root }, 'ASSETS/Shrine')
     await expect(fence('t', intoOsaka)).rejects.toThrow("this project's own folder")
-    const intoTokyo = await projectDiskPath({ project: tokyo, api: api({ effectiveRootDir: root }), rel: 'ASSETS/Shrine' })
+    const intoTokyo = await destFor(tokyo, { effectiveRootDir: root }, 'ASSETS/Shrine')
     expect((await fence('t', intoTokyo)).finalPath).toBe(path.join(root, 'Untitled-Project-1a2b3c4d', 'ASSETS', 'Shrine', 'Salt-Hours_Take_v001.mov'))
   })
   it('another project\'s folder, and a folder outside the root, are refused', async () => {
