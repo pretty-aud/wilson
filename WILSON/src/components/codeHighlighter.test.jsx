@@ -121,6 +121,8 @@ describe('1b. code inside code keeps its own colours', () => {
   it('a doc comment\'s tags: JSDoc and Javadoc @param, and C#\'s /// XML doc', () => {
     expect(inked(draw('javascript', '/**\n * @param {string} name\n */\nfunction f(name) {}'), KEYWORD, '@param')).toBe(true)
     expect(inked(draw('java', '/**\n * @param name the name\n */\nvoid f(String name) {}'), KEYWORD, '@param')).toBe(true)
+    // Round 2 (2A): typescript is built from javascript when tsx registers it, so JSDoc must come before it.
+    expect(inked(draw('typescript', '/**\n * @param {string} name\n */\nfunction f(name: string) {}'), KEYWORD, '@param')).toBe(true)
     expect(new RegExp(`color:${TAG}`).test(draw('csharp', '/// <summary>The name.</summary>\nclass A {}'))).toBe(true)
   })
 })

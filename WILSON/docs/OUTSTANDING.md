@@ -1335,7 +1335,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
-| F11 (2026-11-18, wave 4 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f11-bundle-and-sign-in` into `feat/post-overhaul-edit-versioning`) — the bundle and the sign-in: the highlighter with the app's languages (297 grammars to 46 and their dependencies), three parts of pages loaded on first open through one helper, one Edge Function caller with words for F8's 413, one sign-in module, and Forgot password asking for the company at her answer; the main chunk 5,093,158 → 4,289,154 bytes; two review rounds, whose findings in F11's own work were fixed in the session; no migration, no SQL, no Edge Function | F11-01 to F11-20 | REV-05 and F8-06, fixed. Comment markers: 4 → 4. |
+| F11 (2026-11-18, wave 4 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f11-bundle-and-sign-in` into `feat/post-overhaul-edit-versioning`) — the bundle and the sign-in: the highlighter with the app's languages (297 grammars to 46 and their dependencies), three parts of pages loaded on first open through one helper, one Edge Function caller with words for F8's 413, one sign-in module, and Forgot password asking for the company at her answer; the main chunk 5,093,158 → 4,289,154 bytes; two review rounds, whose findings in F11's own work were fixed in the session; no migration, no SQL, no Edge Function | F11-01 to F11-24 | REV-05 and F8-06, fixed. Comment markers: 4 → 4. |
 | F6 (2026-11-18, wave 3 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f6-dog-otter-one-copy` into `feat/post-overhaul-edit-versioning`) — D.O.G. and O.T.T.E.R. without their copies: the Validator on O.T.T.E.R.'s one AI wrapper, one response reader at 82 reads, one slide splitter and asset-line reader, one rewrite request, one pipeline for five generators, and the prompt boxes made to work at her answer; measured before and after; two review rounds and a one-agent check of the last item, whose findings in F6's own work were fixed in the session; no migration, no SQL, no Edge Function | F6-01 to F6-37 | REV-03 and REV-04, fixed. Comment markers: 4 → 4. |
 | F5 (2026-11-17 and 18, wave 3 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f5-one-roster-one-load` into `feat/post-overhaul-edit-versioning`) — one roster, one rate card, one project load: the roster and the rate card as module-level stores (`src/lib/readCache.js`), the project loaded once after its channel joins with the comments of its own rows, the project roster read once, every collection paged in one place, a New shot's folder tree read once and a drop's shared lookups once, one auth snapshot (`src/cloud/auth/authSnapshot.js`) and the company from the token's claim everywhere; measured before and after by counting tests; two review rounds on Opus 5.5, whose security defects (a private project's drop sent to the cloud after one failed privacy probe; a sign-out not superseding an open's load; the privacy probe failing open) and what F5 had made worse were fixed in the session; no migration, no SQL, no Edge Function | F5-01 to F5-12 | none. Comment markers: 4 → 4. |
 | F8 (2026-11-13, wave 2 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f8-edge-shared-plumbing`) — the Edge Functions' shared plumbing: one envelope crypto, one bucket loader, the caller checks once, one raw-HTTP transport and host rule, every body read under a measured cap (413 past it), the master keys and the opened ticket key kept per isolate, one SigV4 key per batch; deployed to wilson-dev; two review rounds. | F8-01 to F8-19 (below, the F8 section). | F1-01's 28 known type errors to 1 (F1-01, lowered). F8-01 and F8-02, closed by F8 as the second merger (`8a0bdb4f`); F8-03 tried there and taken back (`6515a9d2`), open on purpose. |
@@ -5729,12 +5729,13 @@ From the design round and review round 1 (1A to 1E) and round 2; each left as fo
 - **F11-02 · `binsMigration.js` stays in the main chunk (9,952 bytes)** through `rabbitHelpContent.jsx:19` (two word
   constants). MEASURED. F10's file.
 - **F11-03 · An admin's terminal sections load at launch, not on first open.** The body mounts at launch for an admin
-  (`AdminTerminalPage` takes no `isActive`); one prop at `App.jsx:2198` would defer it. Seen in the dev app. LOW.
+  (`AdminTerminalPage` takes no `isActive`); one prop at `App.jsx:2199` would defer it. Seen in the dev app. LOW.
 - **F11-04 · The storage functions' calls have no ceiling of their own.** FX11's contract
   (`storageApiProbe.test.js`) pins the probe's signal reaching fetch as itself and no signal for other callers, so a
   presign or the secret's calls from uploads, previews and Settings still wait on a dead connection, as before. Fix
   shape: `AbortSignal.any` for the probe, a ceiling for the rest, the pins moved with them. LOW.
-- **F11-05 · 252 grammars the full build had draw as plain text.** MEASURED (1A). Closest to her field: tcl,
+- **F11-05 · 247 grammars the full build had draw as plain text** (297, less the 46 registered and 4 they bring).
+  MEASURED (1A; counted again by 2B after the doc grammars). Closest to her field: tcl,
   maxscript, opencl, wgsl, cmake, unrealscript, processing, docker; also json5, graphql, nginx, latex, haskell, scala,
   dart, matlab, julia, fsharp and the `vb` alias (`.vb` files use vbnet, kept). One import and one line each in
   `src/components/codeHighlighter.js`. LOW.
@@ -5780,3 +5781,12 @@ From the design round and review round 1 (1A to 1E) and round 2; each left as fo
 - **F11-20 · Failure words that changed, stated:** no answer reads "Network error — check your connection." in the
   switcher, the invite dialogs and the clean-up card (it was the browser's "Failed to fetch"); an unreadable 2xx the
   `bad_answer` sentence in the switcher (it was a SyntaxError's text). Visible in a failure only. LOW.
+- **F11-21 · The login and the reset weigh a `?company=` link differently** (2A, INFERRED): the login takes the link
+  first, the wizard the remembered company. After a login company step answered `unavailable` (not saved), the wizard
+  can show the device's older company; it is shown on screen. LOW.
+- **F11-22 · A caller's abort with a reason, on a call with no ceiling, rejects with that reason** (the storage probe's
+  path), not an AbortError (2A, INFERRED; no caller aborts with a reason today). LOW.
+- **F11-23 · LazyPart's later-visit path draws outside a Suspense** (2A, INFERRED): a part that later suspended would
+  reach the page's own boundary, not its sentence. None of the eleven files suspends today. LOW.
+- **F11-24 · A sent invite whose `onInvited` throws is shown as failed** (2A, INFERRED): Retry failed invites an
+  existing member again. LOW.

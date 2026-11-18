@@ -84,11 +84,13 @@ import xmlDoc from 'react-syntax-highlighter/dist/esm/languages/prism/xml-doc'
 // order; an alphabetical one left an html fence's script and style as one uncoloured run. So: the hosts first, then
 // the rest, then the doc comments (JSDoc, Javadoc, PHPDoc, C#'s /// XML docs), which the full build carried.
 const GRAMMARS = {
-  markup, css, regex, javascript, yaml,
+  // jsdoc straight after javascript (round 2, 2A, measured): typescript, pulled in by tsx below, is built from
+  // javascript as it stands then, so JSDoc must already be there for a TypeScript fence's doc comments.
+  markup, css, regex, javascript, jsdoc, yaml,
   arduino, bash, batch, c, cpp, csharp, diff, gdscript, glsl, go, hlsl, ini, java, json, jsx,
   kotlin, less, lua, makefile, markdown, mel, objectivec, perl, php, powershell, python, r, ruby,
   rust, sass, scss, sql, swift, toml, tsx, typescript, vbnet,
-  jsdoc, javadoc, phpdoc, 'xml-doc': xmlDoc,
+  javadoc, phpdoc, 'xml-doc': xmlDoc,
 }
 
 for (const [name, grammar] of Object.entries(GRAMMARS)) SyntaxHighlighter.registerLanguage(name, grammar)

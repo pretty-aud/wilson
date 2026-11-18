@@ -2,7 +2,7 @@
 // edgeFunctions — F11 (the review's shared-client A1; OUTSTANDING F8-06): the
 // ONE way the client calls an Edge Function.
 //
-// Every helper built the same request by hand (sixteen fetches in eleven
+// Every helper built the same request by hand (sixteen fetches in twelve
 // files): read the token, POST JSON with `apikey` and `Bearer`, read the
 // answer, word the refusal. Their ceilings differed for no stated reason, most
 // had none, and none had words for F8's 413 `too_large`. They now call

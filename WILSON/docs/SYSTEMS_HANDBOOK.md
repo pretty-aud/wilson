@@ -590,20 +590,21 @@ Login is **username-first**: a user types a workspace username, not an email.
 | # | Step | Where |
 |---|---|---|
 | 1 | Client validates the username shape `^[a-z0-9][a-z0-9._-]{1,31}$` before any network call | `LoginScreen.jsx:149` |
-| 2 | `POST /functions/v1/resolve-login` with `{username}` (+ optional `workspace_slug`) | `LoginScreen.jsx:36` |
+| 2 | `POST /functions/v1/resolve-login` with `{username}` (+ optional `workspace_slug`) | `signIn.js` `resolveLogin` (F11; `LoginScreen.jsx` before) |
 | 3 | Server looks up `workspace_members` joined to `workspaces` on username + `is_active` + not-deleted, `.limit(2)`, and resolves the email via the service-role admin API | `resolve-login/index.ts:135-169` |
 | 4 | On a miss, the client still calls `signInWithPassword` against a fabricated `__miss+<uuid>@invalid.local` address, so timing and code path are identical to a real attempt | `LoginScreen.jsx:160` |
 | 5 | `supabase.auth.signInWithPassword` — GoTrue itself. The access-token hook fires here and bakes the claims into an **ES256** JWT | `LoginScreen.jsx:162` |
-| 6 | If the account has a verified TOTP factor and the session is not already `aal2`, the UI enters the MFA stage: `mfa.challenge` → `mfa.verify` | `LoginScreen.jsx:170-231` |
+| 6 | If the account has a verified TOTP factor and the session is not already `aal2`, the UI enters the MFA stage: `mfa.challenge` → `mfa.verify` | `signIn.js` `mfaStepNeeded`, `verifyTotp` (F11; `LoginScreen.jsx` before) |
 | 7 | The client lists the user's workspaces (RLS-scoped). More than one → a chooser | `LoginScreen.jsx:68` |
-| 8 | `POST /functions/v1/issue-session` with the chosen `workspace_id`, then `refreshSession()` | `LoginScreen.jsx:52, 125` |
+| 8 | `POST /functions/v1/issue-session` with the chosen `workspace_id`, then `refreshSession()` | `signIn.js` `issueSession` (F11); `LoginScreen.jsx` completeSignIn |
 | 9 | Session persisted through `src/cloud/auth/sessionStorage.js` (§5.2) | — |
 
 > **F11 (2026-11-18): the steps are written once.** `src/cloud/auth/signIn.js` holds them: `verifyCompany`,
 > `resolveLogin(username, slug)`, `issueSession`, `mfaStepNeeded` and `verifyTotp`, with the device's last company
 > (`wilson.lastCompany`) and the `?company=` link. The login, the reset wizard, the workspace switcher, the MFA panel
 > and the operator console's sign-in use them; each screen keeps its own words, its order and its defences (the
-> fake-email sign-in at step 4, the one generic error). Every await is bounded at `AUTH_TIMEOUT_MS` (15 s): the
+> fake-email sign-in at step 4, the one generic error). Every await in `signIn.js` is bounded at `AUTH_TIMEOUT_MS`
+> (15 s); what the screens still await bare is OUTSTANDING F11-09. Bounded now where they were not: the
 > company step and step 2 had no ceiling, and step 6's check for a verified factor (`getAuthenticatorAssuranceLevel`,
 > `listFactors`) had none and now answers a stall with the timeout sentence, never an aal1 sign-in. Requests go through
 > the one Edge Function caller (§4.6). **Forgot password (REV-05):** it sent `{ username }` alone, and a username in
@@ -1156,7 +1157,7 @@ on it, `aiKeyCrypto.ts`, `storageSecretCrypto.ts` and `gatewayKeyCrypto.ts`
 
 > **The client's side, F11 (2026-11-18): one caller.** Every request from the app and the operator console goes through
 > `callEdgeFunction(name, body, { token, anon, signal, timeoutMs, words, method, keepalive, raw })` in
-> `src/cloud/edgeFunctions.js` (sixteen hand-built fetches in eleven files before; `supabase.functions.invoke` is still
+> `src/cloud/edgeFunctions.js` (sixteen hand-built fetches in twelve files before; `supabase.functions.invoke` is still
 > used nowhere). The helpers keep their names, signatures and answers (`callAI`, `uploadAIFile`, `presignStorage`,
 > `admin*`, the operator calls, the gateway's two; `inviteMember` is new, the two invite dialogs' one call). Its rules:
 > the token is the caller's (an auth event's, the sign-in's, the page's last moments), none (`anon`, resolve-login), or
