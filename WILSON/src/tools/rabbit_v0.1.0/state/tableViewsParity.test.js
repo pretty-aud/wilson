@@ -114,6 +114,11 @@ describe('the CommonJS copy says what the model says', () => {
     expect(names.length).toBe(34)
     for (const name of names) expect(cjs[name], name).toBe(gen[name])
   })
+  it('review round 1: 0098\'s numbers, as the desktop enforces them', () => {
+    expect([cjs.VIEW_NAME_MAX, cjs.VIEW_CONFIG_MAX_BYTES, cjs.VIEWS_PER_TABLE_MAX, cjs.GROUPINGS_PER_TABLE_MAX,
+      cjs.GROUPING_IDS_MAX, cjs.TABLE_VIEW_LAST_MAX, cjs.ALL_VIEW_ID]).toEqual([80, 32768, 200, 500, 100, 300, 'all'])
+    expect(Object.isFrozen(cjs.TABLE_KEYS)).toBe(true)
+  })
   it('carries exactly the backend half: every shared rule, nothing of the screens, and every model export is placed', () => {
     for (const name of [...SHARED_CONSTANTS, ...SHARED_RULES]) {
       expect(cjs, name).toHaveProperty(name)

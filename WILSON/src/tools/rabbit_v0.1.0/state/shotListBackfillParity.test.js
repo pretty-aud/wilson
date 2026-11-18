@@ -101,6 +101,13 @@ describe('the Local Server backfill order equals shotListModel.backfillItems', (
       expect(cjs[name], name).toBe(gen[name])
     }
   })
+  it('review round 1: the order does not depend on the order the rows arrive in (twenty shuffles, one answer, every row)', () => {
+    const first = cjs.backfillItems(shuffle(SCENES, 1), shuffle(SHOTS, 2))
+    expect(first).toHaveLength(SCENES.length + SHOTS.length)
+    for (let seed = 3; seed < 43; seed += 2) {
+      expect(cjs.backfillItems(shuffle(SCENES, seed), shuffle(SHOTS, seed + 1)), `seed ${seed}`).toEqual(first)
+    }
+  })
   it('pins the order itself, so both copies cannot drift together unnoticed', () => {
     const rows = cjs.backfillItems(shuffle(SCENES, 3), shuffle(SHOTS, 4))
     expect(rows.filter(r => r.scene_id).map(r => r.scene_id)).toEqual([

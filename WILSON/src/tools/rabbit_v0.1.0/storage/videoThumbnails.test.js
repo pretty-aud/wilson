@@ -1248,14 +1248,14 @@ describe('review fixes — S40', () => {
     expect(fn).toBeTruthy()
     expect(fn).toMatch(/projectFolders\.projectFolderOf\(bundle, \{ mustExist: false \}\)/)
     const folders = executable(readRepo('electron', 'projectFolders.cjs'))
-    expect(folders).toMatch(/return slug\(project\?\.folder_slug\) \|\| slug\(project\?\.title\) \|\| PROJECT_FALLBACK;/)
+    expect(folders).toMatch(/return slug\(project\?\.folder_slug\) \|\| slug\(project\?\.title\) \|\| fallback\(PROJECT_FALLBACK, project\?\.id\);/)
     expect(folders).toMatch(/const slug = \(value\) => fileSlugify\(String\(value \?\? ''\)\);/)
     expect(folders).toMatch(/path\.join\(rootBase, projectSlugOf\(bundle\?\.project\)\)/)
     expect(folders).not.toMatch(/path\.join\(rootBase, bundle\.project\?\.folder_slug/)
   })
 
   it('🚨 HIGH: and at both writers — the create route and the PATCH spread', () => {
-    expect(main).toMatch(/folder_slug:\s*projectSlugOf\(\{ folder_slug: req\.body\.folder_slug/)
+    expect(main).toMatch(/folder_slug:\s*projectSlugOf\(\{ id: newProjectId, folder_slug: req\.body\.folder_slug/)
     expect(main).toMatch(/if \('folder_slug' in req\.body\)/)
   })
 

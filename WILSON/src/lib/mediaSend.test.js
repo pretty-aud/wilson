@@ -282,11 +282,14 @@ describe('the main process\'s media routes: no-store, nosniff, and the renderer 
     const r = await get(`${base}/files/f1/download`)
     expect(r.headers.get('content-type')).toBe('application/octet-stream')
   })
-  it('a <video> still seeks: Range answers 206 with the range', async () => {
+  it('a <video> still seeks: Range answers 206 with the range, on the download and the managed stream', async () => {
     const r = await get(`${base}/files/f1/download`, { ...SAME, range: 'bytes=0-99' })
     expect(r.status).toBe(206)
     expect(r.headers.get('content-range')).toBe('bytes 0-99/4096')
     expect((await r.arrayBuffer()).byteLength).toBe(100)
+    const m = await get(`${base}/managed-files/${M_ID}/stream`, { ...SAME, range: 'bytes=0-9' })
+    expect(m.status).toBe(206)
+    expect((await m.arrayBuffer()).byteLength).toBe(10)
   })
 })
 
@@ -391,6 +394,16 @@ describe('the module routes: no-store where they send bytes', () => {
       const r = await get(`${url(KEY)}?download=${encodeURIComponent('Take 3.mp4')}`)
       expect(r.headers.get('content-disposition')).toMatch(/^attachment; filename="Take 3\.mp4"/)
     })
+    it('a <video> seeks through the route: 206 with the range', async () => {
+      const r = await get(url(KEY), { ...SAME, range: 'bytes=100-199' })
+      expect(r.status).toBe(206)
+      expect(r.headers.get('content-range')).toBe('bytes 100-199/2048')
+    })
+    it('review round 1: HEAD asks what GET asks — the renderer only, and no dot-led segment', async () => {
+      expect((await fetch(url(KEY), { method: 'HEAD', headers: SAME })).status).toBe(200)
+      expect((await fetch(url(KEY), { method: 'HEAD', headers: { 'sec-fetch-site': 'cross-site' } })).status).toBe(403)
+      expect((await fetch(url('projects/p1/.hidden/f1/clip.mp4'), { method: 'HEAD', headers: SAME })).status).toBe(403)
+    })
   })
 })
 
@@ -470,6 +483,32 @@ describe('sendMedia: what it sends, and seeking', () => {
     expect(r.headers.get('cache-control')).toBe('public, max-age=0')
     expect(r.headers.get('pragma')).toBeNull()
   })
+  it('review round 1: an error answer is JSON, without the file\'s own headers', async () => {
+    const r = await fetch(at('a.bin', { mime: 'video/mp4', attachmentName: 'x.mp4', failText: 'stream failed' }), { headers: { range: 'bytes=50-60' } })
+    expect(r.status).toBe(416)
+    expect(r.headers.get('content-type')).toMatch(/^application\/json/)
+    for (const h of ['content-disposition', 'last-modified', 'accept-ranges']) expect(r.headers.get(h), h).toBeNull()
+    // An ETag, if any, is Express's own for the JSON body, never the file's.
+    const file = await fetch(at('a.bin'))
+    expect(r.headers.get('etag')).not.toBe(file.headers.get('etag'))
+    expect(r.headers.get('content-range')).toBe('bytes */10')
+    expect(await r.json()).toEqual({ error: 'stream failed' })
+  })
+  it('review round 1: a read that fails after the headers went out ends the response (no request timeout would)', () => {
+    let destroyed = 0
+    const fakeRes = {
+      headersSent: false, writableEnded: false,
+      setHeader() {}, removeHeader() {}, status() { return this }, type() { return this }, json() {}, end() {},
+      destroy() { destroyed += 1 },
+      sendFile(_p, _o, cb) { this.headersSent = true; cb(Object.assign(new Error('EIO: read failed'), { code: 'EIO', status: 500 })) },
+    }
+    media.sendMedia(fakeRes, path.join(dir, 'big.bin'), {})
+    expect(destroyed).toBe(1)
+    // CONTROL: a cancelled range (every <video> seek) is left alone.
+    const seeking = { ...fakeRes, headersSent: false, sendFile(_p, _o, cb) { this.headersSent = true; cb(Object.assign(new Error('aborted'), { code: 'ECONNABORTED' })) } }
+    media.sendMedia(seeking, path.join(dir, 'big.bin'), {})
+    expect(destroyed).toBe(1)
+  })
   it('an unknown cache rule is a programming error', () => {
     expect(() => media.sendMedia({ setHeader() {} }, 'x', { cache: 'public' })).toThrow(/unknown cache rule/)
   })
@@ -517,6 +556,14 @@ describe('the wiring', () => {
     const senders = sources.filter(([, text]) => /\.sendFile\(/.test(text)).map(([n]) => n).sort()
     expect(senders).toEqual(['mediaSend.cjs', 'spaFallback.cjs'])
     expect(sources.find(([n]) => n === 'mediaSend.cjs')[1].match(/\.sendFile\(/g)).toHaveLength(1)
+  })
+  it('review round 1: no other way to send a file\'s bytes (res.download, a piped stream)', () => {
+    for (const [n, text] of sources) {
+      expect(text, n).not.toMatch(/\bres\.download\(|\.pipe\(res\b/)
+    }
+  })
+  it('review round 1: main binds the gate and the sender from mediaSend.cjs (a dropped name would crash every media route)', () => {
+    expect(MAIN).toContain("const { safeMediaContentType, sendMedia, requireSameOrigin } = require('./mediaSend.cjs');")
   })
   it('main mounts local media with the gate, and takes the allowlist from mediaSend.cjs', () => {
     const at = MAIN.indexOf("require('./localMedia.cjs').mountLocalMedia(expressApp, {")

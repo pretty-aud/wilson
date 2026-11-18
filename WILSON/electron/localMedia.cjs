@@ -344,11 +344,15 @@ function mountLocalMedia(expressApp, {
   });
 
   expressApp.head(`${ROUTE_BASE}/*key`, (req, res) => {
+    // F9 (review round 1): asked as the GET is — the renderer only, and a
+    // dot-led segment refused — so the two never disagree about a key.
+    if (sameOriginOnly && !sameOriginOnly(req, res)) return;
     const at = locate(req, res);
     if (!at) return;
     let stat;
     try { stat = fs.statSync(at.diskPath); } catch { return res.status(404).end(); }
     if (!stat.isFile()) return res.status(404).end();
+    if (at.key.split('/').some((segment) => segment.startsWith('.'))) return res.status(403).end();
     res.setHeader('Content-Type', safeMediaContentType(mimeForLeaf(at.leaf)));
     res.setHeader('Content-Length', String(stat.size));
     res.setHeader('Accept-Ranges', 'bytes');

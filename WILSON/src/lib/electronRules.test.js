@@ -59,11 +59,14 @@ describe('the generated rules are the modules\' own, and current', () => {
     const rebuilt = await buildRules({ plugins: [changed] })
     expect(staleAmong(rebuilt)).toEqual(['taskItems.cjs'])
   }, 60_000)
-  it('the same text on every machine: no absolute path, no carriage return, ASCII outside comments', () => {
+  it('the same text on every machine: no absolute path, no carriage return, nothing but ASCII', () => {
     for (const [file, text] of Object.entries(built)) {
       expect(text, file).not.toContain('\r')
       expect(text, file).not.toContain(ROOT.replace(/\\/g, '/'))
       expect(text, file).not.toContain(ROOT)
+      // review round 1: say what the title says — ASCII only, and no user's folder
+      expect(text, file).toMatch(/^[\x00-\x7f]*$/)
+      expect(text, file).not.toMatch(/Users[\\/]|[A-Za-z]:[\\/]/)
       expect(text.startsWith('// GENERATED from src/'), file).toBe(true)
     }
   })
@@ -77,22 +80,35 @@ describe('the twins require the generated rules, and keep their own names', () =
     ['rabbitBins.cjs', 'binMedia.cjs'],
     ['main.cjs', 'otterMerges.cjs'],
   ]
+  // How many of the generated names each twin hands on under the same name (review round 1: a twin
+  // that stopped exporting a rule must not drop out of the identity check unseen).
+  const EXPORTED = { 'rabbitTaskItems.cjs': 11, 'rabbitTableViews.cjs': 34, 'rabbitShotLists.cjs': 5, 'rabbitBins.cjs': 12 }
   for (const [twin, rules] of cases) {
-    it(`${twin} takes each rule from rules/${rules}, the very function`, () => {
-      expect(readFileSync(path.join(ELECTRON, twin), 'utf8')).toContain(`require('./rules/${rules}')`)
+    it(`${twin} takes each rule from rules/${rules}, the very function, and declares none of them again`, () => {
+      const text = readFileSync(path.join(ELECTRON, twin), 'utf8')
+      expect(text).toContain(`require('./rules/${rules}')`)
+      // A second declaration of a generated name would shadow it where the routes run (review round 1).
+      for (const n of RULES.find((r) => r.file === rules).names) {
+        expect(text, `${twin} declares ${n} again`).not.toMatch(new RegExp(`(function\\s+${n}\\s*\\(|\\b(const|let|var)\\s+${n}\\s*=)`))
+      }
       if (twin === 'main.cjs') return // main.cjs cannot be required without Electron
       const mod = require(path.join(ELECTRON, twin))
       const gen = require(path.join(ELECTRON, 'rules', rules))
       const shared = RULES.find((r) => r.file === rules).names.filter((n) => n in mod)
-      expect(shared.length, twin).toBeGreaterThan(0)
+      expect(shared.length, twin).toBe(EXPORTED[twin])
       for (const n of shared) expect(mod[n], `${twin} ${n}`).toBe(gen[n])
     })
   }
-  it('main.cjs keeps no merge of its own (the two O.T.T.E.R. merges are the module\'s)', () => {
+  it('main.cjs keeps no merge of its own, and binds each of the module\'s once (the two O.T.T.E.R. merges)', () => {
     const main = readFileSync(path.join(ELECTRON, 'main.cjs'), 'utf8')
     expect(main).not.toMatch(/function mergeFunctionsDoc\(/)
     expect(main).toContain('const merged = mergeHotkeys(stored, incoming);')
     expect(main).toContain('const merged = mergeFunctions(readJSON(filePath, { categories: [] }), (req.body || {}).categories);')
+    // review round 1: one binding each (the require); a later one would win at runtime, unread by the merge tests.
+    for (const n of ['mergeFunctions', 'mergeHotkeys']) {
+      const bindings = main.match(new RegExp(`(function\\s+${n}\\s*\\(|\\b(const|let|var)\\s+${n}\\b|\\b(const|let|var)\\s*\\{[^}]*\\b${n}\\b[^}]*\\}\\s*=)`, 'g')) || []
+      expect(bindings, n).toHaveLength(1)
+    }
   })
 })
 

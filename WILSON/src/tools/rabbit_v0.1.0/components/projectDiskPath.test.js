@@ -99,6 +99,10 @@ describe('projectDiskPath: the four old answers, once', () => {
     expect(await projectDiskPath({ project: { folder_slug: 'Salt-Hours' }, api: api({ effectiveRootDir: '\\\\nas\\share\\Projects' }), rel: 'ASSETS/Hero' }))
       .toBe('\\\\nas\\share\\Projects\\Salt-Hours\\ASSETS\\Hero')
   })
+  it('review round 1: a project folder that is a bare drive keeps its root, D:\\ and not D:', async () => {
+    expect(await projectDiskPath({ project: { folder_root: 'D:\\', folder_slug: 'Salt-Hours' }, api: api({}) })).toBe('D:\\')
+    expect(await projectDiskPath({ project: { folder_root: 'D:\\', folder_slug: 'Salt-Hours' }, api: api({}), rel: 'ASSETS' })).toBe('D:\\ASSETS')
+  })
   it('no root on this computer, or no desktop bridge: null', async () => {
     expect(await projectDiskPath({ project: { folder_slug: 'Salt-Hours' }, api: api({}), rel: 'ASSETS/Hero' })).toBeNull()
     expect(await projectDiskPath({ project: { folder_slug: 'Salt-Hours' }, api: null, rel: 'ASSETS/Hero' })).toBeNull()

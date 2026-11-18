@@ -109,14 +109,17 @@ const ROWS = [
   ['the slug\'s folder there', () => [bundleOf({ folder_slug: 'Salt-Hours', title: 'Salt Hours' }), null, path.join(root, 'Salt-Hours'), path.join(root, 'Salt-Hours')]],
   ['the slug\'s folder not made yet', () => [bundleOf({ folder_slug: 'Moon', title: 'Moon' }), null, null, path.join(root, 'Moon')]],
   ['no slug: the title\'s', () => [bundleOf({ folder_slug: null, title: 'Salt Hours' }), null, path.join(root, 'Salt-Hours'), path.join(root, 'Salt-Hours')]],
-  ['no slug, no title', () => [bundleOf({ title: '' }), null, null, path.join(root, 'Untitled-Project')]],
   ['the personal space', () => [{ project: { id: 'me', personal: true, folder_slug: 'Salt-Hours' } }, null, null, null]],
   ['no configured root', () => [bundleOf({ folder_slug: 'Salt-Hours' }), () => { rootNow = null }, null, null]],
 ]
-// The rows where the tip answered the configured root ITSELF (OUTSTANDING F9-02).
+// The rows where the tip answered the configured root ITSELF (OUTSTANDING
+// F9-02), and, with them, a project with no slug and no title, which the tip
+// gave a folder every such project shared: each now has its own, named by its
+// id (review round 1).
 const ROOT_ROWS = [
-  ['no slug, a title with no letter fileSlugify keeps (東京)', () => bundleOf({ folder_slug: null, title: '東京' })],
-  ['an in-flight slug of \'\' (the create route\'s, a PATCH\'s) and 🎬', () => bundleOf({ folder_slug: '', title: '🎬' })],
+  ['no slug, a title with no letter fileSlugify keeps (東京)', () => bundleOf({ folder_slug: null, title: '東京' }), 'root'],
+  ['an in-flight slug of \'\' (the create route\'s, a PATCH\'s) and 🎬', () => bundleOf({ folder_slug: '', title: '🎬' }), 'root'],
+  ['no slug and no title', () => bundleOf({ title: '' }), 'shared'],
 ]
 
 describe('projectFolderOf: one rule, and whether the folder must exist', () => {
@@ -132,16 +135,34 @@ describe('projectFolderOf: one rule, and whether the folder must exist', () => {
       expect(tipResolveProjectFolderRoot(bundle)).toBe(without)
     })
   }
-  for (const [name, row] of ROOT_ROWS) {
-    it(`🚨 ${name}: never the configured root itself (the tip answered the root)`, () => {
+  for (const [name, row, tipWas] of ROOT_ROWS) {
+    it(`🚨 ${name}: a folder of its own (the tip answered ${tipWas === 'root' ? 'the root itself' : 'a shared one'})`, () => {
       const bundle = row()
       const { projectFolderOf } = folders()
-      expect(tipResolveProjectFolder(bundle)).toBe(root)
-      expect(tipResolveProjectFolderRoot(bundle)).toBe(root)
-      expect(projectFolderOf(bundle, { mustExist: false })).toBe(path.join(root, 'Untitled-Project'))
+      if (tipWas === 'root') {
+        expect(tipResolveProjectFolder(bundle)).toBe(root)
+        expect(tipResolveProjectFolderRoot(bundle)).toBe(root)
+      } else {
+        expect(tipResolveProjectFolderRoot(bundle)).toBe(path.join(root, 'Untitled-Project'))
+      }
+      expect(projectFolderOf(bundle, { mustExist: false })).toBe(path.join(root, 'Untitled-Project-P1'))
       expect(projectFolderOf(bundle, { mustExist: true })).toBeNull()
     })
   }
+  it('two projects whose titles slug to nothing never share a folder (review round 1)', () => {
+    const { projectFolderOf } = folders()
+    const tokyo = projectFolderOf({ project: { id: '1a2b3c4d-0000', title: '東京' } }, { mustExist: false })
+    const osaka = projectFolderOf({ project: { id: '9f8e7d6c-0000', title: '大阪' } }, { mustExist: false })
+    expect(tokyo).toBe(path.join(root, 'Untitled-Project-1a2b3c4d'))
+    expect(osaka).toBe(path.join(root, 'Untitled-Project-9f8e7d6c'))
+  })
+  it('a stored slug not in fileSlugify\'s form (a bundle never reconciled): the tip joined it raw where it must exist; now its slug', () => {
+    const { projectFolderOf } = folders()
+    const bundle = bundleOf({ folder_slug: 'salt_hours', title: 'Salt Hours' })
+    expect(tipResolveProjectFolder(bundle)).toBeNull() // <root>/salt_hours is not there
+    expect(projectFolderOf(bundle, { mustExist: true })).toBe(path.join(root, 'Salt-Hours'))
+    // Harmless in use: every bundle a caller holds is reconciled first.
+  })
   it('a poisoned slug on a bundle never reconciled cannot leave the root', () => {
     const { projectFolderOf } = folders()
     const answer = projectFolderOf(bundleOf({ folder_slug: '..\\..\\..', title: 'Salt Hours' }), { mustExist: false })
@@ -167,15 +188,21 @@ describe('projectSlugOf and assetSlugOf: never empty', () => {
     expect(projectSlugOf({ folder_slug: null, title: 'salt hours!' })).toBe('Salt-Hours')
     expect(projectSlugOf({ folder_slug: '###', title: 'Moon' })).toBe('Moon')
     expect(projectSlugOf({ title: '東京' })).toBe('Untitled-Project')
+    expect(projectSlugOf({ id: 'ab12CD34-ef', title: '東京' })).toBe('Untitled-Project-Ab12cd34')
     expect(projectSlugOf({ title: 2026 })).toBe('2026') // a number in a body: no throw
     expect(projectSlugOf(null)).toBe('Untitled-Project')
+    // In fileSlugify's form, so the reconcile keeps a stored one as it is.
+    expect(fileSlugify(projectSlugOf({ id: 'ab12CD34-ef', title: '東京' }))).toBe('Untitled-Project-Ab12cd34')
   })
-  it('an asset\'s: the stored slug as it is, else the name\'s, else Untitled-Asset', () => {
+  it('an asset\'s: a stored plain segment as it is, else the name\'s, else Untitled-Asset and its id', () => {
     const { assetSlugOf } = folders()
     expect(assetSlugOf({ folder_slug: 'Hero_Prop', name: 'x' })).toBe('Hero_Prop')
     expect(assetSlugOf({ folder_slug: '', name: 'hero prop' })).toBe('Hero-Prop')
     expect(assetSlugOf({ folder_slug: '', name: '東京' })).toBe('Untitled-Asset')
+    expect(assetSlugOf({ id: 'a2', folder_slug: '', name: '東京' })).toBe('Untitled-Asset-A2')
     expect(assetSlugOf(undefined)).toBe('Untitled-Asset')
+    // A stored slug that is a step, not a name, is never joined (review round 1: '.' was ASSETS itself).
+    for (const step of ['.', '..', 'a/b', 'a\\b', 'C:x']) expect(assetSlugOf({ folder_slug: step, name: 'Hero' }), step).toBe('Hero')
   })
 })
 
@@ -233,22 +260,26 @@ describe('the create route: a title with nothing to slug gets its own folder (F9
     })
     let answered = null
     post({ body: { title: '東京' } }, { status() { return this }, json(b) { answered = b; return this } })
-    expect(answered.folder_root).toBe(path.join(fresh, 'Untitled-Project'))
-    expect(answered.folder_slug).toBe('Untitled-Project')
-    expect(fs.readdirSync(fresh)).toEqual(['Untitled-Project'])
-    expect(fs.readdirSync(path.join(fresh, 'Untitled-Project')).sort()).toEqual(['ASSETS', 'INVOICES', 'LEGAL', 'Untitled-Project_DATABASES', 'Untitled-Project_FILES'])
+    const own = 'Untitled-Project-Ptokyo' // named by the new project's id (review round 1)
+    expect(answered.folder_root).toBe(path.join(fresh, own))
+    expect(answered.folder_slug).toBe(own)
+    expect(fs.readdirSync(fresh)).toEqual([own])
+    expect(fs.readdirSync(path.join(fresh, own)).sort()).toEqual(['ASSETS', 'INVOICES', 'LEGAL', `${own}_DATABASES`, `${own}_FILES`])
     expect(written).toHaveLength(1)
   })
 })
 
 describe('the asset DELETE: an asset whose name slugs to nothing trashes its own folder, not ASSETS', () => {
-  it('🚨 deleting 東京 leaves Hero\'s folder where it is', () => {
+  it('🚨 deleting 東京 leaves Hero\'s folder, and 大阪\'s, where they are', () => {
     const proj = path.join(tmp, 'Del', 'Salt-Hours')
     fs.mkdirSync(path.join(proj, 'ASSETS', 'Hero'), { recursive: true })
     fs.writeFileSync(path.join(proj, 'ASSETS', 'Hero', 'Salt-Hours_Hero_v001.png'), 'x')
+    // Review round 1: two names with nothing to slug have two folders.
+    fs.mkdirSync(path.join(proj, 'ASSETS', 'Untitled-Asset-A3'), { recursive: true })
+    fs.writeFileSync(path.join(proj, 'ASSETS', 'Untitled-Asset-A3', 'osaka.png'), 'x')
     const bundle = {
       project: { id: 'p1', folder_root: proj, folder_slug: 'Salt-Hours' },
-      assets: [{ id: 'a1', name: 'Hero', folder_slug: 'Hero' }, { id: 'a2', name: '東京', folder_slug: '' }],
+      assets: [{ id: 'a1', name: 'Hero', folder_slug: 'Hero' }, { id: 'a2', name: '東京', folder_slug: '' }, { id: 'a3', name: '大阪', folder_slug: 'Untitled-Asset-A3' }],
       managedFiles: [], tasks: [], taskItems: [], tableViews: [], itemGroupings: [],
     }
     const pf = folders()
@@ -262,7 +293,35 @@ describe('the asset DELETE: an asset whose name slugs to nothing trashes its own
       pf.assetSlugOf, resolveContainedFilePath, path, fs, rabbitTableViews, rabbitTaskItems, { error() {} })
     handler({ params: { projectId: 'p1', id: 'a2' }, body: {}, query: {} }, { status() { return this }, json() { return this } })
     expect(fs.existsSync(path.join(proj, 'ASSETS', 'Hero', 'Salt-Hours_Hero_v001.png'))).toBe(true)
-    expect(bundle.assets.map((a) => a.id)).toEqual(['a1'])
+    expect(fs.existsSync(path.join(proj, 'ASSETS', 'Untitled-Asset-A3', 'osaka.png'))).toBe(true)
+    expect(bundle.assets.map((a) => a.id)).toEqual(['a1', 'a3'])
+  })
+})
+
+describe('folderRootRefusal: never the folder every project sits in (review round 1; F9-02)', () => {
+  const { checkFolderRootShape, isPathInside } = requireElectron('./pathContainment.cjs')
+  const { checkDemoFolderShape } = requireElectron('./localDemoRoot.cjs')
+  function refusalWith({ demoRoot = null, workspaceRootDir = null, defaultRootDir = null, picked = [] } = {}) {
+    // eslint-disable-next-line no-new-func
+    return new Function('path', 'checkFolderRootShape', 'checkDemoFolderShape', 'isPathInside', 'localDemoRootDir', 'localDemoProjectsDir',
+      'workspaceRootDir', 'readFilesConfig', 'userAuthorizedDirs', `${extractFunction(MAIN, 'folderRootRefusal')}\nreturn folderRootRefusal;`)(
+      path, checkFolderRootShape, checkDemoFolderShape, isPathInside, () => demoRoot, () => (demoRoot ? path.join(demoRoot, 'projects') : null),
+      workspaceRootDir, () => ({ defaultRootDir }), new Set(picked))
+  }
+  it('the machine\'s storage folder itself is refused; a folder inside it is not', () => {
+    const refuse = refusalWith({ defaultRootDir: root })
+    expect(refuse(root).error).toMatch(/every project sits in/)
+    expect(refuse(path.join(root, 'Salt-Hours')).resolved).toBe(path.join(root, 'Salt-Hours'))
+  })
+  it('a demo folder\'s projects folder itself is refused; a project inside it is not', () => {
+    const demo = path.join(tmp, 'DemoRoot')
+    const refuse = refusalWith({ demoRoot: demo })
+    expect(refuse(path.join(demo, 'projects')).error).toMatch(/every project sits in/)
+    expect(refuse(path.join(demo, 'projects', 'Salt-Hours')).resolved).toBe(path.join(demo, 'projects', 'Salt-Hours'))
+  })
+  it('the workspace drive itself was refused already, and still is', () => {
+    const refuse = refusalWith({ workspaceRootDir: 'D:\\Studio' })
+    if (process.platform === 'win32') expect(refuse('D:\\Studio').error).toMatch(/workspace storage drive itself/)
   })
 })
 
@@ -305,6 +364,15 @@ describe('the renderer\'s path, judged by the unchanged copy fence', () => {
     const project = { id: 'p3', folder_root: elsewhere, folder_slug: 'Salt-Hours' }
     const dest = await projectDiskPath({ project, api: api({ effectiveRootDir: root }), rel: 'ASSETS/Hero' })
     await expect(fenceFor({ p3: { project } })('p3', dest)).rejects.toThrow("WILSON copies files only into this project's own folder.")
+  })
+  it('review round 1: two projects whose titles slug to nothing cannot copy into each other\'s folders', async () => {
+    const tokyo = { id: '1a2b3c4d-1', title: '東京', folder_slug: 'Untitled-Project-1a2b3c4d' }
+    const osaka = { id: '9f8e7d6c-2', title: '大阪', folder_slug: 'Untitled-Project-9f8e7d6c' }
+    const fence = fenceFor({ t: { project: tokyo }, o: { project: osaka } })
+    const intoOsaka = await projectDiskPath({ project: osaka, api: api({ effectiveRootDir: root }), rel: 'ASSETS/Shrine' })
+    await expect(fence('t', intoOsaka)).rejects.toThrow("this project's own folder")
+    const intoTokyo = await projectDiskPath({ project: tokyo, api: api({ effectiveRootDir: root }), rel: 'ASSETS/Shrine' })
+    expect((await fence('t', intoTokyo)).finalPath).toBe(path.join(root, 'Untitled-Project-1a2b3c4d', 'ASSETS', 'Shrine', 'Salt-Hours_Take_v001.mov'))
   })
   it('another project\'s folder, and a folder outside the root, are refused', async () => {
     const project = { id: 'p4', folder_slug: 'Salt-Hours', title: 'Salt Hours' }

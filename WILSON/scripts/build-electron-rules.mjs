@@ -27,7 +27,7 @@
 // =============================================================================
 
 import { build } from 'esbuild'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -101,7 +101,11 @@ export async function buildRules({ plugins = [] } = {}) {
   return out
 }
 
-const runAsScript = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+// Real paths on both sides (review round 1): node resolves the entry through a
+// junction, a symlink or a subst drive, so a plain comparison could print and
+// write nothing when run as a script.
+const real = (p) => { try { return realpathSync(p) } catch { return path.resolve(p) } }
+const runAsScript = Boolean(process.argv[1]) && real(process.argv[1]) === real(fileURLToPath(import.meta.url))
 if (runAsScript) {
   const built = await buildRules()
   mkdirSync(path.join(ROOT, RULES_DIR), { recursive: true })

@@ -97,13 +97,13 @@ async function tipGetMake(sharpImpl, srcPath, thumbPath) {
   await sharpImpl(srcPath).resize(512).jpeg({ quality: 85 }).toFile(thumbPath)
   return 'made'
 }
-// rabbitBins.cjs's single flight and atomic write (:926-941).
-function tipBinsPosters() {
+// rabbitBins.cjs's single flight and atomic write (:926-941), its fs injected.
+function tipBinsPosters(fs = realFs) {
   const posterInFlight = new Map()
   function writePosterAtomically(thumbPath, buf) {
     const part = thumbPath + '.part'
-    realFs.writeFileSync(part, buf)
-    realFs.renameSync(part, thumbPath)
+    fs.writeFileSync(part, buf)
+    fs.renameSync(part, thumbPath)
   }
   function posterOnce(thumbPath, make) {
     if (posterInFlight.has(thumbPath)) return posterInFlight.get(thumbPath)
@@ -176,14 +176,44 @@ describe('makePoster: one write in flight per poster, never torn', () => {
     }
     expect(realFs.readdirSync(cache).filter((n) => n.endsWith('.part'))).toEqual([])
   })
-  it('CONTROL: the bins\' part was one name for every writer', () => {
-    const { writePosterAtomically } = tipBinsPosters()
-    const dest = path.join(cache, 'clip-tip.jpg')
+  it('CONTROL: the bins\' part was one name for every writer (the tip\'s own function)', () => {
     const c = countingFs()
-    const tipWrite = (buf) => { c.fs.writeFileSync(`${dest}.part`, buf); c.fs.renameSync(`${dest}.part`, dest) }
-    tipWrite(JPEG_A); tipWrite(JPEG_B)
-    expect(new Set(c.wrote).size).toBe(1)
-    expect(typeof writePosterAtomically).toBe('function')
+    const { writePosterAtomically } = tipBinsPosters(c.fs)
+    const dest = path.join(cache, 'clip-tip.jpg')
+    writePosterAtomically(dest, JPEG_A)
+    writePosterAtomically(dest, JPEG_B)
+    expect(c.wrote).toEqual([`${dest}.part`, `${dest}.part`])
+  })
+
+  it('review round 1: a rename Windows holds is tried again after a pause that waits, never blocks', async () => {
+    const dest = path.join(cache, 'asset-held.jpg')
+    let refusals = 2
+    const held = new Proxy(realFs, { get: (t, k) => (k === 'renameSync' ? (...a) => { if (refusals-- > 0) throw Object.assign(new Error('EPERM: held'), { code: 'EPERM' }); return t.renameSync(...a) } : t[k]) })
+    let ticks = 0
+    const ticker = setInterval(() => { ticks += 1 }, 1)
+    try {
+      await posters.makePoster({ src: SRC, dest, edge: 512, quality: 85, encode: async () => JPEG_A, fsImpl: held, pauseMs: 15 })
+    } finally { clearInterval(ticker) }
+    expect(realFs.readFileSync(dest).equals(JPEG_A)).toBe(true)
+    expect(ticks).toBeGreaterThan(0) // the event loop ran while it waited
+    expect(realFs.readdirSync(cache).filter((n) => n.endsWith('.part'))).toEqual([])
+  })
+  it('review round 1: a make that takes too long fails, writes nothing, and lets the next one go', async () => {
+    const dest = path.join(cache, 'asset-stalled.jpg')
+    const stalled = posters.makePoster({ src: SRC, dest, edge: 512, quality: 85, encode: () => new Promise(() => {}), deadlineMs: 30 })
+    const next = posters.makePoster({ src: SRC, dest, edge: 512, quality: 85, replace: true, encode: async () => JPEG_B })
+    await expect(stalled).rejects.toMatchObject({ code: 'POSTER_TIMEOUT' })
+    await next
+    expect(realFs.readFileSync(dest).equals(JPEG_B)).toBe(true)
+  })
+  it('a make after a failed one on the same poster still runs; a poster already there is not made again', async () => {
+    const dest = path.join(cache, 'asset-after.jpg')
+    await expect(posters.makePoster({ src: SRC, dest, edge: 512, quality: 85, encode: async () => { throw new Error('bad') } })).rejects.toThrow('bad')
+    await posters.makePoster({ src: SRC, dest, edge: 512, quality: 85, encode: async () => JPEG_A })
+    expect(realFs.readFileSync(dest).equals(JPEG_A)).toBe(true)
+    let encodes = 0
+    expect(await posters.makePoster({ src: SRC, dest, edge: 512, quality: 85, encode: async () => { encodes += 1; return JPEG_B } })).toEqual({ made: false })
+    expect(encodes).toBe(0)
   })
 
   it('a new picture asked while the old one is being made wins (the channel after the GET)', async () => {
@@ -227,14 +257,17 @@ describe('makePoster: each caller\'s own geometry, so a new poster matches the c
     it(who, async () => {
       const dest = path.join(cache, `geom-${opts.edge}-${opts.fit || 'width'}.jpg`)
       await posters.makePoster({ src: SRC, dest, ...opts })
-      expect(await dims(realFs.readFileSync(dest))).toEqual(await dims(await tipCall(sharp(SRC)).toBuffer()))
+      const tip = await tipCall(sharp(SRC)).toBuffer()
+      expect(await dims(realFs.readFileSync(dest))).toEqual(await dims(tip))
+      // The same bytes: the same size, quality and pipeline (review round 1).
+      expect(realFs.readFileSync(dest).equals(tip)).toBe(true)
     })
   }
 })
 
 describe('acceptPoster: the bins\' narrowing, once', () => {
   const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(60, 1)])
-  it('answers each refusal as the three acceptors did', () => {
+  it('answers each refusal as the bins\' acceptors did; a body that is not a string is refused (a tightening: the managed and signed-out acceptors wrote an array\'s bytes)', () => {
     expect(posters.acceptPoster(undefined)).toEqual({ ok: false, status: 400, error: 'base64 required' })
     expect(posters.acceptPoster('')).toEqual({ ok: false, status: 400, error: 'base64 required' })
     expect(posters.acceptPoster([0xff, 0xd8, 0xff])).toEqual({ ok: false, status: 400, error: 'base64 required' })

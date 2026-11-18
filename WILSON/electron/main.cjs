@@ -378,6 +378,9 @@ function folderRootRefusal(candidate) {
     if (resolved.toLowerCase() === demoRoot.toLowerCase()) {
       return { error: 'the project folder cannot be the demo folder itself — pick a folder inside it' };
     }
+    if (resolved.toLowerCase() === path.resolve(localDemoProjectsDir()).toLowerCase()) { // F9-02
+      return { error: 'the project folder cannot be the folder every project sits in — pick one inside it' };
+    }
     if (!isPathInside(demoRoot, resolved)) {
       return { error: `the project folder must be inside the local demo folder (${demoRoot})` };
     }
@@ -399,6 +402,11 @@ function folderRootRefusal(candidate) {
     return { resolved };
   }
   const dflt = readFilesConfig().defaultRootDir;
+  // F9 (review round 1; OUTSTANDING F9-02): never the folder every project
+  // sits in — its fence would then reach every project's folder.
+  if (dflt && resolved.toLowerCase() === path.resolve(dflt).toLowerCase()) {
+    return { error: 'the project folder cannot be the folder every project sits in — pick one inside it' };
+  }
   if (dflt && isPathInside(dflt, resolved)) return { resolved };
   for (const dir of userAuthorizedDirs) {
     if (isPathInside(dir, resolved)) return { resolved };
@@ -2462,12 +2470,14 @@ function startLocalServer(distPath) {
       // legitimate files_dir: it is the relink BASE, set only by the guarded
       // relink-apply route, never at create. Force it null.
       let filesDirIn = null;
+      // The id first: a title with nothing to slug names its folder by it (F9).
+      const newProjectId = req.body.id || uuidv4();
       // Spread req.body first so DOG-side fields (documents, visualAssets,
       // startDate, endDate, etc.) ride through, then enforce the canonical
       // identity / timestamp fields so they can't be overridden.
       const project = {
         ...req.body,
-        id:              req.body.id || uuidv4(),
+        id:              newProjectId,
         workspace_id:    req.body.workspace_id || '00000000-0000-0000-0000-000000000001',
         title:           req.body.title || 'Untitled Project',
         description:     req.body.description || '',
@@ -2489,7 +2499,7 @@ function startLocalServer(distPath) {
         // produces the same form — so nothing that works today changes.
         // F9 (OUTSTANDING F9-02): and never empty — a title like 東京
         // slugified to '' and the folder below was the configured root itself.
-        folder_slug:     projectSlugOf({ folder_slug: req.body.folder_slug, title: req.body.title }),
+        folder_slug:     projectSlugOf({ id: newProjectId, folder_slug: req.body.folder_slug, title: req.body.title }),
         folder_root:     folderRootIn,
         files_dir:       filesDirIn,
         // Post-overhaul S3a (0084): a new project has no shot list, so it can
@@ -2608,7 +2618,7 @@ function startLocalServer(distPath) {
         const next = req.body.folder_slug;
         const cur = bundle.project.folder_slug || null;
         if (String(next ?? '') !== String(cur ?? '')) {
-          req.body.folder_slug = projectSlugOf({ folder_slug: next, title: bundle.project.title });
+          req.body.folder_slug = projectSlugOf({ id: bundle.project.id, folder_slug: next, title: bundle.project.title });
         }
       }
       const oldTitle = bundle.project.title;
@@ -2618,7 +2628,7 @@ function startLocalServer(distPath) {
       // slug rule — a title with nothing to slug renames to the fallback, where
       // '' left the folder behind and the write's reconcile then named another.
       if (req.body.title && req.body.title !== oldTitle) {
-        const newSlug = projectSlugOf({ title: req.body.title });
+        const newSlug = projectSlugOf({ id: bundle.project.id, title: req.body.title });
         if (newSlug !== oldSlug && oldSlug) {
           const root = bundle.project.folder_root
             ? path.dirname(bundle.project.folder_root)
@@ -2915,12 +2925,12 @@ function startLocalServer(distPath) {
       const assetSlug = assetSlugOf(asset);
       return resolveContainedFilePath(root, path.join('ASSETS', assetSlug, mf.stored_name));
     }
-    function ensureAssetFolder(bundle, assetName) {
+    function ensureAssetFolder(bundle, asset) {
       const root = resolveProjectFolderRoot(bundle);
       if (!root) return null;
       const assetsDir = path.join(root, 'ASSETS');
       if (!fs.existsSync(assetsDir)) fs.mkdirSync(assetsDir, { recursive: true });
-      const assetSlug = assetSlugOf({ name: assetName });
+      const assetSlug = assetSlugOf(asset); // its stored slug, as every later route reads it (F9)
       const folderPath = path.join(assetsDir, assetSlug);
       if (!fs.existsSync(folderPath)) fs.mkdirSync(folderPath, { recursive: true });
       return { folderPath, assetSlug };
@@ -2931,9 +2941,13 @@ function startLocalServer(distPath) {
       if (!bundle) return rabbitNotFound(res);
       if (!bundle.assets) bundle.assets = [];
       const row = rabbitTouch({ ...req.body, project_id: req.params.projectId });
-      if (!row.folder_slug && row.name) row.folder_slug = fileSlugify(row.name);
+      // F9 (review round 1): the asset's one slug, stored — never '' (a name
+      // like 東京 slugged to nothing and its folder was ASSETS itself) — so the
+      // managed files' folder_path, the rename and the delete read the same
+      // one. Only when the body names the asset and brings no slug, as before.
+      if (!row.folder_slug && row.name) row.folder_slug = assetSlugOf({ id: row.id, name: row.name });
       const result = rabbitUpsertInto(bundle.assets, row);
-      ensureAssetFolder(bundle, result.name);
+      ensureAssetFolder(bundle, result);
       // Session 26: the directory was already being made; now it is also
       // RECORDED, so an asset folder is part of the same tree as a scene's
       // and survives a move to another backend.
@@ -2959,7 +2973,7 @@ function startLocalServer(distPath) {
           // to slug joined to ASSETS itself, and this rename then tried to move
           // the whole ASSETS folder.
           const oldSlug = assetSlugOf(oldAsset);
-          const newSlug = assetSlugOf({ name: req.body.name });
+          const newSlug = assetSlugOf({ id: req.params.id, name: req.body.name });
           const assetsDir = path.join(root, 'ASSETS');
           if (!fs.existsSync(assetsDir)) fs.mkdirSync(assetsDir, { recursive: true });
           // Session 17 (#45 family): newSlug is fileSlugify output and safe,

@@ -28,10 +28,11 @@
 // stored folder_root = the root and made bare _DATABASES and _FILES there, and
 // both resolvers answered the root for a bundle whose slug was null or ''
 // (an in-flight PATCH's, a pre-slug bundle's) — one project's folder being
-// every project's. projectSlugOf ends in 'Untitled-Project', the reconcile's
-// own rule. A CJK-named asset the same: its folder was ASSETS itself, so
-// deleting it moved the whole ASSETS folder to .trash; assetSlugOf ends in
-// 'Untitled-Asset'.
+// every project's. projectSlugOf ends in 'Untitled-Project-<the id's first
+// eight>' (review round 1: one shared 'Untitled-Project' would have been every
+// such project's folder in turn). A CJK-named asset the same: its folder was
+// ASSETS itself, so deleting it moved the whole ASSETS folder to .trash;
+// assetSlugOf ends in 'Untitled-Asset-<the id's first eight>'.
 //
 // Pure: every host dependency is injected, and projectFolders.test.js runs it
 // for real on a temp root. main.cjs keeps both resolver names as one-line
@@ -51,17 +52,31 @@ function createProjectFolders({ fs, path, fileSlugify, isPersonalBundle, storedR
 
   // main.cjs's fileSlugify throws on a non-string (a number in a body).
   const slug = (value) => fileSlugify(String(value ?? ''));
+  // F9 review round 1: the fallback names the ROW, so two projects (or two
+  // assets) whose names slug to nothing never share one folder — a rename of
+  // one moved the other's files, a delete trashed them. Already in
+  // fileSlugify's form, so the reconcile keeps a stored one as it is.
+  const fallback = (base, id) => {
+    const tag = String(id ?? '').replace(/[^A-Za-z0-9]/g, '').slice(0, 8);
+    return tag ? fileSlugify(`${base} ${tag}`) : fileSlugify(base);
+  };
+  // A stored asset slug is one plain path segment, or it is not used: '.'
+  // resolved to ASSETS itself (and its delete trashed every asset's folder).
+  const plainSegment = (s) => typeof s === 'string' && s !== '' && s !== '.' && s !== '..' && !/[\\/:\0]/.test(s);
 
   /** The project folder's one path segment, never empty. */
   function projectSlugOf(project) {
-    return slug(project?.folder_slug) || slug(project?.title) || PROJECT_FALLBACK;
+    return slug(project?.folder_slug) || slug(project?.title) || fallback(PROJECT_FALLBACK, project?.id);
   }
 
-  /** An asset folder's segment under ASSETS/, never empty. The stored slug is
-   *  taken as it is: the import route stores a folder's own name, and every
-   *  caller contains the join (resolveContainedFilePath). */
+  /** An asset folder's segment under ASSETS/, never empty. A stored slug that
+   *  is one plain segment is taken as it is: the import route stores a
+   *  folder's own name, and every caller contains the join
+   *  (resolveContainedFilePath). */
   function assetSlugOf(asset) {
-    return asset?.folder_slug || slug(asset?.name) || ASSET_FALLBACK;
+    const stored = asset?.folder_slug;
+    if (plainSegment(stored)) return stored;
+    return slug(asset?.name) || fallback(ASSET_FALLBACK, asset?.id);
   }
 
   /** The project's folder on this computer, or null. */

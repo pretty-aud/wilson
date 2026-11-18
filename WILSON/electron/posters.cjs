@@ -36,25 +36,34 @@
 //
 // One module, one in-flight map per process: main.cjs (its routes and the
 // four channels) and rabbitBins.cjs require it, so a GET, a channel and an
-// acceptor asking for one poster take turns. The bins' tests inject their own
-// fakes for everything else and stay unedited.
+// acceptor asking for one still's poster take turns. The ffmpeg arm keeps its
+// own single flight and is not in that order (review round 1; OUTSTANDING
+// F9-04 says what that leaves). The bins' tests inject their own fakes for
+// everything else and stay unedited.
 // =============================================================================
 'use strict';
 
 const nodeFs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { withRetry } = require('./jsonFile.cjs');
+const { LOCK_CODES } = require('./jsonFile.cjs');
 const { sendMedia, requireSameOrigin } = require('./mediaSend.cjs');
 const ffmpegModule = require('./ffmpeg.cjs');
 
 const POSTER_MAX_BYTES = 262144; // THUMBNAIL_MAX_BYTES / migration 0053's bucket cap: the two tiers agree
 const RENAME_ATTEMPTS = 5;
-const pauseSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+// A picture on a share that stops answering mid-read would hold its poster's
+// turn — and a new picture picked for it — until the OS gave up (review
+// round 1): a make that takes longer than this fails, writes nothing, and
+// lets the next one go. Generous: a large TIFF from a slow share takes seconds.
+const ENCODE_DEADLINE_MS = 30_000;
 
 // ── one write in flight per poster ───────────────────────────────────────────
 const tails = new Map();
-const keyOf = (dest) => path.resolve(String(dest)).toLowerCase();
+// The file system's own rule for "the same file": case folds on Windows and
+// macOS only (jsonFile.cjs's).
+const FOLDS_CASE = process.platform === 'win32' || process.platform === 'darwin';
+const keyOf = (dest) => { const p = path.resolve(String(dest)); return FOLDS_CASE ? p.toLowerCase() : p; };
 function inTurn(dest, work) {
   const key = keyOf(dest);
   const run = (tails.get(key) || Promise.resolve()).then(work);
@@ -64,16 +73,36 @@ function inTurn(dest, work) {
   return run;
 }
 
-/** The whole poster to a part of its own, renamed into place; no part left behind. */
-function writePosterAtomically(dest, buf, { fsImpl = nodeFs } = {}) {
+/** The whole poster to a part of its own, renamed into place; no part left
+ *  behind. A rename Windows refuses while it holds a file (an indexer, a
+ *  virus scan) is tried again after a pause that WAITS, never blocks: the
+ *  main process keeps answering meanwhile (review round 1). */
+async function writePosterAtomically(dest, buf, { fsImpl = nodeFs, pauseMs = 20 } = {}) {
   const part = `${dest}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.part`;
   try {
     fsImpl.writeFileSync(part, buf);
-    withRetry(() => fsImpl.renameSync(part, dest), pauseSync, RENAME_ATTEMPTS);
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        fsImpl.renameSync(part, dest);
+        break;
+      } catch (err) {
+        if (attempt >= RENAME_ATTEMPTS || !LOCK_CODES.includes(err?.code)) throw err;
+        await new Promise((resolve) => setTimeout(resolve, pauseMs * attempt));
+      }
+    }
   } catch (err) {
     try { fsImpl.unlinkSync(part); } catch { /* never made, or gone */ }
     throw err;
   }
+}
+
+/** The encode, or a POSTER_TIMEOUT once `ms` has passed (its late answer is dropped). */
+function withDeadline(work, ms) {
+  let timer;
+  const late = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(Object.assign(new Error('the poster took too long to make'), { code: 'POSTER_TIMEOUT' })), ms);
+  });
+  return Promise.race([work, late]).finally(() => clearTimeout(timer));
 }
 
 /** A JPEG of `src` in the caller's geometry, as a buffer. */
@@ -86,18 +115,18 @@ async function encodePoster(src, { edge, quality, fit = 'width' }) {
   return sized.jpeg({ quality }).toBuffer();
 }
 
-function makePoster({ src, dest, edge, quality, fit = 'width', replace = false, encode = encodePoster, fsImpl = nodeFs }) {
+function makePoster({ src, dest, edge, quality, fit = 'width', replace = false, encode = encodePoster, fsImpl = nodeFs, deadlineMs = ENCODE_DEADLINE_MS, pauseMs }) {
   if (fit !== 'width' && fit !== 'inside') return Promise.reject(new Error(`makePoster: unknown fit ${fit}`));
   return inTurn(dest, async () => {
     if (!replace && fsImpl.existsSync(dest)) return { made: false };
-    const buf = await encode(src, { edge, quality, fit });
-    writePosterAtomically(dest, buf, { fsImpl });
+    const buf = await withDeadline(Promise.resolve().then(() => encode(src, { edge, quality, fit })), deadlineMs);
+    await writePosterAtomically(dest, buf, { fsImpl, pauseMs });
     return { made: true };
   });
 }
 
-function putPoster(dest, buf, { fsImpl = nodeFs } = {}) {
-  return inTurn(dest, () => writePosterAtomically(dest, buf, { fsImpl }));
+function putPoster(dest, buf, { fsImpl = nodeFs, pauseMs } = {}) {
+  return inTurn(dest, () => writePosterAtomically(dest, buf, { fsImpl, pauseMs }));
 }
 
 function clearPoster(dest, { fsImpl = nodeFs } = {}) {

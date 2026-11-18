@@ -64,6 +64,13 @@ describe('the CommonJS copy says what the model says', () => {
     const gen = require('../../../../electron/rules/taskItems.cjs')
     for (const name of SHARED) expect(cjs[name], name).toBe(gen[name])
   })
+  it('review round 1: the refusals the desktop\'s route sends a client, word for word', () => {
+    expect(cjs.itemShapeProblem(null)).toBe('an item needs a task, a kind and an entity')
+    expect(cjs.itemShapeProblem({ task_id: T, entity_type: 'phase', entity_id: 'x' })).toBe('phase is not a kind of item (asset, scene, shot, level, experience)')
+    expect(cjs.itemShapeProblem({ task_id: T, entity_type: 'asset', entity_id: 'x', position: -1 })).toBe('an item\'s position is a whole number from 0 to 2147483647')
+    expect(cjs.itemShapeProblem({ task_id: T, entity_type: 'asset', entity_id: 'x', created_at: 'soon' })).toBe('an item\'s created_at is a date')
+    expect(cjs.itemShapeProblem({ task_id: T, entity_type: 'asset', entity_id: 'x' })).toBeNull()
+  })
   it('CONTROL: the pairs tell position-first from time-first and from id-first', () => {
     const byTime = (a, b) => Date.parse(a.created_at) - Date.parse(b.created_at)
     const byId = (a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)

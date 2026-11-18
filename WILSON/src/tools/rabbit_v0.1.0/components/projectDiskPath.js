@@ -46,7 +46,11 @@ export async function projectDiskPath({ project, api, rel = '', leaf = null } = 
   if (!base) return null
   // The base is kept whole (a UNC root's leading `//` is its server's name);
   // only its trailing separators go, and the parts after it are plain segments.
-  const parts = [base.replace(/\/+$/, ''), ...toSlashes(rel || '').split('/').filter(Boolean)]
+  const head = base.replace(/\/+$/, '')
+  const parts = [head, ...toSlashes(rel || '').split('/').filter(Boolean)]
   if (leaf) parts.push(String(leaf))
+  // A bare drive keeps its separator: `D:` alone is the drive's current
+  // folder, not its root (review round 1).
+  if (parts.length === 1 && /^[A-Za-z]:$/.test(head)) return `${head}\\`
   return parts.join('/').replace(/\//g, '\\')
 }
