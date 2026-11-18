@@ -36,6 +36,7 @@ import {
   Send, Undo2, MessageSquareWarning,
 } from 'lucide-react'
 import { otterFetch } from '../adapters'
+import { readBody } from '../adapters/otterRoutes.js'
 import { Dialog, Card, Button, IconButton, Select, Banner, Loading, Spinner } from '../../../ui'
 import { useWorkspaceMembers } from '../../../components/TeamMembers/useWorkspaceMembers'
 import {
@@ -43,8 +44,10 @@ import {
 } from './otterSharing.js'
 import { VisibilityBadge } from './CourseBadges.jsx'
 
-/**
- * Read a response body without letting a non-JSON one destroy the message.
+/*
+ * readBody: a response body read without letting a non-JSON one destroy the
+ * message. Since F6 it is O.T.T.E.R.'s one reader (adapters/otterRoutes.js),
+ * imported above; this dialog's private copy was the second of three.
  *
  * Every call here was written `const x = await res.json()` THEN `if (!res.ok)`.
  * otterFetch resolves for every status, so the status check is the only guard —
@@ -54,11 +57,6 @@ import { VisibilityBadge } from './CourseBadges.jsx'
  * marked cloudOnly, so it falls through to the local server's HTML 404.
  * Reading defensively puts the status check back in charge.
  */
-async function readBody(res) {
-  const text = await res.text().catch(() => '')
-  if (!text) return null
-  try { return JSON.parse(text) } catch { return null }
-}
 
 export default function ShareCourseDialog({ course, role, userId, onClose, onCourseChanged }) {
   const wm = useWorkspaceMembers()

@@ -8,6 +8,7 @@ import { Button, IconButton, Select, SectionTitle, EmptyState, Card, Panel, Tool
 import { VALIDATION_PROMPT, FIX_PROMPT } from './validatorPrompts.js';
 // Session 10: content routes go through the adapter seam (see adapters/index.js).
 import { otterFetch } from './adapters';
+import { readBody, needBody } from './adapters/otterRoutes.js';
 // Session 12 (locked #21): Anthropic access rides the ai-proxy Edge Function,
 // through O.T.T.E.R.'s one wrapper since F6.
 import { callAnthropicAPI, MAX_CONTINUATIONS } from './prompts.js';
@@ -163,7 +164,7 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
           const cacheKey = `${sw.slug}/${sub.slug}`;
           if (!subjectCacheRef.current[cacheKey]) {
             try {
-              const fullSub = await otterFetch(`/api/software/${sw.slug}/subjects/${sub.slug}`).then(r => r.json());
+              const fullSub = await otterFetch(`/api/software/${sw.slug}/subjects/${sub.slug}`).then(needBody);
               if (!cancelled) {
                 subjectCacheRef.current[cacheKey] = fullSub;
                 fetched = true;
@@ -309,7 +310,7 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
         const cacheKey = `${next.softwareSlug}/${next.subjectSlug}`;
         let fullSub = subjectCacheRef.current[cacheKey];
         if (!fullSub) {
-          fullSub = await otterFetch(`/api/software/${next.softwareSlug}/subjects/${next.subjectSlug}`).then(r => r.json());
+          fullSub = await otterFetch(`/api/software/${next.softwareSlug}/subjects/${next.subjectSlug}`).then(needBody);
           subjectCacheRef.current[cacheKey] = fullSub;
         }
 
@@ -407,7 +408,7 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
       const cacheKey = `${selectedAudit.softwareSlug}/${selectedAudit.subjectSlug}`;
       let fullSub = subjectCacheRef.current[cacheKey];
       if (!fullSub) {
-        fullSub = await otterFetch(`/api/software/${selectedAudit.softwareSlug}/subjects/${selectedAudit.subjectSlug}`).then(r => r.json());
+        fullSub = await otterFetch(`/api/software/${selectedAudit.softwareSlug}/subjects/${selectedAudit.subjectSlug}`).then(needBody);
         subjectCacheRef.current[cacheKey] = fullSub;
       }
 
@@ -502,7 +503,7 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
       // Both backends answer JSON on refusal — cloud through otterFetch's error
       // shape, local through the Express handlers — but a bare 404 from Express
       // is HTML, so the parse has to be allowed to fail.
-      const detail = await res.json().then(b => b?.error).catch(() => null);
+      const detail = (await readBody(res))?.error ?? null;
       return fail(detail || `The correction was refused (HTTP ${res.status}) and has NOT been saved.`);
     }
 

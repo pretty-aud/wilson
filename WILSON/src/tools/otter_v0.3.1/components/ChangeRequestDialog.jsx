@@ -40,6 +40,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Check, Send, Undo2, MessageSquareWarning } from 'lucide-react'
 import { otterFetch } from '../adapters'
+import { readBody } from '../adapters/otterRoutes.js'
 import { Dialog, Button, Banner, Loading } from '../../../ui'
 
 const SUMMARY_MAX = 4000   // otter_cr_summary_chk
@@ -80,7 +81,7 @@ export default function ChangeRequestDialog({ course, standardName, sourceIsStan
     setLoading(true)
     try {
       const res = await otterFetch('/api/otter/change-requests')
-      const rows = await res.json()
+      const rows = await readBody(res)
       if (!res.ok) throw new Error(rows?.error || 'Could not load change requests')
       const live = (Array.isArray(rows) ? rows : []).find(
         r => r.source_course_id === course?.slug
@@ -111,7 +112,7 @@ export default function ChangeRequestDialog({ course, standardName, sourceIsStan
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(isDeclined ? { status: 'open', summary: text } : { summary: text }),
         })
-        const row = await res.json()
+        const row = await readBody(res)
         if (!res.ok) throw new Error(row?.error || 'Could not update your request')
         setDone(isDeclined
           ? 'Resubmitted — it is back in the review queue.'
@@ -134,7 +135,7 @@ export default function ChangeRequestDialog({ course, standardName, sourceIsStan
             summary: text,
           }),
         })
-        const row = await res.json()
+        const row = await readBody(res)
         if (!res.ok) throw new Error(row?.error || 'Could not send your request')
         setDone('Sent. An admin will review it.')
         // If the refresh below fails, this stub keeps the dialog in its
@@ -161,7 +162,7 @@ export default function ChangeRequestDialog({ course, standardName, sourceIsStan
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'withdrawn' }),
       })
-      const row = await res.json()
+      const row = await readBody(res)
       if (!res.ok) throw new Error(row?.error || 'Could not withdraw your request')
       setDone('Withdrawn.')
       setExisting(null)
@@ -183,7 +184,7 @@ export default function ChangeRequestDialog({ course, standardName, sourceIsStan
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'rejected' }),
       })
-      const row = await res.json()
+      const row = await readBody(res)
       if (!res.ok) throw new Error(row?.error || 'Could not record your answer')
       setDone('Done — the request is closed, and your copy is private again.')
       setExisting(null)

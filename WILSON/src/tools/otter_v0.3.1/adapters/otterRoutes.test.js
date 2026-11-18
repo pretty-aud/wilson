@@ -8,9 +8,12 @@
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import {
   parseOtterRoute, slugify, migrateNodesData,
   mergeHotkeys, mergeFunctions, mergeNodes, mergeCorrections,
+  readBody, okBody, needBody, otterCall,
 } from './otterRoutes.js'
 
 const p = (path, method) => parseOtterRoute(path, method)
@@ -362,5 +365,79 @@ describe('merge semantics', () => {
       [{ id: 'a', text: 'new' }, { id: 'b', text: 'added' }],
     )
     expect(out.corrections).toEqual([{ id: 'a', text: 'new' }, { id: 'b', text: 'added' }])
+  })
+})
+
+// ── The one response reader (F6, B5) ─────────────────────────────────────────
+//
+// `otterFetch` resolves for every status and `res.json()` throws on any body
+// that is not JSON, so these four are the only ways an O.T.T.E.R. answer is
+// read. The table drives each shape with the answers that broke the old reads:
+// a JSON refusal (which `res.json()` without `res.ok` handed on as data) and
+// an HTML error page (which `res.json()` turned into a SyntaxError).
+describe('the one response reader (F6, B5)', () => {
+  const json = (status, data) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } })
+  const raw = (status, text) => new Response(text, { status })
+  const HTML = '<!DOCTYPE html><html><body>Cannot POST /api/otter/x</body></html>'
+
+  it('readBody: JSON, or null for empty, HTML, "null" and a missing body reader; never throws', async () => {
+    expect(await readBody(json(200, { slug: 'c-1' }))).toEqual({ slug: 'c-1' })
+    expect(await readBody(json(409, { error: 'Already shared.' }))).toEqual({ error: 'Already shared.' })
+    expect(await readBody(raw(200, ''))).toBeNull()
+    expect(await readBody(raw(404, HTML))).toBeNull()
+    expect(await readBody(raw(200, 'null'))).toBeNull()
+    expect(await readBody({ ok: true, json: async () => ({}) })).toBeNull()
+    expect(await readBody(undefined)).toBeNull()
+  })
+
+  it('okBody: the body of a success only', async () => {
+    expect(await okBody(json(200, [{ slug: 's' }]))).toEqual([{ slug: 's' }])
+    expect(await okBody(json(403, { error: 'No.' }))).toBeNull()
+    expect(await okBody(raw(500, HTML))).toBeNull()
+    expect(await okBody(raw(200, HTML))).toBeNull()
+  })
+
+  it('needBody: the body of a success, else a rejection in the refusal\'s own words', async () => {
+    expect(await needBody(json(200, { title: 'Modifiers' }))).toEqual({ title: 'Modifiers' })
+    await expect(needBody(json(404, { error: 'That subject is gone.' }))).rejects.toThrow('That subject is gone.')
+    await expect(needBody(raw(404, HTML))).rejects.toThrow('That could not be read (HTTP 404).')
+    await expect(needBody(raw(200, ''))).rejects.toThrow('That could not be read (HTTP 200).')
+  })
+
+  it("otterCall: shareCall's shape for every outcome, an abort rethrown", async () => {
+    const via = (res) => async () => res
+    expect(await otterCall(via(json(200, { ok: 1 })), '/u')).toEqual({ ok: true, status: 200, data: { ok: 1 }, text: null })
+    expect(await otterCall(via(json(409, { error: 'Already shared.' })), '/u'))
+      .toEqual({ ok: false, status: 409, data: { error: 'Already shared.' }, text: 'Already shared.' })
+    expect(await otterCall(via(raw(500, HTML)), '/u')).toEqual({ ok: false, status: 500, data: null, text: null })
+    expect(await otterCall(async () => { throw new TypeError('Failed to fetch') }, '/u'))
+      .toEqual({ ok: false, status: 0, data: null, text: 'Failed to fetch' })
+    const abort = Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' })
+    await expect(otterCall(async () => { throw abort }, '/u')).rejects.toBe(abort)
+  })
+})
+
+describe('no file that reads O.T.T.E.R.\'s answers calls .json() (F6, B5)', () => {
+  // The files B5 counted (82 reads), the Validator's included. petKnowledge.js
+  // keeps its own readJson (status first, then json(); its suite's fakes have
+  // no text()) and is the one recorded exception, so it is not listed.
+  const FILES = [
+    '../Otter.jsx', '../Validator.jsx',
+    '../components/RequestsView.jsx', '../components/ChangeRequestDialog.jsx',
+    '../components/ShareCourseDialog.jsx', '../components/otterSharing.js',
+    '../../../components/AdminTerminal/ChangeRequestsSection.jsx',
+  ]
+  const code = (src) => src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n').filter(l => !/^\s*\/\//.test(l)).join('\n')
+
+  it('the instrument works: it counts a planted read', () => {
+    expect((code('const a = await res.json()\n// res.json() in a comment\n/* res.json() */').match(/\.json\(\)/g) ?? []).length).toBe(1)
+  })
+
+  it.each(FILES)('%s reads through the one reader', (rel) => {
+    const src = readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
+    expect(src.length).toBeGreaterThan(500)
+    expect(code(src).match(/\.json\(\)/g) ?? [], 'use readBody(res), okBody or needBody from adapters/otterRoutes.js').toEqual([])
   })
 })

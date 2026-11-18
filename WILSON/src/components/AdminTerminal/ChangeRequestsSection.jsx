@@ -57,7 +57,7 @@ import {
   ExternalLink, Archive,
 } from 'lucide-react'
 import { otterFetch } from '../../tools/otter_v0.3.1/adapters'
-import { DOC_LABELS } from '../../tools/otter_v0.3.1/adapters/otterRoutes.js'
+import { DOC_LABELS, readBody } from '../../tools/otter_v0.3.1/adapters/otterRoutes.js'
 // UI overhaul C3b — the tokens come from `@theme` through `src/ui/tokens`
 // now, not from the light-page alias module. Track A owns this file's JSX;
 // this edit is colours and the two private button copies, nothing else.
@@ -114,7 +114,7 @@ export default function ChangeRequestsSection({ isActive }) {
     setError(null)
     try {
       const res = await otterFetch('/api/otter/change-requests')
-      const data = await res.json()
+      const data = await readBody(res)
       if (!res.ok) throw new Error(data?.error || 'Could not load change requests')
       setRows(Array.isArray(data) ? data : [])
     } catch (e) {
@@ -148,8 +148,8 @@ export default function ChangeRequestsSection({ isActive }) {
         otterFetch(`/api/software/${r.source_course_id}/subjects`),
         otterFetch(`/api/software/${r.target_course_id}/subjects`),
       ])
-      const src = await srcRes.json()
-      const tgt = await tgtRes.json()
+      const src = await readBody(srcRes)
+      const tgt = await readBody(tgtRes)
       if (!srcRes.ok) throw new Error(src?.error || 'Could not read their course')
       if (!tgtRes.ok) throw new Error(tgt?.error || 'Could not read the standard course')
       if (diffForRef.current !== r.id) return
@@ -171,7 +171,7 @@ export default function ChangeRequestsSection({ isActive }) {
     setError(null)
     try {
       const res = await otterFetch(`/api/otter/change-requests/${r.id}/approve`, { method: 'POST' })
-      const data = await res.json()
+      const data = await readBody(res)
       if (!res.ok) throw new Error(data?.error || 'Could not apply the change')
       setApplied({
         name: r.target_name ?? 'the standard course',
@@ -205,7 +205,7 @@ export default function ChangeRequestsSection({ isActive }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'changes_requested', review_note: text }),
       })
-      const data = await res.json()
+      const data = await readBody(res)
       if (!res.ok) throw new Error(data?.error || 'Could not send your note back')
       setDecide(null)
       setNote('')

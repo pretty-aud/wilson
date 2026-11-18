@@ -63,7 +63,7 @@ import {
   timeAgo,
 } from './otterSharing.js'
 import { Button, IconButton, SectionTitle, Banner, Loading, Spinner, StatusBadge, statusMeta } from '../../../ui'
-import { DOC_LABELS } from '../adapters/otterRoutes.js'
+import { DOC_LABELS, readBody } from '../adapters/otterRoutes.js'
 
 // A4 (review O24): a request's status is the kit's StatusBadge, its tone and
 // word from the kit's one STATUS map (open, changes requested, approved,
@@ -121,7 +121,7 @@ export default function RequestsView({
     setError(null)
     try {
       const res = await otterFetch('/api/otter/change-requests')
-      const data = await res.json()
+      const data = await readBody(res)
       if (!res.ok) throw new Error(data?.error || 'Could not load change requests')
       setRows(Array.isArray(data) ? data : [])
     } catch (e) {
@@ -145,7 +145,7 @@ export default function RequestsView({
   const loadNoms = useCallback(async (quiet = false) => {
     try {
       const res = await otterFetch('/api/otter/nominations')
-      const data = await res.json()
+      const data = await readBody(res)
       if (!res.ok) throw new Error(data?.error || 'Could not load nominations')
       const list = Array.isArray(data) ? data : []
       setNoms(list)
@@ -201,8 +201,8 @@ export default function RequestsView({
         otterFetch(`/api/software/${r.source_course_id}/subjects`),
         otterFetch(`/api/software/${r.target_course_id}/subjects`),
       ])
-      const src = await srcRes.json()
-      const tgt = await tgtRes.json()
+      const src = await readBody(srcRes)
+      const tgt = await readBody(tgtRes)
       if (!srcRes.ok) throw new Error(src?.error || 'Could not read their course')
       if (!tgtRes.ok) throw new Error(tgt?.error || 'Could not read the standard course')
       if (diffForRef.current !== r.id) return
@@ -224,7 +224,7 @@ export default function RequestsView({
     setError(null)
     try {
       const res = await otterFetch(`/api/otter/change-requests/${r.id}/approve`, { method: 'POST' })
-      const data = await res.json()
+      const data = await readBody(res)
       if (!res.ok) throw new Error(data?.error || 'Could not apply the change')
       setApplied({
         name: r.target_name ?? 'the standard course',
@@ -263,7 +263,7 @@ export default function RequestsView({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'changes_requested', review_note: text }),
       })
-      const data = await res.json()
+      const data = await readBody(res)
       if (!res.ok) throw new Error(data?.error || 'Could not send your note back')
       setDecide(null)
       setNote('')
@@ -313,7 +313,7 @@ export default function RequestsView({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
       })
-      const data = await res.json()
+      const data = await readBody(res)
       if (!res.ok) throw new Error(data?.error || 'Could not record your answer')
       await load()
     } catch (e) {
@@ -334,7 +334,7 @@ export default function RequestsView({
     setNomBusy(true); setNomError(null)
     try {
       const res = await otterFetch(`/api/otter/nominations/${n.id}/approve`, { method: 'POST' })
-      const data = await res.json()
+      const data = await readBody(res)
       if (!res.ok) throw new Error(data?.error || 'Could not promote this course')
       setNomDecide(null)
       // superseded_course_id is written BY the RPC, so the row captured before
@@ -369,7 +369,7 @@ export default function RequestsView({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'changes_requested', review_note: text }),
       })
-      const data = await res.json()
+      const data = await readBody(res)
       if (!res.ok) throw new Error(data?.error || 'Could not send your note back')
       setNomDecide(null)
       setNomNote('')
