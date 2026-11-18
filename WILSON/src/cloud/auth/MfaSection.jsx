@@ -25,7 +25,7 @@ import AuthShell, {
 } from './AuthShell'
 import { usePermissions } from '../../permissions'
 import { reportAppEvent } from '../errorCodes'
-import { withTimeout, AUTH_TIMEOUT_MS } from './withTimeout'
+import { verifyTotp } from './signIn'
 import { Button, SectionTitle } from '../../ui'
 import {
   INK_LIGHT, ON_FILL, RADIUS_CONTROL, TYPE, LEADING, WEIGHT, ICON,
@@ -134,14 +134,10 @@ function MfaEnrollPanel({ onEnrolled }) {
       // Session 17: bounded. An unbounded verify left this button reading
       // "Activating…" indefinitely while the factor was already verified
       // server-side — the user could not tell enrolment had worked.
-      const { data: ch, error: chErr } = await withTimeout(
-        supabase.auth.mfa.challenge({ factorId: factor.id }),
-        AUTH_TIMEOUT_MS, 'MFA challenge')
-      if (chErr || !ch?.id) throw chErr ?? new Error('challenge failed')
-      const { error: vErr } = await withTimeout(
-        supabase.auth.mfa.verify({ factorId: factor.id, challengeId: ch.id, code: c }),
-        AUTH_TIMEOUT_MS, 'MFA verify')
-      if (vErr) {
+      // F11 (A2): the challenge and verify are signIn.js's verifyTotp, shared
+      // with the login and the operator console; this panel needs the verdict only.
+      const { rejected } = await verifyTotp(factor.id, c, { session: false })
+      if (rejected) {
         setError('Code rejected — try the next one from your app.')
         setPhase('show')
         setCode('')
