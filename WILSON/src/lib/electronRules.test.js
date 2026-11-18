@@ -9,13 +9,16 @@
 //
 // And what a packaged build needs, proved without electron-builder: the folder
 // is inside what it packs, every require of it names a file the script makes,
-// and nothing ignores it.
+// and nothing ignores it. F12 added the other half of "what it packs": every
+// bare module a file under electron/ requires is Node's, Electron's or a
+// production dependency, because electron-builder ships `dependencies` and
+// never `devDependencies`.
 // =============================================================================
 
 import { describe, it, expect, beforeAll } from 'vitest'
 import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import path from 'node:path'
-import { createRequire } from 'node:module'
+import { createRequire, builtinModules } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { buildRules, RULES, RULES_DIR, ROOT } from '../../scripts/build-electron-rules.mjs'
 
@@ -112,6 +115,58 @@ describe('the twins require the generated rules, and keep their own names', () =
   })
 })
 
+/** Every file under electron/, by its forward-slash name whatever the host's separator is. */
+function electronSources(dir = ELECTRON, prefix = '') {
+  const out = {}
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) Object.assign(out, electronSources(path.join(dir, entry.name), `${prefix}${entry.name}/`))
+    else out[`${prefix}${entry.name}`] = readFileSync(path.join(dir, entry.name), 'utf8')
+  }
+  return out
+}
+
+/** F12: the entries of the packer's own list that take electron/, its rules or every .cjs back out. */
+const takenOut = (files) => (files || []).filter((f) => typeof f === 'string' && f.startsWith('!') && /electron|rules|\.cjs/.test(f))
+
+/**
+ * F12: the requires a packaged build could not satisfy. electron-builder packs
+ * `dependencies` (and `optionalDependencies`) and never `devDependencies`, so a
+ * require of a devDependency works in `npm run electron:dev` and throws in the
+ * installed app. Each bare module must be Node's, Electron's, or shipped.
+ *
+ * Read from the RAW text on purpose: a require inside worker source held in a
+ * string is seen, and a comment that writes `require('…')` is counted too (that
+ * can only raise a false alarm: reword the comment). What reading cannot see is
+ * a name computed at run time, so a require whose argument is not a string
+ * literal is itself a problem.
+ */
+function unshippedRequires(files, pkg) {
+  const ships = new Set([...Object.keys(pkg.dependencies || {}), ...Object.keys(pkg.optionalDependencies || {})])
+  const devOnly = new Set(Object.keys(pkg.devDependencies || {}))
+  const nodes = new Set(builtinModules)
+  const problems = new Set()
+  const seen = new Set()
+  for (const [file, text] of Object.entries(files)) {
+    for (const m of text.matchAll(/\b(require(?:\.resolve)?)\(\s*([^)]*)\)/g)) {
+      const arg = m[2].trim()
+      if (!arg) continue // "require()'d" in a comment: with no argument nothing is loaded
+      const literal = arg.match(/^(['"`])([^'"`$]+)\1$/)
+      if (!literal) { problems.add(`${file}: ${m[1]}(${arg}) is not a string literal, so what it loads cannot be checked`); continue }
+      const name = literal[2]
+      if (name.startsWith('.') || name.startsWith('/')) continue                      // a file of ours
+      if (name.startsWith('node:') || nodes.has(name) || nodes.has(name.split('/')[0])) continue // Node's
+      if (name === 'electron' || name.startsWith('electron/')) continue                // the runtime's own
+      const bare = name.startsWith('@') ? name.split('/').slice(0, 2).join('/') : name.split('/')[0]
+      seen.add(bare)
+      if (ships.has(bare)) continue
+      problems.add(devOnly.has(bare)
+        ? `${file}: requires '${bare}', a devDependency only: electron-builder ships dependencies and never devDependencies, so the installed app would not find it`
+        : `${file}: requires '${bare}', which package.json does not declare`)
+    }
+  }
+  return { problems: [...problems], seen: [...seen].sort() }
+}
+
 describe('a packaged build carries the folder', () => {
   const pkg = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'))
   it('electron-builder packs electron/**/* (so electron/rules/ with it)', () => {
@@ -127,12 +182,50 @@ describe('a packaged build carries the folder', () => {
     expect([...asked].sort()).toEqual(made)
     expect(readdirSync(path.join(ELECTRON, 'rules')).sort()).toEqual(made)
   })
-  it('nothing ignores it: not .gitignore, not the forge config', () => {
+  it('nothing ignores it: not .gitignore, not the packer\'s own list, and no second packager has a config (F12)', () => {
     for (const line of readFileSync(path.join(ROOT, '.gitignore'), 'utf8').split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith('#'))) {
       expect(['rules', 'rules/', 'electron/rules', 'electron/rules/', '/electron/rules', '*.cjs', 'electron/']).not.toContain(line)
     }
-    const forge = readFileSync(path.join(ROOT, 'forge.config.cjs'), 'utf8')
-    expect(forge).not.toMatch(/rules/)
+    // F12: electron-builder is the one packager. Forge's config, which had an
+    // ignore list of its own, is gone; and the one packer's list takes nothing
+    // of electron/ back out.
+    expect(existsSync(path.join(ROOT, 'forge.config.cjs'))).toBe(false)
+    expect(takenOut(pkg.build.files)).toEqual([])
+    // CONTROL: a negation that would drop the folder is named.
+    expect(takenOut([...pkg.build.files, '!electron/rules/**', '!**/*.cjs', '!dist/**/*.map'])).toEqual(['!electron/rules/**', '!**/*.cjs'])
     expect(existsSync(path.join(ELECTRON, 'rules', 'README.md'))).toBe(false)
+  })
+  it('every bare module a file under electron/ requires is Node\'s, Electron\'s or a production dependency (F12)', () => {
+    const { problems, seen } = unshippedRequires(electronSources(), pkg)
+    expect(problems).toEqual([])
+    // It cannot pass by seeing nothing: a top-level require, a lazy one and one inside a try are all read.
+    expect(seen).toEqual(expect.arrayContaining(['express', 'sharp', 'electron-updater']))
+  })
+  it('CONTROL: a planted require of a devDependency, of an undeclared module and of a computed name are each named', () => {
+    const planted = {
+      'planted.cjs': [
+        "const v = require('vite');",
+        "require('left-pad/lib');",
+        "const p = require.resolve('@playwright/test/package.json');",
+        'require(name);',
+        // none of these is a problem: ours, Node's (three spellings), Electron's, a shipped package by a deep path
+        "require('./beside.cjs'); require('node:fs'); require('fs/promises'); require('path'); require('electron'); require('electron/main'); require('express/lib/router');",
+      ].join('\n'),
+    }
+    expect(unshippedRequires(planted, pkg)).toEqual({
+      problems: [
+        "planted.cjs: requires 'vite', a devDependency only: electron-builder ships dependencies and never devDependencies, so the installed app would not find it",
+        "planted.cjs: requires 'left-pad', which package.json does not declare",
+        "planted.cjs: requires '@playwright/test', a devDependency only: electron-builder ships dependencies and never devDependencies, so the installed app would not find it",
+        'planted.cjs: require(name) is not a string literal, so what it loads cannot be checked',
+      ],
+      seen: ['@playwright/test', 'express', 'left-pad', 'vite'],
+    })
+    // On the real files: a dependency moved to devDependencies is named where it is required.
+    const moved = { ...pkg, dependencies: { ...pkg.dependencies }, devDependencies: { ...pkg.devDependencies, express: pkg.dependencies.express } }
+    delete moved.dependencies.express
+    expect(unshippedRequires(electronSources(), moved).problems).toEqual([
+      "main.cjs: requires 'express', a devDependency only: electron-builder ships dependencies and never devDependencies, so the installed app would not find it",
+    ])
   })
 })

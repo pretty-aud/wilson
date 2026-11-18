@@ -925,22 +925,77 @@ describe('wiring: the ffmpeg module obeys the two rules that cost a session', ()
   })
 })
 
-describe('wiring: packaging goes to the packager that actually ships', () => {
+/**
+ * F12 (the desktop-build review's B3): what would make a SECOND packager, named
+ * piece by piece. Electron Forge stood beside electron-builder until F12: its
+ * `npm run package` carried no ffmpeg and ignored /public, so a check made with
+ * it "verified" what the installer users receive did not hold, and its Squirrel
+ * guard ran at every launch of an app Squirrel never installed.
+ */
+function secondPackager(pkg, rootFiles, mainCode) {
+  const found = []
+  for (const name of rootFiles) if (/^forge\.config\./.test(name)) found.push(`the file ${name}`)
+  for (const [name, cmd] of Object.entries(pkg.scripts || {})) {
+    if (name.startsWith('_comment')) continue // package.json's own notes are words, not commands
+    if (/electron-forge/.test(cmd)) found.push(`the script "${name}" runs electron-forge`)
+    else if (/electron-builder/.test(cmd) && name !== 'package' && name !== 'dist') found.push(`the script "${name}" runs electron-builder, which only "package" and "dist" do`)
+  }
+  for (const name of Object.keys({ ...pkg.dependencies, ...pkg.devDependencies })) {
+    if (/electron-forge|squirrel/i.test(name)) found.push(`the package ${name}`)
+  }
+  if (/squirrel/i.test(mainCode)) found.push('main.cjs names Squirrel in its code')
+  return found
+}
+
+describe('wiring: packaging goes to the one packager, electron-builder (F12: Forge is out)', () => {
   const pkg = JSON.parse(readRepo('package.json'))
 
-  it('🚨 electron-BUILDER carries the binary — `npm run dist` is what users get', () => {
-    // forge.config.cjs drives `npm run package`/`make` and does NOT ship. Its
-    // packagerConfig.extraResource does nothing for the nsis installer, and the
-    // two packagers have OPPOSITE asar defaults — so implementing this in the
-    // wrong file "verifies" under forge while the shipped app has no binary.
-    expect(pkg.scripts.dist).toContain('electron-builder')
+  it('🚨 electron-BUILDER carries the binary — `npm run dist` is what users get, and `npm run package` is the same build unpacked', () => {
+    // Both scripts run electron-builder over the ONE `build` config, so what
+    // `npm run package` shows is what the installer holds. Before F12 `package`
+    // ran electron-forge, whose packagerConfig.extraResource did nothing for the
+    // nsis installer and whose asar default was the opposite one.
+    expect(pkg.scripts.dist).toBe('npm run build && electron-builder --win nsis')
+    expect(pkg.scripts.package).toBe('npm run build && electron-builder --dir')
     const extra = pkg.build?.extraResources || []
     expect(extra.some(e => e.from === 'resources/ffmpeg' && e.to === 'ffmpeg')).toBe(true)
   })
 
-  it('forge is NOT where this was put', () => {
-    const forge = executable(readRepo('forge.config.cjs'))
-    expect(forge).not.toMatch(/extraResource/)
+  it('there is no second packager: no Forge file, no Forge script or package, no Squirrel guard at launch', () => {
+    expect(secondPackager(pkg, readdirSync(REPO), executable(readRepo('electron', 'main.cjs')))).toEqual([])
+  })
+
+  it('CONTROL: each piece of Forge put back is named', () => {
+    const forgeBack = {
+      ...pkg,
+      scripts: {
+        ...pkg.scripts,
+        package: 'npm run build && electron-forge package',
+        make: 'npm run build && electron-forge make',
+        'dist:publish': 'npm run build && electron-builder --win nsis --publish always',
+      },
+      dependencies: { ...pkg.dependencies, 'electron-squirrel-startup': '^1.0.1' },
+      devDependencies: { ...pkg.devDependencies, '@electron-forge/cli': '^7.0.0', '@electron-forge/maker-squirrel': '^7.0.0' },
+    }
+    const guard = executable("// a comment may name Squirrel\nif (require('electron-squirrel-startup')) app.quit();\n")
+    expect(secondPackager(forgeBack, ['package.json', 'forge.config.cjs'], guard)).toEqual([
+      'the file forge.config.cjs',
+      'the script "package" runs electron-forge',
+      'the script "make" runs electron-forge',
+      'the script "dist:publish" runs electron-builder, which only "package" and "dist" do',
+      'the package electron-squirrel-startup',
+      'the package @electron-forge/cli',
+      'the package @electron-forge/maker-squirrel',
+      'main.cjs names Squirrel in its code',
+    ])
+    // …and a comment alone is not code.
+    expect(secondPackager(pkg, ['package.json'], executable('// Squirrel went with Forge\n'))).toEqual([])
+  })
+
+  it('both output folders stay ignored: release/ is electron-builder\'s, out/ was Forge\'s, and the repository is public', () => {
+    const ignored = readRepo('.gitignore').split(/\r?\n/).map(l => l.trim())
+    expect(ignored).toContain('release/')
+    expect(ignored).toContain('out/')
   })
 
   it('the staged folder exists and is committed, so the glob always resolves', () => {

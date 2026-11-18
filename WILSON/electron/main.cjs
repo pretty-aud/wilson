@@ -81,9 +81,6 @@ const rabbitTaskItems = require('./rabbitTaskItems.cjs');
 // <data folder>/rabbit-machine-settings.json.
 const rabbitTableViews = require('./rabbitTableViews.cjs');
 
-// Handle Squirrel.Windows startup events (install, update, uninstall)
-if (require('electron-squirrel-startup')) app.quit();
-
 // ── Single instance (Bundle B3; Audrey's decision 30: "only one copy at a
 // time") ────────────────────────────────────────────────────────────────────
 // Two copies shared one `userData` directory, so two Express servers wrote the
@@ -91,14 +88,12 @@ if (require('electron-squirrel-startup')) app.quit();
 // lock — the §6 accepted limit this closes. Nostalgia TV learned the same
 // lesson the hard way.
 //
-// ⚠️ Ordering vs the Squirrel guard, stated precisely (R2 corrected an earlier,
-// looser version of this comment): `if (require('electron-squirrel-startup'))
-// app.quit();` does NOT return, so an installer process still reaches this line
-// and still takes — or fails to take — the lock. Ordering only decides who
-// quits first. If a Squirrel process fails to take it, the running app gets a
-// `second-instance` event and raises its window mid-install: cosmetic, and
-// better than the installer racing the running app for the lock, which is why
-// the guard stays first.
+// F12 (2026-11-18): the lock is the first thing a launch decides now. Until
+// Electron Forge was removed a Squirrel guard (the electron-squirrel-startup
+// package) sat above this line. It acted only when Squirrel's own Update.exe
+// started the app with a `--squirrel-*` argument, and the installer that ships
+// is electron-builder's NSIS, which starts the app with `--updated` at most:
+// no launch of a shipped WILSON ever took that branch.
 //
 // `app.quit()` starts the shutdown but does NOT stop this module evaluating, so
 // the flag is read again at whenReady rather than trusted to have taken effect.
@@ -4736,7 +4731,7 @@ app.on('will-quit', () => {
 // unconditionally — it only ever fires in the process that HOLDS the lock.
 //
 // MEASURED: `setAsDefaultProtocolClient` appears nowhere in electron/, and
-// neither forge nor builder registers a URL scheme, so WILSON has no deep links
+// electron-builder's config registers no URL scheme, so WILSON has no deep links
 // today and there is nothing to forward. `commandLine` is the argument vector
 // of the second copy; when a scheme is added, this handler is where it lands.
 app.on('second-instance', () => {
