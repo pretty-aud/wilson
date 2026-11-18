@@ -178,6 +178,8 @@ const EDITORS = [
   { editor: 'Scenes: a row\'s name (a span, no tab stop)', mount: scenes, words: () => screen.getByText('Lighthouse, dawn', { selector: '.rb-scene-name-cell .rb-scene-inline' }), field: 'Name for Lighthouse, dawn' },
   { editor: 'Scenes: the window\'s name (the control: it did this before F10)', mount: scenes, before: () => openWindow('Lighthouse, dawn'),
     words: () => screen.getByText('Lighthouse, dawn', { selector: '.rb-scene-name-text' }), field: 'Scene name' },
+  { editor: 'Scenes: a shot\'s description in the scene window (a span inside the Dialog)', mount: scenes, before: () => openWindow('Lighthouse, dawn'),
+    words: () => screen.getByText('Add description…', { selector: '.rb-scene-shot-words .rb-scene-inline' }), field: 'Description for The door' },
 ]
 
 describe.each(EDITORS)('P1-06 — $editor: focus comes back to the words', ({ mount, before, words, field }) => {
@@ -193,6 +195,44 @@ describe.each(EDITORS)('P1-06 — $editor: focus comes back to the words', ({ mo
       expect(screen.queryByRole('textbox', { name: field }), key).toBeNull()
       expect(document.activeElement, key).toBe(words())
     }
+  })
+  // Review round 1 (1A-01, 1A-02 / 1B-01), measured in Chromium, where the
+  // close renders inside the key press and inside the focus change: Enter is
+  // marked handled (its keypress would click the words, focused back by then,
+  // and open the editor again), and a blur on its way to a control takes no
+  // focus back (it would cancel the move). jsdom shows neither by itself.
+  it('Enter is marked handled, and a blur on its way to another control commits and takes no focus back (the browser\'s order)', () => {
+    mount()
+    before?.()
+    fireEvent.click(words())
+    expect(fireEvent.keyDown(screen.getByRole('textbox', { name: field }), { key: 'Enter' }), 'Enter not marked handled').toBe(false)
+    fireEvent.click(words())
+    const box = screen.getByRole('textbox', { name: field })
+    fireEvent.change(box, { target: { value: `${box.value} III` } })
+    const elsewhere = document.createElement('button')
+    document.body.appendChild(elsewhere)
+    try {
+      fireEvent.blur(box, { relatedTarget: elsewhere })
+      expect(screen.queryByRole('textbox', { name: field })).toBeNull()
+      expect(document.activeElement).not.toBe(words())
+    } finally {
+      elsewhere.remove()
+    }
+  })
+})
+
+describe('P1-06 — inside a window, Tab goes on from the span words (the trap lists no span: review round 1, 1B-02)', () => {
+  it('after Escape on a shot\'s description in the scene window, Tab moves to a control after the words, in the window — not to its first', () => {
+    scenes()
+    openWindow('Lighthouse, dawn')
+    const words = () => screen.getByText('Add description…', { selector: '.rb-scene-shot-words .rb-scene-inline' })
+    fireEvent.click(words())
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Description for The door' }), { key: 'Escape' })
+    expect(document.activeElement).toBe(words())
+    fireEvent.keyDown(document, { key: 'Tab' })
+    const now = document.activeElement
+    expect(screen.getByRole('dialog').contains(now)).toBe(true)
+    expect(words().compareDocumentPosition(now) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })
 
@@ -291,12 +331,12 @@ describe('each view\'s delete question asks as its copy did', () => {
       [assets, 'Select Mara', 'Delete assets'],
       [tasks, 'Select "Glass and rain rig test"', 'Delete 1 task?'],
     ]) {
-      const { container } = { container: document.body }
       mount()
       fireEvent.click(screen.getByRole('button', { name: tick }))
       fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
       const q = question(title)
-      expect(backdropOf(q).parentElement, title).not.toBe(container)
+      // In place: not a child of <body>, where a portalled question would be.
+      expect(backdropOf(q).parentElement, title).not.toBe(document.body)
       expect(document.activeElement, title).toBe(within(q).getByRole('button', { name: 'Cancel' }))
       fireEvent.mouseDown(backdropOf(q))
       expect(question(title), title).toBe(q)

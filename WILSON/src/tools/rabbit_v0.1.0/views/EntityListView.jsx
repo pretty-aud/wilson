@@ -65,7 +65,7 @@ import {
 import {
   Toolbar, Button, IconButton, Tabs, Table, Th, Td, Row, Dialog, Field,
   Card, HoverActions, RowTitle, EmptyState, StatusDot, StatusBadge, StatusBanner, CellSelect, statusMeta,
-  Banner, Loading, MenuButton,
+  Loading, MenuButton,
   // Post-overhaul F10 (rabbit A6): the kit's own editors, bulk picker,
   // question and label; this file's names below are its look on them.
   useInlineText, BulkSelect as KitBulkSelect, Confirm, FieldLabel as KitFieldLabel,
@@ -745,7 +745,7 @@ function EntityTable({ entity, items, columns = DEFAULT_COLUMNS, assetCountById,
         <Confirm
           title={`Delete ${entity.nouns}`}
           onCancel={() => setConfirmBulkDelete(false)}
-          onConfirm={confirmedBulkDelete}
+          onConfirm={() => { confirmedBulkDelete() }}
         >
           <p className="rb-ent-confirm">
             {`Delete ${selected.size} ${entity.noun}${selected.size === 1 ? '' : 's'}?`}
@@ -1002,10 +1002,13 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
   // delete asked from here, the thumbnail's two writers. D21's question
   // (`asks`) is OFF here: this window's suite pins today's (the typed text
   // goes without a word), and whether it should ask is Audrey's to say
-  // (OUTSTANDING F10-02).
+  // (OUTSTANDING F10-02). Its wiring is in place all the same (the close,
+  // the boxes' Escape, the task form, the questions drawn: review round 1,
+  // 1E-01), so a yes is the one word below.
   const {
     editingDesc, setEditingDesc, editingNotes, setEditingNotes, descDraft, setDescDraft, notesDraft, setNotesDraft,
     descWordsRef, notesWordsRef, nestedTaskId, setNestedTaskId, nestedAssetId, setNestedAssetId,
+    setTaskDirty, requestClose, escapeDraft, questions,
     handleUpdate, handleSetThumbnail, handleClearThumbnail, requestDelete,
   } = useEntityWindow({
     row: item || null, kind: entity.type, update: (patch) => ctx?.[entity.updateMethod]?.(item.id, patch), canWrite, onClose, onRequestDelete,
@@ -1053,6 +1056,7 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
           band={<StatusBanner status={status} />}
           dismissOnBackdrop
           onClose={onClose}
+          onBeforeClose={requestClose}
           footer={(
             <>
               {/* At the footer's left, where it was; Close at its right. The
@@ -1064,7 +1068,7 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
                   {`Delete ${entity.noun}`}
                 </Button>
               </GatedAction>
-              <Button onClick={onClose}>
+              <Button onClick={() => { if (requestClose()) onClose() }}>
                 Close
               </Button>
             </>
@@ -1089,6 +1093,7 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
                   project={project}
                   onConfirm={handleCreateTask}
                   onClose={() => setShowCreateTask(false)}
+                  onDirtyChange={setTaskDirty}
                 />
               </div>
             )}
@@ -1220,7 +1225,7 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
                 {editingDesc ? (
                   <>
                     <textarea value={descDraft} onChange={e => setDescDraft(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); setDescDraft(item.description || ''); setEditingDesc(false) } }}
+                      onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); escapeDraft('description') } }}
                       aria-label="Description"
                       className="ui-input rb-ent-textarea"
                       data-field="description"
@@ -1258,7 +1263,7 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
                 {editingNotes ? (
                   <>
                     <textarea value={notesDraft} onChange={e => setNotesDraft(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); setNotesDraft(item.notes || ''); setEditingNotes(false) } }}
+                      onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); escapeDraft('notes') } }}
                       aria-label="Notes"
                       className="ui-input rb-ent-textarea"
                       data-field="notes"
@@ -1321,6 +1326,9 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
         <TaskDetailPopup taskId={nestedTaskId} ctx={ctx} onClose={() => setNestedTaskId(null)} />,
         document.body,
       )}
+      {/* D21's two questions (the hook's), drawn whether or not this window
+          asks: none opens while it does not. */}
+      {questions}
     </>
   )
 }

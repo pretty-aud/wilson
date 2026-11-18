@@ -17,7 +17,12 @@
 //    row's window: the leave guard, S3b-08) asks. ON for scenes and shots.
 //    OFF for levels and experiences: their suite pins today's behaviour (the
 //    text goes without a word), and whether they should ask is Audrey's to
-//    say (asked in F10's chat; OUTSTANDING F10-02);
+//    say (asked in F10's chat; OUTSTANDING F10-02). 🚨 A window wires all of
+//    it whichever it is — `requestClose` on its Dialog and Close, `questions`
+//    drawn, `escapeDraft` on its boxes' Escape, `setTaskDirty` on its task
+//    form — so turning it on is the one word: a leave guard that asks with no
+//    question drawn holds every exit until the window goes (review round 1,
+//    1E-01);
 //  · the opener (what opened the window, captured in render, as the kit
 //    Dialog captures it) handed to a delete asked from the window;
 //  · the thumbnail's two writers (entityThumbnail.js, the desktop channels);
@@ -109,6 +114,11 @@ export function useEntityWindow({ row, kind, update, canWrite, onClose, onReques
     if (what === 'description') { setDescDraft(row?.description || ''); setEditingDesc(false) }
     else { setNotesDraft(row?.notes || ''); setEditingNotes(false) }
   }
+  /** Escape in the description's or the notes' box (D21): asks first where the window asks and the box is changed; else the draft goes, as Cancel. */
+  const escapeDraft = (what) => {
+    if (asks && dirty[what]) setAskDiscard(what)
+    else discard(what)
+  }
 
   function handleUpdate(patch) { return canWrite ? update(patch) : undefined }
   function handleSetThumbnail() {
@@ -149,7 +159,7 @@ export function useEntityWindow({ row, kind, update, canWrite, onClose, onReques
     editingDesc, setEditingDesc, editingNotes, setEditingNotes,
     descDraft, setDescDraft, notesDraft, setNotesDraft, descWordsRef, notesWordsRef,
     nestedTaskId, setNestedTaskId, nestedAssetId, setNestedAssetId,
-    setTaskDirty, setAskDiscard, dirty, requestClose,
+    setTaskDirty, setAskDiscard, dirty, requestClose, escapeDraft,
     handleUpdate, handleSetThumbnail, handleClearThumbnail, requestDelete,
     openerRef, questions,
   }

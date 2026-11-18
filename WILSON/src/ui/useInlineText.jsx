@@ -8,15 +8,23 @@
 //
 // THE BEHAVIOUR, the same for every caller:
 //  · A click on the words opens the field on the saved words and focuses it.
-//  · Enter and blur commit the TRIMMED draft, once per edit, and only when it
-//    differs from the saved words (a blur after Enter does not write again).
+//  · Enter and blur commit the TRIMMED draft, once per edit, and only when
+//    something was typed and the trimmed words differ from the saved ones (a
+//    blur after Enter does not write again; words saved with an outer space,
+//    opened and left, write nothing: review round 1, 1A-05).
+//  · Enter is marked handled: the words take focus back inside the same key
+//    press, and in Chromium the press's keypress would then land on them — a
+//    button, whose Enter is a click — and open the editor again (1A-01,
+//    measured in Chromium; jsdom sends no keypress).
 //  · Escape reverts and closes. It stops the key and marks it handled, as the
 //    kit Input's Escape does (useEscapeRevert): a kit Dialog around the field
 //    stays open on the first press (W2). The key is then handed to
 //    `onKeyDown`, so a caller keeps whatever else Escape meant there.
-//  · When the edit closes and focus has fallen to <body> — always after Enter
-//    and Escape, after a blur only then — focus goes back to the words
-//    (useFocusBack; P1-06). A Tab or a click elsewhere keeps where it went.
+//  · When the edit closes and focus has nowhere to go — after Enter and
+//    Escape, and after a blur that takes it nowhere (the window loses focus,
+//    a click on nothing) — focus goes back to the words (useFocusBack;
+//    P1-06). A blur on its way to a control (a Tab, a click into another
+//    field) lets it go there (1A-02 / 1B-01, measured in Chromium).
 //  · The draft follows the saved words while the field is closed, or open and
 //    untouched (useSavedDraft, D21's R1-06): a teammate's change shows in a
 //    field nobody has typed in; a typed draft stays.
@@ -72,20 +80,28 @@ export function useSavedDraft(saved, editing) {
  * its edit closes (review round two, R2-05; P1-06): the field that had focus
  * goes with the edit, and focus fell to <body>, so the next Tab started again
  * from the page's (or the Dialog's) first control. Only when focus HAS fallen
- * there — always after Escape, Enter, Save or Cancel, whose control is the one
- * that went; after a blur only then, so a Tab or a click elsewhere keeps
- * where it went. Returns the ref for the words.
+ * there — after Escape, Enter, Save or Cancel, whose control is the one that
+ * went, and after a blur that takes it nowhere.
+ *
+ * 🚨 `leaving`: an editor that closes on a blur sets it when the blur is on
+ * its way to a control (its `relatedTarget`). React renders a blur's close,
+ * and runs this effect, INSIDE the browser's focus change: `activeElement` is
+ * <body> and the control is not focused yet, and a `focus()` here makes
+ * Chromium drop the move — the Tab or the click lands on the words (F10 review
+ * round 1, 1A-02 / 1B-01, measured in Chromium; jsdom moves focus before the
+ * effect and cannot show it). Returns the ref for the words.
  */
-export function useFocusBack(editing) {
+export function useFocusBack(editing, leaving = null) {
   const wordsRef = useRef(null)
   const wasEditing = useRef(editing)
   useEffect(() => {
     const closed = wasEditing.current && !editing
     wasEditing.current = editing
     if (!closed) return
+    if (leaving?.current) { leaving.current = false; return }
     const active = document.activeElement
     if (!active || active === document.body) wordsRef.current?.focus()
-  }, [editing])
+  }, [editing, leaving])
   return wordsRef
 }
 
@@ -111,7 +127,9 @@ export function useInlineText({
   const saved = value ?? ''
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useSavedDraft(saved, editing)
-  const wordsRef = useFocusBack(editing)
+  // Set by a blur that closes the edit on its way to a control (useFocusBack).
+  const leavingRef = useRef(false)
+  const wordsRef = useFocusBack(editing, leavingRef)
   const inputRef = useRef(null)
   // One commit per edit: Enter commits and closes, and the blur that may
   // follow as the field goes must not write again.
@@ -119,6 +137,7 @@ export function useInlineText({
   useEffect(() => {
     if (!editing) return
     doneRef.current = false
+    leavingRef.current = false
     inputRef.current?.focus()
   }, [editing])
 
@@ -138,7 +157,7 @@ export function useInlineText({
     if (doneRef.current) return
     doneRef.current = true
     const next = draft.trim()
-    if (next !== saved) onCommit?.(next)
+    if (draft !== saved && next !== saved) onCommit?.(next)
     setEditing(false)
   }
   function revert() {
@@ -153,9 +172,12 @@ export function useInlineText({
       type: 'text',
       value: draft,
       onChange: e => setDraft(e.target.value),
-      onBlur: commit,
+      onBlur: e => {
+        if (!doneRef.current && e.relatedTarget) leavingRef.current = true
+        commit()
+      },
       onKeyDown: e => {
-        if (e.key === 'Enter') commit()
+        if (e.key === 'Enter') { e.preventDefault(); commit() }
         else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); revert() }
         onKeyDown?.(e)
       },

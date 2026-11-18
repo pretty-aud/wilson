@@ -48,7 +48,7 @@ function harness({ bundle = {}, adapter = {}, taskItemsOn = false } = {}) {
     const fns = makeEntityMutators(spec, env)
     registry[spec.names.add] = vi.fn(fns.add)
     registry[spec.names.update] = vi.fn(fns.update)
-    registry[spec.names.remove] = vi.fn(fns.remove)
+    if (fns.remove) registry[spec.names.remove] = vi.fn(fns.remove)
   }
   registry.deleteScene = vi.fn(makeDeleteScene(env))
   registry.replaceShotTakes = vi.fn(async () => {})
@@ -102,13 +102,20 @@ describe.each(KINDS)('$kind: the writers through the adapter, the undo and the f
     expect(h.state.current[col]).toEqual([{ id: 'x1', name: 'Old' }])
     expect(h.history).toHaveLength(0)
   })
+})
+
+// deleteScene is by hand: its own cases below (review round 1: this case
+// returned at once for a scene and counted as a pass).
+describe.each(KINDS.filter(s => !s.deleteByHand))('$kind: the factory\'s delete', (spec) => {
+  const { kind, collection: col, names, remove } = spec
   it('delete: one adapter delete with the project, no folder call (the database\'s key and rescue do that), the task items and groupings swept; refused: nothing changes', async () => {
-    if (kind === 'scene') return // deleteScene is by hand: its own test below
     const items = [{ id: 'i1', entity_type: kind, entity_id: 'x1' }, { id: 'i2', entity_type: kind, entity_id: 'x2' }]
     const h = harness({ bundle: { [col]: [{ id: 'x1' }, { id: 'x2' }], taskItems: items } })
     await h.registry[names.remove]('x1')
     expect(h.calls.filter(c => c[0] === remove)).toEqual([[remove, 'x1', 'p1']])
     expect(h.calls.filter(c => /older|Folder/i.test(c[0]))).toEqual([])
+    // The folder helper is the provider's, not the adapter's (review round 1, 1D-01).
+    expect(h.env.ensureEntityFolderFor).not.toHaveBeenCalled()
     expect(h.state.current[col]).toEqual([{ id: 'x2' }])
     expect(h.state.current.taskItems.map(i => i.id)).toEqual(['i2'])
     const refused = harness({ bundle: { [col]: [{ id: 'x1' }] }, adapter: { [remove]: async () => { throw new Error('refused') } } })
@@ -168,7 +175,82 @@ describe('the differences between the kinds, kept', () => {
     expect(h.state.current.shots.map(s => s.id)).toEqual(['sh3'])
     expect(h.state.current.shotListItems.map(i => i.id)).toEqual(['m3'])
     expect(h.state.current.tasks).toEqual([{ id: 't1', scene_id: null }, { id: 't2', shot_id: null }])
+    expect(h.env.ensureEntityFolderFor).not.toHaveBeenCalled()
     expect(h.history[0].entry.undoOps).toHaveLength(4)
+  })
+
+  // ── Review round 1 (1D-02, 1D-03): the paths no case ran ──
+  it('a scene\'s spec makes no delete: deleteScene is by hand, and the generic one would leave its shots on screen and bring none back', () => {
+    const { env } = harness()
+    for (const spec of KINDS) {
+      expect(Object.keys(makeEntityMutators(spec, env)), spec.kind).toEqual(spec.kind === 'scene' ? ['add', 'update'] : ['add', 'update', 'remove'])
+    }
+  })
+  it('a scene or a shot whose list placement fails is taken back out (D10): the adapter delete with the project, out of state, the error thrown, no history', async () => {
+    for (const spec of KINDS.filter(s => s.list)) {
+      const h = harness()
+      h.env.addNewEntityToList.mockRejectedValueOnce(new Error('That list is archived.'))
+      await expect(h.registry[spec.names.add]({ name: 'Orphan' }, {}), spec.kind).rejects.toThrow('That list is archived.')
+      expect(h.calls.filter(c => c[0] === spec.remove), spec.kind).toEqual([[spec.remove, 'new-id', 'p1']])
+      expect(h.state.current[spec.collection], spec.kind).toEqual([])
+      expect(h.history, spec.kind).toHaveLength(0)
+    }
+  })
+  it('an add answered after a project switch (R2-07): the row comes back, and nothing is drawn, filed, placed or put on the undo here', async () => {
+    for (const spec of KINDS) {
+      let h = null
+      h = harness({ adapter: { [spec.upsert]: async (row) => { h.env.projectVisitRef.current = 8; return row } } })
+      const row = await h.registry[spec.names.add]({ name: 'Late' }, {})
+      expect(row.id, spec.kind).toBe('new-id')
+      expect(h.state.current[spec.collection], spec.kind).toEqual([])
+      expect(h.env.ensureEntityFolderFor, spec.kind).not.toHaveBeenCalled()
+      expect(h.env.addNewEntityToList, spec.kind).not.toHaveBeenCalled()
+      expect(h.history, spec.kind).toHaveLength(0)
+    }
+  })
+  it('an undo\'s add puts back a scene\'s or a shot\'s memberships and task items, and its task links by its own field only where the backend keeps no items', async () => {
+    for (const spec of KINDS.filter(s => s.list)) {
+      for (const on of [false, true]) {
+        const h = harness({ taskItemsOn: on })
+        await h.registry[spec.names.add]({ id: 'r1', name: 'Back' }, { restoreItems: [{ id: 'm1' }], restoreTaskLinks: ['t1'], restoreTaskItems: [{ id: 'i1' }] })
+        const what = `${spec.kind}, items kept: ${on}`
+        expect(h.env.restoreMemberships, what).toHaveBeenCalledWith([{ id: 'm1' }])
+        expect(h.env.restoreItemRows, what).toHaveBeenCalledWith([{ id: 'i1' }])
+        expect(h.env.restoreTaskLinks.mock.calls, what).toEqual(on ? [] : [[spec.list.field, 'r1', ['t1']]])
+        expect(h.env.addNewEntityToList, what).not.toHaveBeenCalled()
+      }
+    }
+  })
+  it('deleteScene refused: the scene, its shots, their memberships and links are put back, and nothing to undo', async () => {
+    const bundle = { scenes: [{ id: 'sc1' }], shots: [{ id: 'sh1', scene_id: 'sc1' }], shotListItems: [{ id: 'm1', scene_id: 'sc1' }], tasks: [{ id: 't1', scene_id: 'sc1' }] }
+    const h = harness({ bundle, adapter: { deleteScene: async () => { throw new Error('refused') } } })
+    await expect(h.registry.deleteScene('sc1')).rejects.toThrow('refused')
+    expect([h.state.current.scenes, h.state.current.shots, h.state.current.shotListItems, h.state.current.tasks])
+      .toEqual([bundle.scenes, bundle.shots, bundle.shotListItems, bundle.tasks])
+    expect(h.history).toHaveLength(0)
+  })
+  it('deleteScene\'s undo, part by part: the scene with its memberships, links and items, then each shot with its own, then the groupings; its redo deletes the scene again', async () => {
+    const h = harness({
+      bundle: {
+        scenes: [{ id: 'sc1' }], shots: [{ id: 'sh1', scene_id: 'sc1' }, { id: 'sh2', scene_id: 'sc1' }],
+        shotListItems: [{ id: 'm1', scene_id: 'sc1' }, { id: 'm2', shot_id: 'sh1' }],
+        tasks: [{ id: 't1', scene_id: 'sc1' }, { id: 't2', shot_id: 'sh2' }],
+        taskItems: [{ id: 'i1', entity_type: 'scene', entity_id: 'sc1' }, { id: 'i2', entity_type: 'shot', entity_id: 'sh2' }],
+      },
+    })
+    await h.registry.deleteScene('sc1')
+    const { undoOps, redoOps } = h.history[0].entry
+    for (const op of undoOps) await op()
+    expect(h.registry.addScene.mock.calls).toEqual([[{ id: 'sc1' }, {
+      restoreItems: [{ id: 'm1', scene_id: 'sc1' }], restoreTaskLinks: ['t1'], restoreTaskItems: [{ id: 'i1', entity_type: 'scene', entity_id: 'sc1' }],
+    }]])
+    expect(h.registry.addShot.mock.calls).toEqual([
+      [{ id: 'sh1', scene_id: 'sc1' }, { restoreItems: [{ id: 'm2', shot_id: 'sh1' }], restoreTaskLinks: [], restoreTaskItems: [] }],
+      [{ id: 'sh2', scene_id: 'sc1' }, { restoreItems: [], restoreTaskLinks: ['t2'], restoreTaskItems: [{ id: 'i2', entity_type: 'shot', entity_id: 'sh2' }] }],
+    ])
+    expect(h.env.restoreGroupingsAfterDelete).toHaveBeenCalledTimes(1)
+    await redoOps[0]()
+    expect(h.registry.deleteScene).toHaveBeenLastCalledWith('sc1')
   })
 })
 
@@ -184,8 +266,8 @@ describe('the names the writers call are registered in the provider', () => {
     expect([...wanted].filter(n => !registered.has(n))).toEqual([])
     expect(wanted.size).toBeGreaterThanOrEqual(13)
   })
-  it('CONTROL: a misspelt name is caught', () => {
-    expect(registered.has('addScen')).toBe(false)
-    expect(registered.has('addScene')).toBe(true)
+  it('CONTROL: the same check, over the same names and one misspelt, finds that one (review round 1, 1D-04)', () => {
+    const wanted = new Set([...KINDS.flatMap(s => Object.values(s.names)), 'addScen'])
+    expect([...wanted].filter(n => !registered.has(n))).toEqual(['addScen'])
   })
 })

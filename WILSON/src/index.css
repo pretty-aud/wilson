@@ -1034,14 +1034,15 @@ select option {
   .ui-td:has(> .ui-cell-select) { padding-top: 4px; padding-bottom: 3px; }
   .ui-table[data-dense="true"] .ui-td:has(> .ui-cell-select) { padding-top: 2px; padding-bottom: 1px; }
 
-  /* ── InlineText: words that become a field (post-overhaul F10, rabbit A6) ─
+  /* ── useInlineText: words that become a field (post-overhaul F10, rabbit A6) ─
      The kit's own look, for a caller that brings none: the words as a cell's
      text in the one ink, the hover fill, an empty one's placeholder in the
      third ink — and the second while hovered or focused, CellSelect's measured
      rule (the third on the fill is under 4.5:1) — and words nobody may change
      plain, no fill and no text cursor. R.A.B.B.I.T.'s eight editors each bring
-     their own class, which REPLACES this one (InlineText.jsx says why: their
-     cursors, hovers and edges differ). The field is the kit's small well. */
+     their own elements and classes (useInlineText.jsx says why: their cursors,
+     hovers and edges differ), so no caller in the app draws this look yet
+     (OUTSTANDING F10). The field is the kit's small well. */
   .ui-inline-text {
     display: block;
     min-width: 0;

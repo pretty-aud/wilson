@@ -1335,7 +1335,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
-| F10 (2026-11-18, wave 4 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f10-rabbit-twins` into `feat/post-overhaul-edit-versioning`) — R.A.B.B.I.T.'s twins: the kit's inline edit (`useInlineText`), bulk select and confirm in place of twenty copies, one `useTableScreen` for the four table views, one factory for the twelve entity writers, one thumbnail pair and one window behaviour for scenes, shots, levels and experiences. P1-06 closed for the eight inline editors (what is left: F10-01). | F10-01 to F10-13 (the end of this file). | P1-06's eight editors (the entry keeps what is left, F10-01). |
+| F10 (2026-11-18, wave 4 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f10-rabbit-twins` into `feat/post-overhaul-edit-versioning`) — R.A.B.B.I.T.'s twins: the kit's inline edit (`useInlineText`), bulk select and confirm in place of twenty copies, one `useTableScreen` for the four table views, one factory for the twelve entity writers, one thumbnail pair and one window behaviour for scenes, shots, levels and experiences. P1-06 closed for the eight inline editors (what is left: F10-01). Review round 1 found and fixed three regressions of its own in a browser (the editor's focus and Enter, the Dialog's Tab from a span). | F10-01 to F10-21 (the end of this file). | P1-06's eight editors (the entry keeps what is left, F10-01). |
 | F6 (2026-11-18, wave 3 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f6-dog-otter-one-copy` into `feat/post-overhaul-edit-versioning`) — D.O.G. and O.T.T.E.R. without their copies: the Validator on O.T.T.E.R.'s one AI wrapper, one response reader at 82 reads, one slide splitter and asset-line reader, one rewrite request, one pipeline for five generators, and the prompt boxes made to work at her answer; measured before and after; two review rounds and a one-agent check of the last item, whose findings in F6's own work were fixed in the session; no migration, no SQL, no Edge Function | F6-01 to F6-37 | REV-03 and REV-04, fixed. Comment markers: 4 → 4. |
 | F5 (2026-11-17 and 18, wave 3 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f5-one-roster-one-load` into `feat/post-overhaul-edit-versioning`) — one roster, one rate card, one project load: the roster and the rate card as module-level stores (`src/lib/readCache.js`), the project loaded once after its channel joins with the comments of its own rows, the project roster read once, every collection paged in one place, a New shot's folder tree read once and a drop's shared lookups once, one auth snapshot (`src/cloud/auth/authSnapshot.js`) and the company from the token's claim everywhere; measured before and after by counting tests; two review rounds on Opus 5.5, whose security defects (a private project's drop sent to the cloud after one failed privacy probe; a sign-out not superseding an open's load; the privacy probe failing open) and what F5 had made worse were fixed in the session; no migration, no SQL, no Edge Function | F5-01 to F5-12 | none. Comment markers: 4 → 4. |
 | F8 (2026-11-13, wave 2 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f8-edge-shared-plumbing`) — the Edge Functions' shared plumbing: one envelope crypto, one bucket loader, the caller checks once, one raw-HTTP transport and host rule, every body read under a measured cap (413 past it), the master keys and the opened ticket key kept per isolate, one SigV4 key per batch; deployed to wilson-dev; two review rounds. | F8-01 to F8-19 (below, the F8 section). | F1-01's 28 known type errors to 1 (F1-01, lowered). F8-01 and F8-02, closed by F8 as the second merger (`8a0bdb4f`); F8-03 tried there and taken back (`6515a9d2`), open on purpose. |
@@ -1557,7 +1557,7 @@ defines them; a row's "owner" is who acts first.
 - **P1-02 · Space opens O.T.T.E.R.'s Search from any focused control** that is not a field, and can stack Search over an open Dialog or Drawer (`Otter.jsx` global shortcuts). MEASURED. From A4-2. S2a (2026-09-30): the same on the Help and Settings buttons S2a added to O.T.T.E.R.'s strip; Enter presses them (MEASURED, S2a review round 1).
 - **P1-04 · D.O.G.'s document keys act behind its overlays** (Alt toggles Full deck; ←/→ switch the page). MEASURED. Needs a C1 ruling. From A4-4. S2a (2026-09-30) narrowed D.O.G.'s Enter only (`enterGenerates.js`: never on another page, never over a drawer, dialog or kit overlay). Alt, ←/→ and Ctrl+Z/Y also have no page check (`DeckOutlineGenerator.jsx` ~3206–3290), and D.O.G. stays mounted, so they act from every page: Ctrl+Z on O.T.T.E.R.'s page, outside a field, undoes D.O.G.'s last text edit unseen. INFERRED from the code; would settle it: a text edit in D.O.G., then Ctrl+Z on another page, then back. S2a gave D.O.G. its `currentPage`, so each handler can gate on it in one line. **FX13 (2026-10-26):** Audrey ruled on Alt from any page, *"Keep it as it is"* (DG1b-01 closed). Alt behind an overlay was not put to her and stands here, MEASURED again by FX13's review round 2 (the settings drawer open, one Alt release flipped the switch; the Help window open, it flipped back), as do ←/→ and Ctrl+Z/Y.
 - **P1-05 · A dialog opened from a kit Menu returns focus to `<body>`** on close (A4 fixed its own two callers). MEASURED. Owner: the kit. From A4-11.
-- **P1-06 · Focus falls to `<body>` after an inline edit commits or reverts** (`EntityListView`, `ProjectTasksView`, `ScenesView` InlineText). MEASURED. From B4c-10, B5b-32. **Post-overhaul F10 (2026-11-18): CLOSED for all eight inline editors** (the Levels/Experiences, Assets and Tasks cells, the Assets card and window title, the task window's title, the Scenes cells, the Scenes window's name): after Enter or Escape focus is back on the words (the kit's `useInlineText`; `views/kitInViews.test.jsx`, red on the views before F10 in seven of eight). The Scenes cells' words stay a span with no tab stop (C1), focusable by script only. What is left: F10-01.
+- **P1-06 · Focus falls to `<body>` after an inline edit commits or reverts** (`EntityListView`, `ProjectTasksView`, `ScenesView` InlineText). MEASURED. From B4c-10, B5b-32. **Post-overhaul F10 (2026-11-18): CLOSED for all eight inline editors** (the Levels/Experiences, Assets and Tasks cells, the Assets card and window title, the task window's title, the Scenes cells, the Scenes window's name): after Enter or Escape focus is back on the words (the kit's `useInlineText`; `views/kitInViews.test.jsx`, red on the views before F10 in seven of eight). The Scenes cells' words stay a span with no tab stop (C1), focusable by script only. F10's review round 1 measured the first cut in Chromium: it took focus back from a Tab or a click into another field and reopened the editor on Enter (jsdom showed neither); fixed before the merge and measured again in Chromium (F10's hand-off, F10's OUTSTANDING section). What is left: F10-01, F10-14, F10-17.
 - **P1-07 · Budget's period popover does not return focus to its cell** when it closes itself. MEASURED. From B5b-8.
 - **P1-08 · Saved-views rows are divs: mouse only** (`ExpenseSavedViewsDropdown`, `TeamSavedViewsDropdown`; the five tables' menus replaced by VW1d and VW1e). MEASURED. From B5b-9, B5b-22. **Wider (VW1's research, 2026-10-13, MEASURED with `scripts/vw1-shots.mjs`):** all six saved-views menus have it — Tasks, Assets, Scenes, Levels and Experiences (each saved row a `div` with no role and no tab stop; only its delete ✕ is a button) and Team (from the code); Escape closes none of the five measured. VW1 replaces the five tables' menus with the new Views dropdown (its build sessions, `docs/design/CUSTOM_VIEWS_DESIGN.md` §4.9); Expenses and Team keep theirs (Audrey, VW1's Q19). *(2026-10-25, VW1d: the Tasks table's menu is gone, replaced by the Views dropdown, a grid with one Tab stop, the arrows between its rows and Escape closing it, tested in `views/tableViews/tasksViews.test.jsx`; Assets', Scenes', Levels' and Experiences' menus follow with VW1e; Expenses' and Team's stay.)* *(2026-10-25, VW1e: the Assets, Levels, Experiences, Scenes and Shots menus are gone too, replaced by the same dropdown (`views/tableViews/assetsViews.test.jsx`, `entityViews.test.jsx`, `scenesViews.test.jsx`). Left: Budget's Expenses (`ExpenseSavedViewsDropdown`) and Team (`TeamSavedViewsDropdown`), kept by her Q19.)*
 - **P1-09 · Escape discards unsaved drafts** in ~~the Scenes popups,~~ `ExpensePopup` and the Timeline's Settings (the kit Dialog's `onBeforeClose` could ask). MEASURED. Owner: Audrey, then a session. From B5b-28, B3d. **The Scenes popups' part FIXED by post-overhaul S3b** (2026-10-01, `po/s3b-shot-lists-ui`, D21): closing a scene or shot popup (✕, Close, Escape, the backdrop) with a changed description or notes, or Escape in a changed box, asks "Discard your changes?" first, Cancel focused. Left there: S3b-04 and S3b-05 below.
@@ -5721,9 +5721,12 @@ Terminal's change requests (MEASURED by grep, comments stripped; `otterRoutes.te
 R.A.B.B.I.T.'s twins (rabbit A1, A3, A6, A7). What F10 built is in its hand-off
 (`docs/sessions/handoffs/po-f10-2026-11-18.md`); what it measured and left is here.
 
-- **F10-01 · What is left of P1-06.** MEASURED (views/kitInViews.test.jsx): after an inline edit commits or reverts,
-  focus is back on the words in all eight editors. Left: a commit that takes the row out of its table (a rename under
-  a filter or a sort, a status that leaves its group) unmounts the words, and focus still falls to `<body>`.
+- **F10-01 · What is left of P1-06.** MEASURED (views/kitInViews.test.jsx; and in Chromium on a probe page built from
+  the kit's real hook and Dialog, review round 1): after an inline edit commits or reverts, focus is back on the words
+  in all eight editors, and a Tab or a click into another control keeps where it went. Left: a commit that takes the
+  row out of its table (a rename under a filter, a status that leaves its group) unmounts the words, and focus still
+  falls to `<body>`; where the row only moves (a rename under a sort), focus follows it and `focus()` scrolls it into
+  view (reasoned, not measured).
 - **F10-02 · Levels and Experiences do not ask before dropping typed text** (Escape in a changed Description or Notes,
   the window closed with a half-filled new task, an exit through the tab strip). Scenes and Shots ask (D21). Pinned as
   today's by `rabbitEntityViewsRender.test.jsx` (the W2 and Escape-in-the-task-form cases). Asked in F10's chat, her
@@ -5757,3 +5760,41 @@ R.A.B.B.I.T.'s twins (rabbit A1, A3, A6, A7). What F10 built is in its hand-off
   popups share one behaviour since F10 — `views/entity/` — and write their own JSX), one table (`SceneTable`'s nested
   shot rows and `ShotTable`'s rows draw the same shot cells twice) and one card frame (`SceneGallery`, `ShotGallery`,
   `EntityGallery`). The design round's plan and the source pins that move with them are in F10's hand-off.
+
+**Review round 1** (five agents on Fable, 2026-11-18) found three regressions of F10's own in the kit's inline editor,
+none visible to jsdom, each measured by two reviewers in Chromium: Enter reopened the editor at once (its keypress
+reached the words, focused back inside the same key press: 1A-01), a Tab or a click into another field had focus taken
+back to the words and the typing lost (the close renders inside the browser's focus change: 1A-02, 1B-01), and Tab
+from the scene window's span words went to the window's first control (1B-02). All three were fixed before the merge,
+each with a test that is red on the first cut, and measured again in Chromium (F10's hand-off). Also fixed: a write
+with no typing on words saved with an outer space (1A-05, 1B-03), the Levels window's question wiring (1E-01: with its
+`asks` on, a leave guard would have asked with no question drawn and held every exit), a delete the factory made for
+scenes (1D-02), the props order in Confirm and BulkSelect (1A-09), the three bulk questions' bare handlers (1B-06),
+unused imports (1C-04, 1E-03) and the tests' controls and gaps (1A-07, 1B-07, 1C-01 to 1C-03, 1D-01, 1D-03, 1D-04,
+1E-02, 1E-06). Recorded, not changed:
+
+- **F10-14 · The Scenes tables' span words hold focus, with the ring, after Enter or Escape, and no key operates
+  them** (Enter and Space do nothing there; the only way back into the editor is a pointer). No tab stop is added (C1
+  holds, measured). Before F10 focus fell to `<body>` and no ring was drawn. Review round 1, 1A-04. LOW.
+- **F10-15 · The kit Confirm stays busy when the promise `onConfirm` answers resolves**: the caller closes it (as every
+  ListConfirm caller does, and as ListConfirm was); one that resolves without closing leaves a question nobody can
+  dismiss. Now said in Confirm's header; not changed (the old contract, kept step for step). Review round 1, 1A-06. LOW.
+- **F10-16 · The kit's own look for the inline editor (`.ui-inline-text`) has no caller in the app**: every editor
+  hands its own elements. Its first caller gets a look nobody has seen on screen. Review round 1, 1A-08. LOW.
+- **F10-17 · After an edit closes by Enter, Escape or a click on nothing, the words keep focus**: the app's focus ring
+  on them after a key, and each row's `:focus-within` rules (the tick box of a Tasks, Assets or Levels row, a nested
+  Scenes row's actions) stay shown until focus moves. Before F10 focus fell to `<body>` and they went. The ring on the
+  Scenes span, whose cell clips overflow, wants a look in the running app. Review round 1, 1B-04. LOW, on screen.
+- **F10-18 · The stale-grouping clean-up now runs for the Levels, Experiences, Scenes and Shots tables too**
+  (`useTableScreen`; Assets and Tasks had it). No effect on a view this build wrote; a view stored by a newer WILSON
+  with a group field this build lacks loses that grouping in a change for now. Review round 1, 1C-05. INFO.
+- **F10-19 · Re-adding a level or an experience whose id is already in state moves it to the end and replaces it with
+  the adapter's answer** (the de-duplication by id F10 gave the four kinds; scenes and shots always did this). Only an
+  undo replayed beside another reaches it; the lists are drawn by `sort_order`. Review round 1, 1D-05. INFO.
+- **F10-20 · The four writers' factories run on every provider render** (an object and thirteen closures, kept only
+  when the dependencies change), and the rule that nothing in `entityEnv` is a `const` declared below it is held by a
+  comment and the provider-mounting test. Review round 1, 1D-06. INFO.
+- **F10-21 · The Levels and Experiences window registers a leave guard that holds nothing while `asks` is off**: one
+  more `leaveGuardsChanged()` on mount and unmount, no question. Turning `asks` on (F10-02) is now the one word: the
+  window draws the questions, closes through `requestClose` and asks on Escape (pinned red with it on,
+  `views/entity/useEntityWindow.test.jsx`). Review round 1, 1E-04. INFO.

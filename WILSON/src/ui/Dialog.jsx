@@ -185,7 +185,21 @@ export function Dialog({
       // why the filter tracks the tab order as closely as it does (`inert`,
       // `checkVisibility`) rather than being a rough approximation with a
       // clever wrap on top of it.
-      const i = items.indexOf(document.activeElement)
+      const active = document.activeElement
+      const i = items.indexOf(active)
+      // An element inside that the list leaves out — focusable by script only
+      // (tabIndex -1: an inline editor's words in a span, which take focus
+      // back when the edit closes, F10 P1-06) — is still a place in the order:
+      // Tab goes on to the control after it, Shift+Tab to the one before.
+      // Both went to an end, as from <body> (F10 review round 1, 1B-02). The
+      // surface itself keeps the ends (it holds every control, so none is
+      // before it), and past either end the wrap below still applies.
+      if (i === -1 && active && active !== node && node.contains(active)) {
+        const near = e.shiftKey
+          ? [...items].reverse().find(el => active.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING)
+          : items.find(el => active.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING)
+        if (near) { e.preventDefault(); near.focus(); return }
+      }
       if (e.shiftKey ? i <= 0 : (i === -1 || i === items.length - 1)) {
         e.preventDefault()
         ;(e.shiftKey ? items[items.length - 1] : items[0]).focus()

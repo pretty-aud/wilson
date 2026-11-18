@@ -41,10 +41,9 @@ import {
   StatusDot, StatusBadge, StatusBanner, statusMeta, humanizeStatus, EmptyState, HoverActions, RowTitle, Dialog, Badge, Banner,
   SectionTitle, Loading,
   // Post-overhaul F10 (rabbit A6): the kit's own editors, bulk picker,
-  // question, label and draft hooks; this file's names below are its look on
-  // them.
+  // question and label; this file's names below are its look on them. (The
+  // windows' draft hooks are the windows' one hook's: views/entity.)
   useInlineText, BulkSelect as KitBulkSelect, Confirm, FieldLabel as KitFieldLabel,
-  useSavedDraft, useFocusBack,
 } from '../../../ui'
 import './rabbitScenes.css'
 import { useRabbit } from '../state/RabbitProvider'
@@ -81,8 +80,8 @@ import {
 // …and (step 6) the drag.
 import { useCutDrag, blockLine } from './scenes/useCutDrag'
 import { Grip } from './scenes/EditTable'
-// …and (step 7) the leave guard: a popup's typed text, a jump between rows.
-import { useLeaveGuard } from './scenes/useLeaveGuard'
+// …and (step 7) the leave guard: a jump between rows (a popup's typed text
+// is guarded by the windows' one hook, views/entity/useEntityWindow.jsx).
 import { confirmLeave, hasUnsavedWork } from '../state/leaveGuard'
 // The three-answer questions (leave, recover) are at the form width: they count themselves.
 import { answersOpen } from './scenes/AnswerDialog'
@@ -4410,8 +4409,9 @@ function NestedAsset({ ctx, assetId, thumbRevision, onThumbChanged, onClose, can
 // The popups' description and notes give focus back to their words when an
 // edit closes (review round two, R2-05), and each draft follows the saved
 // words while its editor is closed or untouched (D21; review round 1, R1-06).
-// Both hooks are the kit's since F10 (src/ui/useInlineText.jsx, imported above),
-// where the inline editors use them too; their rules are written there.
+// Both hooks are the kit's since F10 (src/ui/useInlineText.jsx), where the
+// inline editors use them too, and the windows take them through their one
+// hook (views/entity/useEntityWindow.jsx); their rules are written there.
 
 
 // ─── FieldLabel ───

@@ -90,7 +90,7 @@ import { downloadCsv, exportDateStamp } from '../../../lib/csvExport'
 import { projectDayCounts, toIsoDate, showDate } from '../dates.js'
 import {
   Stat, Toolbar, Button, IconButton, Tabs, Table, Th, Td, Row, Dialog,
-  HoverActions, RowTitle, EmptyState, Badge, StatusDot, humanizeStatus, Banner,
+  HoverActions, RowTitle, EmptyState, Badge, StatusDot, humanizeStatus,
   MenuButton, Loading,
   // Post-overhaul F10 (rabbit A6): the kit's own editor, bulk picker and
   // question; this file's names below are its look on them.
@@ -1262,7 +1262,7 @@ function TaskTable({ tasks, hasAnyTask = false, groups, groupBy, itemLookup, col
             confirmLabel={removalQ ? removalQ.confirm : 'Delete'}
             variant={removalQ && !removalQ.danger ? 'primary' : 'danger'}
             onCancel={() => setConfirmBulkDelete(false)}
-            onConfirm={confirmedBulkDelete}
+            onConfirm={() => { confirmedBulkDelete() }}
           >
             {removalQ
               ? removalQ.sentences.map((line, i) => <p key={i} className="rb-removal-line">{line}</p>)

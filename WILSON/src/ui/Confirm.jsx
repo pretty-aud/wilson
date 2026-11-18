@@ -28,10 +28,17 @@
 // to <body> (B4c review round two). Only while `returnTo` is in the page: a
 // delete takes the row, and its button, with it.
 //
-// `onConfirm` may answer a promise: then the question is busy while it runs
-// (no Escape, no second press, Cancel greyed) and a refusal lands in the
-// Dialog's own error slot in its words, verbatim, the question still open.
-// A plain call is a plain call: the caller closes the question.
+// `onConfirm` may answer a promise: then the question is busy from the press
+// until the CALLER closes it (no Escape, no second press, Cancel greyed), as
+// ListConfirm was — a promise that resolves leaves it busy, so a caller that
+// answers one closes the question when it resolves (every caller today does;
+// OUTSTANDING F10, review round 1, 1A-06). A refusal ends it: its words land
+// in the Dialog's own error slot, verbatim, the question still open. A plain
+// call is a plain call: the caller closes the question, and a caller with
+// nothing to wait for hands a plain call (`() => { go() }`).
+//
+// The caller's other props reach the Dialog FIRST, so none can replace the
+// shape this keeps (the width, the footer, busy, the error, the close).
 //
 // Portalled into <body> by default: the kit Dialog does not portal
 // (B4-KR-2), and a container on the page must not hold a question.
@@ -87,6 +94,7 @@ export function Confirm({
 
   const question = (
     <Dialog
+      {...rest}
       width="confirm"
       title={title}
       busy={busy}
@@ -99,7 +107,6 @@ export function Confirm({
           <Button variant={variant} loading={busy} onClick={proceed}>{confirmLabel}</Button>
         </>
       )}
-      {...rest}
     >
       {children}
     </Dialog>

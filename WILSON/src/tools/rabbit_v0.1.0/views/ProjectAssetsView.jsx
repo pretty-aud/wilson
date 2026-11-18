@@ -45,7 +45,7 @@ import {
 import {
   Toolbar, Button, IconButton, Tabs, Table, Th, Td, Row, Dialog, Field,
   Card, RowTitle, EmptyState, StatusDot, StatusBadge, StatusBanner, Badge, CellSelect, statusMeta,
-  Banner, Loading, HoverActions, MenuButton,
+  Loading, HoverActions, MenuButton,
   // Post-overhaul F10 (rabbit A6): the kit's own editors, bulk picker and
   // question; this file's names below are its look on them.
   useInlineText, BulkSelect as KitBulkSelect, Confirm,
@@ -884,7 +884,7 @@ function AssetTable({ assets, groups, groupBy, columns, showThumb = true, phases
           portal={false}
           title="Delete assets"
           onCancel={() => setConfirmBulkDelete(false)}
-          onConfirm={confirmedBulkDelete}
+          onConfirm={() => { confirmedBulkDelete() }}
         >
           <p className="rb-asset-confirm">
             {`Delete ${selected.size} asset${selected.size === 1 ? '' : 's'}?${tasksStayWords(selected, taskCountByAsset)}`}

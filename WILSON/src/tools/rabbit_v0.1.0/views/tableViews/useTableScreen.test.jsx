@@ -94,16 +94,61 @@ describe('useTableScreen: a change for now outlives a reload of the rows', () =>
     expect(names()).toEqual(['Night', 'Market', 'Harbour'])
     expect([seen.current.sortField, seen.current.sortDir, seen.current.activeFilters, seen.current.groupBy, seen.current.viewMode])
       .toEqual(['name', 'desc', 1, 'status', 'gallery'])
-    // The search is the tab's: applied over the view's filters, as typed.
+    // The search is the tab's: applied over the view's filters, trimmed (the
+    // default; the Scenes tab's as typed is below).
     rerender(<Probe ctx={{ project: { id: 'p1' } }} rows={ROWS()} search="  mark " />)
     expect(names()).toEqual(['Market'])
   })
-  it('CONTROL: a screen made anew (what a reset on reload would be) loses the change, which the assertions above would catch', () => {
-    const { rerender } = render(<Probe key="a" ctx={{}} rows={ROWS()} />)
+  it('CONTROL: a screen that starts over when its rows change — a reset on reload — fails what the case above checks after its reload', () => {
+    // The same provider value and the same reload as above; the screen is
+    // made anew by its rows. (Review round 1, 1C-03: the first control
+    // remounted by hand on another ctx. The redcheck log also runs the case
+    // above against a useTableView that drops its change on a new provider
+    // value: red.)
+    function Resetting({ ctx, rows }) { return <Probe key={rows.length} ctx={ctx} rows={rows} /> }
+    const { rerender } = render(<Resetting ctx={{ project: { id: 'p1' } }} rows={ROWS()} />)
     act(() => seen.current.setSortField('name'))
-    expect(seen.current.sortField).toBe('name')
-    rerender(<Probe key="b" ctx={{}} rows={ROWS()} />)
-    expect(seen.current.sortField).toBe('')
+    act(() => seen.current.reverseSort())
+    rerender(<Resetting ctx={{ project: { id: 'p1' } }} rows={[...ROWS(), { id: 'l4', name: 'Night', status: 'in_progress', sort_order: 3 }]} />)
+    expect([seen.current.sortField, seen.current.sortDir]).not.toEqual(['name', 'desc'])
+    expect(names()).not.toEqual(['Night', 'Market', 'Harbour'])
+  })
+  // Review round 1 (1C-01, 1C-02): what each caller hands the hook, honoured.
+  it('the search as typed where the table asks (`searchTrim: false`, the Scenes tab), trimmed by default; with no base order the rows as they come', () => {
+    function SearchProbe({ search = '', searchTrim, baseOrder = null }) {
+      const tab = useTableTab()
+      seen.current = useTableScreen({ tab, ctx: { project: { id: 'p1' } }, tableKey: 'levels', description: DESC, rows: ROWS(), canWrite: true, toolbarSelector: '.x', search, searchTrim, baseOrder })
+      return null
+    }
+    const { rerender } = render(<SearchProbe search="Harbour " />)
+    expect(names()).toEqual(['Harbour'])
+    rerender(<SearchProbe search="Harbour " searchTrim={false} />)
+    expect(names()).toEqual([])
+    rerender(<SearchProbe />)
+    expect(names()).toEqual(['Harbour', 'Cliff', 'Market'])
+    rerender(<SearchProbe baseOrder="sort_order" />)
+    expect(names()).toEqual(['Cliff', 'Market', 'Harbour'])
+  })
+  it('a teammate\'s delete of the view on screen is said only where `notifyOn` (the Scenes tab: only its table on screen says it)', () => {
+    const viewsCtx = (views) => {
+      const drafts = new Map([['levels', { viewId: 'v1', baseRevision: 1, baseConfig: null, config: null, name: 'Shoot week' }]])
+      return {
+        project: { id: 'p1' }, tableViewsAvailable: true, tableViewLast: { status: 'ready' },
+        viewsOf: () => views, viewDraftOf: (k) => drafts.get(k) || null, setViewDraft: (k, d) => { drafts.set(k, d) }, lastViewOf: () => null,
+      }
+    }
+    for (const notifyOn of [true, false]) {
+      const said = vi.fn()
+      function NotifyProbe({ ctx }) {
+        const tab = useTableTab()
+        useTableScreen({ tab: { ...tab, notify: said }, ctx, tableKey: 'levels', description: DESC, rows: ROWS(), canWrite: true, toolbarSelector: '.x', notifyOn })
+        return null
+      }
+      const { rerender } = render(<NotifyProbe ctx={viewsCtx([{ id: 'v1', table_key: 'levels', name: 'Shoot week', config: {}, revision: 1, position: 0 }])} />)
+      rerender(<NotifyProbe ctx={viewsCtx([])} />)
+      expect(said.mock.calls, `notifyOn ${notifyOn}`).toEqual(notifyOn ? [['Shoot week was deleted. Showing All.']] : [])
+      cleanup()
+    }
   })
   it('the Remove grouping question names the table\'s rows; the old saved views go once', async () => {
     localStorage.setItem('old_levels_views', '[]')

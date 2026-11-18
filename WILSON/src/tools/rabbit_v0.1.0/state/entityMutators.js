@@ -44,10 +44,11 @@ const names = (Kind) => Object.freeze({ add: `add${Kind}`, update: `update${Kind
 /**
  * A kind's spec. `list`: the kind is placed in shot lists (S3a) and its tasks
  * link to it by `field` (also its membership rows' field); `takes`: a delete
- * takes the thing's takes with it (BC2).
+ * takes the thing's takes with it (BC2); `deleteByHand`: its delete is written
+ * by hand (makeDeleteScene), so the factory makes none for it.
  */
 export const ENTITY_SPECS = Object.freeze({
-  scene: Object.freeze({ kind: 'scene', collection: 'scenes', upsert: 'upsertScene', remove: 'deleteScene', names: names('Scene'), list: Object.freeze({ field: 'scene_id' }), takes: false }),
+  scene: Object.freeze({ kind: 'scene', collection: 'scenes', upsert: 'upsertScene', remove: 'deleteScene', names: names('Scene'), list: Object.freeze({ field: 'scene_id' }), takes: false, deleteByHand: true }),
   shot: Object.freeze({ kind: 'shot', collection: 'shots', upsert: 'upsertShot', remove: 'deleteShot', names: names('Shot'), list: Object.freeze({ field: 'shot_id' }), takes: true }),
   level: Object.freeze({ kind: 'level', collection: 'levels', upsert: 'upsertLevel', remove: 'deleteLevel', names: names('Level'), list: null, takes: false }),
   experience: Object.freeze({ kind: 'experience', collection: 'experiences', upsert: 'upsertExperience', remove: 'deleteExperience', names: names('Experience'), list: null, takes: false }),
@@ -55,7 +56,7 @@ export const ENTITY_SPECS = Object.freeze({
 
 const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k)
 
-/** `{ add, update, remove }` for one kind; the provider wraps each in its useCallback. */
+/** `{ add, update, remove }` for one kind (`{ add, update }` for a scene); the provider wraps each in its useCallback. */
 export function makeEntityMutators(spec, env) {
   const { kind, collection: col, list } = spec
   const mutation = (name) => env.mutationsRef.current[spec.names[name]]
@@ -205,7 +206,10 @@ export function makeEntityMutators(spec, env) {
     return result
   }
 
-  return { add, update, remove }
+  // A scene's delete is makeDeleteScene's: this one knows nothing of the
+  // scene's shots (they would stay on screen, and its undo would bring none
+  // back), so a scene's spec gets none to wire by mistake (review round 1).
+  return spec.deleteByHand ? { add, update } : { add, update, remove }
 }
 
 /**

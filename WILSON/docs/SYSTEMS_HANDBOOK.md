@@ -4933,7 +4933,12 @@ elements, so the lanes' sheets and guards keep reading the classes and `data-*` 
 keeps one component an editor — F4's render counts), `BulkSelect` ("None" answers null), `Confirm` (the one
 confirm-width question; `ListConfirm` and `useAsk` draw it), `FieldLabel` and `useOptionalToast`. Enter and blur
 commit the trimmed draft once, Escape reverts and is marked handled and stopped, and focus comes back to the words
-(P1-06). The glue around each table's views is one hook, `views/tableViews/useTableScreen.jsx` (`useTableTab` once a
+(P1-06). 🚨 Two browser rules jsdom cannot show (F10 review round 1, measured in Chromium): a blur's close renders
+INSIDE the browser's focus change, while `<body>` has focus, so the editor takes focus back only when the blur goes
+nowhere (`useFocusBack`'s `leaving`, set from the blur's `relatedTarget`), or a Tab or a click lands on the words; and
+Enter is marked handled, or its keypress clicks the words focused back in the same press and reopens the editor. The
+kit Dialog's Tab trap treats an element inside it that its list leaves out (a span focusable by script only) as a
+place in the order. The glue around each table's views is one hook, `views/tableViews/useTableScreen.jsx` (`useTableTab` once a
 tab, `useTableScreen` once a table: the Scenes tab has two). The provider's twelve writers for the four 0040
 entities come from `state/entityMutators.js` (eleven from one factory, `deleteScene` by hand), each in its own
 `useCallback` with the dependencies it always had; an add de-duplicates by id for all four. The scene, shot, level

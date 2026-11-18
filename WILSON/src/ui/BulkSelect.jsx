@@ -43,7 +43,10 @@ export function BulkSelect({ label, options = [], labels = null, onPick, allowEm
     return labels ? (labels[value] || String(value)) : humanizeStatus(value)
   }
   return (
+    // The caller's other props first: none replaces the picker's own
+    // (its change, its class pair, its size; F10 review round 1, 1A-09).
     <select
+      {...rest}
       defaultValue=""
       aria-label={label}
       onChange={(e) => {
@@ -54,7 +57,6 @@ export function BulkSelect({ label, options = [], labels = null, onPick, allowEm
       }}
       className={withKitInput(className)}
       data-size="sm"
-      {...rest}
     >
       <option value="" disabled>{label}</option>
       {allowEmpty && <option value={NONE}>{emptyLabel}</option>}

@@ -49,4 +49,13 @@ describe('BulkSelect', () => {
     render(<BulkSelect label="Status" options={['time_of_day']} onPick={() => {}} />)
     expect(select().options[1].textContent).toBe('Time of day')
   })
+
+  it("a caller's stray props cannot replace the picker's own: its change, its class pair, its size (F10 review round 1, 1A-09)", () => {
+    const onPick = vi.fn()
+    const stray = vi.fn()
+    render(<BulkSelect label="Status" options={['final']} onPick={onPick} onChange={stray} data-size="md" className="rb-x-tool" />)
+    fireEvent.change(select(), { target: { value: 'final' } })
+    expect(onPick).toHaveBeenCalledWith('final')
+    expect([select().className, select().dataset.size]).toEqual(['ui-input rb-x-tool', 'sm'])
+  })
 })

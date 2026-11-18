@@ -52,7 +52,10 @@ describe('InlineText: the behaviour', () => {
     expect(document.activeElement).toBe(field())
     expect(field().value).toBe('Lighthouse')
     fireEvent.change(field(), { target: { value: '  Night  ' } })
-    fireEvent.keyDown(field(), { key: 'Enter' })
+    // Marked handled: in Chromium the press's keypress would land on the words,
+    // focused back inside the same press, and a button's Enter is a click that
+    // opens the editor again (F10 review round 1, 1A-01; jsdom sends no keypress).
+    expect(fireEvent.keyDown(field(), { key: 'Enter' }), 'Enter not marked handled').toBe(false)
     // The blur that can follow as the field goes must not write again.
     expect(onCommit).toHaveBeenCalledTimes(1)
     expect(onCommit).toHaveBeenCalledWith('Night')
@@ -74,16 +77,52 @@ describe('InlineText: the behaviour', () => {
     expect(onCommit).toHaveBeenCalledWith('Night')
   })
 
-  it('a Tab away commits and keeps where focus went (no focus taken back)', () => {
+  it('a Tab away commits and keeps where focus went (no focus taken back): jsdom\'s order, focus already there', () => {
     render(<Saved />)
     fireEvent.click(words())
     fireEvent.change(field(), { target: { value: 'Night' } })
     const next = screen.getByRole('button', { name: 'next' })
-    // jsdom moves focus with its blur and focusout, as a Tab does.
+    // jsdom moves focus with its blur and focusout, and React's effect runs
+    // after focus has arrived (the opposite of a browser's order: below).
     act(() => { next.focus() })
     expect(screen.queryByRole('textbox')).toBeNull()
     expect(document.activeElement).toBe(next)
     expect(words().textContent).toBe('Night')
+  })
+
+  it('a blur on its way to a control commits and takes no focus back, though the close renders while <body> has focus — the browser\'s order (F10 review round 1, 1A-02 / 1B-01, measured in Chromium)', () => {
+    render(<Saved />)
+    fireEvent.click(words())
+    fireEvent.change(field(), { target: { value: 'Night' } })
+    const next = screen.getByRole('button', { name: 'next' })
+    // Chromium's order, which jsdom's own focus() does not give: the field's
+    // blur names the control focus is going to, and React renders the close
+    // and runs its effects before that control has focus. A focus() then
+    // cancels the move, and the Tab or the click lands on the words.
+    fireEvent.blur(field(), { relatedTarget: next })
+    expect(screen.queryByRole('textbox')).toBeNull()
+    expect(words().textContent).toBe('Night')
+    expect(document.activeElement).not.toBe(words())
+  })
+
+  it('a blur that takes focus nowhere (the window loses it) hands focus back to the words, as R2-05 has it', () => {
+    render(<Saved />)
+    fireEvent.click(words())
+    act(() => { field().blur() })
+    expect(screen.queryByRole('textbox')).toBeNull()
+    expect(document.activeElement).toBe(words())
+  })
+
+  it('words saved with an outer space, opened and left untouched, write nothing; a change to them writes the trimmed words (F10 review round 1, 1A-05 / 1B-03)', () => {
+    const onCommit = vi.fn()
+    render(<Saved initial="Fix rig " onCommit={onCommit} />)
+    fireEvent.click(screen.getByText('Fix rig'))
+    fireEvent.blur(field())
+    expect(onCommit).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByText('Fix rig'))
+    fireEvent.change(field(), { target: { value: 'Fix rig' } })
+    fireEvent.blur(field())
+    expect(onCommit).toHaveBeenCalledWith('Fix rig')
   })
 
   it('Escape reverts, writes nothing, is marked handled and stopped, still reaches the caller\'s onKeyDown, and hands focus back', () => {
