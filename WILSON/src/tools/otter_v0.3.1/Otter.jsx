@@ -24,13 +24,12 @@ import {
 import {
   FULL_COURSE_OUTLINE_PROMPT, SUBJECT_GENERATION_PROMPT, SINGLE_SUBJECT_PROMPT,
   MULTIPLE_CHOICE_PROMPT, CODE_IDENTIFICATION_PROMPT, CODE_WRITING_PROMPT, COMPANION_PROMPT,
-  NODES_GENERATION_PROMPT
+  NODES_GENERATION_PROMPT, callAnthropicAPI, describeResponse, extractTextAndCitations
 } from './prompts.js';
 // Session 10: content routes go through the adapter seam instead of straight
 // to the in-app Express server — cloud when signed in, local otherwise, and
 // the only thing that works at all in the Session 11 web build.
 import { otterFetch, otterCloudActive, getOtterAdapterMode, setOtterAdapterMode, subscribeOtterAdapterMode } from './adapters';
-import { callAI, isRetryableAIError } from '../../cloud/aiProxy';
 import { hasLocalServer, loadOtterSettings, saveOtterSettings } from '../../lib/localData';
 import { pushSettingsToCloud } from '../../lib/userState';
 import { modelFor } from '../../lib/activeModel';
@@ -1247,127 +1246,10 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
     await saveSettings({ prompts: editingPrompts });
   }, [editingPrompts, saveSettings]);
 
-  // ═══════════════════════════════════════════════════════════════
-  //  ANTHROPIC CALL HELPER — via the ai-proxy Edge Function
-  //  (Session 12, locked #21: same body shape, the key lives server-side,
-  //  and the proxy streams so long generations survive the Edge deadline.
-  //  callAI reassembles the stream into the classic message object.)
-  // ═══════════════════════════════════════════════════════════════
-  // Session 30: bounds the pause_turn continuation below.
-  const MAX_CONTINUATIONS = 3;
-
-  async function callAnthropicAPI({ model, maxTokens, systemPrompt, messages, signal, tools, betas, depth = 0 }) {
-    const body = { model, max_tokens: maxTokens, system: systemPrompt, messages, tool: 'otter' };
-    if (tools && tools.length > 0) body.tools = tools;
-    if (betas) body.betas = betas;
-
-    const MAX_RETRIES = 3;
-    const RETRY_DELAYS = [3000, 6000, 12000];
-
-    let data;
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      if (signal?.aborted) throw new Error('Cancelled');
-
-      try {
-        data = await callAI(body, { signal });
-        break;
-      } catch (err) {
-        // Retry on overloaded/rate-limited errors, same schedule as before.
-        if (isRetryableAIError(err) && attempt < MAX_RETRIES) {
-          const delay = RETRY_DELAYS[attempt] || 12000;
-          console.warn(`API ${err.status || '?'}, retrying in ${delay / 1000}s (attempt ${attempt + 1}/${MAX_RETRIES})...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-          continue;
-        }
-        throw err;
-      }
-    }
-
-    // 🚨 Session 30: RESUME A PAUSED SERVER-SIDE TOOL RUN.
-    //
-    // `pause_turn` is what Anthropic returns when a server-side tool run — here
-    // web_search — hits its iteration limit mid-answer. The turn then ENDS on a
-    // server_tool_use block, so the last TEXT block is a preamble ("Let me look
-    // up Blender's interface...") rather than the JSON. Nothing downstream
-    // checked for it, so generateSubjectContent parsed the preamble and threw
-    // "Failed to parse subject JSON. Try again."
-    //
-    // The Validator already does exactly this and has since S19 (`dab9046`),
-    // which is when web search made it necessary — Validator.jsx:52-59. This
-    // wrapper never got it, and generateSubjectContent is the O.T.T.E.R. call
-    // that uses web_search (max_uses 3) while the course OUTLINE does not.
-    // That asymmetry is why the outline generates and the subject does not.
-    //
-    // Resumed by re-sending with the assistant turn appended and NO trailing
-    // user turn: the API recognises the trailing server_tool_use and continues.
-    // That is the documented shape, and it is NOT the text prefill that S19
-    // measured returning 400.
-    if (data?.stop_reason === 'pause_turn' && depth < MAX_CONTINUATIONS) {
-      return callAnthropicAPI({
-        model, maxTokens, systemPrompt,
-        messages: [...messages, { role: 'assistant', content: data.content }],
-        signal, tools, betas,
-        depth: depth + 1,
-      });
-    }
-
-    return data;
-  }
-
-  /**
-   * What actually came back, for an error a user can act on.
-   *
-   * Every JSON parse failure in this file used to say only "Try again", which
-   * is the same sentence for a paused tool run, a refusal, an empty response
-   * and genuinely malformed JSON. S30 hit two DIFFERENT causes behind two
-   * identical messages in one evening; naming the shape turns the next
-   * recurrence into a measurement instead of another round trip.
-   */
-  function describeResponse(data) {
-    const blocks = (data?.content || []).map(b => b?.type || '?').join(', ') || 'none';
-    const chars = extractTextAndCitations(data).text.length;
-    return `[${data?.stop_reason ?? 'no stop_reason'}; blocks: ${blocks}; ${chars} chars of text]`;
-  }
-
-  // Extract text + citation sources from API response (handles web_search content blocks)
-  function extractTextAndCitations(data) {
-    const blocks = data.content || [];
-    const textParts = [];
-    const allCitations = [];
-
-    for (const block of blocks) {
-      if (block.type === 'text') {
-        // Strip <cite> tags from the text (Anthropic's inline citation markers)
-        const cleaned = (block.text || '').replace(/<\/?cite[^>]*>/g, '');
-        if (cleaned.trim()) textParts.push(cleaned);
-        // Extract citations from text block if present
-        if (block.citations) {
-          for (const cite of block.citations) {
-            allCitations.push({ url: cite.url || '', title: cite.title || '' });
-          }
-        }
-      }
-      // Extract sources from web_search_tool_result blocks
-      if (block.type === 'web_search_tool_result' && Array.isArray(block.content)) {
-        for (const result of block.content) {
-          if (result.type === 'web_search_result' && result.url) {
-            allCitations.push({ url: result.url, title: result.title || result.url });
-          }
-        }
-      }
-    }
-
-    // Use last text part (the final JSON response) — but fall back to concatenated if only one
-    const text = textParts.length > 0 ? textParts[textParts.length - 1] : '';
-
-    // Deduplicate by URL
-    const seen = new Set();
-    const sources = [];
-    for (const c of allCitations) {
-      if (c.url && !seen.has(c.url)) { seen.add(c.url); sources.push(c); }
-    }
-    return { text, sources };
-  }
+  // The Anthropic call helper (callAnthropicAPI, describeResponse,
+  // extractTextAndCitations) lives in prompts.js since F6 (REV-03), so the
+  // Validator rides the same wrapper: pause_turn resumed and bounded, 429/529
+  // retried, the reply read from its last text block.
 
   // ═══════════════════════════════════════════════════════════════
   //  REFERENCE URL HANDLER

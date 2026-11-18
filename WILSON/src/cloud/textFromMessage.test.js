@@ -117,3 +117,46 @@ describe('no call site indexes content[0] for text', () => {
       .toEqual([])
   })
 })
+
+describe('no call site takes the FIRST text block with .find (F6, REV-03)', () => {
+  // The same defect one step removed. `content.find(b => b.type === 'text')`
+  // skips a thinking block, so it passed the scan above, but it returns the
+  // FIRST text block: when a server-side tool runs mid-turn that is the
+  // "Let me check…" preamble, and the answer is the LAST block. O.T.T.E.R.'s
+  // Validator read replies this way until F6.
+  //
+  // Narrow on purpose, as above: `.find(` with an arrow whose parameter's
+  // `.type` is compared with exactly 'text'. Not caught (stated, not hidden):
+  // a destructured `({ type }) =>`, the reversed `'text' === b.type`, and a
+  // call split over lines.
+  const FIND_TEXT = /\.\s*find\s*\(\s*\(?\s*(\w+)\s*\)?\s*=>\s*\1\s*\??\.\s*type\s*===?\s*['"]text['"]/
+
+  it('the pattern catches the shapes and spares the near-misses — the instrument works', () => {
+    for (const planted of [
+      "const textBlock = data.content.find(b => b.type === 'text')",
+      'const t = data?.content?.find((b) => b?.type === "text")',
+      "const t = (msg.content || []).find(block => block.type == 'text')",
+      "const t = data.content.find( (x) => x.type==='text' )",
+    ]) expect(FIND_TEXT.test(planted), planted).toBe(true)
+    for (const nearMiss of [
+      "const title = frames.find(f => f.type === 'text_title')",
+      "const docs = uploadedFiles.filter(f => f.type === 'text')",
+      "const card = cards.find(c => c.type === 'internal')",
+      "const last = content.findLast(b => b.type === 'text')",
+    ]) expect(FIND_TEXT.test(nearMiss), nearMiss).toBe(false)
+  })
+
+  it("nothing takes content.find(b => b.type === 'text')", () => {
+    const found = []
+    for (const file of walk(SRC)) {
+      const text = readFileSync(file, 'utf8')
+      for (const [i, line] of text.split('\n').entries()) {
+        if (line.trim().startsWith('*') || line.trim().startsWith('//')) continue
+        if (FIND_TEXT.test(line)) found.push(`${relative(SRC, file).replace(/\\/g, '/')}:${i + 1}`)
+      }
+    }
+    expect(found, 'use textFromMessage(data) — .find returns the FIRST text '
+      + 'block, which is a preamble whenever a server-side tool ran mid-turn')
+      .toEqual([])
+  })
+})
