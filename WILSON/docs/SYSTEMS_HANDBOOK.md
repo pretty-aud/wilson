@@ -4051,16 +4051,17 @@ prompt set. **D.O.G. is not part of the agent system.**
 
 **Pipeline**: uploaded files and/or the open RABBIT project's attachments →
 assembled into a message array → one of eight `callAI()` calls → a
-marker-delimited text response → split into slides by `splitSlides()` →
-`parseSlideContent()` extracts TITLE, SUBTITLE, LAYOUT STRUCTURE, COPY,
-VISUAL STYLING, REQUIRED ASSETS and COMPONENT GEOMETRY →
-`correctGeometryIconOrder()` fixes icon-above-title stacking on title layouts
-→ held as tabs → exported.
+marker-delimited text response → split into slides by `splitSlides()`, which
+frames each slide and has `correctGeometryIconOrder()` fix icon-above-title
+stacking on title layouts → held as tabs → `parseSlideContent()` extracts
+TITLE, SUBTITLE, LAYOUT STRUCTURE, COPY, VISUAL STYLING, REQUIRED ASSETS and
+COMPONENT GEOMETRY wherever a slide is drawn or exported.
 
-**One reading of the slide format** (`parser.js`, F6): `slideHeader`,
-`slideTitle` and `frameSlide` are the header, the title and the 63-`═` frame
-for generation (`parseOutputToPages`), the History import and
-`parseSlideContent`; `parseAssetLine` reads an asset line for the placed
+**One reading of the slide format** (`parser.js`, F6): `slideHeader` and
+`slideTitle` are the header and the title for generation
+(`parseOutputToPages`) and `parseSlideContent`; `frameSlide`, the 63-`═`
+frame, is shared by generation and the History import, which keeps its own
+header and title readers; `parseAssetLine` reads an asset line for the placed
 assets and the image prompts. Generation and the import still accept
 different shapes (`splitSlides(text, { as })`): where their copies disagreed,
 unifying them would have changed an output, so each kept its reading, pinned
@@ -4740,17 +4741,19 @@ name and treats the slug as an opaque key.
 `res.json()` throws on a body that is not JSON (the local server's HTML error
 page), so a read before `res.ok` turned an authored refusal into
 `Unexpected token '<'`, and a read without it took a JSON refusal as data.
-Every O.T.T.E.R. read uses the one reader in `adapters/otterRoutes.js` (F6):
+Every read in the files F6 converted (O.T.T.E.R.'s, and the Admin Terminal's
+change requests) uses the one reader in `adapters/otterRoutes.js`:
 `readBody(res)` where the site holds `res` and checks `ok`, `okBody` for a load
 that falls back, `needBody` for a read whose failure must stop its caller,
 and `otterCall`, `shareCall`'s shape. `otterRoutes.test.js` bans `.json()`
 from the files that read O.T.T.E.R.'s answers; `petKnowledge.js` keeps its
-own `readJson`, which reads the status first.
+own `readJson`, which reads the status first, and two files outside
+O.T.T.E.R. still read its answers with `.json()` (OUTSTANDING F6-10).
 
 **Validator**: queues lessons, calls the model with web search (`max_uses` 5)
-through O.T.T.E.R.'s one wrapper (a paused search resumed at most 3 times, a
-429/529 retried, the reply read from its last text block; until F6 it kept a
-copy that read the first), and produces a grade, an accuracy percentage and
+through O.T.T.E.R.'s one wrapper (a paused search resumed at most 3 times,
+a 429, 503 or 529 (or an "overloaded", "rate limit" or "capacity" message) retried; the reply is read from its last text block by
+`textFromMessage`; until F6 it kept a copy that read the first), and produces a grade, an accuracy percentage and
 findings marked
 `accurate` / `inaccurate` / `unverifiable`, with a follow-up "request fixes"
 call. **Results are session state and are not persisted anywhere.**
@@ -6072,8 +6075,11 @@ and — Session 30 — `validatorSave`, `quizWiring` and `textFromMessage`.
 > trailing user turn — S19 measured a prefill returning 400 — and bound the
 > loop. `Validator.jsx` (S19) and `Otter.jsx` (S30) each did, with a copy of
 > its own; since F6 both call ONE wrapper, `callAnthropicAPI` in
-> `src/tools/otter_v0.3.1/otterAI.js` (the resume bounded at 3, a 429/529
-> retried after 3, 6 and 12 s, the reply read from its last text block), and
+> `src/tools/otter_v0.3.1/otterAI.js` (the resume bounded at 3; a 429, 503 or
+> 529, or an "overloaded", "rate limit" or "capacity" message, retried after 3,
+> 6 and 12 s; the callers read the reply's last text block, the generators
+> through `extractTextAndCitations`, which also strips cite tags, the Validator
+> through `textFromMessage`), and
 > `pauseTurn.test.js` runs it against a faked `callAI`. **The diagnostic asymmetry: a no-tool call that works
 > beside a web-search call that fails is this, not a prompt problem.**
 >

@@ -171,8 +171,10 @@ export const parsePlacedAssets = (placedAssetsText) => {
 // parseOutputToPages, the History import, and parseSlideContent above (the
 // visualiser's and the exports' reader). Their copies accepted different
 // shapes, so the same text could split one way when generated and another
-// when imported. The header, the title and the frame are now these functions,
-// used by all three. Where the two splitters still differ an output would
+// when imported. The header and the title are now slideHeader and slideTitle
+// (generation and parseSlideContent), and the frame is frameSlide (generation
+// and the import, which keeps its own header and title readers). Where the two
+// splitters still differ an output would
 // change, so each keeps today's reading (`as`), pinned side by side in
 // parser.test.js and recorded in docs/OUTSTANDING.md:
 //   - import wants rules of 20 or more ═ around (format 1) or after (format 2)

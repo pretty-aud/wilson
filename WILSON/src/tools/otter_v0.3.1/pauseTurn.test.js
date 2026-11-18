@@ -22,8 +22,8 @@
 // the Validator's own `callValidatorAPI` returned the FIRST text block
 // (`content.find(...)`) before it ever looked at `pause_turn`, so a web search
 // that said "Let me check…" before searching handed that sentence to the JSON
-// parser, and it had no retry at all. F6 moved the one wrapper to `prompts.js`
-// (what O.T.T.E.R. sends the model, and how) and the Validator calls it.
+// parser, and it had no retry at all. F6 moved the one wrapper to `otterAI.js`
+// (how O.T.T.E.R. asks the model) and the Validator calls it.
 //
 // Session 30's header said this file could not execute the continuation,
 // because the wrapper was declared inside the Otter component. It no longer
@@ -86,7 +86,7 @@ describe('one wrapper, in otterAI.js, and every O.T.T.E.R. caller uses it', () =
     expect(HOME).toContain('export async function callAnthropicAPI(')
     // If web search ever leaves O.T.T.E.R., the whole class goes with it and
     // the assertions below would start passing vacuously. The subject
-    // generators' request lives in prompts.js since F6 (A1).
+    // generators' request lives in otterAI.js since F6 (A1).
     expect(HOME).toContain('web_search_20250305')
     expect(VALIDATOR).toContain('web_search_20250305')
   })

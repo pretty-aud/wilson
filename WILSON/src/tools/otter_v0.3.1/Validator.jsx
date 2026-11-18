@@ -19,8 +19,9 @@ import { modelFor } from '../../lib/activeModel';
 // F6 (REV-03): the Validator rides O.T.T.E.R.'s one wrapper (otterAI.js), so it
 // keeps the same three rules as every other O.T.T.E.R. call: a paused
 // server-side tool run is resumed (the assistant turn appended, no trailing
-// user turn, at most MAX_CONTINUATIONS times), a 429/529 is retried after 3, 6
-// and 12 seconds, and the reply is read from its LAST text block. Its own copy,
+// user turn, at most MAX_CONTINUATIONS times), a 429, 503 or 529 (or an
+// "overloaded", "rate limit" or "capacity" message) is retried after 3, 6 and
+// 12 seconds, and the reply is read from its LAST text block. Its own copy,
 // until F6, returned the FIRST text block before it looked at `pause_turn`,
 // so a web search that said "Let me check…" before searching handed that
 // sentence to the JSON parser; and it never retried.

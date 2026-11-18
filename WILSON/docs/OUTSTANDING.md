@@ -5677,6 +5677,10 @@ Terminal's change requests (MEASURED by grep, comments stripped; `otterRoutes.te
 - **F6-15 · An agent generation's failure is never drawn.** `agentGenerateCourse` and `agentGenerateSingleSubject` write
   their error under a temporary slug no row shows, and do not rethrow. Older.
 - **F6-16 · The stub fill reads its stub twice** (`stubPre` for the title, then `stubData`). Older, kept.
+- **F6-17 · The probes measure a prompt D.O.G. never sends.** `scripts/probes/deck-latency.mjs` and
+  `generation-e2e.mjs` import `DEFAULT_FULL_DECK_OUTPUT_FORMAT` and `DEFAULT_FULL_DECK_INSTRUCTIONS` (which carry
+  `prompts/rules.js`), and no request carries those (REV-04): a latency measured there is of another prompt than the
+  full deck sends. MEASURED by reading. `scripts/` is outside F6's line.
 - **F6-18 · The two topic paths now set "Sending request…" again just before the model call** (the pipeline's phase,
   which only the stub fill used to set): after slow duplicate reads the label steps back from "Searching the web…" for
   under a second. Nothing sent or saved differs. Round 1 (1E), LOW, F6's.
@@ -5690,3 +5694,9 @@ Terminal's change requests (MEASURED by grep, comments stripped; `otterRoutes.te
   strategy 2, the geometry correction calls, header variants, the import rule's lower bound), `rewritePrompts.test.js`
   15 of 15 of `rewriteRequest`, and the pipeline's `signal` and `stubSlug` passing and its second "Cancelled" check are
   unpinned. Round 1 (1D, 1E), LOW.
+- **F6-33 · A library switch does not retire a course load in flight.** Since round 2 only the latest pick fills the
+  screen (`softwareReqRef`), but the library-switch effect does not count as a pick: a course load from the old library
+  that answers after the switch still caches under its old slug (nothing is drawn). Older. Round 2 (2A), LOW.
+- **F6-34 · One wrapper, two readers of its reply.** The generators read the last text block through
+  `extractTextAndCitations` (cite tags stripped), the Validator through `textFromMessage` (not stripped), so a cited
+  Validator reply keeps its `<cite>` tags (as its first-block read did before F6). Round 2 (2B), LOW.
