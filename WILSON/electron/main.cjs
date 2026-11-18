@@ -10,6 +10,9 @@ const sharp = require('sharp');
 const { loadEnv } = require('./env.cjs');
 const { initMainSentry } = require('./sentry.cjs');
 const { resolveContainedFilePath, isPathInside, checkFolderRootShape, dataFilePath } = require('./pathContainment.cjs');
+// F9 (A5): every file this server answers with goes through sendMedia, and a
+// media route's first line is requireSameOrigin (electron/mediaSend.cjs).
+const { safeMediaContentType, sendMedia, requireSameOrigin } = require('./mediaSend.cjs');
 // Demo sprint (2026-09-10): the local demo folder — one user-chosen folder
 // that holds the whole signed-out demo. See localDemoRoot.cjs.
 const { makeLocalDemoRoot, checkDemoFolderShape, storedRootAllowed } = require('./localDemoRoot.cjs');
@@ -480,19 +483,9 @@ const VIDEO_EXTENSIONS = new Set([
 ]);
 function isVideoExt(ext) { return VIDEO_EXTENSIONS.has((ext || '').toLowerCase()); }
 
-// 🚨 Session 40: never echo a client-supplied Content-Type from a route this
-// app's own renderer shares an origin with. `mime_type` is written verbatim
-// from req.body, and text/html served from 127.0.0.1:<port> executes as script
-// on WILSON's origin. Only obvious media passes; everything else becomes an
-// opaque download, which a <video> ignores and a browser cannot run.
-const SAFE_MEDIA_TYPE_RE = /^(video|audio|image)\/[a-z0-9][a-z0-9.+-]*$/;
-function safeMediaContentType(mime) {
-  const m = String(mime || '').trim().toLowerCase();
-  // image/svg+xml is scriptable in its own right, so it is excluded even though
-  // it matches the media shape.
-  if (m === 'image/svg+xml') return 'application/octet-stream';
-  return SAFE_MEDIA_TYPE_RE.test(m) ? m : 'application/octet-stream';
-}
+// 🚨 Session 40: never echo a client-supplied Content-Type (safeMediaContentType:
+// since F9 in electron/mediaSend.cjs, required at the top of this file, where
+// sendMedia applies it to every file this server sends).
 
 // 🚨 Session 40: the managed-file id is CLIENT-CHOSEN on create
 // (`id: req.body.id || uuidv4()`), and the thumbnail cache is ONE flat
@@ -3828,6 +3821,9 @@ function startLocalServer(distPath) {
     });
 
     expressApp.get('/api/rabbit/projects/:projectId/files/:id/download', (req, res) => {
+      // F9: the renderer's own read only, refused BEFORE the bundle is read
+      // or the 'downloaded' event below is written (mediaSend.cjs).
+      if (!requireSameOrigin(req, res)) return;
       const bundle = readRabbitBundle(req.params.projectId);
       if (!bundle) return rabbitNotFound(res);
       const file = bundle.files.find(f => f.id === req.params.id);
@@ -3861,22 +3857,15 @@ function startLocalServer(distPath) {
       } catch (e) {
         console.warn('download not logged:', e?.message || e);
       }
-      // 🚨 S40: the same guard the new stream route carries, applied here
-      // because it is the identical shape one route over — `mime_type` is
-      // client-writable and this app's own renderer is served from
-      // 127.0.0.1:<port>, so text/html returned here would execute on WILSON's
-      // origin. Found while reviewing the stream route; leaving a known,
-      // identical hole in the neighbour is the S35 lesson ("guarding a field
-      // means guarding whatever outranks it") pointed the other way.
-      res.setHeader('Content-Type', safeMediaContentType(file.mime_type));
-      res.setHeader('X-Content-Type-Options', 'nosniff');
       // S4a: `?download=1` makes it an ATTACHMENT under the file's own name
       // (fileReads.cjs, served for real in fileReads.test.js).
       require('./fileReads.cjs').attachWhenAsked(req, res, file.name, require('./localMedia.cjs').contentDisposition);
-      // `dotfiles: 'allow'`: under a dot-folder (a demo folder's
-      // `.wilson\rabbit-data`) `send` refused the absolute path and the read
-      // answered "internal error" (S4a review round 2, R2-SEC-05, measured).
-      res.sendFile(diskPath, { dotfiles: 'allow' });
+      // 🚨 S40: `mime_type` is client-writable and this app's own renderer is
+      // served from 127.0.0.1:<port>, so text/html returned here would execute
+      // on WILSON's origin: sendMedia types it through the media allowlist,
+      // nosniffs it, says no-store (TPN-CONT-003) and reads through a
+      // dot-folder (S4a R2-SEC-05; F9: mediaSend.cjs, mediaSend.test.js).
+      sendMedia(res, diskPath, { mime: file.mime_type, failText: 'stream failed' });
     });
 
     // ── Post-overhaul S4a: stream a project file's bytes, with Range ─────────
@@ -4285,6 +4274,10 @@ function startLocalServer(distPath) {
     // case here, not a fault. Without the callback those surface as unhandled
     // stream errors.
     expressApp.get('/api/rabbit/projects/:projectId/managed-files/:id/stream', (req, res) => {
+      // F9: the renderer's own read only (its <video>, the probe's hidden
+      // <video> and FilePreviewDialog are same-origin), refused BEFORE the
+      // bundle is read or the 'downloaded' event below is written.
+      if (!requireSameOrigin(req, res)) return;
       const bundle = readRabbitBundle(req.params.projectId);
       if (!bundle) return rabbitNotFound(res);
       // 🚨 !deleted_at, MATCHING THE LIST ROUTE. FileManager's delete is the
@@ -4355,23 +4348,19 @@ function startLocalServer(distPath) {
       //
       // An allowlist rather than a denylist: anything that is not obviously
       // media is served as an opaque download, which a <video> ignores and a
-      // browser cannot execute.
-      res.setHeader('Content-Type', safeMediaContentType(mf.mime_type));
-      res.setHeader('X-Content-Type-Options', 'nosniff');
-      // `dotfiles: 'allow'` (post-overhaul S4a review round 2, R2-SEC-05,
-      // measured): `send` refused any absolute path through a dot-folder —
-      // a demo folder's `.wilson\rabbit-data` — and the read answered 500.
-      // Containment is resolveManagedFileDiskPath's, already decided above.
-      res.sendFile(diskPath, { dotfiles: 'allow' }, (err) => {
-        if (!err) return;
-        // A cancelled range request is the normal shape of video playback.
-        if (res.headersSent || res.writableEnded) return;
-        res.status(500).json({ error: 'stream failed' });
-      });
+      // browser cannot execute. sendMedia applies it (safeMediaContentType),
+      // with nosniff, no-store, Range, the cancel-tolerant callback a seeking
+      // <video> needs, and `dotfiles: 'allow'` (S4a R2-SEC-05: a demo folder's
+      // `.wilson\rabbit-data`); containment is resolveManagedFileDiskPath's,
+      // already decided above.
+      sendMedia(res, diskPath, { mime: mf.mime_type, failText: 'stream failed' });
     });
 
     // Thumbnail endpoint — generates + caches a 256px-wide JPEG via sharp
     expressApp.get('/api/rabbit/projects/:projectId/managed-files/:id/thumbnail', async (req, res) => {
+      // F9: a poster is the renderer's own read (FileThumbnail's <img>, the
+      // probe's HEAD through localFetch); sent by sendMedia (F3-01).
+      if (!requireSameOrigin(req, res)) return;
       const bundle = readRabbitBundle(req.params.projectId);
       if (!bundle) return rabbitNotFound(res);
       const mf = (bundle.managedFiles || []).find(f => f.id === req.params.id);
@@ -4392,10 +4381,7 @@ function startLocalServer(distPath) {
       const thumbPath = resolveContainedFilePath(getThumbCacheDir(), `${mf.id}.jpg`);
       if (!thumbPath) return res.status(400).json({ error: 'invalid thumbnail path' });
       // Serve cached
-      if (fs.existsSync(thumbPath)) {
-        res.setHeader('Content-Type', 'image/jpeg');
-        return res.sendFile(thumbPath);
-      }
+      if (fs.existsSync(thumbPath)) return sendMedia(res, thumbPath, { mime: 'image/jpeg' });
       // Generate from source file
       const root = resolveProjectFolderRoot(bundle);
       if (!root) return res.status(404).json({ error: 'no file root configured' });
@@ -4424,8 +4410,7 @@ function startLocalServer(distPath) {
           if (!out.ok) {
             return res.status(422).json({ error: 'could not decode a frame', code: out.reason });
           }
-          res.setHeader('Content-Type', 'image/jpeg');
-          return res.sendFile(thumbPath);
+          return sendMedia(res, thumbPath, { mime: 'image/jpeg' });
         } catch (err) {
           console.error('video thumbnail failed:', err?.message || err);
           return res.status(500).json({ error: 'thumbnail generation failed' });
@@ -4434,8 +4419,7 @@ function startLocalServer(distPath) {
 
       try {
         await sharp(srcPath).resize(256).jpeg({ quality: 80 }).toFile(thumbPath);
-        res.setHeader('Content-Type', 'image/jpeg');
-        res.sendFile(thumbPath);
+        sendMedia(res, thumbPath, { mime: 'image/jpeg' });
       } catch (err) {
         console.error('thumbnail generation failed:', err.message);
         res.status(500).json({ error: 'thumbnail generation failed' });
@@ -4514,6 +4498,10 @@ function startLocalServer(distPath) {
     // ── Asset thumbnail endpoint ──
     // Serves a cached 512px JPEG thumbnail for an asset's thumbnail_image.
     expressApp.get('/api/rabbit/projects/:projectId/assets/:id/thumbnail', async (req, res) => {
+      // F9: the renderer's own <img> only; sent by sendMedia — through the
+      // demo folder's dot-folder (F3-01) and no-store, where this route said
+      // `public, max-age=60` (TPN-CONT-003's re-audit named those lines).
+      if (!requireSameOrigin(req, res)) return;
       const bundle = readRabbitBundle(req.params.projectId);
       if (!bundle) return rabbitNotFound(res);
       const asset = (bundle.assets || []).find(a => a.id === req.params.id);
@@ -4525,11 +4513,7 @@ function startLocalServer(distPath) {
       const thumbPath = dataFileOrThrow(getThumbCacheDir(), `asset-${asset.id}`, '.jpg', 'asset');
 
       // Serve cached version if it exists and source hasn't changed
-      if (fs.existsSync(thumbPath)) {
-        res.setHeader('Content-Type', 'image/jpeg');
-        res.setHeader('Cache-Control', 'public, max-age=60');
-        return res.sendFile(thumbPath);
-      }
+      if (fs.existsSync(thumbPath)) return sendMedia(res, thumbPath, { mime: 'image/jpeg' });
 
       // Generate from source
       const srcPath = asset.thumbnail_image;
@@ -4541,9 +4525,7 @@ function startLocalServer(distPath) {
 
       try {
         await sharp(srcPath).resize(512).jpeg({ quality: 85 }).toFile(thumbPath);
-        res.setHeader('Content-Type', 'image/jpeg');
-        res.setHeader('Cache-Control', 'public, max-age=60');
-        res.sendFile(thumbPath);
+        sendMedia(res, thumbPath, { mime: 'image/jpeg' });
       } catch (err) {
         console.error('asset thumbnail generation failed:', err.message);
         res.status(500).json({ error: 'thumbnail generation failed' });
@@ -4554,6 +4536,7 @@ function startLocalServer(distPath) {
     for (const etype of ['scenes', 'shots', 'levels', 'experiences']) {
       const singular = etype.replace(/s$/, ''); // 'scene', 'shot', 'level', 'experience'
       expressApp.get(`/api/rabbit/projects/:projectId/${etype}/:id/thumbnail`, async (req, res) => {
+        if (!requireSameOrigin(req, res)) return; // F9: as the asset thumbnail above
         const bundle = readRabbitBundle(req.params.projectId);
         if (!bundle) return rabbitNotFound(res);
         const list = bundle[etype] || [];
@@ -4563,11 +4546,7 @@ function startLocalServer(distPath) {
 
         const thumbPath = dataFileOrThrow(getThumbCacheDir(), `${singular}-${entity.id}`, '.jpg', singular); // (review 2, H2)
 
-        if (fs.existsSync(thumbPath)) {
-          res.setHeader('Content-Type', 'image/jpeg');
-          res.setHeader('Cache-Control', 'public, max-age=60');
-          return res.sendFile(thumbPath);
-        }
+        if (fs.existsSync(thumbPath)) return sendMedia(res, thumbPath, { mime: 'image/jpeg' });
 
         const srcPath = entity.thumbnail_image;
         if (!fs.existsSync(srcPath)) return res.status(410).json({ error: 'source image missing' });
@@ -4575,9 +4554,7 @@ function startLocalServer(distPath) {
 
         try {
           await sharp(srcPath).resize(512).jpeg({ quality: 85 }).toFile(thumbPath);
-          res.setHeader('Content-Type', 'image/jpeg');
-          res.setHeader('Cache-Control', 'public, max-age=60');
-          res.sendFile(thumbPath);
+          sendMedia(res, thumbPath, { mime: 'image/jpeg' });
         } catch (err) {
           console.error(`${singular} thumbnail generation failed:`, err.message);
           res.status(500).json({ error: 'thumbnail generation failed' });
@@ -4913,6 +4890,8 @@ function startLocalServer(distPath) {
     // guard, BEFORE the static/SPA fallback.
     require('./localMedia.cjs').mountLocalMedia(expressApp, {
       getRoot: getLocalMediaRoot, resolveContainedFilePath, safeMediaContentType,
+      // F9: its bytes answer the renderer only (its <video>, <img> and <a>).
+      sameOriginOnly: requireSameOrigin,
       log: (line) => console.info(line),
       movesDir: () => path.join(getRabbitDataDir(), 'moves'),
       writeJsonAtomic,

@@ -51,6 +51,9 @@
 
 const fs = require('fs');
 const path = require('path');
+// F9: the one media sender; contentDisposition moved there and is re-exported
+// below (networkShareOps.cjs and main.cjs ask this file for it).
+const { sendMedia, contentDisposition } = require('./mediaSend.cjs');
 
 const ROUTE_BASE = '/api/rabbit/local-media';
 const KEY_MAX = 1024;
@@ -95,14 +98,6 @@ function checkMediaKey(key) {
 function mimeForLeaf(leaf) {
   const ext = String(leaf || '').split('.').pop().toLowerCase();
   return MIME[ext] || 'application/octet-stream';
-}
-
-/** attachment; filename="<ascii>"; filename*=UTF-8''<utf8> — both forms, so
- *  the browser's own download manager gets the real name whatever it reads. */
-function contentDisposition(name) {
-  const clean = String(name || 'download').replace(/[\r\n"\\/]/g, '_').slice(0, 200) || 'download';
-  const ascii = clean.replace(/[^\x20-\x7e]/g, '_');
-  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(clean)}`;
 }
 
 function lowerNoTrail(p) {
@@ -152,6 +147,10 @@ function mountLocalMedia(expressApp, {
   getRoot,
   resolveContainedFilePath,
   safeMediaContentType = (m) => m,
+  // F9: `(req, res) => boolean`, answering a refused request itself — main
+  // passes mediaSend.cjs's requireSameOrigin, so the bytes answer the
+  // renderer only. Optional, so a caller that serves no window can mount it.
+  sameOriginOnly = null,
   log = () => {},
   movesDir = null,
   writeJsonAtomic = null,
@@ -225,8 +224,9 @@ function mountLocalMedia(expressApp, {
   });
 
   // MO1 (MOTH §1.8): after a copy-up commits, the holding desktop keeps its copy 30 days. It moves into
-  // <root>/.trash, where no key can name it (checkMediaKey refuses a dot-led segment), and the journal
-  // goes first, so a crash between the two is finished at the next start.
+  // <root>/.trash, where no key can name it (a key's first segment is `projects`; F9: checkMediaKey itself
+  // admits a dot-led segment, and only the GET refuses one), and the journal goes first, so a crash
+  // between the two is finished at the next start.
   const retireJournal = (op) => path.join(movesDir(), `retire-${op}.json`);
   function finishRetire(root, journal) {
     // A journal may come from a folder someone handed over: its name must be a bare name, or a rename
@@ -356,24 +356,30 @@ function mountLocalMedia(expressApp, {
   });
 
   expressApp.get(`${ROUTE_BASE}/*key`, (req, res) => {
+    if (sameOriginOnly && !sameOriginOnly(req, res)) return;
     const at = locate(req, res);
     if (!at) return;
     let stat;
     try { stat = fs.statSync(at.diskPath); } catch { return res.status(404).json({ error: 'media not found' }); }
     if (!stat.isFile()) return res.status(404).json({ error: 'media not found' });
-    const headers = {
-      'Content-Type': safeMediaContentType(mimeForLeaf(at.leaf)),
-      'X-Content-Type-Options': 'nosniff',
-      'Cache-Control': 'private, max-age=0',
-    };
+    // F9: what `dotfiles: 'deny'` refused that a key can name — a dot-led
+    // segment (checkMediaKey admits one) — is refused here, with deny's own
+    // answer. `deny` also judged the ROOT's ancestors, so a demo folder kept
+    // under a dot-folder, or app data on Linux (~/.config), answered 403 for
+    // every read (mediaSend.test.js); sendMedia reads through them.
+    if (at.key.split('/').some((segment) => segment.startsWith('.'))) {
+      return res.status(403).json({ error: 'media read failed' });
+    }
     const download = typeof req.query.download === 'string' ? req.query.download : '';
-    if (download) headers['Content-Disposition'] = contentDisposition(download);
-    // sendFile (the `send` module) handles Range, HEAD and conditional GET;
-    // headers set here land before it picks a type, so ours wins.
-    res.sendFile(at.diskPath, { headers, dotfiles: 'deny', acceptRanges: true, cacheControl: false, lastModified: true }, (err) => {
-      if (!err) return;
-      if (res.headersSent || res.writableEnded) return;
-      res.status(err.status || 500).json({ error: 'media read failed' });
+    // sendMedia (the `send` module under it) handles Range, HEAD and
+    // conditional GET, types the bytes through the allowlist, nosniffs them
+    // and says no-store where this route said `private, max-age=0` — a
+    // value no measurement asked for, which let Chromium keep private
+    // footage in its disk cache (TPN-CONT-019's class).
+    sendMedia(res, at.diskPath, {
+      mime: safeMediaContentType(mimeForLeaf(at.leaf)),
+      attachmentName: download || null,
+      failText: 'media read failed',
     });
   });
 

@@ -47,6 +47,13 @@ const { classifySequence, SEQUENCE_EXTS: SEQUENCE_EXT_LIST } = require('./frameS
 const ffmpeg = require('./ffmpeg.cjs');
 const { resolveContainedFilePath } = require('./pathContainment.cjs');
 const { refuseToOpen } = require('./openPath.cjs');
+// F9 (A5): every byte these routes answer with goes through the one sender.
+// A poster is sent as before but for `send`'s own revalidating Cache-Control
+// (REVALIDATE: rabbitBins.routes.test.js pins that a poster is not no-store;
+// OUTSTANDING F9-01) — and now through a dot-folder too, so a poster in a
+// demo folder's `.wilson\rabbit-data\thumbnails` answers 200 (F3-01).
+const { sendMedia, REVALIDATE } = require('./mediaSend.cjs');
+const POSTER = Object.freeze({ mime: 'image/jpeg', cache: REVALIDATE });
 
 // ── Media tables ──────────────────────────────────────────────────────────────
 // The renderer carries the same tables in src/tools/rabbit_v0.1.0/bins/binMedia.js
@@ -946,7 +953,7 @@ function mountRabbitBins(expressApp, deps) {
     if (!row) return rabbitNotFound(res, 'bin-file');
     const thumbPath = resolveContainedFilePath(getThumbCacheDir(), thumbKeyFor(row.source_path, posterMtime(row)));
     if (!thumbPath) return res.status(400).json({ error: 'invalid thumbnail path' });
-    if (exists(thumbPath)) { res.setHeader('Content-Type', 'image/jpeg'); return res.sendFile(thumbPath); }
+    if (exists(thumbPath)) return sendMedia(res, thumbPath, POSTER);
     if (!(row.is_sequence ? isDir(row.source_path) : isFile(row.source_path))) {
       return res.status(410).json({ error: 'file missing on disk', code: 'offline' });
     }
@@ -969,8 +976,7 @@ function mountRabbitBins(expressApp, deps) {
           const buf = await sharp(source).resize(256, 256, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer();
           writePosterAtomically(thumbPath, buf);
         });
-        res.setHeader('Content-Type', 'image/jpeg');
-        return res.sendFile(thumbPath);
+        return sendMedia(res, thumbPath, POSTER);
       } catch (err) {
         if (!ffmpeg.hasFfmpeg()) return res.status(422).json({ error: 'could not read the image', code: 'undecodable' });
       }
@@ -981,8 +987,7 @@ function mountRabbitBins(expressApp, deps) {
     try {
       const out = await generateVideoThumbOnce(source, thumbPath);
       if (!out.ok) return res.status(422).json({ error: 'could not decode a frame', code: out.reason || 'no_frame' });
-      res.setHeader('Content-Type', 'image/jpeg');
-      return res.sendFile(thumbPath);
+      return sendMedia(res, thumbPath, POSTER);
     } catch (err) {
       console.error('bin thumbnail failed:', err?.message || err);
       return res.status(500).json({ error: 'thumbnail generation failed' });
@@ -1022,19 +1027,13 @@ function mountRabbitBins(expressApp, deps) {
       abs = seq.middle_frame_path;
     }
     if (!isFile(abs)) return res.status(410).json({ error: 'file missing on disk', code: 'offline' });
-    res.setHeader('Content-Type', safeMediaContentType(row.is_sequence ? guessMime(extOf(abs)) : (row.mime_type || guessMime(row.extension))));
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    // P8 (TPN-CONT-019): footage never lands in the window's HTTP cache.
-    // `cacheControl: false` only keeps send from writing its own header; a
-    // Cache-Control set here survives it (send sets one only when none is
-    // set), so these two are the gateway's BASE_HEADERS on the desktop's own
-    // streams.
-    res.setHeader('Cache-Control', 'no-store');
-    res.setHeader('Pragma', 'no-cache');
-    res.sendFile(path.resolve(abs), { acceptRanges: true, dotfiles: 'allow', cacheControl: false }, (err) => {
-      if (!err) return;
-      if (err.code === 'ECONNABORTED' || err.code === 'EPIPE' || res.headersSent) return;
-      res.status(err.status || 500).json({ error: 'could not read the file' });
+    // P8 (TPN-CONT-019): footage never lands in the window's HTTP cache —
+    // sendMedia's no-store and Pragma, the gateway's BASE_HEADERS on the
+    // desktop's own streams, with the allowlisted type, nosniff, Range and
+    // the cancel-tolerant callback (F9: this route's own copy, made general).
+    sendMedia(res, abs, {
+      mime: safeMediaContentType(row.is_sequence ? guessMime(extOf(abs)) : (row.mime_type || guessMime(row.extension))),
+      failText: 'could not read the file',
     });
   });
 
@@ -2130,7 +2129,7 @@ function mountCloudBins(expressApp, deps) {
       // route finds an offline row's. Nothing is made while it is out.
       const stored = keyTime(req.query?.mtime);
       const cached = stored ? resolveContainedFilePath(getThumbCacheDir(), thumbKeyFor(abs, stored)) : null;
-      if (cached && fs.existsSync(cached)) { res.setHeader('Content-Type', 'image/jpeg'); return res.sendFile(cached); }
+      if (cached && fs.existsSync(cached)) return sendMedia(res, cached, POSTER);
       return res.status(410).json({ error: 'file missing on this computer', code: 'offline' });
     }
     const ext = extOf(abs);
@@ -2141,7 +2140,7 @@ function mountCloudBins(expressApp, deps) {
     let { seq, thumbPath, gone } = await cloudPosterKey(abs, isSeq, req.query?.mtime);
     if (gone) return res.status(422).json({ error: 'not a sequence any more', code: 'no_frame' });
     if (!thumbPath) return res.status(400).json({ error: 'invalid thumbnail path' });
-    if (fs.existsSync(thumbPath)) { res.setHeader('Content-Type', 'image/jpeg'); return res.sendFile(thumbPath); }
+    if (fs.existsSync(thumbPath)) return sendMedia(res, thumbPath, POSTER);
     // A miss: only now is a sequence's folder read, to make its poster.
     if (isSeq && !seq) { seq = detectSequence(abs); if (!seq) return res.status(422).json({ error: 'not a sequence any more', code: 'no_frame' }); }
     const source = isSeq ? seq.middle_frame_path : abs;
@@ -2153,8 +2152,7 @@ function mountCloudBins(expressApp, deps) {
         const part = thumbPath + '.part';
         fs.writeFileSync(part, buf);
         fs.renameSync(part, thumbPath);
-        res.setHeader('Content-Type', 'image/jpeg');
-        return res.sendFile(thumbPath);
+        return sendMedia(res, thumbPath, POSTER);
       } catch (err) {
         if (!ffmpeg.hasFfmpeg()) return res.status(422).json({ error: 'could not read the image', code: 'undecodable' });
       }
@@ -2163,8 +2161,7 @@ function mountCloudBins(expressApp, deps) {
     try {
       const out = await generateVideoThumbOnce(source, thumbPath);
       if (!out.ok) return res.status(422).json({ error: 'could not decode a frame', code: out.reason || 'no_frame' });
-      res.setHeader('Content-Type', 'image/jpeg');
-      return res.sendFile(thumbPath);
+      return sendMedia(res, thumbPath, POSTER);
     } catch (err) {
       return res.status(500).json({ error: 'thumbnail generation failed' });
     }
@@ -2223,20 +2220,9 @@ function mountCloudBins(expressApp, deps) {
       abs = seq.middle_frame_path;
     }
     if (!(await statKind(abs, 'file'))) return res.status(410).json({ error: 'file missing on this computer', code: 'offline' });
-    res.setHeader('Content-Type', safeMediaContentType(guessMime(extOf(abs))));
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    // P8 (TPN-CONT-019): footage never lands in the window's HTTP cache.
-    // `cacheControl: false` only keeps send from writing its own header; a
-    // Cache-Control set here survives it (send sets one only when none is
-    // set), so these two are the gateway's BASE_HEADERS on the desktop's own
-    // streams.
-    res.setHeader('Cache-Control', 'no-store');
-    res.setHeader('Pragma', 'no-cache');
-    res.sendFile(path.resolve(abs), { acceptRanges: true, dotfiles: 'allow', cacheControl: false }, (err) => {
-      if (!err) return;
-      if (err.code === 'ECONNABORTED' || err.code === 'EPIPE' || res.headersSent) return;
-      res.status(err.status || 500).json({ error: 'could not read the file' });
-    });
+    // P8 (TPN-CONT-019): footage never lands in the window's HTTP cache —
+    // sendMedia's no-store and Pragma, as the signed-out stream above.
+    sendMedia(res, abs, { mime: safeMediaContentType(guessMime(extOf(abs))), failText: 'could not read the file' });
   });
 }
 

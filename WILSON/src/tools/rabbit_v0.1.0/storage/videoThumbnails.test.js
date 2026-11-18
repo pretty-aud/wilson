@@ -970,9 +970,14 @@ describe('wiring: the Express routes exist and stream correctly', () => {
     // A hand-rolled createReadStream does NOT support Range unless it is
     // implemented explicitly, and without Range a <video> cannot seek and the
     // browser pulls the whole file first. On a 5 GB master that is a hang.
+    // F9: through the one sender, mediaSend.cjs — res.sendFile with
+    // acceptRanges (its 206 and If-Range are served in mediaSend.test.js).
     const route = sliceRoute(main, 'managed-files/:id/stream')
-    expect(route).toMatch(/res\.sendFile\(diskPath/)
+    expect(route).toMatch(/sendMedia\(res, diskPath/)
     expect(route).not.toMatch(/createReadStream/)
+    const sender = executable(readRepo('electron', 'mediaSend.cjs'))
+    expect(sender).toMatch(/res\.sendFile\(path\.resolve\(String\(diskPath\)\), \{ acceptRanges: true/)
+    expect(sender).not.toMatch(/createReadStream/)
   })
 
   it('🚨 AS-2.9: the read is logged, with touch:false, and THROTTLED', () => {
@@ -1244,12 +1249,17 @@ describe('review fixes — S40', () => {
     // The renderer is served from http://127.0.0.1:<port> by this same Express
     // app, so bytes returned as text/html execute as script on WILSON's own
     // origin — with the Supabase session in that origin's localStorage.
+    // F9: the route hands the row's type to sendMedia (mediaSend.cjs), which
+    // types every file it sends through the allowlist and nosniffs it — served
+    // in mediaSend.test.js (text/html and SVG answer application/octet-stream).
     const route = sliceRoute(main, "managed-files/:id/stream'")
-    expect(route).toMatch(/safeMediaContentType\(mf\.mime_type\)/)
-    expect(route).toMatch(/X-Content-Type-Options', 'nosniff'/)
-    expect(route).not.toMatch(/setHeader\('Content-Type', mf\.mime_type/)
+    expect(route).toMatch(/sendMedia\(res, diskPath, \{ mime: mf\.mime_type/)
+    expect(route).not.toMatch(/setHeader\('Content-Type'/)
+    const sender = executable(readRepo('electron', 'mediaSend.cjs'))
+    expect(sender).toMatch(/res\.setHeader\('Content-Type', safeMediaContentType\(mime\)\)/)
+    expect(sender).toMatch(/X-Content-Type-Options', 'nosniff'/)
     // SVG matches the media shape and is scriptable, so it is excluded by name.
-    expect(main).toMatch(/if \(m === 'image\/svg\+xml'\) return 'application\/octet-stream'/)
+    expect(sender).toMatch(/if \(m === 'image\/svg\+xml'\) return 'application\/octet-stream'/)
   })
 
   it('🚨 the stream route refuses a SOFT-DELETED row', () => {
