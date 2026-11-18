@@ -612,3 +612,62 @@ export function slugify(name) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
 }
+
+// ── The one response reader (F6, B5) ─────────────────────────────────────────
+//
+// 🚨 `otterFetch` resolves for EVERY status (fetch's contract; in cloud mode it
+// manufactures the Response itself), and `res.json()` throws on any body that
+// is not JSON: the local server's HTML error page, an empty answer. So a
+// `res.json()` read before (or without) `res.ok` either turns the authored
+// refusal into `Unexpected token '<'`, or hands a JSON refusal (`{ error }`)
+// on as data: cached as a course, rendered as a subject, saved on the undo
+// stack. Until F6 the house rule lived in three private copies (otterSharing's
+// readBody and shareCall, ShareCourseDialog's readBody, petKnowledge's
+// readJson) and 82 reads skipped it. Every read in the files F6 converted
+// takes one of the four shapes below; otterRoutes.test.js pins them and bans
+// `.json()` from those files. Left as they were, recorded in OUTSTANDING:
+// petKnowledge.js's readJson (it already reads the status first) and the
+// otterFetch reads outside O.T.T.E.R.'s folder (F6-09, F6-10).
+
+/** A response body, read without letting a non-JSON one destroy the message:
+ *  the parsed JSON, or null for an empty body, a body that is not JSON, or no
+ *  body reader at all. Never throws. Sites that hold `res` check `res.ok`. */
+export async function readBody(res) {
+  const text = typeof res?.text === 'function' ? await res.text().catch(() => '') : ''
+  if (!text) return null
+  try { return JSON.parse(text) } catch { return null }
+}
+
+/** The body of an answer that succeeded, else null (a refusal, an empty or a
+ *  non-JSON body): for reads that fall back, `.then(okBody)`. */
+export async function okBody(res) {
+  return res?.ok ? readBody(res) : null
+}
+
+/** The body of an answer that succeeded, else a rejection in the refusal's own
+ *  words: for reads whose failure must stop the caller, `.then(needBody)`. */
+export async function needBody(res) {
+  const data = await readBody(res)
+  if (res?.ok && data != null) return data
+  throw new Error(refusalWords(data) || `That could not be read (HTTP ${res?.status ?? 0}).`)
+}
+
+/** One call, read the house way, in shareCall's shape: resolves
+ *  { ok, status, data, text } for every outcome but an abort (rethrown);
+ *  `text` is the refusal's own words or the thrown call's message, else null. */
+export async function otterCall(fetchImpl, url, init) {
+  let res
+  try {
+    res = await fetchImpl(url, init)
+  } catch (err) {
+    if (err?.name === 'AbortError') throw err
+    return { ok: false, status: 0, data: null, text: err?.message || null }
+  }
+  const data = await readBody(res)
+  if (res?.ok) return { ok: true, status: res.status, data, text: null }
+  return { ok: false, status: res?.status ?? 0, data, text: refusalWords(data) }
+}
+
+function refusalWords(data) {
+  return typeof data?.error === 'string' && data.error.trim() ? data.error : null
+}

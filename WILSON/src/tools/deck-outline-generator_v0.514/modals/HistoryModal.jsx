@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Check, ChevronDown, FolderOpen } from 'lucide-react';
 import { Dialog, Tabs, Button, Select } from '../../../ui';
-import { correctGeometryIconOrder } from '../parser';
+import { splitSlides } from '../parser';
 import { deriveDeckTitle, exportHistory } from '../export';
 
 const HistoryModal = ({ isOpen, onClose, history, onImport, uploadedFileName, onExportWithResolver, onExportVis, onExportVisWithResolver, onImportThemes, enableImgPromptExport, setEnableImgPromptExport, imgPromptModel, setImgPromptModel, onGenerateImgPrompts, isGeneratingImgPrompts, imgPromptError, onExportVisualAssets, hasPlacedAssets, exportDirHandle, exportFolderPath, onPickExportFolder, onClearExportFolder }) => {
@@ -69,91 +69,18 @@ const HistoryModal = ({ isOpen, onClose, history, onImport, uploadedFileName, on
   const handleImport = () => {
     if (!importText.trim()) return;
     
-    // Parse the DECKOUTLINE markdown into individual pages
-    // Try format 1: SLIDE #X — [LAYOUT TYPE: Layout Name]
-    let slidePattern = /═{20,}\s*\nSLIDE\s*#(\d+|X)\s*[—–\-]+\s*\[LAYOUT TYPE:\s*([^\]]+)\]\s*\n═{20,}\s*\n([\s\S]*?)(?=═{20,}\s*\nSLIDE\s*#|$)/gi;
-    
-    const newHistory = [];
-    let match;
-    
-    while ((match = slidePattern.exec(importText)) !== null) {
-      const pageNum = match[1];
-      const layout = match[2].trim();
-      const contentBody = match[3].trim();
-      
-      const titleMatch = contentBody.match(/▸ TITLE:\s*\n([^\n▸]+)/) || contentBody.match(/▸ TITLE:\s+([^\n▸]+)/);
-      const title = titleMatch ? titleMatch[1].trim() : 'Untitled';
-      
-      // Reconstruct in simpler format
-      const fullContent = correctGeometryIconOrder(`SLIDE #${pageNum} — ${layout}
-═══════════════════════════════════════════════════════════════
+    // Parse the DECKOUTLINE markdown into individual pages. The import's own
+    // reading of the slide format lives in parser.js (splitSlides, 'import';
+    // F6, A2), beside generation's; what each accepts is pinned there.
+    const newHistory = splitSlides(importText, { as: 'import' }).map(page => ({
+      id: Date.now() + Math.random() * 1000,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      layout: page.layout,
+      pageNum: page.pageNum,
+      title: page.title,
+      output: page.content
+    }));
 
-${contentBody}
-
-═══════════════════════════════════════════════════════════════`);
-
-      newHistory.push({
-        id: Date.now() + Math.random() * 1000,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        layout: layout,
-        pageNum: pageNum,
-        title: title,
-        output: fullContent
-      });
-    }
-
-    // Try format 2: SLIDE #X — Layout Name (no brackets)
-    if (newHistory.length === 0) {
-      slidePattern = /SLIDE\s*#(\d+|X)\s*[—–\-]+\s*([^\n═]+)\s*\n═{20,}\s*\n([\s\S]*?)(?=SLIDE\s*#\d|$)/gi;
-
-      while ((match = slidePattern.exec(importText)) !== null) {
-        const pageNum = match[1];
-        const layout = match[2].trim();
-        const contentBody = match[3].trim();
-
-        const titleMatch = contentBody.match(/▸ TITLE:\s*\n([^\n▸]+)/) || contentBody.match(/▸ TITLE:\s+([^\n▸]+)/);
-        const title = titleMatch ? titleMatch[1].trim() : 'Untitled';
-
-        const fullContent = correctGeometryIconOrder(`SLIDE #${pageNum} — ${layout}
-═══════════════════════════════════════════════════════════════
-
-${contentBody}
-
-═══════════════════════════════════════════════════════════════`);
-
-        newHistory.push({
-          id: Date.now() + Math.random() * 1000,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          layout: layout,
-          pageNum: pageNum,
-          title: title,
-          output: fullContent
-        });
-      }
-    }
-    
-    // Fallback: if no matches found, try single slide parse
-    if (newHistory.length === 0 && importText.includes('SLIDE #')) {
-      // Try format 1
-      let headerMatch = importText.match(/SLIDE\s*#(\d+|X)\s*[—–\-]+\s*\[LAYOUT TYPE:\s*([^\]]+)\]/i);
-      // Try format 2
-      if (!headerMatch) {
-        headerMatch = importText.match(/SLIDE\s*#(\d+|X)\s*[—–\-]+\s*([^\n═]+)/i);
-      }
-      const titleMatch = importText.match(/▸ TITLE:\s*\n([^\n▸]+)/) || importText.match(/▸ TITLE:\s+([^\n▸]+)/);
-      
-      if (headerMatch) {
-        newHistory.push({
-          id: Date.now() + Math.random() * 1000,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          layout: headerMatch[2].trim(),
-          pageNum: headerMatch[1],
-          title: titleMatch ? titleMatch[1].trim() : 'Untitled',
-          output: correctGeometryIconOrder(importText.trim())
-        });
-      }
-    }
-    
     if (newHistory.length > 0) {
       onImport(newHistory);
       

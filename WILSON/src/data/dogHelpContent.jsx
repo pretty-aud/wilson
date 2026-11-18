@@ -394,8 +394,9 @@ export function DogHelpContent({ helpPage, theme }) {
           <div className={T.card}>
             <h4 className={T.cardTitle}>Generation rules</h4>
             <p className={T.paraSpaced}>
-              These are detailed instructions included in the user prompt that specify exactly how slides should be formatted, what sections to include, and what rules to follow for different layout types.
-              This is where the actual output structure is defined.
+              These are the instructions sent with every new single slide or full deck (one box for each), after your documents and page request: how slides are formatted, what sections to include, and the rules for each layout type.
+              Where the box says {'{{EXPORT SCHEMA}}'}, the matching export schema (Output format tab) is put in; remove that mark and no schema is sent. Both start as D.O.G.'s own instructions; an edit is sent from the next generation, until you reset it or WILSON restarts.
+              Regenerating a page uses D.O.G.'s built-in regeneration rules, not these boxes.
             </p>
             <div className="mt-3 space-y-2">
               <div>
@@ -447,7 +448,7 @@ export function DogHelpContent({ helpPage, theme }) {
               <li>2. Your <span className={T.em}>uploaded documents</span> are included as context</li>
               <li>3. Your <span className={T.em}>deck context and guidelines</span> from the main interface are added</li>
               <li>4. The selected <span className={T.em}>layout type</span> and <span className={T.em}>page request</span> are specified</li>
-              <li>5. <span className={T.em}>Generation rules</span> with the output format template are appended</li>
+              <li>5. <span className={T.em}>Generation rules</span> are appended, with the export schema in place of {'{{EXPORT SCHEMA}}'}</li>
               <li>6. The AI generates content following all these instructions</li>
             </ol>
           </div>
@@ -474,21 +475,21 @@ export function DogHelpContent({ helpPage, theme }) {
       <section>
         <h3 className={T.sectionTitle}>Understanding output format</h3>
         <p className={T.body}>
-          Output formats define the markdown schema used when exporting slides. The system parses generated content based on these patterns.
-          All format schemas are accessible in the Settings panel under the Format tab as collapsible sections.
+          Output formats define the slide structure D.O.G. asks the AI for, which is also the structure of the exported files; the parser reads that structure back.
+          They are in the Settings panel under the Output format tab. The single page and full deck schemas are sent with each new slide or deck: edit them with care, because the parser and the exports depend on the headers, the ═══ delimiters and the &#9656; markers. The visual deck and image prompt schemas show the layout of files D.O.G. writes itself, and are read-only.
         </p>
         <div className="space-y-3">
           <div className={T.card}>
             <h4 className={T.cardTitleTight}>Single page export schema</h4>
             <p className={T.para}>
-              Template for individual slide exports. Each slide uses this structure.
+              The format each new single slide is asked to follow, and so the structure of its export. {'{{SLIDE NUMBER}}'} and {'{{LAYOUT NAME}}'} are filled in for the slide.
             </p>
-            <p className={T.hint}><span className={T.accent}>Critical elements:</span> SLIDE #[NUMBER] — [Layout Name] header, ═══ delimiters, and all six &#9656; section markers must be present for the parser to work correctly.</p>
+            <p className={T.hint}><span className={T.accent}>Critical elements:</span> The SLIDE # header, the ═══ delimiters and all seven &#9656; section markers must be present for the parser to work correctly.</p>
           </div>
           <div className={T.card}>
             <h4 className={T.cardTitleTight}>Full deck export schema</h4>
             <p className={T.para}>
-              Template showing how multiple slides are concatenated in a full deck export. Each slide follows the single page format, separated by delimiters.
+              The format each new full deck is asked to follow, and so the structure of its export: multiple slides, each in the single page format, separated by delimiters.
             </p>
             <p className={T.hint}><span className={T.accent}>Critical elements:</span> Consistent delimiter pattern between slides (═══════), sequential slide numbering format.</p>
           </div>
@@ -504,7 +505,7 @@ export function DogHelpContent({ helpPage, theme }) {
           <div className={T.card}>
             <h4 className={T.cardTitleTight}>Image prompt export schema</h4>
             <p className={T.para}>
-              Template showing the markdown output format for generated image prompts. Each asset includes title, aspect ratio, and the full prompt text.
+              The layout of the image prompts file D.O.G. writes from the AI's prompts: each asset's title, aspect ratio and prompt. Read-only.
             </p>
             <p className={T.hint}><span className={T.accent}>How to use:</span> This schema defines how the DECKNAME_IMG_PROMPTS.md file is structured. Assets are grouped by slide number with formatted prompt blocks.</p>
           </div>
@@ -623,7 +624,7 @@ export function DogHelpContent({ helpPage, theme }) {
             <p className={T.para}>
               Image prompt system prompts can be customized in Settings &rarr; Prompts tab &rarr; "Visual assets system prompt" section.
               You can edit the shared rules (applied to all models), individual model-specific prompts, and the API system message.
-              The output format template is editable in Settings &rarr; Format tab &rarr; "Image prompt export schema".
+              The file's layout is shown, read-only, in Settings &rarr; Output format tab &rarr; "Image prompt export schema".
             </p>
           </div>
         </div>

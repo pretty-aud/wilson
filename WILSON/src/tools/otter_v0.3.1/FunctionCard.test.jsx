@@ -162,6 +162,9 @@ describe('FunctionCard — a known language colours the code text only', () => {
 // ── the hosts ────────────────────────────────────────────────────────────────
 // (jsdom's import.meta.url is not a file URL; the suite runs from WILSON/.)
 const OTTER = readFileSync('src/tools/otter_v0.3.1/Otter.jsx', 'utf8')
+// F6 (A1): the generation paths' request and merges live in otterAI.js, one
+// pipeline for the five paths; the generation pins below read them there.
+const HOME = readFileSync('src/tools/otter_v0.3.1/otterAI.js', 'utf8')
 const blank = (s) => s.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' ')).replace(/\/\/[^\n]*/g, '')
 /** A slice of the RAW source between two markers (comments are markers here),
  *  blanked of comments afterwards; '' when either marker is missing. */
@@ -170,7 +173,7 @@ function between(src, from, to, after = 0) {
   const b = a < 0 ? -1 : src.indexOf(to, a + from.length)
   return a < 0 || b < 0 ? '' : blank(src.slice(a, b))
 }
-function hostReport(src) {
+function hostReport(src, home = HOME) {
   const code = blank(src)
   const bad = []
   // The card's own markup lives in FunctionCard.jsx only.
@@ -213,7 +216,11 @@ function hostReport(src) {
   if (!/const allFuncs = \(Array\.isArray\(softwareFunctions\?\.categories\) \? softwareFunctions\.categories : \[\]\)\s*\.filter\(cat => cat && Array\.isArray\(cat\.functions\)\)\.map\(cat => \(\{ \.\.\.cat, functions: functionEntries\(cat\) \}\)\);/.test(view)) bad.push('the Functions view reads an entry that is not a function')
   if ((view.match(/cardText\(f\.(name|description|syntax)\)\.toLowerCase\(\)\.includes\(functionSearch\.toLowerCase\(\)\)/g) || []).length !== 3 || /\(f\.(name|description|syntax) \|\| ''\)\.toLowerCase/.test(view)) bad.push('the Functions view\'s search reads a field raw')
   // Round 2: the generation paths keep a category the generator keyed `name`.
-  if (/category: cat\.category \|\| 'General'/.test(code) || (code.match(/category: functionCategoryName\(cat\),/g) || []).length !== 3) bad.push('a generation path reads only `category`')
+  // F6 (A1): one merge for the generation paths, in otterAI.js, and no copy
+  // of it left here.
+  if (/category: cat\.category \|\| 'General'/.test(code) || /category: cat\.category \|\| 'General'/.test(home)
+    || (home.match(/category: functionCategoryName\(cat\),/g) || []).length !== 1
+    || (code.match(/category: functionCategoryName\(cat\),/g) || []).length !== 0) bad.push('a generation path reads only `category`')
   return bad
 }
 
@@ -247,7 +254,11 @@ describe('Otter.jsx renders the one card in both hosts', () => {
       .toMatch(/Functions view reads an entry/)
     expect(hostReport(OTTER.replace('cardText(f.syntax).toLowerCase()', "(f.syntax || '').toLowerCase()")).join('\n'))
       .toMatch(/search reads a field raw/)
-    expect(hostReport(OTTER.replace('category: functionCategoryName(cat),', "category: cat.category || 'General',")).join('\n'))
+    // F6 (A1): planted in the one pipeline (otterAI.js), and a copy planted
+    // back in Otter.jsx, each reported.
+    expect(hostReport(OTTER, HOME.replace('category: functionCategoryName(cat),', "category: cat.category || 'General',")).join('\n'))
+      .toMatch(/generation path/)
+    expect(hostReport(`${OTTER}\n    category: functionCategoryName(cat),\n`).join('\n'))
       .toMatch(/generation path/)
     expect(hostReport(OTTER.replace('courseLanguage({ name: r.softwareName, slug: r.softwareSlug })', 'courseLanguage({ slug: r.softwareSlug })')).join('\n'))
       .toMatch(/its course's language/)
@@ -333,8 +344,11 @@ describe('the function readers skip what is not a function — the shipped code,
   it('the generation paths read the library\'s existing names through the same reader — no throw, functions only (review round 1)', () => {
     // Three prompts list "EXISTING FUNCTIONS (DO NOT DUPLICATE)"; on a null
     // entry each threw inside its try and the generator lost the list.
-    const lines = [...RAW.matchAll(/const allNames = [^\n]+;/g)].map((m) => m[0])
-    expect(lines, 'three generation paths').toHaveLength(3)
+    // F6 (A1): the three paths share one reader (otterAI.js), and none keeps
+    // a copy of its own.
+    expect([...RAW.matchAll(/const allNames = [^\n]+;/g)], 'no copy left in Otter.jsx').toHaveLength(0)
+    const lines = [...HOME.replace(/\r\n/g, '\n').matchAll(/const allNames = [^\n]+;/g)].map((m) => m[0])
+    expect(lines, 'one reader for the three generation paths').toHaveLength(1)
     // eslint-disable-next-line no-new-func
     for (const line of lines) expect(new Function('fnData', 'functionEntries', `${line}\nreturn allNames;`)(MALFORMED, functionEntries)).toEqual(['print()', 'abs'])
     // CONTROL: the line before S2c throws on the same library.

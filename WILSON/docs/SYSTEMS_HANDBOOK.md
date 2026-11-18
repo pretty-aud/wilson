@@ -1860,7 +1860,8 @@ SSE the first byte is immediate, the response deadline never bites, and the
 400 s wall clock governs instead. `src/cloud/anthropicStream.js` reassembles
 the stream client-side into the classic non-streaming message object, so
 O.T.T.E.R.'s single `callAnthropicAPI` wrapper changed internally and none of
-its six call sites did.
+its six call sites did. (Since F6 the wrapper lives in
+`src/tools/otter_v0.3.1/otterAI.js`, and the Validator calls it too.)
 
 **The in-stream error trap** — worth internalising, because it generalises:
 Anthropic can return HTTP 200 and then emit an SSE `error` event mid-generation
@@ -4050,15 +4051,33 @@ prompt set. **D.O.G. is not part of the agent system.**
 
 **Pipeline**: uploaded files and/or the open RABBIT project's attachments →
 assembled into a message array → one of eight `callAI()` calls → a
-marker-delimited text response → `parseSlideContent()` extracts TITLE,
-SUBTITLE, LAYOUT STRUCTURE, COPY, VISUAL STYLING, REQUIRED ASSETS and
-COMPONENT GEOMETRY → `correctGeometryIconOrder()` fixes icon-above-title
-stacking on title layouts → held as tabs → exported.
+marker-delimited text response → split into slides by `splitSlides()`, which
+frames each slide and has `correctGeometryIconOrder()` fix icon-above-title
+stacking on title layouts → held as tabs → `parseSlideContent()` extracts
+TITLE, SUBTITLE, LAYOUT STRUCTURE, COPY, VISUAL STYLING, REQUIRED ASSETS and
+COMPONENT GEOMETRY wherever a slide is drawn or exported.
+
+**One reading of the slide format** (`parser.js`, F6): `slideHeader` and
+`slideTitle` are the header and the title for generation
+(`parseOutputToPages`) and `parseSlideContent`; `frameSlide`, the 63-`═`
+frame, is shared by generation and the History import, which keeps its own
+header and title readers; `parseAssetLine` reads an asset line for the placed
+assets and the image prompts. Generation and the import still accept
+different shapes (`splitSlides(text, { as })`): where their copies disagreed,
+unifying them would have changed an output, so each kept its reading, pinned
+side by side in `parser.test.js` and recorded as OUTSTANDING F6-01 to F6-06
+(generation loses the body under a ruled `[LAYOUT TYPE: …]` header; the
+import runs a `SLIDE #X` slide into the next; and four smaller ones). The
+visualiser reads its asset frames its own way.
 
 The eight calls: theme colours, single-slide generation, single-slide
 regeneration, full-deck generation (with up to 3 **continuations** when
 `stop_reason === 'max_tokens'` — a continuation loop, not an error retry),
-AI rewrite, rewrite redo, image prompts, and a deck visual description.
+AI rewrite, rewrite redo, image prompts, and a deck visual description. The
+rewrite and its redo send one request (`rewriteRequest` in
+`prompts/rewritePrompts.js`, F6), each under its own model key; the "deck
+context plus the first two text uploads" excerpt is `deckExcerpt` there,
+also used by the theme colours.
 
 **Exports**:
 
@@ -4072,11 +4091,21 @@ AI rewrite, rewrite redo, image prompts, and a deck visual description.
 
 The output format is **locked by default, not immutable**: the format and
 system-prompt textareas are editable state gated behind `formatTabLocked` /
-`promptsTabLocked`, both defaulting to `true`, with a Lock/Unlock toggle. Treat
+`promptsTabLocked`, both defaulting to `true`, with a Lock/Unlock toggle.
+Since F6 (REV-04, her answer "Make them work") the two Generation Rules boxes
+and the Single Page and Full Deck Export Schema boxes are what single-slide
+and full-deck generation send (`composeSinglePageInstructions`,
+`composeFullDeckInstructions`: the rules with `{{EXPORT SCHEMA}}` where the
+format goes, the single-page format with `{{SLIDE NUMBER}}` and
+`{{LAYOUT NAME}}`), starting from exactly the text sent before; Regenerate keeps
+its built-in rules; the Visual Deck and Image Prompt schemas are the layouts of
+files D.O.G. writes, read-only. Edits last until WILSON restarts. Treat
 the three canonical filenames and their structure as a contract — downstream
 tooling consumes them.
 
-**Slide geometry** (`prompts/rules.js`): canvas **720 × 405 pt**; margins 36 pt
+**Slide geometry** (the generation rules' COMPONENT GEOMETRY rule, in the
+Generation Rules boxes' text; `prompts/rules.js`, an older copy that was never
+sent, is gone since F6): canvas **720 × 405 pt**; margins 36 pt
 left/right, 30 pt top, 35 pt bottom, 15 pt gutters; safe area x ∈ [36, 684],
 y ∈ [30, 370] (648 × 340 pt of content). Frame types: `image_placeholder`,
 `video_placeholder`, `infograph_placeholder`, `timeline_placeholder` (all
@@ -4603,6 +4632,22 @@ documents. The progress UI is time-thresholded — "Sending request…" →
 "Searching the web…" → "Reviewing sources…" → "Writing…" → "Finalizing…" —
 with a **"Still working…"** state past 45 s.
 
+**One generation pipeline** (`otterAI.js`, F6; `prompts.js` stays prompt
+text with no imports, which `scripts/probes/generation-e2e.mjs` loads under
+plain node): the five paths — the course
+screen's outline and single subject, the agent's outline and single subject,
+and a stub filled — were two copies of one pipeline plus a third, already
+drifted. They now share `generateCourseOutline` (`buildCourseMessage`),
+`createCourse`, `courseStubs`, `generateSubject` (`buildSubjectMessage`,
+`parseModelJson`, `normalizeSections`, `subjectSources`) and
+`mergeSubjectDocuments`. Each path keeps its guards, timer, phases, errors,
+navigation and literal model key, and **its own save beside its share
+reminder** (design §5.9, judged by `NewSubjectShareReminder.test.jsx`):
+`generateSubject` builds the record and saves nothing. F6 fixed three drifts:
+a takeaway the model sends as one string is kept on every path, the agent's
+node hint has its type list again, and the agent course's cut-off sentence
+is the course screen's. `otterGeneration.test.js` pins the requests.
+
 **Fork and the change-request lifecycle.** Using a company-standard course
 **forks a personal copy** (`otter_fork_course`), so the official version stays
 pristine and admin edits never change a course underneath someone mid-study.
@@ -4702,9 +4747,24 @@ within one user's folder, and two visible courses in a shared workspace can
 legitimately share one. This is safe because O.T.T.E.R. looks courses up by
 name and treats the slug as an opaque key.
 
-**Validator**: queues lessons, calls Sonnet 4 with web search (`max_uses` 5),
-recursing on `stop_reason === 'tool_use'` to let search results resolve, and
-produces a grade, an accuracy percentage and findings marked
+**Reading an answer**: `otterFetch` resolves for every status, and
+`res.json()` throws on a body that is not JSON (the local server's HTML error
+page), so a read before `res.ok` turned an authored refusal into
+`Unexpected token '<'`, and a read without it took a JSON refusal as data.
+Every read in the files F6 converted (O.T.T.E.R.'s, and the Admin Terminal's
+change requests) uses the one reader in `adapters/otterRoutes.js`:
+`readBody(res)` where the site holds `res` and checks `ok`, `okBody` for a load
+that falls back, `needBody` for a read whose failure must stop its caller,
+and `otterCall`, `shareCall`'s shape. `otterRoutes.test.js` bans `.json()`
+from the files that read O.T.T.E.R.'s answers; `petKnowledge.js` keeps its
+own `readJson`, which reads the status first, and two files outside
+O.T.T.E.R. still read its answers with `.json()` (OUTSTANDING F6-10).
+
+**Validator**: queues lessons, calls the model with web search (`max_uses` 5)
+through O.T.T.E.R.'s one wrapper (a paused search resumed at most 3 times,
+a 429, 503 or 529 (or an "overloaded", "rate limit" or "capacity" message) retried; the reply is read from its last text block by
+`textFromMessage`; until F6 it kept a copy that read the first), and produces a grade, an accuracy percentage and
+findings marked
 `accurate` / `inaccurate` / `unverifiable`, with a follow-up "request fixes"
 call. **Results are session state and are not persisted anywhere.**
 
@@ -6009,7 +6069,11 @@ and — Session 30 — `validatorSave`, `quizWiring` and `textFromMessage`.
 > Audrey's first beta course died on *"Failed to parse course outline JSON"*
 > while `stop_reason` was a healthy `end_turn` and the answer sat in
 > `content[1]`. It was **eight call sites across three tools**; a source scan
-> in `textFromMessage.test.js` now fails the build if one returns.
+> in `textFromMessage.test.js` now fails the build if one returns, and since
+> F6 it also fails on `content.find(b => b.type === 'text')`, which skips the
+> thinking block but returns the FIRST text block: the "Let me check…"
+> preamble whenever a server-side tool ran mid-turn (the Validator read its
+> replies that way until F6, REV-03).
 > Position-indexing was only ever right by luck — `server_tool_use` and
 > `web_search_tool_result` blocks also precede text.
 
@@ -6019,8 +6083,14 @@ and — Session 30 — `validatorSave`, `quizWiring` and `textFromMessage`.
 > block is a preamble and every JSON parse downstream fails **on a request that
 > succeeded**. Resume by re-sending with the ASSISTANT turn appended and no
 > trailing user turn — S19 measured a prefill returning 400 — and bound the
-> loop. `Validator.jsx` (S19) and `Otter.jsx` (S30) both do; `pauseTurn.test.js`
-> keeps them that way. **The diagnostic asymmetry: a no-tool call that works
+> loop. `Validator.jsx` (S19) and `Otter.jsx` (S30) each did, with a copy of
+> its own; since F6 both call ONE wrapper, `callAnthropicAPI` in
+> `src/tools/otter_v0.3.1/otterAI.js` (the resume bounded at 3; a 429, 503 or
+> 529, or an "overloaded", "rate limit" or "capacity" message, retried after 3,
+> 6 and 12 s; the callers read the reply's last text block, the generators
+> through `extractTextAndCitations`, which also strips cite tags, the Validator
+> through `textFromMessage`), and
+> `pauseTurn.test.js` runs it against a faked `callAI`. **The diagnostic asymmetry: a no-tool call that works
 > beside a web-search call that fails is this, not a prompt problem.**
 >
 > 🚨 **`src/lib/localData.js`'s THREE SAVERS THROW — changed S30.** Its header

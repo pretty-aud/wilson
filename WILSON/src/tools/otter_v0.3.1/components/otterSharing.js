@@ -18,6 +18,9 @@
 // rule in this file.
 // =============================================================================
 
+// The one response reader (F6, B5): shareCall below is its sharing wording.
+import { otterCall } from '../adapters/otterRoutes.js'
+
 /** Tier -> what the user actually needs to know about it, in their words. */
 export const VISIBILITY_META = {
   personal: {
@@ -289,12 +292,6 @@ export function shareFailureText(status, body) {
   return `That did not reach the workspace${status ? ` (HTTP ${status})` : ''}. Check your connection, or sign in again, then try again.`
 }
 
-async function readBody(res) {
-  const text = await res.text().catch(() => '')
-  if (!text) return null
-  try { return JSON.parse(text) } catch { return null }
-}
-
 /**
  * One share call. `otterFetch` resolves for EVERY status, so the body is read
  * BEFORE `ok` is consulted, defensively (a body read after a failure can
@@ -302,15 +299,16 @@ async function readBody(res) {
  * Resolves { ok, status, data, text }: `text` is the failure in words.
  */
 export async function shareCall(fetchImpl, url, init) {
-  let res
+  // O.T.T.E.R.'s one reader (adapters/otterRoutes.js, F6), worded for sharing.
+  // It rethrows only an abort; a share call never rejects at all.
+  let out
   try {
-    res = await fetchImpl(url, init)
+    out = await otterCall(fetchImpl, url, init)
   } catch {
-    return { ok: false, status: 0, data: null, text: shareFailureText(0, null) }
+    out = { ok: false, status: 0, data: null }
   }
-  const data = await readBody(res)
-  if (res.ok) return { ok: true, status: res.status, data, text: null }
-  return { ok: false, status: res.status, data, text: shareFailureText(res.status, data) }
+  if (out.ok) return { ok: true, status: out.status, data: out.data, text: null }
+  return { ok: false, status: out.status, data: out.data, text: shareFailureText(out.status, out.data) }
 }
 
 /**

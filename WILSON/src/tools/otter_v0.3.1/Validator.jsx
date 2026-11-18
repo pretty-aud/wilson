@@ -8,61 +8,46 @@ import { Button, IconButton, Select, SectionTitle, EmptyState, Card, Panel, Tool
 import { VALIDATION_PROMPT, FIX_PROMPT } from './validatorPrompts.js';
 // Session 10: content routes go through the adapter seam (see adapters/index.js).
 import { otterFetch } from './adapters';
-// Session 12 (locked #21): Anthropic access rides the ai-proxy Edge Function.
-import { callAI } from '../../cloud/aiProxy';
+import { readBody, needBody } from './adapters/otterRoutes.js';
+// Session 12 (locked #21): Anthropic access rides the ai-proxy Edge Function,
+// through O.T.T.E.R.'s one wrapper since F6.
+import { callAnthropicAPI, MAX_CONTINUATIONS } from './otterAI.js';
+import { textFromMessage } from '../../cloud/anthropicStream';
 import { modelFor } from '../../lib/activeModel';
 
-// ── API helper (model-agnostic) ──────────────────────────────────────────────
-// Both call sites below omit `model`, so the fallback is what actually runs.
-// It is kept as a parameter rather than removed because the continuation
-// below passes it back through.
-// Bounds the pause_turn continuation below. The previous version recursed with
-// no ceiling at all.
-const MAX_CONTINUATIONS = 3;
-
-async function callValidatorAPI({ model, systemPrompt, messages, tools, signal, depth = 0 }) {
-  const body = {
-    model: model || modelFor('otter.validator'),
-    max_tokens: 8096,
-    system: systemPrompt,
+// ── API helper ───────────────────────────────────────────────────────────────
+// F6 (REV-03): the Validator rides O.T.T.E.R.'s one wrapper (otterAI.js), so it
+// keeps the same three rules as every other O.T.T.E.R. call: a paused
+// server-side tool run is resumed (the assistant turn appended, no trailing
+// user turn, at most MAX_CONTINUATIONS times), a 429, 503 or 529 (or an
+// "overloaded", "rate limit" or "capacity" message) is retried after 3, 6 and
+// 12 seconds, and the reply is read from its LAST text block. Its own copy,
+// until F6, returned the FIRST text block before it looked at `pause_turn`,
+// so a web search that said "Let me check…" before searching handed that
+// sentence to the JSON parser; and it never retried.
+//
+// The sent body is the one it always sent: its own model key, 8096 tokens, the
+// 'validator' tag, and web search only where a caller passes it. Exported for
+// pauseTurn.test.js, which runs it against a faked callAI.
+export async function callValidatorAPI({ systemPrompt, messages, tools, signal }) {
+  const data = await callAnthropicAPI({
+    model: modelFor('otter.validator'),
+    maxTokens: 8096,
+    systemPrompt,
     messages,
+    tools,
+    signal,
     tool: 'validator',
-  };
-  if (tools) body.tools = tools;
+  });
 
-  const data = await callAI(body, { signal });
-
-  // Extract text from response — may contain tool_use blocks from web search
-  const textBlock = data.content.find(b => b.type === 'text');
-  if (textBlock) return textBlock.text;
-
-  // Continue a server-side tool run that hit its iteration limit.
-  //
-  // S19 measured the old shape of this branch against claude-sonnet-5 and it
-  // returns 400: "This model does not support assistant message prefill. The
-  // conversation must end with a user message." It branched on
-  // `stop_reason === 'tool_use'`, which is the signal for a CLIENT tool — and
-  // the Validator declares none. The only tool here is server-side web search,
-  // whose real signal is `pause_turn`. So the branch was both unreachable in
-  // practice and invalid if it ever were reached.
-  //
-  // `pause_turn` is resumed by re-sending with the assistant turn appended and
-  // NO trailing user turn — the API recognises the trailing server_tool_use
-  // block and continues. That is the documented shape; it is not the same as
-  // the text prefill that was measured failing.
-  if (data.stop_reason === 'pause_turn' && depth < MAX_CONTINUATIONS) {
-    return callValidatorAPI({
-      model, systemPrompt,
-      messages: [...messages, { role: 'assistant', content: data.content }],
-      tools, signal,
-      depth: depth + 1,
-    });
-  }
-
-  if (data.stop_reason === 'pause_turn') {
+  // Still paused after the wrapper's bounded resumes: the answer never came,
+  // and the last text block is a preamble, not the JSON.
+  if (data?.stop_reason === 'pause_turn') {
     throw new Error(`Validator stopped after ${MAX_CONTINUATIONS} continuations without a final answer.`);
   }
-  throw new Error(`No text response from API (stop_reason: ${data.stop_reason ?? 'unknown'}).`);
+  const text = textFromMessage(data);
+  if (text) return text;
+  throw new Error(`No text response from API (stop_reason: ${data?.stop_reason ?? 'unknown'}).`);
 }
 
 // ── Parse JSON from AI response ──────────────────────────────────────────────
@@ -180,7 +165,7 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
           const cacheKey = `${sw.slug}/${sub.slug}`;
           if (!subjectCacheRef.current[cacheKey]) {
             try {
-              const fullSub = await otterFetch(`/api/software/${sw.slug}/subjects/${sub.slug}`).then(r => r.json());
+              const fullSub = await otterFetch(`/api/software/${sw.slug}/subjects/${sub.slug}`).then(needBody);
               if (!cancelled) {
                 subjectCacheRef.current[cacheKey] = fullSub;
                 fetched = true;
@@ -326,7 +311,7 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
         const cacheKey = `${next.softwareSlug}/${next.subjectSlug}`;
         let fullSub = subjectCacheRef.current[cacheKey];
         if (!fullSub) {
-          fullSub = await otterFetch(`/api/software/${next.softwareSlug}/subjects/${next.subjectSlug}`).then(r => r.json());
+          fullSub = await otterFetch(`/api/software/${next.softwareSlug}/subjects/${next.subjectSlug}`).then(needBody);
           subjectCacheRef.current[cacheKey] = fullSub;
         }
 
@@ -373,7 +358,10 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
           q.id === next.id ? { ...q, status: 'completed' } : q
         ));
       } catch (err) {
-        if (err.name === 'AbortError') return;
+        // Stop aborts the fetch (AbortError), or lands during the wrapper's retry
+        // wait or before a resume, where the wrapper throws 'Cancelled' (F6).
+        // Either way Stop has already written the lesson's words.
+        if (err.name === 'AbortError' || controller.signal.aborted) return;
         // S30: keep the REASON. A red dot with the message in the console is
         // the same defect as the green tick over a failed save — the screen
         // shows a state and withholds the only thing that explains it. Audrey
@@ -421,7 +409,7 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
       const cacheKey = `${selectedAudit.softwareSlug}/${selectedAudit.subjectSlug}`;
       let fullSub = subjectCacheRef.current[cacheKey];
       if (!fullSub) {
-        fullSub = await otterFetch(`/api/software/${selectedAudit.softwareSlug}/subjects/${selectedAudit.subjectSlug}`).then(r => r.json());
+        fullSub = await otterFetch(`/api/software/${selectedAudit.softwareSlug}/subjects/${selectedAudit.subjectSlug}`).then(needBody);
         subjectCacheRef.current[cacheKey] = fullSub;
       }
 
@@ -516,7 +504,7 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
       // Both backends answer JSON on refusal — cloud through otterFetch's error
       // shape, local through the Express handlers — but a bare 404 from Express
       // is HTML, so the parse has to be allowed to fail.
-      const detail = await res.json().then(b => b?.error).catch(() => null);
+      const detail = (await readBody(res))?.error ?? null;
       return fail(detail || `The correction was refused (HTTP ${res.status}) and has NOT been saved.`);
     }
 
