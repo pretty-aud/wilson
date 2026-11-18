@@ -35,7 +35,7 @@
 // authed page is what makes two `getByLabel` values collide in Playwright.
 // Do not change either string without reading that test.
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { useRabbitLive } from '../../tools/rabbit_v0.1.0/state/rabbitLive'
 import { useWorkspaceMembers, isOwnAvatarUrl } from '../TeamMembers/useWorkspaceMembers'
@@ -131,27 +131,9 @@ function WorkspacePresenceStrip() {
   const users = useRabbitLive('workspacePresentUsers', rabbit)
 
   // Roster/avatar liveness (review finding M3): workspace_members events on
-  // the workspace channel debounce into a directory reload so avatar and
-  // name changes reach the chips without a page revisit.
-  const reloadRef = useRef(wm.reload)
-  useEffect(() => { reloadRef.current = wm.reload }, [wm.reload])
-  useEffect(() => {
-    const subscribe = rabbit?.subscribeWorkspaceEvents
-    if (typeof subscribe !== 'function') return undefined
-    let timer = null
-    const unsub = subscribe((evt) => {
-      if (evt.table !== 'workspace_members') return
-      if (timer) clearTimeout(timer)
-      timer = setTimeout(() => {
-        timer = null
-        reloadRef.current?.()
-      }, 400)
-    })
-    return () => {
-      if (timer) clearTimeout(timer)
-      unsub()
-    }
-  }, [rabbit?.subscribeWorkspaceEvents])
+  // the workspace channel reload the ONE roster since F5 (useWorkspaceMembers'
+  // noteRosterEvent), so avatar and name changes reach the chips without a
+  // page revisit and without a read of this page's own.
 
   const resolved = useMemo(() => {
     const byId = {}

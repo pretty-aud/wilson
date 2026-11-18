@@ -74,7 +74,9 @@ function makeCloud(mode = 'supabase') {
     listProjects: async () => [clone(db.project)],
     loadProject: async () => clone({ project: db.project, scenes: [], shots: [], bins: db.bins, binFiles: db.files, binRoots: [], shotTakes: [], binLocations: db.locations }),
     listProjectMembers: async () => [],
-    subscribeProjectChanges: (_pid, cb) => { holder.live = cb; return () => {} },
+    // F5: the channel joins, as the real one and the fixtures' do (an open on
+    // the cloud waits for its project channel's join, then loads once).
+    subscribeProjectChanges: (_pid, cb, opts) => { holder.live = cb; const t = setTimeout(() => opts?.onStatus?.('SUBSCRIBED'), 0); return () => clearTimeout(t) },
     binsCapabilities: () => CLOUD_CAPS,
     listBins: async () => clone({ bins: db.bins, binFiles: db.files, binRoots: [], binLocations: db.locations, shotTakes: [], orphanTakes: [], ffmpeg: false }),
     getRemoteViewingEnabled: async () => db.remoteViewing === true,
@@ -424,6 +426,10 @@ describe('BC2 — a teammate\'s clip arriving live', () => {
     await mount()
     await waitFor(() => expect(ctxRef.binsDesktopFiles).toBe(true))
     await act(async () => { await ctxRef.refreshBins() })
+    // F5: the open's load lands after its channel's join now, so the resolve of
+    // every row it schedules (250 ms after it lands) may still be pending here:
+    // let it run, or it joins f9's below.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 300)))
     holder.files.resolveCloudBinFiles.mockClear()
     holder.files.resolveCloudBinFiles.mockImplementation(async (list) => ({ files: list.map(f => ({ id: f.id, online: true })) }))
     const record = { id: 'f9', project_id: 'p1', workspace_id: 'w1', bin_id: 'b1', location_id: 'L1', relative_path: 'A002/T9.mov', display_name: 'T9', original_name: 'T9.mov', media_type: 'video', sort_order: 2 }

@@ -36,6 +36,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../auth/supabaseClient'
+import { workspaceFromSession } from '../auth/authSnapshot'
 import { runOtterMigration } from './runOtterMigration'
 import '../../components/settings/settings.css'
 import { Section, Group, Row } from '../../components/settings/SettingsChrome'
@@ -56,7 +57,8 @@ export default function OtterMigrationPanel() {
     ;(async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession()
-        setActiveWorkspaceId(session?.user?.app_metadata?.workspace_id ?? null)
+        // The token's claim, not the user object's (F5 item 7, the review's B4).
+        setActiveWorkspaceId(workspaceFromSession(session))
       } catch { /* no session; panel stays disabled */ }
     })()
   }, [])
