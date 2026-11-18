@@ -1013,6 +1013,9 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
   } = useEntityWindow({
     row: item || null, kind: entity.type, update: (patch) => ctx?.[entity.updateMethod]?.(item.id, patch), canWrite, onClose, onRequestDelete,
     deleteTarget: (row, opener) => ({ id: row.id, name: row.name || 'Untitled', returnTo: opener }),
+    // The task form counts while it is open (review round 2, 2B-01: without
+    // it, `setTaskDirty` fed nothing and a half-typed task would never ask).
+    taskOpen: showCreateTask,
     onThumbChanged, asks: false, say: entity.noun,
   })
 

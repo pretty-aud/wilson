@@ -113,6 +113,66 @@ describe('InlineText: the behaviour', () => {
     expect(document.activeElement).toBe(words())
   })
 
+  // Review round 2 (2A-01 to 2A-04), each measured in Chromium by its reviewer.
+  it('a blur toward an element that HOLDS the field — a kit Dialog\'s surface, which a click on nothing in the window focuses — counts as nowhere: the words take focus', () => {
+    render(<div role="dialog" tabIndex={-1} data-testid="surface"><Saved /></div>)
+    fireEvent.click(words())
+    fireEvent.blur(field(), { relatedTarget: screen.getByTestId('surface') })
+    expect(screen.queryByRole('textbox')).toBeNull()
+    expect(document.activeElement).toBe(words())
+  })
+
+  it('after a blur the words take focus without a scroll (a renamed row moved under a sort was scrolled to, and the click lost); after Enter, as the browser does', () => {
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus')
+    try {
+      render(<Saved />)
+      fireEvent.click(words())
+      act(() => { field().blur() })
+      expect(document.activeElement).toBe(words())
+      expect(focus.mock.calls.at(-1)?.[0]).toEqual({ preventScroll: true })
+      fireEvent.click(words())
+      fireEvent.keyDown(field(), { key: 'Enter' })
+      expect(document.activeElement).toBe(words())
+      expect(focus.mock.calls.at(-1)?.[0]?.preventScroll).toBeUndefined()
+    } finally {
+      focus.mockRestore()
+    }
+  })
+
+  it('a field open when `readOnly` comes and goes is focused again when it comes back (the copies\' autoFocus did this)', () => {
+    function Flip() {
+      const [still, setStill] = useState(false)
+      return (
+        <>
+          <InlineText value="Lighthouse" label="Name" onCommit={() => {}} readOnly={still} />
+          <button type="button" onClick={() => setStill((s) => !s)}>flip</button>
+        </>
+      )
+    }
+    render(<Flip />)
+    fireEvent.click(words())
+    fireEvent.click(screen.getByRole('button', { name: 'flip' }))
+    expect(screen.queryByRole('textbox')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'flip' }))
+    expect(document.activeElement).toBe(field())
+  })
+
+  it('a writer that throws leaves no field open: the edit closes first, as the copies did', () => {
+    const swallow = (e) => e.preventDefault()
+    window.addEventListener('error', swallow)
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      render(<InlineText value="Lighthouse" label="Name" onCommit={() => { throw new Error('refused') }} />)
+      fireEvent.click(words())
+      fireEvent.change(field(), { target: { value: 'Night' } })
+      try { fireEvent.keyDown(field(), { key: 'Enter' }) } catch { /* the writer's own error */ }
+      expect(screen.queryByRole('textbox')).toBeNull()
+    } finally {
+      window.removeEventListener('error', swallow)
+      quiet.mockRestore()
+    }
+  })
+
   it('words saved with an outer space, opened and left untouched, write nothing; a change to them writes the trimmed words (F10 review round 1, 1A-05 / 1B-03)', () => {
     const onCommit = vi.fn()
     render(<Saved initial="Fix rig " onCommit={onCommit} />)

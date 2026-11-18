@@ -22,9 +22,14 @@
 //    `onKeyDown`, so a caller keeps whatever else Escape meant there.
 //  · When the edit closes and focus has nowhere to go — after Enter and
 //    Escape, and after a blur that takes it nowhere (the window loses focus,
-//    a click on nothing) — focus goes back to the words (useFocusBack;
-//    P1-06). A blur on its way to a control (a Tab, a click into another
-//    field) lets it go there (1A-02 / 1B-01, measured in Chromium).
+//    a click on nothing; inside a kit Dialog a click on nothing focuses the
+//    Dialog's own surface, which holds the field, and counts as nothing:
+//    review round 2, 2A-01) — focus goes back to the words (useFocusBack;
+//    P1-06). After a blur, without a scroll: a rename that moved its row under
+//    a sort scrolled the table to it between the press and the release, and
+//    the click was lost (2A-02, measured in Chromium). A blur on its way to a
+//    control (a Tab, a click into another field) lets it go there (1A-02 /
+//    1B-01, measured in Chromium).
 //  · The draft follows the saved words while the field is closed, or open and
 //    untouched (useSavedDraft, D21's R1-06): a teammate's change shows in a
 //    field nobody has typed in; a typed draft stays.
@@ -83,13 +88,16 @@ export function useSavedDraft(saved, editing) {
  * there — after Escape, Enter, Save or Cancel, whose control is the one that
  * went, and after a blur that takes it nowhere.
  *
- * 🚨 `leaving`: an editor that closes on a blur sets it when the blur is on
- * its way to a control (its `relatedTarget`). React renders a blur's close,
- * and runs this effect, INSIDE the browser's focus change: `activeElement` is
- * <body> and the control is not focused yet, and a `focus()` here makes
- * Chromium drop the move — the Tab or the click lands on the words (F10 review
- * round 1, 1A-02 / 1B-01, measured in Chromium; jsdom moves focus before the
- * effect and cannot show it). Returns the ref for the words.
+ * 🚨 `leaving`: an editor that closes on a blur says where focus is going —
+ * 'away' (to a control: the blur's `relatedTarget`) or 'nowhere' (none, or an
+ * element that HOLDS the field: a kit Dialog's surface, which a click on
+ * nothing in the window focuses). React renders a blur's close, and runs this
+ * effect, INSIDE the browser's focus change: `activeElement` is <body> and the
+ * control is not focused yet, and a `focus()` here makes Chromium drop the
+ * move — after 'away', the Tab or the click would land on the words (F10
+ * review round 1, 1A-02 / 1B-01). After 'nowhere' the words take it without a
+ * scroll (review round 2, 2A-01, 2A-02; all measured in Chromium, which jsdom
+ * cannot show: it moves focus before the effect). Returns the ref for the words.
  */
 export function useFocusBack(editing, leaving = null) {
   const wordsRef = useRef(null)
@@ -98,9 +106,11 @@ export function useFocusBack(editing, leaving = null) {
     const closed = wasEditing.current && !editing
     wasEditing.current = editing
     if (!closed) return
-    if (leaving?.current) { leaving.current = false; return }
+    const how = leaving?.current || null
+    if (leaving) leaving.current = null
+    if (how === 'away') return
     const active = document.activeElement
-    if (!active || active === document.body) wordsRef.current?.focus()
+    if (!active || active === document.body) wordsRef.current?.focus(how === 'nowhere' ? { preventScroll: true } : undefined)
   }, [editing, leaving])
   return wordsRef
 }
@@ -127,19 +137,22 @@ export function useInlineText({
   const saved = value ?? ''
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useSavedDraft(saved, editing)
-  // Set by a blur that closes the edit on its way to a control (useFocusBack).
-  const leavingRef = useRef(false)
+  // Where a blur that closes the edit sends focus: 'away' or 'nowhere' (useFocusBack).
+  const leavingRef = useRef(null)
   const wordsRef = useFocusBack(editing, leavingRef)
   const inputRef = useRef(null)
   // One commit per edit: Enter commits and closes, and the blur that may
   // follow as the field goes must not write again.
   const doneRef = useRef(false)
+  // The field takes focus when it opens, and again when it comes back after
+  // `readOnly` came and went with the edit open (it returned unfocused:
+  // review round 2, 2A-03; the copies' autoFocus did this).
   useEffect(() => {
-    if (!editing) return
+    if (!editing || readOnly) return
     doneRef.current = false
-    leavingRef.current = false
+    leavingRef.current = null
     inputRef.current?.focus()
-  }, [editing])
+  }, [editing, readOnly])
 
   const shown = (display ? display(saved) : saved) || null
 
@@ -156,9 +169,11 @@ export function useInlineText({
   function commit() {
     if (doneRef.current) return
     doneRef.current = true
+    // Closed first, as the copies did: a writer that throws must not leave
+    // the field open and deaf to Enter and blur (review round 2, 2A-04).
+    setEditing(false)
     const next = draft.trim()
     if (draft !== saved && next !== saved) onCommit?.(next)
-    setEditing(false)
   }
   function revert() {
     doneRef.current = true
@@ -173,7 +188,10 @@ export function useInlineText({
       value: draft,
       onChange: e => setDraft(e.target.value),
       onBlur: e => {
-        if (!doneRef.current && e.relatedTarget) leavingRef.current = true
+        if (!doneRef.current) {
+          const to = e.relatedTarget
+          leavingRef.current = to && !to.contains(e.currentTarget) ? 'away' : 'nowhere'
+        }
         commit()
       },
       onKeyDown: e => {

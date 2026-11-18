@@ -119,6 +119,13 @@ describe.each(KINDS)('D21\'s question stays off in the $kind window (her answer 
     expect(discardQuestion()).toBeNull()
     expect(within(dialog).queryByRole('textbox', { name: 'Description' })).toBeNull()
   })
+  it('Close with a half-typed new task closes, without asking (the task form counts: red with `asks` on, review round 2, 2B-01)', () => {
+    const { dialog } = open(k)
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add new task' }))
+    fireEvent.change(within(dialog).getByPlaceholderText('Task title…'), { target: { value: 'Rig the rain' } })
+    fireEvent.click(within(dialog.querySelector('.ui-dialog-foot')).getByRole('button', { name: 'Close' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
   it('a project switch goes on, without asking: the window\'s leave guard holds nothing', async () => {
     changed()
     let answer = 'pending'

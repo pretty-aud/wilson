@@ -164,25 +164,27 @@ const row = (text) => screen.getAllByText(text).map((n) => n.closest('tr')).find
 const openWindow = (name) => fireEvent.click(within(row(name)).getByRole('button', { name: `Open ${name}` }))
 
 // ── 1. P1-06: focus back on the words, in each editor's real view ──────────
+// `writer`: the provider's writer the editor's commit calls (review round 2,
+// 2B-04: the blur case below said "commits" and checked nothing written).
 const EDITORS = [
-  { editor: 'Levels: a row\'s name', mount: levels, words: () => within(row('Harbour Approach')).getByRole('button', { name: 'Harbour Approach' }), field: 'Name' },
-  { editor: 'Levels: the window\'s name', mount: levels, before: () => openWindow('Harbour Approach'),
+  { editor: 'Levels: a row\'s name', mount: levels, writer: 'updateLevel', words: () => within(row('Harbour Approach')).getByRole('button', { name: 'Harbour Approach' }), field: 'Name' },
+  { editor: 'Levels: the window\'s name', mount: levels, writer: 'updateLevel', before: () => openWindow('Harbour Approach'),
     words: () => within(screen.getByRole('dialog').querySelector('.rb-ent-detail-main')).getByRole('button', { name: 'Harbour Approach' }), field: 'Level name' },
-  { editor: 'Assets: a row\'s name', mount: assets, words: () => within(row('Mara')).getByRole('button', { name: 'Mara' }), field: 'Name' },
-  { editor: 'Assets: a card\'s name', mount: assets, before: () => fireEvent.click(screen.getByRole('tab', { name: 'Gallery' })),
+  { editor: 'Assets: a row\'s name', mount: assets, writer: 'updateAsset', words: () => within(row('Mara')).getByRole('button', { name: 'Mara' }), field: 'Name' },
+  { editor: 'Assets: a card\'s name', mount: assets, writer: 'updateAsset', before: () => fireEvent.click(screen.getByRole('tab', { name: 'Gallery' })),
     words: () => screen.getByText('Mara', { selector: '.rb-asset-card-name .rb-asset-inline' }), field: 'Name' },
-  { editor: 'Assets: the window\'s title', mount: assets, before: () => openWindow('Mara'),
+  { editor: 'Assets: the window\'s title', mount: assets, writer: 'updateAsset', before: () => openWindow('Mara'),
     words: () => screen.getByText('Mara', { selector: '.rb-asset-detail-title .rb-asset-inline' }), field: 'Name' },
-  { editor: 'Tasks: a row\'s title', mount: tasks, words: () => within(row('Glass and rain rig test')).getByRole('button', { name: 'Glass and rain rig test' }), field: 'Title' },
-  { editor: 'the task window\'s title', mount: taskWindow, words: () => screen.getByText('Glass and rain rig test', { selector: '.rb-task-textblock[data-size="line"]' }), field: 'Title' },
-  { editor: 'Scenes: a row\'s name (a span, no tab stop)', mount: scenes, words: () => screen.getByText('Lighthouse, dawn', { selector: '.rb-scene-name-cell .rb-scene-inline' }), field: 'Name for Lighthouse, dawn' },
-  { editor: 'Scenes: the window\'s name (the control: it did this before F10)', mount: scenes, before: () => openWindow('Lighthouse, dawn'),
+  { editor: 'Tasks: a row\'s title', mount: tasks, writer: 'updateTask', words: () => within(row('Glass and rain rig test')).getByRole('button', { name: 'Glass and rain rig test' }), field: 'Title' },
+  { editor: 'the task window\'s title', mount: taskWindow, writer: 'updateTask', words: () => screen.getByText('Glass and rain rig test', { selector: '.rb-task-textblock[data-size="line"]' }), field: 'Title' },
+  { editor: 'Scenes: a row\'s name (a span, no tab stop)', mount: scenes, writer: 'updateScene', words: () => screen.getByText('Lighthouse, dawn', { selector: '.rb-scene-name-cell .rb-scene-inline' }), field: 'Name for Lighthouse, dawn' },
+  { editor: 'Scenes: the window\'s name (the control: it did this before F10)', mount: scenes, writer: 'updateScene', before: () => openWindow('Lighthouse, dawn'),
     words: () => screen.getByText('Lighthouse, dawn', { selector: '.rb-scene-name-text' }), field: 'Scene name' },
-  { editor: 'Scenes: a shot\'s description in the scene window (a span inside the Dialog)', mount: scenes, before: () => openWindow('Lighthouse, dawn'),
+  { editor: 'Scenes: a shot\'s description in the scene window (a span inside the Dialog)', mount: scenes, writer: 'updateShot', before: () => openWindow('Lighthouse, dawn'),
     words: () => screen.getByText('Add description…', { selector: '.rb-scene-shot-words .rb-scene-inline' }), field: 'Description for The door' },
 ]
 
-describe.each(EDITORS)('P1-06 — $editor: focus comes back to the words', ({ mount, before, words, field }) => {
+describe.each(EDITORS)('P1-06 — $editor: focus comes back to the words', ({ mount, before, words, field, writer }) => {
   it('after Enter commits, and after Escape reverts', () => {
     mount()
     before?.()
@@ -202,18 +204,21 @@ describe.each(EDITORS)('P1-06 — $editor: focus comes back to the words', ({ mo
   // and open the editor again), and a blur on its way to a control takes no
   // focus back (it would cancel the move). jsdom shows neither by itself.
   it('Enter is marked handled, and a blur on its way to another control commits and takes no focus back (the browser\'s order)', () => {
-    mount()
+    const ctx = mount()
     before?.()
     fireEvent.click(words())
     expect(fireEvent.keyDown(screen.getByRole('textbox', { name: field }), { key: 'Enter' }), 'Enter not marked handled').toBe(false)
     fireEvent.click(words())
     const box = screen.getByRole('textbox', { name: field })
-    fireEvent.change(box, { target: { value: `${box.value} III` } })
+    const typed = `${box.value} III`
+    fireEvent.change(box, { target: { value: typed } })
     const elsewhere = document.createElement('button')
     document.body.appendChild(elsewhere)
     try {
       fireEvent.blur(box, { relatedTarget: elsewhere })
       expect(screen.queryByRole('textbox', { name: field })).toBeNull()
+      // Written, through the view's own writer, with the trimmed words.
+      expect(JSON.stringify(ctx[writer].mock.calls.at(-1))).toContain(JSON.stringify(typed.trim()))
       expect(document.activeElement).not.toBe(words())
     } finally {
       elsewhere.remove()

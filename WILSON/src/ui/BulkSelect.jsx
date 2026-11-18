@@ -17,7 +17,7 @@
 // every ticked row. In the Tasks and Assets copies "None" had the label
 // option's own value, '', which their change handler ignored, so picking it
 // did nothing while every caller's `v || null` expected the clear (F10's
-// measurement; the one change this piece makes on screen).
+// measurement). The two are the changes this piece makes on screen.
 //
 // The look is the well's (`.ui-input[data-size="sm"]`) plus the caller's
 // class, where its bar's sheet places it. A caller may write the pair whole

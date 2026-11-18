@@ -95,6 +95,9 @@ describe.each(KINDS)('$kind: the writers through the adapter, the undo and the f
     expect(h.env.ensureEntityFolderFor).toHaveBeenCalledWith(kind, { id: 'x1', name: 'New', status: 'final' })
     await h.history[0].entry.undoOps[0]()
     expect(h.registry[names.update]).toHaveBeenLastCalledWith('x1', { status: 'not_started' })
+    // The redo puts the patch back (review round 2, 2C-04).
+    await h.history[0].entry.redoOps[0]()
+    expect(h.registry[names.update]).toHaveBeenLastCalledWith('x1', { status: 'final' })
   })
   it('update refused: the screen is put back and no history is pushed', async () => {
     const h = harness({ bundle: { [col]: [{ id: 'x1', name: 'Old' }] }, adapter: { [upsert]: async () => { throw new Error('refused') } } })
@@ -110,7 +113,8 @@ describe.each(KINDS.filter(s => !s.deleteByHand))('$kind: the factory\'s delete'
   const { kind, collection: col, names, remove } = spec
   it('delete: one adapter delete with the project, no folder call (the database\'s key and rescue do that), the task items and groupings swept; refused: nothing changes', async () => {
     const items = [{ id: 'i1', entity_type: kind, entity_id: 'x1' }, { id: 'i2', entity_type: kind, entity_id: 'x2' }]
-    const h = harness({ bundle: { [col]: [{ id: 'x1' }, { id: 'x2' }], taskItems: items } })
+    const groupings = [{ id: 'g1', kind, entity_ids: ['x1', 'x2', 'x3'] }, { id: 'g2', kind: 'asset', entity_ids: ['x1', 'a2'] }]
+    const h = harness({ bundle: { [col]: [{ id: 'x1' }, { id: 'x2' }], taskItems: items, itemGroupings: groupings } })
     await h.registry[names.remove]('x1')
     expect(h.calls.filter(c => c[0] === remove)).toEqual([[remove, 'x1', 'p1']])
     expect(h.calls.filter(c => /older|Folder/i.test(c[0]))).toEqual([])
@@ -118,6 +122,16 @@ describe.each(KINDS.filter(s => !s.deleteByHand))('$kind: the factory\'s delete'
     expect(h.env.ensureEntityFolderFor).not.toHaveBeenCalled()
     expect(h.state.current[col]).toEqual([{ id: 'x2' }])
     expect(h.state.current.taskItems.map(i => i.id)).toEqual(['i2'])
+    // Swept: no grouping of its kind names it; another kind's id 'x1' is not it (review round 2, 2C-01).
+    expect(h.state.current.itemGroupings.filter(g => g.kind === kind).flatMap(g => g.entity_ids)).not.toContain('x1')
+    expect(h.state.current.itemGroupings.find(g => g.id === 'g2')).toEqual(groupings[1])
+    // The undo brings the row back, then hands back the groupings that named it; the redo deletes it again.
+    await h.history[0].entry.undoOps[0]()
+    expect(h.registry[names.add].mock.calls[0][0]).toEqual({ id: 'x1' })
+    expect(h.env.restoreGroupingsAfterDelete).toHaveBeenCalledWith([groupings[0]])
+    expect(h.registry[names.add].mock.invocationCallOrder[0]).toBeLessThan(h.env.restoreGroupingsAfterDelete.mock.invocationCallOrder[0])
+    await h.history[0].entry.redoOps[0]()
+    expect(h.registry[names.remove].mock.calls).toEqual([['x1'], ['x1']])
     const refused = harness({ bundle: { [col]: [{ id: 'x1' }] }, adapter: { [remove]: async () => { throw new Error('refused') } } })
     await expect(refused.registry[names.remove]('x1')).rejects.toThrow('refused')
     expect(refused.state.current[col]).toEqual([{ id: 'x1' }])
@@ -152,14 +166,34 @@ describe('the differences between the kinds, kept', () => {
     expect(h.registry.addShot).toHaveBeenCalledWith({ id: 'sh1', scene_id: 'sc1' }, { restoreItems: [{ id: 'm1', shot_id: 'sh1' }], restoreTaskLinks: ['t1'], restoreTaskItems: [] })
     expect(h.registry.replaceShotTakes).toHaveBeenCalledWith(['sh1'], [{ id: 'k1', shot_id: 'sh1' }])
     expect(h.env.restoreGroupingsAfterDelete).toHaveBeenCalledTimes(1)
+    // In that order: the shot, then its takes, then the groupings (review round 2, 2C-02).
+    const order = [h.registry.addShot, h.registry.replaceShotTakes, h.env.restoreGroupingsAfterDelete].map(f => f.mock.invocationCallOrder[0])
+    expect(order).toEqual([...order].sort((a, b) => a - b))
   })
-  it('a level\'s delete undo restores its task items only where the backend keeps them', async () => {
+  it('where the backend keeps task items, a shot\'s delete leaves its tasks\' own links alone (the items are the links)', async () => {
+    const h = harness({ bundle: { shots: [{ id: 'sh1', scene_id: 'sc1' }], tasks: [{ id: 't1', shot_id: 'sh1' }] }, taskItemsOn: true })
+    await h.registry.deleteShot('sh1')
+    expect(h.state.current.tasks).toEqual([{ id: 't1', shot_id: 'sh1' }])
+  })
+  it('a level\'s delete undo brings the level back, and its task items only where the backend keeps them', async () => {
     const items = [{ id: 'i1', entity_type: 'level', entity_id: 'l1' }]
     for (const on of [false, true]) {
       const h = harness({ bundle: { levels: [{ id: 'l1' }], taskItems: items }, taskItemsOn: on })
       await h.registry.deleteLevel('l1')
       await h.history[0].entry.undoOps[0]()
-      expect(h.env.restoreItemRows.mock.calls.length, String(on)).toBe(on ? 1 : 0)
+      expect(h.registry.addLevel.mock.calls[0], String(on)).toEqual([{ id: 'l1' }])
+      expect(h.state.current.levels.map(l => l.id), String(on)).toEqual(['l1'])
+      expect(h.env.restoreItemRows.mock.calls, String(on)).toEqual(on ? [[items]] : [])
+    }
+  })
+  it('a scene or a shot asked into an archived list is refused BEFORE the write: nothing written, nothing on screen, no history (review round 2, 2C-03)', async () => {
+    for (const spec of KINDS.filter(s => s.list)) {
+      const h = harness()
+      h.env.requireEditableShotList.mockImplementation((id) => { if (id === 'list-archived') throw new Error('This list is archived.') })
+      await expect(h.registry[spec.names.add]({ name: 'No' }, { listId: 'list-archived' }), spec.kind).rejects.toThrow('This list is archived.')
+      expect(h.calls.filter(c => c[0] === spec.upsert), spec.kind).toEqual([])
+      expect(h.state.current[spec.collection], spec.kind).toEqual([])
+      expect(h.history, spec.kind).toHaveLength(0)
     }
   })
   it('deleteScene (by hand): the scene and every shot of it, their memberships and task links; one undo of N+2 parts', async () => {
@@ -168,6 +202,8 @@ describe('the differences between the kinds, kept', () => {
         scenes: [{ id: 'sc1' }], shots: [{ id: 'sh1', scene_id: 'sc1' }, { id: 'sh2', scene_id: 'sc1' }, { id: 'sh3', scene_id: 'sc2' }],
         shotListItems: [{ id: 'm1', scene_id: 'sc1' }, { id: 'm2', shot_id: 'sh1' }, { id: 'm3', shot_id: 'sh3' }],
         tasks: [{ id: 't1', scene_id: 'sc1' }, { id: 't2', shot_id: 'sh2' }],
+        taskItems: [{ id: 'i1', entity_type: 'scene', entity_id: 'sc1' }, { id: 'i2', entity_type: 'shot', entity_id: 'sh1' }, { id: 'i3', entity_type: 'shot', entity_id: 'sh3' }],
+        itemGroupings: [{ id: 'g1', kind: 'scene', entity_ids: ['sc1', 'sc8', 'sc9'] }, { id: 'g2', kind: 'shot', entity_ids: ['sh1', 'sh3', 'sh4'] }],
       },
     })
     await h.registry.deleteScene('sc1')
@@ -175,8 +211,19 @@ describe('the differences between the kinds, kept', () => {
     expect(h.state.current.shots.map(s => s.id)).toEqual(['sh3'])
     expect(h.state.current.shotListItems.map(i => i.id)).toEqual(['m3'])
     expect(h.state.current.tasks).toEqual([{ id: 't1', scene_id: null }, { id: 't2', shot_id: null }])
+    // The scene's and its shots' task items and groupings go with them (review round 2, 2C-01, 2C-04).
+    expect(h.state.current.taskItems.map(i => i.id)).toEqual(['i3'])
+    expect(h.state.current.itemGroupings.flatMap(g => g.entity_ids)).not.toContain('sc1')
+    expect(h.state.current.itemGroupings.flatMap(g => g.entity_ids)).not.toContain('sh1')
+    expect(h.state.current.itemGroupings.flatMap(g => g.entity_ids)).toContain('sh3')
     expect(h.env.ensureEntityFolderFor).not.toHaveBeenCalled()
     expect(h.history[0].entry.undoOps).toHaveLength(4)
+  })
+  it('deleteScene where the backend keeps task items: the tasks\' own links are left alone (the items are the links)', async () => {
+    const tasks = [{ id: 't1', scene_id: 'sc1' }, { id: 't2', shot_id: 'sh1' }]
+    const h = harness({ bundle: { scenes: [{ id: 'sc1' }], shots: [{ id: 'sh1', scene_id: 'sc1' }], tasks }, taskItemsOn: true })
+    await h.registry.deleteScene('sc1')
+    expect(h.state.current.tasks).toEqual(tasks)
   })
 
   // ── Review round 1 (1D-02, 1D-03): the paths no case ran ──
@@ -236,11 +283,18 @@ describe('the differences between the kinds, kept', () => {
         shotListItems: [{ id: 'm1', scene_id: 'sc1' }, { id: 'm2', shot_id: 'sh1' }],
         tasks: [{ id: 't1', scene_id: 'sc1' }, { id: 't2', shot_id: 'sh2' }],
         taskItems: [{ id: 'i1', entity_type: 'scene', entity_id: 'sc1' }, { id: 'i2', entity_type: 'shot', entity_id: 'sh2' }],
+        itemGroupings: [{ id: 'g1', kind: 'scene', entity_ids: ['sc1', 'sc8', 'sc9'] }, { id: 'g2', kind: 'shot', entity_ids: ['sh2', 'sh8'] }],
       },
     })
     await h.registry.deleteScene('sc1')
     const { undoOps, redoOps } = h.history[0].entry
     for (const op of undoOps) await op()
+    // In that order: the scene before its shots (a shot points at it), the groupings last (review round 2, 2C-02).
+    const order = [...h.registry.addScene.mock.invocationCallOrder, ...h.registry.addShot.mock.invocationCallOrder, ...h.env.restoreGroupingsAfterDelete.mock.invocationCallOrder]
+    expect(order).toEqual([...order].sort((a, b) => a - b))
+    expect(h.env.restoreGroupingsAfterDelete).toHaveBeenCalledWith([
+      { id: 'g1', kind: 'scene', entity_ids: ['sc1', 'sc8', 'sc9'] }, { id: 'g2', kind: 'shot', entity_ids: ['sh2', 'sh8'] },
+    ])
     expect(h.registry.addScene.mock.calls).toEqual([[{ id: 'sc1' }, {
       restoreItems: [{ id: 'm1', scene_id: 'sc1' }], restoreTaskLinks: ['t1'], restoreTaskItems: [{ id: 'i1', entity_type: 'scene', entity_id: 'sc1' }],
     }]])

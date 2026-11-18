@@ -75,7 +75,15 @@ function Probe({ ctx, rows, search = '' }) {
 const names = () => seen.current.processed.map((r) => r.name)
 
 describe('useTableScreen: a change for now outlives a reload of the rows', () => {
-  it('the rows in their own order; the search, a filter and a sort narrow and order them; a new rows array and a new provider value keep all of it', () => {
+  // With no views API in the provider value, useTableView keeps the change
+  // itself: this case pins that the screen holds nothing that resets on a
+  // reload. The provider's own path (ctx.viewDraftOf) is pinned by the four
+  // table-view suites over the real provider (the header). Its control is a
+  // mutation, run by hand (review round 2, 2C-10; measured red on 2026-11-18):
+  // under useTableView's `localDraft` state, add
+  //   useEffect(() => { setLocalDraft(null) }, [ctx])
+  // and this case fails at its reload.
+  it('without a views API: the rows in their own order; the search, a filter and a sort narrow and order them; a new rows array and a new provider value keep all of it', () => {
     const { rerender } = render(<Probe ctx={{ project: { id: 'p1' } }} rows={ROWS()} />)
     expect(names()).toEqual(['Cliff', 'Market', 'Harbour'])
     act(() => seen.current.setSortField('name'))
@@ -99,19 +107,18 @@ describe('useTableScreen: a change for now outlives a reload of the rows', () =>
     rerender(<Probe ctx={{ project: { id: 'p1' } }} rows={ROWS()} search="  mark " />)
     expect(names()).toEqual(['Market'])
   })
-  it('CONTROL: a screen that starts over when its rows change — a reset on reload — fails what the case above checks after its reload', () => {
-    // The same provider value and the same reload as above; the screen is
-    // made anew by its rows. (Review round 1, 1C-03: the first control
-    // remounted by hand on another ctx. The redcheck log also runs the case
-    // above against a useTableView that drops its change on a new provider
-    // value: red.)
-    function Resetting({ ctx, rows }) { return <Probe key={rows.length} ctx={ctx} rows={rows} /> }
-    const { rerender } = render(<Resetting ctx={{ project: { id: 'p1' } }} rows={ROWS()} />)
-    act(() => seen.current.setSortField('name'))
-    act(() => seen.current.reverseSort())
-    rerender(<Resetting ctx={{ project: { id: 'p1' } }} rows={[...ROWS(), { id: 'l4', name: 'Night', status: 'in_progress', sort_order: 3 }]} />)
-    expect([seen.current.sortField, seen.current.sortDir]).not.toEqual(['name', 'desc'])
-    expect(names()).not.toEqual(['Night', 'Market', 'Harbour'])
+  it('the base order sorts a COPY: the provider\'s array keeps its order (VW1e step 0, finding 16)', () => {
+    const rows = ROWS()
+    render(<Probe ctx={{ project: { id: 'p1' } }} rows={rows} />)
+    expect(names()).toEqual(['Cliff', 'Market', 'Harbour'])
+    expect(rows.map((r) => r.id)).toEqual(['l1', 'l2', 'l3'])
+  })
+  it('a grouping the table does not offer is forgotten in a change for now (OUTSTANDING F10-18: the Levels, Experiences, Scenes and Shots tables now do this too)', () => {
+    render(<Probe ctx={{ project: { id: 'p1' } }} rows={ROWS()} />)
+    act(() => seen.current.setGroupBy('status'))
+    expect(seen.current.storedGroup).toBe('status')
+    act(() => seen.current.setGroupBy('time_of_day'))
+    expect([seen.current.groupBy, seen.current.storedGroup]).toEqual(['', ''])
   })
   // Review round 1 (1C-01, 1C-02): what each caller hands the hook, honoured.
   it('the search as typed where the table asks (`searchTrim: false`, the Scenes tab), trimmed by default; with no base order the rows as they come', () => {
