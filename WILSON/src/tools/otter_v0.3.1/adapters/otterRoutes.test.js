@@ -15,6 +15,7 @@ import {
   mergeHotkeys, mergeFunctions, mergeNodes, mergeCorrections,
   readBody, okBody, needBody, otterCall,
 } from './otterRoutes.js'
+import { shareCall } from '../components/otterSharing.js'
 
 const p = (path, method) => parseOtterRoute(path, method)
 
@@ -414,6 +415,13 @@ describe('the one response reader (F6, B5)', () => {
       .toEqual({ ok: false, status: 0, data: null, text: 'Failed to fetch' })
     const abort = Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' })
     await expect(otterCall(async () => { throw abort }, '/u')).rejects.toBe(abort)
+  })
+
+  it('shareCall still never rejects: an abort reads as a share that did not reach the workspace (review round 1)', async () => {
+    const abort = Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' })
+    const out = await shareCall(async () => { throw abort }, '/u')
+    expect(out).toMatchObject({ ok: false, status: 0, data: null })
+    expect(out.text).toMatch(/did not reach the workspace/)
   })
 })
 

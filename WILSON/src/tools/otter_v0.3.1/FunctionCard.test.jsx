@@ -162,10 +162,10 @@ describe('FunctionCard — a known language colours the code text only', () => {
 // ── the hosts ────────────────────────────────────────────────────────────────
 // (jsdom's import.meta.url is not a file URL; the suite runs from WILSON/.)
 const OTTER = readFileSync('src/tools/otter_v0.3.1/Otter.jsx', 'utf8')
-// F6 (A1): the generation paths' request and merges live in prompts.js, one
+// F6 (A1): the generation paths' request and merges live in otterAI.js, one
 // pipeline for the five paths; the generation pins below read them there.
-const HOME = readFileSync('src/tools/otter_v0.3.1/prompts.js', 'utf8')
-const blank =(s) => s.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' ')).replace(/\/\/[^\n]*/g, '')
+const HOME = readFileSync('src/tools/otter_v0.3.1/otterAI.js', 'utf8')
+const blank = (s) => s.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' ')).replace(/\/\/[^\n]*/g, '')
 /** A slice of the RAW source between two markers (comments are markers here),
  *  blanked of comments afterwards; '' when either marker is missing. */
 function between(src, from, to, after = 0) {
@@ -216,7 +216,7 @@ function hostReport(src, home = HOME) {
   if (!/const allFuncs = \(Array\.isArray\(softwareFunctions\?\.categories\) \? softwareFunctions\.categories : \[\]\)\s*\.filter\(cat => cat && Array\.isArray\(cat\.functions\)\)\.map\(cat => \(\{ \.\.\.cat, functions: functionEntries\(cat\) \}\)\);/.test(view)) bad.push('the Functions view reads an entry that is not a function')
   if ((view.match(/cardText\(f\.(name|description|syntax)\)\.toLowerCase\(\)\.includes\(functionSearch\.toLowerCase\(\)\)/g) || []).length !== 3 || /\(f\.(name|description|syntax) \|\| ''\)\.toLowerCase/.test(view)) bad.push('the Functions view\'s search reads a field raw')
   // Round 2: the generation paths keep a category the generator keyed `name`.
-  // F6 (A1): one merge for the generation paths, in prompts.js, and no copy
+  // F6 (A1): one merge for the generation paths, in otterAI.js, and no copy
   // of it left here.
   if (/category: cat\.category \|\| 'General'/.test(code) || /category: cat\.category \|\| 'General'/.test(home)
     || (home.match(/category: functionCategoryName\(cat\),/g) || []).length !== 1
@@ -254,7 +254,7 @@ describe('Otter.jsx renders the one card in both hosts', () => {
       .toMatch(/Functions view reads an entry/)
     expect(hostReport(OTTER.replace('cardText(f.syntax).toLowerCase()', "(f.syntax || '').toLowerCase()")).join('\n'))
       .toMatch(/search reads a field raw/)
-    // F6 (A1): planted in the one pipeline (prompts.js), and a copy planted
+    // F6 (A1): planted in the one pipeline (otterAI.js), and a copy planted
     // back in Otter.jsx, each reported.
     expect(hostReport(OTTER, HOME.replace('category: functionCategoryName(cat),', "category: cat.category || 'General',")).join('\n'))
       .toMatch(/generation path/)
@@ -344,7 +344,7 @@ describe('the function readers skip what is not a function — the shipped code,
   it('the generation paths read the library\'s existing names through the same reader — no throw, functions only (review round 1)', () => {
     // Three prompts list "EXISTING FUNCTIONS (DO NOT DUPLICATE)"; on a null
     // entry each threw inside its try and the generator lost the list.
-    // F6 (A1): the three paths share one reader (prompts.js), and none keeps
+    // F6 (A1): the three paths share one reader (otterAI.js), and none keeps
     // a copy of its own.
     expect([...RAW.matchAll(/const allNames = [^\n]+;/g)], 'no copy left in Otter.jsx').toHaveLength(0)
     const lines = [...HOME.replace(/\r\n/g, '\n').matchAll(/const allNames = [^\n]+;/g)].map((m) => m[0])

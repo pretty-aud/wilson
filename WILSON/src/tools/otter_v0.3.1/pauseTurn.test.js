@@ -49,14 +49,15 @@ vi.mock('./adapters', () => ({ otterFetch: vi.fn() }))
 vi.mock('../../lib/activeModel', () => ({ modelFor: (key) => `m:${key}` }))
 
 import { callAI, AIProxyError } from '../../cloud/aiProxy'
-import { callAnthropicAPI, MAX_CONTINUATIONS } from './prompts.js'
+import { callAnthropicAPI, MAX_CONTINUATIONS } from './otterAI.js'
 import { callValidatorAPI } from './Validator.jsx'
 
 const read = (rel) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
 
 const OTTER = read('./Otter.jsx')
 const VALIDATOR = read('./Validator.jsx')
-const HOME = read('./prompts.js')
+const HOME = read('./otterAI.js')
+const PROMPTS = read('./prompts.js')
 
 const WEB = { type: 'web_search_20250305', name: 'web_search', max_uses: 5 }
 const ASK = [{ role: 'user', content: 'Validate the following lesson: …' }]
@@ -80,7 +81,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('one wrapper, in prompts.js, and every O.T.T.E.R. caller uses it', () => {
+describe('one wrapper, in otterAI.js, and every O.T.T.E.R. caller uses it', () => {
   it('finds the wrapper at all — the instrument works', () => {
     expect(HOME).toContain('export async function callAnthropicAPI(')
     // If web search ever leaves O.T.T.E.R., the whole class goes with it and
@@ -91,7 +92,7 @@ describe('one wrapper, in prompts.js, and every O.T.T.E.R. caller uses it', () =
   })
 
   it('neither caller keeps a wrapper of its own', () => {
-    const importsIt = /import\s*\{[^}]*\bcallAnthropicAPI\b[^}]*\}\s*from\s*'\.\/prompts\.js'/
+    const importsIt = /import\s*\{[^}]*\bcallAnthropicAPI\b[^}]*\}\s*from\s*'\.\/otterAI\.js'/
     expect(OTTER).not.toContain('async function callAnthropicAPI(')
     expect(OTTER).toMatch(importsIt)
     expect(VALIDATOR).toMatch(importsIt)
@@ -99,6 +100,11 @@ describe('one wrapper, in prompts.js, and every O.T.T.E.R. caller uses it', () =
     // text block by itself again.
     expect(VALIDATOR).not.toMatch(/\bcallAI\s*\(/)
     expect(VALIDATOR).not.toMatch(/\.content\s*\??\.\s*find\s*\(/)
+  })
+
+  it('prompts.js stays prompt text with no imports: scripts/probes load it under plain node (review round 1)', () => {
+    expect(PROMPTS).toContain('export const FULL_COURSE_OUTLINE_PROMPT')
+    expect(PROMPTS).not.toMatch(/^\s*import\s/m)
   })
 
   it('the wrapper resumes a pause_turn, bounded, by appending the ASSISTANT turn', () => {
@@ -122,7 +128,9 @@ describe('one wrapper, in prompts.js, and every O.T.T.E.R. caller uses it', () =
 describe('callAnthropicAPI, executed', () => {
   it('a paused turn is resumed with the assistant turn appended and no trailing user turn', async () => {
     callAI.mockResolvedValueOnce(paused(1)).mockResolvedValueOnce(answered('{"ok":1}'))
-    const out = await callAnthropicAPI({ model: 'm', maxTokens: 10, systemPrompt: 's', messages: ASK, tools: [WEB] })
+    // A tag and betas that are not the defaults, so a resume that dropped
+    // either would differ from the first request below (review round 1).
+    const out = await callAnthropicAPI({ model: 'm', maxTokens: 10, systemPrompt: 's', messages: ASK, tools: [WEB], betas: ['b1'], tool: 'validator' })
     expect(out).toEqual(answered('{"ok":1}'))
     expect(callAI).toHaveBeenCalledTimes(2)
     const second = callAI.mock.calls[1][0]
@@ -264,7 +272,8 @@ describe('a parse failure says what came back', () => {
     }
     // Since F6 (A1) the five generation paths parse through one reader,
     // parseModelJson, whose one sentence carries it (otterGeneration.test.js
-    // runs each path's failure); no path keeps a parse of its own.
+    // runs each path's failure); no generation path keeps a parse of its own
+    // (the quiz still does, without the diagnostic: OUTSTANDING F6-25).
     expect(HOME).toContain('throw new Error(`Failed to parse ${what} JSON. Try again. ${describeResponse(data)}`)')
     expect(OTTER).not.toMatch(/Failed to parse (course outline|subject) JSON/)
   })

@@ -623,10 +623,11 @@ export function slugify(name) {
 // on as data: cached as a course, rendered as a subject, saved on the undo
 // stack. Until F6 the house rule lived in three private copies (otterSharing's
 // readBody and shareCall, ShareCourseDialog's readBody, petKnowledge's
-// readJson) and 82 reads skipped it. Every O.T.T.E.R. read now takes one of
-// the four shapes below; otterRoutes.test.js pins them and bans `.json()`
-// from the files that read O.T.T.E.R.'s answers (petKnowledge.js keeps its
-// readJson, which already reads status first).
+// readJson) and 82 reads skipped it. Every read in the files F6 converted
+// takes one of the four shapes below; otterRoutes.test.js pins them and bans
+// `.json()` from those files. Left as they were, recorded in OUTSTANDING:
+// petKnowledge.js's readJson (it already reads the status first) and the
+// otterFetch reads outside O.T.T.E.R.'s folder (F6-09, F6-10).
 
 /** A response body, read without letting a non-JSON one destroy the message:
  *  the parsed JSON, or null for an empty body, a body that is not JSON, or no

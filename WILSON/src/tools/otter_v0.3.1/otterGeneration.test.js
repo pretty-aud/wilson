@@ -1,6 +1,6 @@
 // =============================================================================
 // otterGeneration.test.js — F6 (A1): one pipeline for O.T.T.E.R.'s five
-// generators (prompts.js).
+// generators (otterAI.js).
 //
 // generateCourse and agentGenerateCourse (an outline), generateSingleSubject
 // and agentGenerateSingleSubject (a subject on a topic) and
@@ -29,7 +29,7 @@ import { callAI } from '../../cloud/aiProxy'
 import {
   buildCourseMessage, buildSubjectMessage, generateCourseOutline, generateSubject, createCourse,
   courseStubs, mergeSubjectDocuments, normalizeSections, parseModelJson, subjectSources,
-} from './prompts.js'
+} from './otterAI.js'
 
 const OTTER = readFileSync(fileURLToPath(new URL('./Otter.jsx', import.meta.url)), 'utf8')
 
@@ -129,6 +129,27 @@ describe('the subject record', () => {
     }
   })
 
+  it('a stub filled: the stub\'s fields, the reply over them, then its own slug, the course, sources and time (review round 1)', async () => {
+    callAI.mockResolvedValueOnce(answer({ title: 'Loops in depth', slug: 'model-slug', is_stub: true, sections: [] }))
+    const { record } = await generateSubject({
+      fetchImpl: library(), model: 'm', systemPrompt: 'S', courseSlug: 'py', course: { name: 'Python', type: 'coding_language' },
+      stub: { slug: 'loops', title: 'Loops', description: 'd', subject_order: 3, is_stub: true, created_at: 'c' }, stubSlug: 'loops',
+      docs: { functions: { categories: [] } }, references: [],
+    })
+    expect(Object.keys(record)).toEqual(['slug', 'title', 'description', 'subject_order', 'is_stub', 'created_at', 'sections', 'software_slug', 'sources', 'updated_at'])
+    expect(record).toMatchObject({ slug: 'loops', title: 'Loops in depth', software_slug: 'py', is_stub: false, subject_order: 3, created_at: 'c', sources: [] })
+  })
+
+  it('a cut-off subject reply says so in its kind\'s words: a stub, then a topic (review round 1)', async () => {
+    const cut = { stop_reason: 'max_tokens', content: [{ type: 'text', text: '{' }] }
+    callAI.mockResolvedValueOnce(cut)
+    await expect(generateSubject({ fetchImpl: library(), model: 'm', systemPrompt: 'S', courseSlug: 'b', course: null, stub: { title: 'T' }, stubSlug: 't', docs: {}, references: [] }))
+      .rejects.toThrow('Response was too long. Try generating again.')
+    callAI.mockResolvedValueOnce(cut)
+    await expect(generateSubject({ fetchImpl: library(), model: 'm', systemPrompt: 'S', courseSlug: 'b', course: null, topic: 'T', skillLevel: 'x', docs: {}, references: [] }))
+      .rejects.toThrow('Response was too long. Try a more specific topic.')
+  })
+
   it('subjectSources: a URL once, an entry without one dropped', () => {
     expect(subjectSources([{ url: 'u' }, { url: '' }, { url: 'u', title: 'again' }], [{ url: 'v', title: 'V' }])).toEqual([{ url: 'u' }, { url: 'v', title: 'V' }])
   })
@@ -142,6 +163,11 @@ describe('a course\'s stubs, and its creation', () => {
     const stubs = [...courseStubs(OUTLINE, { existingSubs: [{ slug: 'x', title: 'Old A', subject_order: 6 }], existingMatch: { slug: 'blender' }, skillLevel: 'beginner' })]
     expect(stubs.map(s => [s.slug, s.subject_order, s.skill_level])).toEqual([['modeling', 7, 'advanced'], ['shading', 8, 'beginner']])
     expect(stubs[0]).toMatchObject({ is_stub: true, sections: [], section_outlines: [], prerequisites: [], description: '', estimated_hours: 1 })
+  })
+
+  it('adding to a course skips "General Basics" exactly, not another "General Basic…" (review round 1)', () => {
+    const stubs = [...courseStubs([{ title: 'General Basics of Blender' }, { title: 'General Basic Modeling Tools' }], { existingSubs: [], existingMatch: { slug: 'blender' }, skillLevel: 'b' })]
+    expect(stubs.map(s => [s.slug, s.subject_order])).toEqual([['general-basic-modeling-tools', 1]])
   })
 
   it('a new course keeps every subject, General Basics first', () => {

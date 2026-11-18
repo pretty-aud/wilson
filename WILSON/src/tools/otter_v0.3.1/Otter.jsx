@@ -24,9 +24,13 @@ import {
 import {
   FULL_COURSE_OUTLINE_PROMPT, SUBJECT_GENERATION_PROMPT, SINGLE_SUBJECT_PROMPT,
   MULTIPLE_CHOICE_PROMPT, CODE_IDENTIFICATION_PROMPT, CODE_WRITING_PROMPT, COMPANION_PROMPT,
-  NODES_GENERATION_PROMPT, callAnthropicAPI, describeResponse, extractTextAndCitations,
-  generateCourseOutline, createCourse, courseStubs, generateSubject, mergeSubjectDocuments,
+  NODES_GENERATION_PROMPT
 } from './prompts.js';
+// How O.T.T.E.R. asks the model: the one wrapper and the generation pipeline (F6).
+import {
+  callAnthropicAPI, extractTextAndCitations,
+  generateCourseOutline, createCourse, courseStubs, generateSubject, mergeSubjectDocuments,
+} from './otterAI.js';
 // Session 10: content routes go through the adapter seam instead of straight
 // to the in-app Express server — cloud when signed in, local otherwise, and
 // the only thing that works at all in the Session 11 web build.
@@ -773,7 +777,11 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
     return false;
   }, []);
 
+  // F6 (review round 1): which selectSoftware call is the latest, so a refused
+  // read clears only the course it was reading.
+  const softwareReqRef = useRef(0);
   const selectSoftware = useCallback((slug, forceReload = false) => {
+    const req = ++softwareReqRef.current;
     setActiveSoftwareSlug(slug);
     setExpandedSoftware(slug);
     const cached = softwareCacheRef.current[slug];
@@ -813,7 +821,22 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
             .catch(() => {});
         }
       }
-    }).catch(e => console.error('Failed to load software:', e));
+    }).catch(e => {
+      console.error('Failed to load software:', e);
+      // F6 (review round 1): a refused course opens EMPTY, as it did when the
+      // refusal was cached as its meta, and nothing of it is cached. Left as
+      // it was, the previous course's subjects, progress and documents stayed
+      // on screen under this one's name, and a lesson ticked there would have
+      // saved them to this course.
+      if (softwareReqRef.current !== req) return;
+      setActiveSoftware(null);
+      setSubjectList([]);
+      setActiveProgress(null);
+      setSoftwareHotkeys(null);
+      setSoftwareFunctions(null);
+      setSoftwareNodes(null);
+      setReferenceUrls([]);
+    });
   }, []);
 
   // Session 13: the Admin Terminal's "Open their course" jumps here. The
@@ -1254,7 +1277,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
   }, [editingPrompts, saveSettings]);
 
   // The Anthropic call helper (callAnthropicAPI, describeResponse,
-  // extractTextAndCitations) lives in prompts.js since F6 (REV-03), so the
+  // extractTextAndCitations) lives in otterAI.js since F6 (REV-03), so the
   // Validator rides the same wrapper: pause_turn resumed and bounded, 429/529
   // retried, the reply read from its last text block.
 
@@ -1337,7 +1360,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
     }, 1000);
 
     try {
-      // The outline's request and reply: prompts.js, one pipeline for the
+      // The outline's request and reply: otterAI.js, one pipeline for the
       // course paths (F6, A1).
       const parsed = await generateCourseOutline({
         fetchImpl: otterFetch,
@@ -1489,7 +1512,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
 
       if (signal.aborted) throw new Error('Cancelled');
 
-      // The request, the reply and the record: prompts.js, one pipeline for
+      // The request, the reply and the record: otterAI.js, one pipeline for
       // the three subject paths (F6, A1).
       const { parsed, record: updatedSubject } = await generateSubject({
         fetchImpl: otterFetch,
@@ -1585,7 +1608,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
     }, 1000);
 
     try {
-      // The request, the reply and the record: prompts.js (F6, A1).
+      // The request, the reply and the record: otterAI.js (F6, A1).
       const { parsed, record: subject } = await generateSubject({
         fetchImpl: otterFetch,
         model: modelFor('otter.singleSubject'),
@@ -1678,7 +1701,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
         swMeta = await otterFetch(`/api/software/${swSlug}`).then(needBody);
       } catch { swMeta = { name: swSlug, type: 'software' }; }
       // The request, the reply and the record: the same pipeline as
-      // generateSingleSubject (prompts.js; F6, A1), under the agent's key.
+      // generateSingleSubject (otterAI.js; F6, A1), under the agent's key.
       const { parsed, record: subject } = await generateSubject({
         fetchImpl: otterFetch,
         model: modelFor('otter.agentSubject'),
@@ -1755,7 +1778,7 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
 
     try {
       // The outline's request and reply: the same pipeline as generateCourse
-      // (prompts.js; F6, A1), under the agent's own model key.
+      // (otterAI.js; F6, A1), under the agent's own model key.
       const parsed = await generateCourseOutline({
         fetchImpl: otterFetch,
         model: modelFor('otter.agentCourse'),

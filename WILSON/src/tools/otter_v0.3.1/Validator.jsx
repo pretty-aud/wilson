@@ -11,12 +11,12 @@ import { otterFetch } from './adapters';
 import { readBody, needBody } from './adapters/otterRoutes.js';
 // Session 12 (locked #21): Anthropic access rides the ai-proxy Edge Function,
 // through O.T.T.E.R.'s one wrapper since F6.
-import { callAnthropicAPI, MAX_CONTINUATIONS } from './prompts.js';
+import { callAnthropicAPI, MAX_CONTINUATIONS } from './otterAI.js';
 import { textFromMessage } from '../../cloud/anthropicStream';
 import { modelFor } from '../../lib/activeModel';
 
 // ── API helper ───────────────────────────────────────────────────────────────
-// F6 (REV-03): the Validator rides O.T.T.E.R.'s one wrapper (prompts.js), so it
+// F6 (REV-03): the Validator rides O.T.T.E.R.'s one wrapper (otterAI.js), so it
 // keeps the same three rules as every other O.T.T.E.R. call: a paused
 // server-side tool run is resumed (the assistant turn appended, no trailing
 // user turn, at most MAX_CONTINUATIONS times), a 429/529 is retried after 3, 6

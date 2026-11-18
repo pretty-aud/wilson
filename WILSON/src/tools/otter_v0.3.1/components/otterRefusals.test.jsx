@@ -66,3 +66,26 @@ describe('a refusal that is not JSON reaches the person as the authored words (F
     expect(await screen.findByText('You already have a request open for this course.')).toBeTruthy()
   })
 })
+
+// ── Review round 1: a refused course opens empty (source) ──────────────────────
+// Otter.jsx is too large to mount here for one read, so its selectSoftware is
+// read: since F6 a refused course read rejects into this catch, which must put
+// the course back to the empty state it starts in (not leave the previous
+// course's subjects and progress on screen under the new name, where a ticked
+// lesson would save them to the wrong course), and only for the latest pick.
+import { readFileSync } from 'node:fs'
+
+describe('a refused course opens empty, for the latest pick only (review round 1, source)', () => {
+  const OTTER = readFileSync('src/tools/otter_v0.3.1/Otter.jsx', 'utf8').replace(/\r\n/g, '\n')
+  const start = OTTER.indexOf('const selectSoftware = useCallback(')
+  const body = OTTER.slice(start, OTTER.indexOf('\n  }, []);', start))
+
+  it('selectSoftware numbers its picks, and its catch clears the course after checking the pick is still the latest', () => {
+    expect(start).toBeGreaterThan(0)
+    expect(body).toContain('const req = ++softwareReqRef.current;')
+    const onRefusal = body.slice(body.indexOf('.catch(e => {'))
+    expect(onRefusal).toMatch(/if \(softwareReqRef\.current !== req\) return;/)
+    for (const clear of ['setActiveSoftware(null)', 'setSubjectList([])', 'setActiveProgress(null)', 'setSoftwareHotkeys(null)',
+      'setSoftwareFunctions(null)', 'setSoftwareNodes(null)', 'setReferenceUrls([])']) expect(onRefusal).toContain(clear)
+  })
+})
