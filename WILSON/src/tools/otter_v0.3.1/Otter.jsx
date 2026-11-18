@@ -24,7 +24,8 @@ import {
 import {
   FULL_COURSE_OUTLINE_PROMPT, SUBJECT_GENERATION_PROMPT, SINGLE_SUBJECT_PROMPT,
   MULTIPLE_CHOICE_PROMPT, CODE_IDENTIFICATION_PROMPT, CODE_WRITING_PROMPT, COMPANION_PROMPT,
-  NODES_GENERATION_PROMPT, callAnthropicAPI, describeResponse, extractTextAndCitations
+  NODES_GENERATION_PROMPT, callAnthropicAPI, describeResponse, extractTextAndCitations,
+  generateCourseOutline, createCourse, courseStubs, generateSubject, mergeSubjectDocuments,
 } from './prompts.js';
 // Session 10: content routes go through the adapter seam instead of straight
 // to the in-app Express server — cloud when signed in, local otherwise, and
@@ -1336,60 +1337,19 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
     }, 1000);
 
     try {
-      const systemPrompt = editingPrompts.courseOutline || FULL_COURSE_OUTLINE_PROMPT;
-      let userMessage = `Software/Language: ${softwareNameInput.trim()}\nSkill level: ${skillLevel}\n`;
-      if (promptText.trim()) userMessage += `\nAdditional context: ${promptText}`;
-
-      let existingSubjectTitles = [];
-      if (existingMatch) {
-        try {
-          const existingSubs = await otterFetch(`/api/software/${existingMatch.slug}/subjects`).then(needBody);
-          existingSubjectTitles = existingSubs.map(s => s.title);
-          userMessage += `\n\nIMPORTANT: This software already has the following subjects — do NOT generate duplicates or basics:\n${existingSubjectTitles.map(t => `- ${t}`).join('\n')}`;
-          userMessage += `\nDo NOT include "General Basics" since it already exists. Only generate NEW subjects.`;
-        } catch { /* proceed without existing subject info */ }
-      }
-
-      // Inject user-provided reference URLs for outline context
-      const validRefs = referenceUrls.filter(r => r.text && !r.error);
-      if (validRefs.length > 0) {
-        userMessage += `\n\nThe user provided these reference materials. Design subjects that align with this content:\n`;
-        for (const ref of validRefs) {
-          userMessage += `- ${ref.title} (${ref.url}): ${ref.text.slice(0, 500)}\n`;
-        }
-      }
-
-      const data = await callAnthropicAPI({
+      // The outline's request and reply: prompts.js, one pipeline for the
+      // course paths (F6, A1).
+      const parsed = await generateCourseOutline({
+        fetchImpl: otterFetch,
         model: modelFor('otter.course'),
-        maxTokens: 12000,
-        systemPrompt,
-        messages: [{ role: 'user', content: userMessage }],
+        systemPrompt: editingPrompts.courseOutline || FULL_COURSE_OUTLINE_PROMPT,
+        name: softwareNameInput.trim(),
+        context: promptText,
+        skillLevel,
+        existingMatch,
+        references: referenceUrls,
+        onPhase: setGenPhase,
       });
-      if (data.stop_reason === 'max_tokens') {
-        throw new Error('Response was too long and got cut off. Try a simpler topic.');
-      }
-
-      setGenPhase('Parsing response...');
-      // 🚨 S30: was `data.content?.[0]?.text`. These models THINK even when
-      // nothing asks them to (S19 measured `thinking` omitted -> thinking=1),
-      // ai-proxy pipes the stream through untouched, and the reassembler puts
-      // every block at its own index — so content[0] is a THINKING block and
-      // .text is undefined. rawText became '', nothing matched, and every
-      // course generation died on "Failed to parse course outline JSON."
-      // Reproduced in anthropicStream.test.js.
-      const { text: rawText } = extractTextAndCitations(data);
-      let text = rawText.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
-      let parsed;
-      try { parsed = JSON.parse(text); }
-      catch {
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          try { parsed = JSON.parse(jsonMatch[0]); }
-          catch { throw new Error(`Failed to parse course outline JSON. Try again. ${describeResponse(data)}`); }
-        } else {
-          throw new Error(`Failed to parse course outline JSON. Try again. ${describeResponse(data)}`);
-        }
-      }
 
       let slug;
       if (existingMatch) {
@@ -1397,80 +1357,35 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
         setGenPhase('Adding to existing course...');
       } else {
         setGenPhase('Creating software folder...');
-        const metaRes = await otterFetch('/api/software', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: parsed.software_name || softwareNameInput.trim(),
-            type: parsed.type || 'software',
-            skill_level: skillLevel,
-            // Session 11 tier picker. The DATABASE decides whether the caller
-            // may have this tier; we send the choice and read back the answer.
-            visibility: newCourseVisibility,
-          })
+        slug = await createCourse(otterFetch, {
+          name: parsed.software_name || softwareNameInput.trim(),
+          type: parsed.type || 'software',
+          skillLevel,
+          // Session 11 tier picker. The DATABASE decides whether the caller
+          // may have this tier; we send the choice and read back the answer.
+          visibility: newCourseVisibility,
         });
-        const meta = await readBody(metaRes);
-        // Creating a course can now genuinely fail (a refused tier is an error,
-        // not a downgrade). Unchecked, `meta.slug` would be undefined and every
-        // subject below would POST to /api/software/undefined/subjects — the
-        // exact silent-success failure the adapter work exists to prevent.
-        if (!metaRes.ok || !meta?.slug) {
-          throw new Error(meta?.error || 'Could not create the course.');
-        }
-        slug = meta.slug;
       }
 
       setGenPhase('Saving subject stubs...');
-      const subjects = parsed.subjects || [];
-
-      let existingSlugs = new Set();
-      let existingMaxOrder = 0;
       // B2 (design §5.9): the slugs the course held before this run (null:
       // a new course, where no batch row can exist) and the slugs it saved.
       let slugsBefore = null;
+      let existingSubs = null;
       const savedSlugs = [];
       if (existingMatch) {
         try {
-          const existingSubs = await otterFetch(`/api/software/${slug}/subjects`).then(needBody);
-          existingSubs.forEach(s => {
-            existingSlugs.add(s.slug);
-            if (s.subject_order != null && s.subject_order > existingMaxOrder) existingMaxOrder = s.subject_order;
-          });
+          existingSubs = await otterFetch(`/api/software/${slug}/subjects`).then(needBody);
           slugsBefore = existingSubs.map(s => s.slug);
-          const existingTitlesLower = new Set(existingSubs.map(s => s.title.toLowerCase()));
-          for (const sub of subjects) {
-            if (existingTitlesLower.has(sub.title.toLowerCase())) {
-              const subSlug = sub.title.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-              existingSlugs.add(subSlug);
-            }
-          }
         } catch { /* proceed */ }
       }
-
-      let orderCounter = existingMaxOrder;
-      for (const sub of subjects) {
-        const subSlug = sub.title.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-        if (existingSlugs.has(subSlug)) continue;
-        if (existingMatch && sub.title.toLowerCase().includes('general basics')) continue;
-
-        orderCounter++;
+      // The stubs to save, one at a time: those the course does not hold yet.
+      for (const stub of courseStubs(parsed.subjects || [], { existingSubs, existingMatch, skillLevel })) {
         await otterFetch(`/api/software/${slug}/subjects`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            slug: subSlug,
-            title: sub.title,
-            description: sub.description || '',
-            skill_level: sub.skill_level || skillLevel,
-            estimated_hours: sub.estimated_hours || 1,
-            is_stub: true,
-            sections: [],
-            section_outlines: sub.section_outlines || [],
-            prerequisites: [],
-            subject_order: sub.subject_order || orderCounter,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          })
+          body: JSON.stringify(stub)
         });
-        savedSlugs.push(subSlug);
+        savedSlugs.push(stub.slug);
       }
       // After the run's last save, whatever the path does next.
       offerNewSubjectsToBatchReceivers(slug, slugsBefore, savedSlugs);
@@ -1574,192 +1489,43 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
 
       if (signal.aborted) throw new Error('Cancelled');
 
-      const systemPrompt = editingPrompts.subjectContent || SUBJECT_GENERATION_PROMPT;
-      const swType = activeSoftware?.type || 'software';
-      let userMessage = `Software/Language: ${activeSoftware?.name || activeSoftwareSlug}\n`;
-      userMessage += `Type: ${swType}\n`;
-      userMessage += `Subject: ${stubData.title}\n`;
-      userMessage += `Description: ${stubData.description || ''}\n`;
-      userMessage += `Skill level: ${stubData.skill_level || 'beginner'}\n`;
-      if (swType === 'coding_language') {
-        userMessage += `\nIMPORTANT: This is a coding language. Include "functions" (not "hotkeys") in your response — list built-in functions, methods, and constructs covered in this subject with full parameter details, return types, and examples.\n`;
-      }
-      if (swType === 'software' || swType === 'node_software') {
-        // Detect if this subject is specifically about nodes based on title/description
-        const subjectText = `${stubData.title || ''} ${stubData.description || ''} ${(stubData.section_outlines || []).map(s => s.title + ' ' + s.description).join(' ')}`.toLowerCase();
-        const isNodeSubject = /\bnode[s]?\b|node.?based|shader.?graph|material.?editor|compositor|geometry.?node/i.test(subjectText);
-
-        if (isNodeSubject) {
-          userMessage += `\nCRITICAL: This subject is about node-based workflows. You MUST include a "nodes" array alongside "hotkeys" in your response. Document all relevant nodes with their complete inputs, outputs, and types (Float, Integer, Vector, Color, Shader, Geometry, String, Boolean, Image, Object, Collection, Material, Mesh, Curve, Any). This is mandatory for this subject.\n`;
-        } else {
-          userMessage += `\nIf this subject involves node-based workflows (shader nodes, geometry nodes, compositing nodes, etc.), include a "nodes" array alongside "hotkeys" documenting relevant nodes with all inputs, outputs, and types (Float, Integer, Vector, Color, Shader, Geometry, String, Boolean, Image, Object, Collection, Material, Mesh, Curve, Any). Omit "nodes" if the subject does not involve nodes.\n`;
-        }
-      }
-      if (stubData.section_outlines?.length) {
-        userMessage += `\nSection outlines to follow:\n${stubData.section_outlines.map(s => `- ${s.title}: ${s.description} (${s.lesson_count} lessons)`).join('\n')}`;
-      }
-
-      // Dedup context: pass existing hotkeys/functions/nodes so AI doesn't duplicate
-      try {
-        if (swType === 'coding_language') {
-          const fnData = softwareFunctions || await otterFetch(`/api/software/${activeSoftwareSlug}/functions`).then(okBody);
-          const allNames = (Array.isArray(fnData?.categories) ? fnData.categories : []).flatMap(c => functionEntries(c).map(f => f.name)).slice(0, 100);
-          if (allNames.length > 0) userMessage += `\n\nEXISTING FUNCTIONS (DO NOT DUPLICATE):\n${allNames.map(n => `- ${n}`).join('\n')}\nOnly include functions NOT in this list.\n`;
-        } else {
-          const hkData = softwareHotkeys || await otterFetch(`/api/software/${activeSoftwareSlug}/hotkeys`).then(okBody);
-          const allActions = (hkData?.categories || []).flatMap(c => (c.shortcuts || []).map(s => s.action)).slice(0, 100);
-          if (allActions.length > 0) userMessage += `\n\nEXISTING HOTKEYS (DO NOT DUPLICATE):\n${allActions.map(a => `- ${a}`).join('\n')}\nOnly include hotkeys NOT in this list.\n`;
-        }
-        if (swType === 'node_software' || swType === 'software') {
-          const ndData = softwareNodes || await otterFetch(`/api/software/${activeSoftwareSlug}/nodes`).then(okBody);
-          const allNodeNames = (ndData?.systems || []).flatMap(s => (s.categories || []).flatMap(c => (c.nodes || []).map(n => n.name))).slice(0, 100);
-          if (allNodeNames.length > 0) userMessage += `\n\nEXISTING NODES (DO NOT DUPLICATE):\n${allNodeNames.map(n => `- ${n}`).join('\n')}\nOnly include nodes NOT in this list.\n`;
-        }
-      } catch { /* proceed without dedup context */ }
-
-      // Inject user-provided reference URLs
-      const validRefs = referenceUrls.filter(r => r.text && !r.error);
-      if (validRefs.length > 0) {
-        userMessage += `\n\n--- REFERENCE MATERIAL (from user-provided URLs) ---\n`;
-        for (const ref of validRefs) {
-          userMessage += `\nSource: ${ref.title} (${ref.url})\n${ref.text.slice(0, 3000)}\n`;
-        }
-        userMessage += `\nUse the above reference material as primary sources. Cite them where relevant.\n`;
-      }
-
-      updateGenSubject(subjectSlug, { phase: 'Sending request...' });
-
-      const hasUserRefs = validRefs.length > 0;
-      const data = await callAnthropicAPI({
+      // The request, the reply and the record: prompts.js, one pipeline for
+      // the three subject paths (F6, A1).
+      const { parsed, record: updatedSubject } = await generateSubject({
+        fetchImpl: otterFetch,
         model: modelFor('otter.subjectContent'),
-        maxTokens: 12000,
-        systemPrompt,
-        messages: [{ role: 'user', content: userMessage }],
+        systemPrompt: editingPrompts.subjectContent || SUBJECT_GENERATION_PROMPT,
+        courseSlug: activeSoftwareSlug,
+        course: activeSoftware,
+        stub: stubData,
+        stubSlug: subjectSlug,
+        docs: { functions: softwareFunctions, hotkeys: softwareHotkeys, nodes: softwareNodes },
+        references: referenceUrls,
         signal,
-        tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: hasUserRefs ? 1 : 3 }],
-        betas: 'web-search-2025-03-05',
+        onPhase: (phase) => updateGenSubject(subjectSlug, { phase }),
       });
 
-      if (signal.aborted) throw new Error('Cancelled');
-
-      if (data.stop_reason === 'max_tokens') {
-        throw new Error('Response was too long. Try generating again.');
-      }
-
-      updateGenSubject(subjectSlug, { phase: 'Parsing response...' });
-      const { text: rawText, sources: webSources } = extractTextAndCitations(data);
-      let text = rawText.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
-      let parsed;
-      try { parsed = JSON.parse(text); }
-      catch {
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          try { parsed = JSON.parse(jsonMatch[0]); }
-          catch { throw new Error(`Failed to parse subject JSON. Try again. ${describeResponse(data)}`); }
-        } else {
-          throw new Error(`Failed to parse subject JSON. Try again. ${describeResponse(data)}`);
-        }
-      }
-
-      // Normalize sections
-      if (!parsed.sections) parsed.sections = [];
-      parsed.sections = parsed.sections.map((s, si) => ({
-        id: s.id || `section_${si + 1}`,
-        title: s.title || `Section ${si + 1}`,
-        description: s.description || '',
-        estimated_minutes: s.estimated_minutes || 30,
-        lessons: (s.lessons || []).map((l, li) => ({
-          id: l.id || `lesson_${si + 1}_${li + 1}`,
-          title: l.title || `Lesson ${li + 1}`,
-          content: (l.content || '').replace(/<\/?cite[^>]*>/g, ''),
-          key_takeaways: Array.isArray(l.key_takeaways) ? l.key_takeaways : (l.key_takeaways ? [l.key_takeaways] : []),
-          practice_prompt: l.practice_prompt || '',
-        }))
-      }));
-
-      if (signal.aborted) throw new Error('Cancelled');
-
       updateGenSubject(subjectSlug, { phase: 'Saving subject...' });
-      // Merge web search sources + user-provided reference URLs, deduplicate
-      const userRefSources = validRefs.map(r => ({ title: r.title, url: r.url }));
-      const allSources = [...(webSources || []), ...userRefSources];
-      const seenUrls = new Set();
-      const dedupedSources = allSources.filter(s => { if (!s.url || seenUrls.has(s.url)) return false; seenUrls.add(s.url); return true; });
-
-      const updatedSubject = {
-        ...stubData,
-        ...parsed,
-        slug: subjectSlug,
-        software_slug: activeSoftwareSlug,
-        is_stub: false,
-        sources: dedupedSources,
-        updated_at: new Date().toISOString(),
-      };
       await otterFetch(`/api/software/${activeSoftwareSlug}/subjects`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedSubject)
       });
 
-      // Immediately update subjectList so sidebar reflects this subject is no longer a stub
+      // Mark the subject in the list as no longer a stub
       setSubjectList(prev => prev.map(s =>
         s.slug === subjectSlug ? { ...s, is_stub: false, title: updatedSubject.title || s.title } : s
       ));
 
-      // Merge hotkeys if present (software type)
-      if (parsed.hotkeys?.length > 0) {
-        let categories = parsed.hotkeys;
-        const first = categories[0];
-        if (first && !first.shortcuts) {
-          const grouped = {};
-          categories.forEach(h => {
-            const cat = h.context || h.category || 'General';
-            if (!grouped[cat]) grouped[cat] = [];
-            grouped[cat].push({ action: h.action || h.description || '', windows: h.windows || h.key || '', mac: h.mac || h.key || '', notes: h.notes || '' });
-          });
-          categories = Object.entries(grouped).map(([category, shortcuts]) => ({ category, shortcuts }));
-        }
-        const hkRes = await otterFetch(`/api/software/${activeSoftwareSlug}/hotkeys/merge`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ categories })
-        });
-        const updatedHk = await okBody(hkRes);
-        if (updatedHk) {
-          setSoftwareHotkeys(updatedHk);
-          if (softwareCacheRef.current[activeSoftwareSlug]) softwareCacheRef.current[activeSoftwareSlug].hotkeys = updatedHk;
-        }
-      }
-
-      // Merge functions if present (coding language type)
-      if (parsed.functions?.length > 0) {
-        let categories = parsed.functions;
-        categories = categories.map(cat => ({
-          category: functionCategoryName(cat), // S2b round 2: a category the generator keyed `name` keeps its name
-          functions: (cat.functions || []).map(f => ({
-            name: f.name || '', syntax: f.syntax || f.name || '',
-            parameters: f.parameters || '', returns: f.returns || f.returnType || '',
-            description: f.description || '', example: f.example || ''
-          }))
-        })).filter(cat => cat.functions.length > 0);
-        if (categories.length > 0) {
-          await otterFetch(`/api/software/${activeSoftwareSlug}/functions/merge`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ categories })
-          });
-        }
-      }
-
-      // Merge nodes if present
-      if (parsed.nodes?.length > 0) {
-        const nodesRes = await otterFetch(`/api/software/${activeSoftwareSlug}/nodes/merge`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ categories: parsed.nodes })
-        });
-        const updatedNodes = await okBody(nodesRes);
-        if (updatedNodes) {
-          setSoftwareNodes(updatedNodes);
-          if (softwareCacheRef.current[activeSoftwareSlug]) softwareCacheRef.current[activeSoftwareSlug].nodes = updatedNodes;
-        }
-      }
+      await mergeSubjectDocuments(otterFetch, activeSoftwareSlug, parsed, {
+        onHotkeys: (hotkeys) => {
+          setSoftwareHotkeys(hotkeys);
+          if (softwareCacheRef.current[activeSoftwareSlug]) softwareCacheRef.current[activeSoftwareSlug].hotkeys = hotkeys;
+        },
+        onNodes: (nodes) => {
+          setSoftwareNodes(nodes);
+          if (softwareCacheRef.current[activeSoftwareSlug]) softwareCacheRef.current[activeSoftwareSlug].nodes = nodes;
+        },
+      });
 
       invalidateCache(activeSoftwareSlug);
       if (!skipNavigation) {
@@ -1819,122 +1585,24 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
     }, 1000);
 
     try {
-      const systemPrompt = editingPrompts.singleSubject || SINGLE_SUBJECT_PROMPT;
-      const swType = activeSoftware?.type || 'software';
-      let userMessage = `Software/Language: ${activeSoftware?.name || activeSoftwareSlug}\n`;
-      userMessage += `Type: ${swType}\n`;
-      userMessage += `Skill level: ${skillLevel}\n`;
-      if (swType === 'coding_language') {
-        userMessage += `\nIMPORTANT: This is a coding language. Include "functions" (not "hotkeys") — list built-in functions, methods, and constructs with parameter details, return types, and examples.\n`;
-      }
-      if (swType === 'software' || swType === 'node_software') {
-        const topicText = promptText.toLowerCase();
-        const isNodeTopic = /\bnode[s]?\b|node.?based|shader.?graph|material.?editor|compositor|geometry.?node/i.test(topicText);
-        if (isNodeTopic) {
-          userMessage += `\nCRITICAL: This topic is about node-based workflows. You MUST include a "nodes" array alongside "hotkeys" in your response. Document all relevant nodes with their complete inputs, outputs, and types (Float, Integer, Vector, Color, Shader, Geometry, String, Boolean, Image, Object, Collection, Material, Mesh, Curve, Any). This is mandatory for this topic.\n`;
-        } else {
-          userMessage += `\nIf this topic involves node-based workflows (shader nodes, geometry nodes, compositing nodes, etc.), include a "nodes" array alongside "hotkeys" documenting relevant nodes with all inputs, outputs, and types (Float, Integer, Vector, Color, Shader, Geometry, String, Boolean, Image, Object, Collection, Material, Mesh, Curve, Any). Omit "nodes" if the topic does not involve nodes.\n`;
-        }
-      }
-      userMessage += `\nSingle topic lesson: ${promptText}`;
-
-      // Dedup context
-      try {
-        if (swType === 'coding_language') {
-          const fnData = softwareFunctions || await otterFetch(`/api/software/${activeSoftwareSlug}/functions`).then(okBody);
-          const allNames = (Array.isArray(fnData?.categories) ? fnData.categories : []).flatMap(c => functionEntries(c).map(f => f.name)).slice(0, 100);
-          if (allNames.length > 0) userMessage += `\n\nEXISTING FUNCTIONS (DO NOT DUPLICATE):\n${allNames.map(n => `- ${n}`).join('\n')}\nOnly include functions NOT in this list.\n`;
-        } else {
-          const hkData = softwareHotkeys || await otterFetch(`/api/software/${activeSoftwareSlug}/hotkeys`).then(okBody);
-          const allActions = (hkData?.categories || []).flatMap(c => (c.shortcuts || []).map(s => s.action)).slice(0, 100);
-          if (allActions.length > 0) userMessage += `\n\nEXISTING HOTKEYS (DO NOT DUPLICATE):\n${allActions.map(a => `- ${a}`).join('\n')}\nOnly include hotkeys NOT in this list.\n`;
-        }
-        if (swType === 'node_software' || swType === 'software') {
-          const ndData = softwareNodes || await otterFetch(`/api/software/${activeSoftwareSlug}/nodes`).then(okBody);
-          const allNodeNames = (ndData?.systems || []).flatMap(s => (s.categories || []).flatMap(c => (c.nodes || []).map(n => n.name))).slice(0, 100);
-          if (allNodeNames.length > 0) userMessage += `\n\nEXISTING NODES (DO NOT DUPLICATE):\n${allNodeNames.map(n => `- ${n}`).join('\n')}\nOnly include nodes NOT in this list.\n`;
-        }
-      } catch { /* proceed without dedup context */ }
-
-      // Inject user-provided reference URLs
-      const validRefs = referenceUrls.filter(r => r.text && !r.error);
-      if (validRefs.length > 0) {
-        userMessage += `\n\n--- REFERENCE MATERIAL (from user-provided URLs) ---\n`;
-        for (const ref of validRefs) {
-          userMessage += `\nSource: ${ref.title} (${ref.url})\n${ref.text.slice(0, 3000)}\n`;
-        }
-        userMessage += `\nUse the above reference material as primary sources. Cite them where relevant.\n`;
-      }
-
-      const hasUserRefs = validRefs.length > 0;
-      const data = await callAnthropicAPI({
+      // The request, the reply and the record: prompts.js (F6, A1).
+      const { parsed, record: subject } = await generateSubject({
+        fetchImpl: otterFetch,
         model: modelFor('otter.singleSubject'),
-        maxTokens: 12000,
-        systemPrompt,
-        messages: [{ role: 'user', content: userMessage }],
-        tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: hasUserRefs ? 1 : 3 }],
-        betas: 'web-search-2025-03-05',
+        systemPrompt: editingPrompts.singleSubject || SINGLE_SUBJECT_PROMPT,
+        courseSlug: activeSoftwareSlug,
+        course: activeSoftware,
+        topic: promptText,
+        skillLevel,
+        docs: { functions: softwareFunctions, hotkeys: softwareHotkeys, nodes: softwareNodes },
+        references: referenceUrls,
+        onPhase: setGenPhase,
       });
-      if (data.stop_reason === 'max_tokens') {
-        throw new Error('Response was too long. Try a more specific topic.');
-      }
-
-      setGenPhase('Parsing response...');
-      const { text: rawText, sources: webSources } = extractTextAndCitations(data);
-      let text = rawText.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
-      let parsed;
-      try { parsed = JSON.parse(text); }
-      catch {
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          try { parsed = JSON.parse(jsonMatch[0]); }
-          catch { throw new Error(`Failed to parse subject JSON. Try again. ${describeResponse(data)}`); }
-        } else {
-          throw new Error(`Failed to parse subject JSON. Try again. ${describeResponse(data)}`);
-        }
-      }
-
-      // Normalize sections
-      if (!parsed.sections) parsed.sections = [];
-      parsed.sections = parsed.sections.map((s, si) => ({
-        id: s.id || `section_${si + 1}`,
-        title: s.title || `Section ${si + 1}`,
-        description: s.description || '',
-        estimated_minutes: s.estimated_minutes || 30,
-        lessons: (s.lessons || []).map((l, li) => ({
-          id: l.id || `lesson_${si + 1}_${li + 1}`,
-          title: l.title || `Lesson ${li + 1}`,
-          content: (l.content || '').replace(/<\/?cite[^>]*>/g, ''),
-          key_takeaways: Array.isArray(l.key_takeaways) ? l.key_takeaways : [],
-          practice_prompt: l.practice_prompt || '',
-        }))
-      }));
+      const subSlug = subject.slug;
 
       setGenPhase('Saving subject...');
-      // Merge web + user ref sources, deduplicate
-      const userRefSources2 = validRefs.map(r => ({ title: r.title, url: r.url }));
-      const allSources2 = [...(webSources || []), ...userRefSources2];
-      const seenUrls2 = new Set();
-      const dedupedSources2 = allSources2.filter(s => { if (!s.url || seenUrls2.has(s.url)) return false; seenUrls2.add(s.url); return true; });
-
-      const subSlug = (parsed.title || promptText).toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-      const subject = {
-        slug: subSlug,
-        title: parsed.title || promptText,
-        software_slug: activeSoftwareSlug,
-        description: parsed.description || '',
-        skill_level: parsed.skill_level || skillLevel,
-        estimated_hours: parsed.estimated_hours || 1,
-        is_stub: false,
-        sections: parsed.sections,
-        prerequisites: parsed.prerequisites || [],
-        sources: dedupedSources2,
-        original_prompt: promptText,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-
-      // B2 (design §5.9): what the course held before this save.
+      // B2 (design §5.9): what the course held BEFORE this save, read first;
+      // the offer after the save, not awaited, before the merges.
       const slugsBefore = await slugsHeldBy(activeSoftwareSlug);
       await otterFetch(`/api/software/${activeSoftwareSlug}/subjects`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1942,60 +1610,16 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       });
       offerNewSubjectsToBatchReceivers(activeSoftwareSlug, slugsBefore, [subSlug]);
 
-      // Merge hotkeys if present (software type)
-      if (parsed.hotkeys?.length > 0) {
-        let categories = parsed.hotkeys;
-        const first = categories[0];
-        if (first && !first.shortcuts) {
-          const grouped = {};
-          categories.forEach(h => {
-            const cat = h.context || h.category || 'General';
-            if (!grouped[cat]) grouped[cat] = [];
-            grouped[cat].push({ action: h.action || h.description || '', windows: h.windows || h.key || '', mac: h.mac || h.key || '', notes: h.notes || '' });
-          });
-          categories = Object.entries(grouped).map(([category, shortcuts]) => ({ category, shortcuts }));
-        }
-        const hkRes2 = await otterFetch(`/api/software/${activeSoftwareSlug}/hotkeys/merge`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ categories })
-        });
-        const updatedHk2 = await okBody(hkRes2);
-        if (updatedHk2) {
-          setSoftwareHotkeys(updatedHk2);
-          if (softwareCacheRef.current[activeSoftwareSlug]) softwareCacheRef.current[activeSoftwareSlug].hotkeys = updatedHk2;
-        }
-      }
-
-      // Merge functions if present (coding language type)
-      if (parsed.functions?.length > 0) {
-        let categories = parsed.functions.map(cat => ({
-          category: functionCategoryName(cat), // S2b round 2: a category the generator keyed `name` keeps its name
-          functions: (cat.functions || []).map(f => ({
-            name: f.name || '', syntax: f.syntax || f.name || '',
-            parameters: f.parameters || '', returns: f.returns || f.returnType || '',
-            description: f.description || '', example: f.example || ''
-          }))
-        })).filter(cat => cat.functions.length > 0);
-        if (categories.length > 0) {
-          await otterFetch(`/api/software/${activeSoftwareSlug}/functions/merge`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ categories })
-          });
-        }
-      }
-
-      // Merge nodes if present
-      if (parsed.nodes?.length > 0) {
-        const nodesRes = await otterFetch(`/api/software/${activeSoftwareSlug}/nodes/merge`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ categories: parsed.nodes })
-        });
-        const updatedNodes = await okBody(nodesRes);
-        if (updatedNodes) {
-          setSoftwareNodes(updatedNodes);
-          if (softwareCacheRef.current[activeSoftwareSlug]) softwareCacheRef.current[activeSoftwareSlug].nodes = updatedNodes;
-        }
-      }
+      await mergeSubjectDocuments(otterFetch, activeSoftwareSlug, parsed, {
+        onHotkeys: (hotkeys) => {
+          setSoftwareHotkeys(hotkeys);
+          if (softwareCacheRef.current[activeSoftwareSlug]) softwareCacheRef.current[activeSoftwareSlug].hotkeys = hotkeys;
+        },
+        onNodes: (nodes) => {
+          setSoftwareNodes(nodes);
+          if (softwareCacheRef.current[activeSoftwareSlug]) softwareCacheRef.current[activeSoftwareSlug].nodes = nodes;
+        },
+      });
 
       setPromptText('');
       setReferenceUrls([]);
@@ -2053,122 +1677,24 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       try {
         swMeta = await otterFetch(`/api/software/${swSlug}`).then(needBody);
       } catch { swMeta = { name: swSlug, type: 'software' }; }
-      const swType = swMeta.type || 'software';
-
-      const systemPrompt = editingPrompts.singleSubject || SINGLE_SUBJECT_PROMPT;
-      let userMessage = `Software/Language: ${swMeta.name || swSlug}\n`;
-      userMessage += `Type: ${swType}\n`;
-      userMessage += `Skill level: ${skillLevel}\n`;
-      if (swType === 'coding_language') {
-        userMessage += `\nIMPORTANT: This is a coding language. Include "functions" (not "hotkeys") — list built-in functions, methods, and constructs with parameter details, return types, and examples.\n`;
-      }
-      if (swType === 'software' || swType === 'node_software') {
-        const topicText = topic.toLowerCase();
-        const isNodeTopic = /\bnode[s]?\b|node.?based|shader.?graph|material.?editor|compositor|geometry.?node/i.test(topicText);
-        if (isNodeTopic) {
-          userMessage += `\nCRITICAL: This topic is about node-based workflows. You MUST include a "nodes" array alongside "hotkeys" in your response. Document all relevant nodes with their complete inputs, outputs, and types (Float, Integer, Vector, Color, Shader, Geometry, String, Boolean, Image, Object, Collection, Material, Mesh, Curve, Any). This is mandatory for this topic.\n`;
-        } else {
-          userMessage += `\nIf this topic involves node-based workflows (shader nodes, geometry nodes, compositing nodes, etc.), include a "nodes" array alongside "hotkeys" documenting relevant nodes with all inputs, outputs, and types. Omit "nodes" if the topic does not involve nodes.\n`;
-        }
-      }
-      userMessage += `\nSingle topic lesson: ${topic}`;
-
-      // Dedup context
-      try {
-        if (swType === 'coding_language') {
-          const fnData = softwareFunctions || await otterFetch(`/api/software/${swSlug}/functions`).then(okBody);
-          const allNames = (Array.isArray(fnData?.categories) ? fnData.categories : []).flatMap(c => functionEntries(c).map(f => f.name)).slice(0, 100);
-          if (allNames.length > 0) userMessage += `\n\nEXISTING FUNCTIONS (DO NOT DUPLICATE):\n${allNames.map(n => `- ${n}`).join('\n')}\nOnly include functions NOT in this list.\n`;
-        } else {
-          const hkData = softwareHotkeys || await otterFetch(`/api/software/${swSlug}/hotkeys`).then(okBody);
-          const allActions = (hkData?.categories || []).flatMap(c => (c.shortcuts || []).map(s => s.action)).slice(0, 100);
-          if (allActions.length > 0) userMessage += `\n\nEXISTING HOTKEYS (DO NOT DUPLICATE):\n${allActions.map(a => `- ${a}`).join('\n')}\nOnly include hotkeys NOT in this list.\n`;
-        }
-        if (swType === 'node_software' || swType === 'software') {
-          const ndData = softwareNodes || await otterFetch(`/api/software/${swSlug}/nodes`).then(okBody);
-          const allNodeNames = (ndData?.systems || []).flatMap(s => (s.categories || []).flatMap(c => (c.nodes || []).map(n => n.name))).slice(0, 100);
-          if (allNodeNames.length > 0) userMessage += `\n\nEXISTING NODES (DO NOT DUPLICATE):\n${allNodeNames.map(n => `- ${n}`).join('\n')}\nOnly include nodes NOT in this list.\n`;
-        }
-      } catch { /* proceed without dedup context */ }
-
-      // Inject user-provided reference URLs
-      const validRefs = referenceUrls.filter(r => r.text && !r.error);
-      if (validRefs.length > 0) {
-        userMessage += `\n\n--- REFERENCE MATERIAL (from user-provided URLs) ---\n`;
-        for (const ref of validRefs) {
-          userMessage += `\nSource: ${ref.title} (${ref.url})\n${ref.text.slice(0, 3000)}\n`;
-        }
-        userMessage += `\nUse the above reference material as primary sources. Cite them where relevant.\n`;
-      }
-
-      const hasUserRefs = validRefs.length > 0;
-      const data = await callAnthropicAPI({
+      // The request, the reply and the record: the same pipeline as
+      // generateSingleSubject (prompts.js; F6, A1), under the agent's key.
+      const { parsed, record: subject } = await generateSubject({
+        fetchImpl: otterFetch,
         model: modelFor('otter.agentSubject'),
-        maxTokens: 12000,
-        systemPrompt,
-        messages: [{ role: 'user', content: userMessage }],
-        tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: hasUserRefs ? 1 : 3 }],
-        betas: 'web-search-2025-03-05',
+        systemPrompt: editingPrompts.singleSubject || SINGLE_SUBJECT_PROMPT,
+        courseSlug: swSlug,
+        course: swMeta,
+        topic,
+        skillLevel,
+        docs: { functions: softwareFunctions, hotkeys: softwareHotkeys, nodes: softwareNodes },
+        references: referenceUrls,
+        onPhase: (phase) => updateGenSubject(tempSlug, { phase }),
       });
-      if (data.stop_reason === 'max_tokens') {
-        throw new Error('Response was too long. Try a more specific topic.');
-      }
-
-      updateGenSubject(tempSlug, { phase: 'Parsing response...' });
-      const { text: rawText, sources: webSources } = extractTextAndCitations(data);
-      let text = rawText.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
-      let parsed;
-      try { parsed = JSON.parse(text); }
-      catch {
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          try { parsed = JSON.parse(jsonMatch[0]); }
-          catch { throw new Error(`Failed to parse subject JSON. Try again. ${describeResponse(data)}`); }
-        } else {
-          throw new Error(`Failed to parse subject JSON. Try again. ${describeResponse(data)}`);
-        }
-      }
-
-      // Normalize sections
-      if (!parsed.sections) parsed.sections = [];
-      parsed.sections = parsed.sections.map((s, si) => ({
-        id: s.id || `section_${si + 1}`,
-        title: s.title || `Section ${si + 1}`,
-        description: s.description || '',
-        estimated_minutes: s.estimated_minutes || 30,
-        lessons: (s.lessons || []).map((l, li) => ({
-          id: l.id || `lesson_${si + 1}_${li + 1}`,
-          title: l.title || `Lesson ${li + 1}`,
-          content: (l.content || '').replace(/<\/?cite[^>]*>/g, ''),
-          key_takeaways: Array.isArray(l.key_takeaways) ? l.key_takeaways : [],
-          practice_prompt: l.practice_prompt || '',
-        }))
-      }));
+      const subSlug = subject.slug;
 
       updateGenSubject(tempSlug, { phase: 'Saving subject...' });
-      const userRefSources = validRefs.map(r => ({ title: r.title, url: r.url }));
-      const allSources = [...(webSources || []), ...userRefSources];
-      const seenUrls = new Set();
-      const dedupedSources = allSources.filter(s => { if (!s.url || seenUrls.has(s.url)) return false; seenUrls.add(s.url); return true; });
-
-      const subSlug = (parsed.title || topic).toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-      const subject = {
-        slug: subSlug,
-        title: parsed.title || topic,
-        software_slug: swSlug,
-        description: parsed.description || '',
-        skill_level: parsed.skill_level || skillLevel,
-        estimated_hours: parsed.estimated_hours || 1,
-        is_stub: false,
-        sections: parsed.sections,
-        prerequisites: parsed.prerequisites || [],
-        sources: dedupedSources,
-        original_prompt: topic,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-
-      // B2 (design §5.9): what the course held before this save.
+      // B2 (design §5.9), as in generateSingleSubject.
       const slugsBefore = await slugsHeldBy(swSlug);
       await otterFetch(`/api/software/${swSlug}/subjects`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -2176,60 +1702,16 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
       });
       offerNewSubjectsToBatchReceivers(swSlug, slugsBefore, [subSlug]);
 
-      // Merge hotkeys if present
-      if (parsed.hotkeys?.length > 0) {
-        let categories = parsed.hotkeys;
-        const first = categories[0];
-        if (first && !first.shortcuts) {
-          const grouped = {};
-          categories.forEach(h => {
-            const cat = h.context || h.category || 'General';
-            if (!grouped[cat]) grouped[cat] = [];
-            grouped[cat].push({ action: h.action || h.description || '', windows: h.windows || h.key || '', mac: h.mac || h.key || '', notes: h.notes || '' });
-          });
-          categories = Object.entries(grouped).map(([category, shortcuts]) => ({ category, shortcuts }));
-        }
-        const hkRes = await otterFetch(`/api/software/${swSlug}/hotkeys/merge`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ categories })
-        });
-        const updatedHk = await okBody(hkRes);
-        if (updatedHk) {
-          setSoftwareHotkeys(updatedHk);
-          if (softwareCacheRef.current[swSlug]) softwareCacheRef.current[swSlug].hotkeys = updatedHk;
-        }
-      }
-
-      // Merge functions if present
-      if (parsed.functions?.length > 0) {
-        let categories = parsed.functions.map(cat => ({
-          category: functionCategoryName(cat), // S2b round 2: a category the generator keyed `name` keeps its name
-          functions: (cat.functions || []).map(f => ({
-            name: f.name || '', syntax: f.syntax || f.name || '',
-            parameters: f.parameters || '', returns: f.returns || f.returnType || '',
-            description: f.description || '', example: f.example || ''
-          }))
-        })).filter(cat => cat.functions.length > 0);
-        if (categories.length > 0) {
-          await otterFetch(`/api/software/${swSlug}/functions/merge`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ categories })
-          });
-        }
-      }
-
-      // Merge nodes if present
-      if (parsed.nodes?.length > 0) {
-        const nodesRes = await otterFetch(`/api/software/${swSlug}/nodes/merge`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ categories: parsed.nodes })
-        });
-        const updatedNodes = await okBody(nodesRes);
-        if (updatedNodes) {
-          setSoftwareNodes(updatedNodes);
-          if (softwareCacheRef.current[swSlug]) softwareCacheRef.current[swSlug].nodes = updatedNodes;
-        }
-      }
+      await mergeSubjectDocuments(otterFetch, swSlug, parsed, {
+        onHotkeys: (hotkeys) => {
+          setSoftwareHotkeys(hotkeys);
+          if (softwareCacheRef.current[swSlug]) softwareCacheRef.current[swSlug].hotkeys = hotkeys;
+        },
+        onNodes: (nodes) => {
+          setSoftwareNodes(nodes);
+          if (softwareCacheRef.current[swSlug]) softwareCacheRef.current[swSlug].nodes = nodes;
+        },
+      });
 
       invalidateCache(swSlug);
       selectSoftware(swSlug, true);
@@ -2272,54 +1754,19 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
     updateGenSubject(tempSlug, { title: `Course: ${softwareName.trim()}`, phase: 'Sending request...', elapsed: 0, startTime, timerId, cancelled: false });
 
     try {
-      const systemPrompt = editingPrompts.courseOutline || FULL_COURSE_OUTLINE_PROMPT;
-      let userMessage = `Software/Language: ${softwareName.trim()}\nSkill level: ${skillLevel}\n`;
-      if (description?.trim()) userMessage += `\nAdditional context: ${description}`;
-
-      let existingSubjectTitles = [];
-      if (existingMatch) {
-        try {
-          const existingSubs = await otterFetch(`/api/software/${existingMatch.slug}/subjects`).then(needBody);
-          existingSubjectTitles = existingSubs.map(s => s.title);
-          userMessage += `\n\nIMPORTANT: This software already has the following subjects — do NOT generate duplicates or basics:\n${existingSubjectTitles.map(t => `- ${t}`).join('\n')}`;
-          userMessage += `\nDo NOT include "General Basics" since it already exists. Only generate NEW subjects.`;
-        } catch { /* proceed */ }
-      }
-
-      // Inject reference URLs
-      const validRefs = referenceUrls.filter(r => r.text && !r.error);
-      if (validRefs.length > 0) {
-        userMessage += `\n\nThe user provided these reference materials. Design subjects that align with this content:\n`;
-        for (const ref of validRefs) {
-          userMessage += `- ${ref.title} (${ref.url}): ${ref.text.slice(0, 500)}\n`;
-        }
-      }
-
-      const data = await callAnthropicAPI({
+      // The outline's request and reply: the same pipeline as generateCourse
+      // (prompts.js; F6, A1), under the agent's own model key.
+      const parsed = await generateCourseOutline({
+        fetchImpl: otterFetch,
         model: modelFor('otter.agentCourse'),
-        maxTokens: 12000,
-        systemPrompt,
-        messages: [{ role: 'user', content: userMessage }],
+        systemPrompt: editingPrompts.courseOutline || FULL_COURSE_OUTLINE_PROMPT,
+        name: softwareName.trim(),
+        context: description,
+        skillLevel,
+        existingMatch,
+        references: referenceUrls,
+        onPhase: (phase) => updateGenSubject(tempSlug, { phase }),
       });
-      if (data.stop_reason === 'max_tokens') {
-        throw new Error('Response was too long. Try again.');
-      }
-
-      updateGenSubject(tempSlug, { phase: 'Parsing response...' });
-      // Same defect as generateCourse — see the note there.
-      const { text: rawText } = extractTextAndCitations(data);
-      let text = rawText.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
-      let parsed;
-      try { parsed = JSON.parse(text); }
-      catch {
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          try { parsed = JSON.parse(jsonMatch[0]); }
-          catch { throw new Error(`Failed to parse course outline JSON. Try again. ${describeResponse(data)}`); }
-        } else {
-          throw new Error(`Failed to parse course outline JSON. Try again. ${describeResponse(data)}`);
-        }
-      }
 
       let slug;
       if (existingMatch) {
@@ -2327,76 +1774,33 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
         updateGenSubject(tempSlug, { phase: 'Adding to existing course...' });
       } else {
         updateGenSubject(tempSlug, { phase: 'Creating software folder...' });
-        const metaRes = await otterFetch('/api/software', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: parsed.software_name || softwareName.trim(),
-            type: parsed.type || 'software',
-            skill_level: skillLevel,
-            // The agent has no tier picker to read; courses it creates are born
-            // personal, which is also what otter_courses_insert defaults to.
-            visibility: 'personal',
-          })
+        slug = await createCourse(otterFetch, {
+          name: parsed.software_name || softwareName.trim(),
+          type: parsed.type || 'software',
+          skillLevel,
+          visibility: 'personal',
         });
-        const meta = await readBody(metaRes);
-        if (!metaRes.ok || !meta?.slug) {
-          throw new Error(meta?.error || 'Could not create the course.');
-        }
-        slug = meta.slug;
       }
 
       updateGenSubject(tempSlug, { phase: 'Saving subject stubs...' });
-      const subjects = parsed.subjects || [];
-
-      let existingSlugs = new Set();
-      let existingMaxOrder = 0;
       // B2 (design §5.9): the slugs the course held before this run (null:
       // a new course, where no batch row can exist) and the slugs it saved.
       let slugsBefore = null;
+      let existingSubs = null;
       const savedSlugs = [];
       if (existingMatch) {
         try {
-          const existingSubs = await otterFetch(`/api/software/${slug}/subjects`).then(needBody);
-          existingSubs.forEach(s => {
-            existingSlugs.add(s.slug);
-            if (s.subject_order != null && s.subject_order > existingMaxOrder) existingMaxOrder = s.subject_order;
-          });
+          existingSubs = await otterFetch(`/api/software/${slug}/subjects`).then(needBody);
           slugsBefore = existingSubs.map(s => s.slug);
-          const existingTitlesLower = new Set(existingSubs.map(s => s.title.toLowerCase()));
-          for (const sub of subjects) {
-            if (existingTitlesLower.has(sub.title.toLowerCase())) {
-              const subSlug = sub.title.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-              existingSlugs.add(subSlug);
-            }
-          }
         } catch { /* proceed */ }
       }
-
-      let orderCounter = existingMaxOrder;
-      for (const sub of subjects) {
-        const subSlug = sub.title.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-        if (existingSlugs.has(subSlug)) continue;
-        if (existingMatch && sub.title.toLowerCase().includes('general basics')) continue;
-
-        orderCounter++;
+      // The stubs to save, one at a time: those the course does not hold yet.
+      for (const stub of courseStubs(parsed.subjects || [], { existingSubs, existingMatch, skillLevel })) {
         await otterFetch(`/api/software/${slug}/subjects`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            slug: subSlug,
-            title: sub.title,
-            description: sub.description || '',
-            skill_level: sub.skill_level || skillLevel,
-            estimated_hours: sub.estimated_hours || 1,
-            is_stub: true,
-            sections: [],
-            section_outlines: sub.section_outlines || [],
-            prerequisites: [],
-            subject_order: sub.subject_order || orderCounter,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          })
+          body: JSON.stringify(stub)
         });
-        savedSlugs.push(subSlug);
+        savedSlugs.push(stub.slug);
       }
       // After the run's last save, whatever the path does next.
       offerNewSubjectsToBatchReceivers(slug, slugsBefore, savedSlugs);
@@ -2856,12 +2260,12 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
 
       if (data.lesson) {
         const softwareName = data.lesson.software_or_language || 'Imported';
-        const slug = softwareName.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+        const slug = slugify(softwareName);
         await otterFetch('/api/software', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: softwareName, type: data.lesson.type || 'software', skill_level: data.lesson.skill_level || 'beginner' })
         });
-        const subSlug = (data.lesson.title || 'imported').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+        const subSlug = slugify(data.lesson.title || 'imported');
         const slugsBefore = await slugsHeldBy(slug);   // B2 (design §5.9)
         await otterFetch(`/api/software/${slug}/subjects`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },

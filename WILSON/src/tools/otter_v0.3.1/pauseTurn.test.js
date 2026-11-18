@@ -83,9 +83,10 @@ afterEach(() => {
 describe('one wrapper, in prompts.js, and every O.T.T.E.R. caller uses it', () => {
   it('finds the wrapper at all — the instrument works', () => {
     expect(HOME).toContain('export async function callAnthropicAPI(')
-    // If web search ever leaves Otter.jsx, the whole class goes with it and
-    // the assertions below would start passing vacuously.
-    expect(OTTER).toContain('web_search_20250305')
+    // If web search ever leaves O.T.T.E.R., the whole class goes with it and
+    // the assertions below would start passing vacuously. The subject
+    // generators' request lives in prompts.js since F6 (A1).
+    expect(HOME).toContain('web_search_20250305')
     expect(VALIDATOR).toContain('web_search_20250305')
   })
 
@@ -261,6 +262,10 @@ describe('a parse failure says what came back', () => {
       const bare = source.match(/Failed to parse [^`'"]*?(JSON|outline)[^`'"]*?\.\s*Try again\.'/g) ?? []
       expect(bare, 'these still use a plain string with no diagnostic').toEqual([])
     }
-    expect((OTTER.match(/describeResponse\(data\)/g) ?? []).length).toBeGreaterThanOrEqual(5)
+    // Since F6 (A1) the five generation paths parse through one reader,
+    // parseModelJson, whose one sentence carries it (otterGeneration.test.js
+    // runs each path's failure); no path keeps a parse of its own.
+    expect(HOME).toContain('throw new Error(`Failed to parse ${what} JSON. Try again. ${describeResponse(data)}`)')
+    expect(OTTER).not.toMatch(/Failed to parse (course outline|subject) JSON/)
   })
 })
