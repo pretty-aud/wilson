@@ -19,7 +19,6 @@ import {
   splitSlides, slideHeader, slideTitle, frameSlide, parseSlideContent,
   parseAssetLine, parsePlacedAssets,
 } from './parser.js'
-import { DEFAULT_FULL_DECK_OUTPUT_FORMAT } from './prompts/fullDeckPrompts.js'
 
 const R = '═'.repeat(63)
 const heads = (pages) => pages.map(p => [p.pageNum, p.layout, p.title])
@@ -82,9 +81,10 @@ describe('where generation and import differ today, each keeps its reading (reco
     expect(splitSlides(text, { as: 'import' })).toEqual([])
   })
 
-  it('F6-05: the drawer\'s full-deck format: generation strips the layout\'s closing bracket, import keeps it', () => {
-    expect(heads(splitSlides(DEFAULT_FULL_DECK_OUTPUT_FORMAT)).map(h => h[1])).toEqual(['[Layout Name', '[Layout Name'])
-    expect(heads(splitSlides(DEFAULT_FULL_DECK_OUTPUT_FORMAT, { as: 'import' })).map(h => h[1])).toEqual(['[Layout Name]', '[Layout Name]'])
+  it('F6-05: the drawer\'s full-deck format as it read before F6: generation strips the layout\'s closing bracket, import keeps it', () => {
+    const format = ['SLIDE #1 — [Layout Name]', R, '', '▸ TITLE:', '[Title text]', '', R, '', 'SLIDE #2 — [Layout Name]', R, '', '▸ TITLE:', '[Title text]', '', R].join('\n')
+    expect(heads(splitSlides(format)).map(h => h[1])).toEqual(['[Layout Name', '[Layout Name'])
+    expect(heads(splitSlides(format, { as: 'import' })).map(h => h[1])).toEqual(['[Layout Name]', '[Layout Name]'])
   })
 
   it('F6-06: the text kept: generation frames every slide; import keeps short-ruled text as written and doubles a closing rule', () => {

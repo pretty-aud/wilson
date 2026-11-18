@@ -19,6 +19,8 @@ import {
 } from './referenceModel';
 import { deflateSync } from 'node:zlib';
 import { readFileSync } from 'node:fs';
+import { DEFAULT_SINGLE_PAGE_INSTRUCTIONS, DEFAULT_SINGLE_PAGE_OUTPUT_FORMAT, composeSinglePageInstructions } from '../prompts/singlePagePrompts.js';
+import { DEFAULT_FULL_DECK_INSTRUCTIONS, DEFAULT_FULL_DECK_OUTPUT_FORMAT, composeFullDeckInstructions } from '../prompts/fullDeckPrompts.js';
 import { fileURLToPath } from 'node:url';
 
 const P = '11111111-2222-3333-4444-555555555555';
@@ -448,23 +450,31 @@ describe('the meter (Q8): it warns, it never blocks', () => {
     };
     const ROLES = [...SRC.matchAll(/parts\.push\('((?:FILE ROLES|Files tagged)[^\n]*)'\);/g)].map((m) => m[1]).join('');
     const fixed = (template, intro) => Math.ceil((textTokens(template) + textTokens(intro) + textTokens(ROLES)) / 100) * 100;
+    // F6 (REV-04): the two templates are the drawer's boxes now
+    // (prompts/singlePagePrompts.js, fullDeckPrompts.js). Untouched they compose
+    // the text the source held, byte for byte (promptBoxes.test.js), so their
+    // size is read from them; the single page with its two values written as
+    // the source wrote them.
+    const FULL_TEMPLATE = composeFullDeckInstructions(DEFAULT_FULL_DECK_INSTRUCTIONS, DEFAULT_FULL_DECK_OUTPUT_FORMAT);
+    const PAGE_TEMPLATE = composeSinglePageInstructions(DEFAULT_SINGLE_PAGE_INSTRUCTIONS, DEFAULT_SINGLE_PAGE_OUTPUT_FORMAT,
+      { slideNumber: '${slideNumber}', layoutName: '${layoutInfo.name}' });
 
     it('the fixed words are the source\'s: the full deck\'s', () => {
       expect(ROLES.length).toBeGreaterThan(200);
-      const template = between('Generate a complete deck outline with multiple slides.', 'Generate the complete deck now:');
+      const template = FULL_TEMPLATE;
       expect(template).not.toContain('${');
       const intro = between('You are a presentation deck outline generator. Create a complete deck', 'markdown # headers.');
       expect(fixed(template, intro)).toBe(FULL_DECK_FIXED_TOKENS);
     });
 
     it('the fixed words are the source\'s: the single page\'s', () => {
-      const template = between("Generate a slide outline based on the project documentation and user's request.", 'Generate the outline now:');
+      const template = PAGE_TEMPLATE;
       const intro = between('You are a presentation deck outline generator. Create a single slide', 'markdown # headers.');
       expect(fixed(template, intro)).toBe(SINGLE_PAGE_FIXED_TOKENS);
     });
 
     it('CONTROL: a template a thousand characters longer would move the figure', () => {
-      const template = between('Generate a complete deck outline with multiple slides.', 'Generate the complete deck now:');
+      const template = FULL_TEMPLATE;
       const intro = between('You are a presentation deck outline generator. Create a complete deck', 'markdown # headers.');
       expect(fixed(`${template}${'x'.repeat(1000)}`, intro)).not.toBe(FULL_DECK_FIXED_TOKENS);
     });

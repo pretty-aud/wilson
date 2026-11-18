@@ -17,8 +17,8 @@ import ModelPicker from '../../components/settings/ModelPicker';
 import { DOG_HELP_SIDEBAR_ITEMS, DogHelpContent } from '../../data/dogHelpContent';
 import { getLuminance, getContrastRatio, ensureContrast } from './colorUtils';
 import { PRESET_THEMES, SLIDE_LAYOUTS } from './constants';
-import { DEFAULT_SINGLE_PAGE_SYSTEM, DEFAULT_SINGLE_PAGE_OUTPUT_FORMAT, DEFAULT_SINGLE_PAGE_INSTRUCTIONS } from './prompts/singlePagePrompts';
-import { DEFAULT_FULL_DECK_SYSTEM, DEFAULT_FULL_DECK_OUTPUT_FORMAT, DEFAULT_FULL_DECK_INSTRUCTIONS } from './prompts/fullDeckPrompts';
+import { DEFAULT_SINGLE_PAGE_SYSTEM, DEFAULT_SINGLE_PAGE_OUTPUT_FORMAT, DEFAULT_SINGLE_PAGE_INSTRUCTIONS, composeSinglePageInstructions } from './prompts/singlePagePrompts';
+import { DEFAULT_FULL_DECK_SYSTEM, DEFAULT_FULL_DECK_OUTPUT_FORMAT, DEFAULT_FULL_DECK_INSTRUCTIONS, composeFullDeckInstructions } from './prompts/fullDeckPrompts';
 import { DEFAULT_THEME_COLOR_PROMPT } from './prompts/themePrompt';
 import { rewriteRequest, deckExcerpt } from './prompts/rewritePrompts';
 import { DEFAULT_IMG_PROMPT_API_SYSTEM, DEFAULT_IMG_PROMPT_SHARED_SYSTEM, DEFAULT_IMG_PROMPT_MIDJOURNEY, DEFAULT_IMG_PROMPT_FLUX, DEFAULT_IMG_PROMPT_NANOBANANA, DEFAULT_IMG_PROMPT_CHATGPT, DEFAULT_IMG_PROMPT_OUTPUT_FORMAT } from './prompts/imagePrompts';
@@ -585,7 +585,6 @@ export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', 
   const [imgPromptNanoBananaSystem, setImgPromptNanoBananaSystem] = useState(DEFAULT_IMG_PROMPT_NANOBANANA);
   const [imgPromptChatGPTSystem, setImgPromptChatGPTSystem] = useState(DEFAULT_IMG_PROMPT_CHATGPT);
   const [imgPromptApiSystem, setImgPromptApiSystem] = useState(DEFAULT_IMG_PROMPT_API_SYSTEM);
-  const [imgPromptOutputFormat, setImgPromptOutputFormat] = useState(DEFAULT_IMG_PROMPT_OUTPUT_FORMAT);
   
   // Right-click Context Menu State
   const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, selectedText: '', selStart: 0, selEnd: 0, source: 'text' });
@@ -1138,124 +1137,8 @@ ${alreadyPlacedContext}`;
     
     const slideNumber = pageNumber || 'X';
     
-    const outputInstructions = `Generate a slide outline based on the project documentation and user's request.
-
-CRITICAL: Output ONLY the structured format below. No explanations, no commentary, no "Based on..." text.
-
-REQUIRED FORMAT (copy this structure exactly):
-
-SLIDE #${slideNumber} — ${layoutInfo.name}
-═══════════════════════════════════════════════════════════════
-
-▸ TITLE:
-[Write your title here]
-
-▸ SUBTITLE:
-[Write your subtitle here]
-
-▸ LAYOUT STRUCTURE:
-• [Layout point 1]
-• [Layout point 2]
-• [Layout point 3]
-
-▸ COPY/TEXT CONTENT:
-**[SECTION NAME]:**
-• [Content bullet 1]
-• [Content bullet 2]
-
-▸ VISUAL STYLING:
-[1-2 sentences about visual mood, texture, typography. NO color references.]
-
-▸ REQUIRED ASSETS:
-• [Image] - description of image asset
-• [Icon/Logo] - description of icon or logo
-
-▸ COMPONENT GEOMETRY:
-\`\`\`json
-{
-  "canvas": { "width": 720, "height": 405 },
-  "frames": [
-    { "type": "text_title", "description": "Title", "x": 36, "y": 30, "width": 648, "height": 50 },
-    { "type": "text_body", "description": "Body text", "x": 36, "y": 100, "width": 310, "height": 270 },
-    { "type": "image_placeholder", "description": "Right image", "aspect_ratio": "3:2", "x": 374, "y": 100, "width": 310, "height": 207 }
-  ]
-}
-\`\`\`
-
-═══════════════════════════════════════════════════════════════
-
-EXAMPLE OF CORRECT OUTPUT:
-
-SLIDE #1 — Title slide
-═══════════════════════════════════════════════════════════════
-
-▸ TITLE:
-Project Noir: Influencer Experience
-
-▸ SUBTITLE:
-High-touch creative concepts for talent activations
-
-▸ LAYOUT STRUCTURE:
-• Large centered title with bold typography
-• Subtitle beneath in lighter weight
-• Clean, minimal composition
-
-▸ COPY/TEXT CONTENT:
-N/A - title slide (title and subtitle only)
-
-▸ VISUAL STYLING:
-Cinematic noir aesthetic with textured overlays. Vintage atmosphere with bold typographic hierarchy.
-
-▸ REQUIRED ASSETS:
-• [Icon/Logo] - company logo
-• [Image Background] - dark textured noir backdrop
-
-▸ COMPONENT GEOMETRY:
-\`\`\`json
-{
-  "canvas": { "width": 720, "height": 405 },
-  "frames": [
-    { "type": "icon_placeholder", "description": "Company logo, large and centered", "x": 285, "y": 100, "width": 150, "height": 80 },
-    { "type": "text_title", "description": "Title text centered", "x": 36, "y": 200, "width": 648, "height": 60 },
-    { "type": "text_subtitle", "description": "Subtitle text centered", "x": 120, "y": 270, "width": 480, "height": 40 },
-    { "type": "background_image", "description": "Dark textured noir backdrop", "x": 0, "y": 0, "width": 720, "height": 405 }
-  ]
-}
-\`\`\`
-
-═══════════════════════════════════════════════════════════════
-
-RULES:
-1. Start output with "SLIDE #" — nothing before it.
-2. Use ▸ markers for ALL 7 sections.
-3. NEVER use # or ## markdown headers.
-4. No explanatory text like "Here is..." or "Based on..."
-5. Keep content concise — max 4 sentences per section. HOWEVER, if the user's deck context prompt or revision prompt requests more detail, longer descriptions, or more thorough/descriptive content, honor that request: allow more sentences per section, longer bullets, and additional sections as needed while ensuring text still fits within the visible slide frame.
-6. CAPTION LAYOUTS: Keep COPY/TEXT CONTENT minimal (2-3 bullet points max) — focus is on the visuals. Exception: if user explicitly requests detailed captions, allow up to 4-5 bullets.
-7. TITLE-ONLY LAYOUTS: For Title slide, Section header, Title Page w/Gradient, Section Header w/Gradient, Title only, and Big number — use ONLY title and subtitle. COPY/TEXT CONTENT = "N/A - title slide". No body text.
-8. REQUIRED ASSETS: Use "• [Type | RATIO] - description" format. Types needing ratios: [Image], [Video], [Infograph], [Timeline]. No ratio needed: [Icon/Logo], [Image Background]. Choose ratios thoughtfully: 21:9/32:9 wide/cinematic, 16:9 standard, 3:2 editorial, 4:3 data, 2:3/9:16 portrait, 1:1 square, 4:1/5:1 timelines.
-9. IMAGE BACKGROUND: Use [Image Background] for "w/Gradient" or background image layouts.
-10. BREVITY: All text MUST fit within the visible slide frame — content that overflows is invisible. Max 8 words per bullet, max 2 sections with 3 bullets each. Reduce text when large assets are present. OVERRIDE: If the user's deck context prompt or revision prompt asks for more detail, richer descriptions, or expanded content, increase these limits — allow longer bullets (up to ~15 words), more sections (up to 3-4), and more bullets per section (up to 5). Always ensure all text fits within the visible slide frame without overflow.
-10a. TIMELINE/LARGE VISUAL TEXT LIMIT: When a [Timeline], [Infograph], or large visual element occupies the top portion of a slide (reducing the body text area to ~115pt or less), limit COPY/TEXT CONTENT to ≤8 lines total (max 2 sections with 3-4 bullets each). Do NOT generate 3+ full sections — the reduced body area cannot fit them.
-11. LAYOUT STRUCTURE: Describe exact placement of assets and text like a layout designer — where images sit relative to text, how columns align, what spans full width vs. sits beside content.
-12. LAYOUT PREFERENCE: When a slide has body text AND a visual asset (Image/Video/Infograph), prefer "One column text" with the asset on the right. Reserve "Title and body" for text-only slides or slides with only a Timeline.
-13. ICONS SPARINGLY: Only include [Icon/Logo] when essential (client logos, product logos). Most slides need 0-1 icons. No decorative or generic icons.
-14. DATA VIZ LIMIT: Max ONE [Timeline] OR ONE [Infograph] per slide — never both. Split across slides if needed.
-15. GRADIENT LAYOUTS: For "w/Gradient" layouts, gradient MUST be dark/black — it serves as a shadow for text contrast over background images.
-16. BIG NUMBER: For "Big number" layout, TITLE = the number (e.g., "$1M", "40%", "10K+"). SUBTITLE = description/context (NOT body copy). COPY/TEXT CONTENT = "N/A - title slide". In COMPONENT GEOMETRY: use text_title for the number and text_subtitle for the description — do NOT generate text_body for this layout.
-17. WIDE IMAGES: Extra-wide ratio images (21:9, 32:9) must NOT go in "Title and body". Use "Caption" or "One column text" with full-width top placement.
-18. TITLE AND BODY = TEXT ONLY: "Title and body" NEVER has images, videos, or infographs on the right side — it has NO side panel. If images are needed alongside text, use "One column text". A wide image ABOVE body text is acceptable.
-19. NEGATIVE SPACE: Ensure all image frames are fully visible. Match image ratios to containers — wide for full-width, tall/portrait for side panels. Avoid dead space.
-20. COMPANY LOGO: Only on title/opener/closer pages. NOT on content pages. When adding a logo to a title page, describe as "[Icon/Logo] - Company name logo, large and centered" for prominent placement above the title. This is optional — use when the deck benefits from brand presence.
-21. ONE COLUMN TEXT: Images fill RIGHT HALF (50% width). FIXED ASPECT RATIOS: 1 asset = 8:9 (fills entire half), 2 assets = 16:9 each (stacked top/bottom), 3 assets = 8:3 each (stacked in thirds). No gaps or padding between images. No other ratios allowed.
-22. TWO COLUMNS IMAGES: PREFER two per-column images over single wide. If 2+ assets, ALWAYS use per-column. Single wide: ratio between 21:9 (2.33:1) and 2.75:1. NEVER wider than 2.75:1. HEIGHT THRESHOLDS: 1-2 images use 50-57% of content height, 3 images 37-51%, 4 images 30-51%. Min 40% of page for text (1-2 imgs) or 46% (3-4 imgs). TWO COLUMNS COPY FORMAT: Use --- (three dashes on its own line) to separate left and right column content. Each column can optionally start with a **Bold Header**. Bold text is allowed freely in content without breaking columns. Columns can contain bullet points, numbered lists, or plain paragraph text.
-23. THREE COLUMNS: Visual assets above columns. If 3 assets, each centered above its column. If 1-2 assets, center above. If 4, pack left. Same height thresholds as TWO COLUMNS. COPY FORMAT: Use --- separator for 3 sections.
-24. FOUR COLUMNS: Visual assets above columns. If 4 assets, each centered above its column. If 1-2 assets, center above. If 3, pack left. Same height thresholds as TWO COLUMNS. COPY FORMAT: Use --- separator for 4 sections.
-25. CAPTION: Image-dominant layout. Visual area ~85% of page, text ~15%. Single assets up to 21:9. Minimal text. CRITICAL: text_title and text_body must NOT overlap — stack vertically below image with gaps (title first, then body).
-26. SECTION TITLE DESC: Images fill the LEFT half (x=0, width=360). Text on RIGHT half (x=378, width=306). FIXED ASPECT RATIOS: 1 asset = 8:9 (fills entire left half), 2 assets = 16:9 each (stacked top/bottom), 3 assets = 8:3 each (stacked in thirds). No gaps or padding between images. No other ratios allowed.
-27. VISUAL STYLING: NO color references. Describe only mood, texture, atmosphere, typography. Colors handled by deck theme.
-28. COMPONENT GEOMETRY: Every slide MUST end with ▸ COMPONENT GEOMETRY containing a JSON code block. Canvas is 720×405pt. Use 36pt left/right margins, 30pt top, 35pt bottom, 15pt gutters. Calculate x/y/width/height for every text area and asset frame based on your LAYOUT STRUCTURE. Include "type", "description", "x", "y", "width", "height" for each frame. Image/video/infograph/timeline frames also need "aspect_ratio". Use background_image type (0,0,720,405) for [Image Background] assets.
-Generate the outline now:`;
+    // The Single Page boxes, Generation Rules with its Export Schema (F6, REV-04).
+    const outputInstructions = composeSinglePageInstructions(singlePageInstructions, singlePageOutputFormat, { slideNumber, layoutName: layoutInfo.name });
     
     // Source documents travel as file_id references — see buildSourceParts.
     // Same exposure as the full deck: this path sent the same base64 payload.
@@ -1402,7 +1285,7 @@ ${outputInstructions}${placementPrompt.rules}`;
     } finally {
       setIsGenerating(false);
     }
-  }, [hasFileContent, pagePrompt, selectedLayout, systemPrompt, pageNumber, parseOutputToPages, singlePageSystemPrompt, deckThemeColors, history, enableThemeGen, generateAIThemes, buildAssetPlacementPrompt, buildSourceParts, callWithLiveFiles, resolveSources, sourceUploadMessage]);
+  }, [hasFileContent, pagePrompt, selectedLayout, systemPrompt, pageNumber, parseOutputToPages, singlePageSystemPrompt, singlePageInstructions, singlePageOutputFormat, deckThemeColors, history, enableThemeGen, generateAIThemes, buildAssetPlacementPrompt, buildSourceParts, callWithLiveFiles, resolveSources, sourceUploadMessage]);
 
   // Regenerate page with revisions
   const regeneratePage = useCallback(async () => {
@@ -1751,173 +1634,8 @@ ${outputInstructions}${regenPlacementPrompt.rules}`;
     // describing a failure that is no longer happening.
     setThemeError('');
 
-    const outputInstructions = `Generate a complete deck outline with multiple slides.
-
-CRITICAL: Output ONLY the structured format below. No explanations, no commentary, no "Based on..." or "Here is..." text.
-
-REQUIRED FORMAT FOR EACH SLIDE:
-
-SLIDE #[NUMBER] — [Layout Name]
-═══════════════════════════════════════════════════════════════
-
-▸ TITLE:
-[Write title here]
-
-▸ SUBTITLE:
-[Write subtitle here]
-
-▸ LAYOUT STRUCTURE:
-• [Layout point 1]
-• [Layout point 2]
-
-▸ COPY/TEXT CONTENT:
-**[SECTION NAME]:**
-• [Content bullet 1]
-• [Content bullet 2]
-
-▸ VISUAL STYLING:
-[1-2 sentences about visual mood, texture, typography. NO color references.]
-
-▸ REQUIRED ASSETS:
-• [Image] - description of asset
-• [Icon/Logo] - description of asset
-
-▸ COMPONENT GEOMETRY:
-\`\`\`json
-{
-  "canvas": { "width": 720, "height": 405 },
-  "frames": [
-    { "type": "text_title", "description": "Title", "x": 36, "y": 30, "width": 648, "height": 50 },
-    { "type": "text_body", "description": "Body text", "x": 36, "y": 100, "width": 310, "height": 270 },
-    { "type": "image_placeholder", "description": "Right image", "aspect_ratio": "3:2", "x": 374, "y": 100, "width": 310, "height": 207 }
-  ]
-}
-\`\`\`
-
-═══════════════════════════════════════════════════════════════
-
-EXAMPLE OF CORRECT OUTPUT:
-
-SLIDE #1 — Title Page w/Gradient
-═══════════════════════════════════════════════════════════════
-
-▸ TITLE:
-Project Noir: Influencer Experience
-
-▸ SUBTITLE:
-High-touch creative concepts for talent activations
-
-▸ LAYOUT STRUCTURE:
-• Large centered title with bold typography
-• Subtitle beneath in lighter weight
-• Gradient background dark to accent color
-
-▸ COPY/TEXT CONTENT:
-N/A - title slide (title and subtitle only)
-
-▸ VISUAL STYLING:
-Cinematic noir aesthetic with dramatic gradient shadows. Bold typographic hierarchy evoking vintage prestige.
-
-▸ REQUIRED ASSETS:
-• [Icon/Logo] - company logo
-• [Image Background] - dark cinematic noir texture behind gradient
-
-▸ COMPONENT GEOMETRY:
-\`\`\`json
-{
-  "canvas": { "width": 720, "height": 405 },
-  "frames": [
-    { "type": "icon_placeholder", "description": "Company logo, large and centered", "x": 285, "y": 100, "width": 150, "height": 80 },
-    { "type": "text_title", "description": "Title text centered", "x": 36, "y": 200, "width": 648, "height": 60 },
-    { "type": "text_subtitle", "description": "Subtitle text centered", "x": 120, "y": 270, "width": 480, "height": 40 },
-    { "type": "background_image", "description": "Dark cinematic noir texture", "x": 0, "y": 0, "width": 720, "height": 405 }
-  ]
-}
-\`\`\`
-
-═══════════════════════════════════════════════════════════════
-
-SLIDE #2 — One column text
-═══════════════════════════════════════════════════════════════
-
-▸ TITLE:
-The Concept
-
-▸ SUBTITLE:
-Creating unforgettable moments
-
-▸ LAYOUT STRUCTURE:
-• Text column left (55% width), 2:3 portrait image right (45% width)
-• Title at top left above body content
-• Two text sections aligned vertically on left side
-
-▸ COPY/TEXT CONTENT:
-**CORE IDEA:**
-• Transform spaces into immersive experiences
-• Capture authentic content moments
-
-**KEY ELEMENTS:**
-• Themed environments
-• Professional production support
-
-▸ VISUAL STYLING:
-Consistent dramatic lighting with high contrast composition. Professional cinematic quality.
-
-▸ REQUIRED ASSETS:
-• [Image | 2:3] - concept mood board of immersive environment, portrait orientation
-
-▸ COMPONENT GEOMETRY:
-\`\`\`json
-{
-  "canvas": { "width": 720, "height": 405 },
-  "frames": [
-    { "type": "text_title", "description": "Title text", "x": 36, "y": 30, "width": 380, "height": 50 },
-    { "type": "text_subtitle", "description": "Subtitle text", "x": 36, "y": 85, "width": 380, "height": 30 },
-    { "type": "text_body", "description": "Left column body text", "x": 36, "y": 130, "width": 380, "height": 240 },
-    { "type": "image_placeholder", "description": "Concept mood board", "aspect_ratio": "2:3", "x": 431, "y": 30, "width": 253, "height": 340 }
-  ]
-}
-\`\`\`
-
-═══════════════════════════════════════════════════════════════
-
-AVAILABLE LAYOUTS:
-Title slide, Section header, Title and body, Title and two columns, Title and three columns, Title and four columns, Title only, One column text, Main point, Section title and description, Caption, Big number, Blank, Section Header w/Gradient, Title Page w/Gradient
-
-RULES:
-1. Start with "SLIDE #1" — no text before it.
-2. Use ▸ markers for ALL 7 sections on EVERY slide.
-3. NEVER use # or ## markdown headers.
-4. No explanatory text like "Here is..." or "Based on..."
-5. Keep content concise — max 4 sentences per section. HOWEVER, if the user's deck context prompt or revision prompt requests more detail, longer descriptions, or more thorough/descriptive content, honor that request: allow more sentences per section, longer bullets, and additional sections as needed while ensuring text still fits within the visible slide frame.
-6. CAPTION LAYOUTS: Keep COPY/TEXT CONTENT minimal (2-3 bullet points max) — focus is on the visuals. Exception: if user explicitly requests detailed captions, allow up to 4-5 bullets.
-7. TITLE-ONLY LAYOUTS: For Title slide, Section header, Title Page w/Gradient, Section Header w/Gradient, Title only, and Big number — use ONLY title and subtitle. COPY/TEXT CONTENT = "N/A - title slide". No body text.
-8. REQUIRED ASSETS: Use "• [Type | RATIO] - description" format. Types needing ratios: [Image], [Video], [Infograph], [Timeline]. No ratio needed: [Icon/Logo], [Image Background]. Choose ratios thoughtfully: 21:9/32:9 wide/cinematic, 16:9 standard, 3:2 editorial, 4:3 data, 2:3/9:16 portrait, 1:1 square, 4:1/5:1 timelines.
-9. IMAGE BACKGROUND: Use [Image Background] for "w/Gradient" or background image layouts.
-10. BREVITY: All text MUST fit within the visible slide frame — content that overflows is invisible. Max 8 words per bullet, max 2 sections with 3 bullets each. Reduce text when large assets are present. OVERRIDE: If the user's deck context prompt or revision prompt asks for more detail, richer descriptions, or expanded content, increase these limits — allow longer bullets (up to ~15 words), more sections (up to 3-4), and more bullets per section (up to 5). Always ensure all text fits within the visible slide frame without overflow.
-10a. TIMELINE/LARGE VISUAL TEXT LIMIT: When a [Timeline], [Infograph], or large visual element occupies the top portion of a slide (reducing the body text area to ~115pt or less), limit COPY/TEXT CONTENT to ≤8 lines total (max 2 sections with 3-4 bullets each). Do NOT generate 3+ full sections — the reduced body area cannot fit them.
-11. LAYOUT STRUCTURE: Describe exact placement of assets and text like a layout designer — where images sit relative to text, how columns align, what spans full width vs. sits beside content.
-12. LAYOUT PREFERENCE: When a slide has body text AND a visual asset (Image/Video/Infograph), prefer "One column text" with the asset on the right. Reserve "Title and body" for text-only slides or slides with only a Timeline.
-13. ICONS SPARINGLY: Only include [Icon/Logo] when essential (client logos, product logos). Most slides need 0-1 icons. No decorative or generic icons.
-14. DATA VIZ LIMIT: Max ONE [Timeline] OR ONE [Infograph] per slide — never both. Split across slides if needed.
-15. GRADIENT LAYOUTS: For "w/Gradient" layouts, gradient MUST be dark/black — it serves as a shadow for text contrast over background images. Never describe bright/colorful gradients.
-16. BIG NUMBER: For "Big number" layout, TITLE = the number (e.g., "$1M", "40%", "10K+"). SUBTITLE = description/context (NOT body copy). COPY/TEXT CONTENT = "N/A - title slide". In COMPONENT GEOMETRY: use text_title for the number and text_subtitle for the description — do NOT generate text_body for this layout.
-17. WIDE IMAGES: Extra-wide ratio images (21:9, 32:9) must NOT go in "Title and body". Use "Caption" or "One column text" with full-width top placement.
-18. TITLE AND BODY = TEXT ONLY: "Title and body" NEVER has images, videos, or infographs on the right side — it has NO side panel. If images are needed alongside text, use "One column text". A wide image ABOVE body text is acceptable.
-19. LAYOUT VARIETY: Do not over-rely on "Title and body". Mix layouts — "One column text" for text+image, "Caption" for image-focused, "Two columns" for comparisons, "Section title and description" for visual storytelling.
-20. NEGATIVE SPACE: Ensure all image frames are fully visible. Match image ratios to containers — wide for full-width, tall/portrait for side panels. Avoid dead space.
-21. COMPANY LOGO: Only on title/opener/closer pages. NOT on content pages. When adding a logo to a title page, describe as "[Icon/Logo] - Company name logo, large and centered" for prominent placement above the title. This is optional — use when the deck benefits from brand presence.
-22. ICON CONSISTENCY: If using [Icon/Logo] badges next to titles on content pages, apply to ALL content pages consistently. Don't start then skip pages.
-23. OUTRO: Deck MUST end with a clean closing page. Minimal text — CTA or thank you. Include contact info ONLY if provided in source docs or deck context prompt.
-24. ONE COLUMN TEXT: Images fill RIGHT HALF (50% width). FIXED ASPECT RATIOS: 1 asset = 8:9 (fills entire half), 2 assets = 16:9 each (stacked top/bottom), 3 assets = 8:3 each (stacked in thirds). No gaps or padding between images. No other ratios allowed.
-25. TWO COLUMNS IMAGES: PREFER two per-column images over single wide. If 2+ assets, ALWAYS use per-column. Single wide: ratio between 21:9 (2.33:1) and 2.75:1. NEVER wider than 2.75:1. HEIGHT THRESHOLDS: 1-2 images use 50-57% of content height, 3 images 37-51%, 4 images 30-51%. Min 40% of page for text (1-2 imgs) or 46% (3-4 imgs). TWO COLUMNS COPY FORMAT: Use --- (three dashes on its own line) to separate left and right column content. Each column can optionally start with a **Bold Header**. Bold text is allowed freely in content without breaking columns. Columns can contain bullet points, numbered lists, or plain paragraph text.
-26. THREE COLUMNS: Visual assets above columns. If 3 assets, each centered above its column. If 1-2 assets, center above. If 4, pack left. Same height thresholds as TWO COLUMNS. COPY FORMAT: Use --- separator for 3 sections.
-27. FOUR COLUMNS: Visual assets above columns. If 4 assets, each centered above its column. If 1-2 assets, center above. If 3, pack left. Same height thresholds as TWO COLUMNS. COPY FORMAT: Use --- separator for 4 sections.
-28. CAPTION: Image-dominant layout. Visual area ~85% of page, text ~15%. Single assets up to 21:9. Minimal text. CRITICAL: text_title and text_body must NOT overlap — stack vertically below image with gaps (title first, then body).
-29. SECTION TITLE DESC: Images fill the LEFT half (x=0, width=360). Text on RIGHT half (x=378, width=306). FIXED ASPECT RATIOS: 1 asset = 8:9 (fills entire left half), 2 assets = 16:9 each (stacked top/bottom), 3 assets = 8:3 each (stacked in thirds). No gaps or padding between images. No other ratios allowed.
-30. VISUAL STYLING: NO color references. Describe only mood, texture, atmosphere, typography. Colors handled by deck theme.
-31. COMPONENT GEOMETRY: Every slide MUST end with ▸ COMPONENT GEOMETRY containing a JSON code block. Canvas is 720×405pt. Use 36pt left/right margins, 30pt top, 35pt bottom, 15pt gutters. Calculate x/y/width/height for every text area and asset frame based on your LAYOUT STRUCTURE. Include "type", "description", "x", "y", "width", "height" for each frame. Image/video/infograph/timeline frames also need "aspect_ratio". Use background_image type (0,0,720,405) for [Image Background] assets.
-Generate the complete deck now:`;
+    // The Full Deck boxes, Generation Rules with its Export Schema (F6, REV-04).
+    const outputInstructions = composeFullDeckInstructions(fullDeckInstructions, fullDeckOutputFormat);
     
     // Source documents travel as file_id references — see buildSourceParts.
     // DG1: the uploads plus the chosen references, read now (resolveSources).
@@ -2124,7 +1842,7 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${srcFiles.some(f => 
     } finally {
       setIsGenerating(false);
     }
-  }, [hasFileContent, uploadedFiles, systemPrompt, parseOutputToPages, fullDeckSystemPrompt, enableThemeGen, generateAIThemes, buildAssetPlacementPrompt, buildSourceParts, callWithLiveFiles, resolveSources, sourceUploadMessage]);
+  }, [hasFileContent, uploadedFiles, systemPrompt, parseOutputToPages, fullDeckSystemPrompt, fullDeckInstructions, fullDeckOutputFormat, enableThemeGen, generateAIThemes, buildAssetPlacementPrompt, buildSourceParts, callWithLiveFiles, resolveSources, sourceUploadMessage]);
 
   const copyToClipboard = useCallback(() => {
     if (!activeTab) return;
@@ -5031,14 +4749,14 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     <button onClick={() => setSettingsCollapsed(p => ({...p, img_fmt: !p.img_fmt}))} className="dog-acc-head" aria-expanded={!settingsCollapsed.img_fmt} aria-controls={settingsCollapsed.img_fmt ? undefined : 'dog-set-img_fmt'}>
                       <div className="dog-acc-text">
                         <span className="dog-acc-label">Image Prompt Export Schema</span>
-                        <p className="dog-acc-desc">Markdown structure for generated image prompts file</p>
+                        <p className="dog-acc-desc">The layout of the image prompts file D.O.G. writes. This schema is read-only.</p>
                       </div>
                       <ChevronRight className="dog-acc-chevron" aria-hidden="true" data-open={!settingsCollapsed.img_fmt} />
                     </button>
                     {!settingsCollapsed.img_fmt && (
                       <div className="dog-acc-body" id="dog-set-img_fmt">
-                        <textarea value={imgPromptOutputFormat} onChange={(e) => setImgPromptOutputFormat(e.target.value)} disabled={formatTabLocked} className="ui-input dog-acc-textarea h-80 resize-none wilson-dark-scroll" data-surface="dark" />
-                        <Button variant="ghost" size="sm" onClick={() => setImgPromptOutputFormat(DEFAULT_IMG_PROMPT_OUTPUT_FORMAT)} disabled={formatTabLocked} className="dog-acc-reset">Reset to default</Button>
+                        {/* F6 (REV-04): D.O.G. writes the image prompts file itself, from the AI's one-line answers, so this is the file's layout to read, not something sent: read-only, as the Visual Deck schema beside it. */}
+                        <textarea readOnly value={DEFAULT_IMG_PROMPT_OUTPUT_FORMAT} className="ui-input dog-acc-textarea h-80 resize-none wilson-dark-scroll" data-surface="dark" data-readonly="true" />
                       </div>
                     )}
                   </div>
