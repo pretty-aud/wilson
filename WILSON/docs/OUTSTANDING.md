@@ -5862,7 +5862,10 @@ left, what F9 met outside its list, and what its review rounds recorded. None is
   `public, max-age=60`): one kept-bundle read and one JPEG each, 3.7 ms a request as F3 measured. Wanted by
   TPN-CONT-003; NOTE.
 - **F9-13 · Flaky under a full run, fine alone:** `gateway/test/platform.test.mjs` (a 5 s PowerShell timeout; it failed
-  in the baseline too) and `src/cloud/edgeStorage.test.js` (once: a timeout and an HMAC count). NOTE.
+  in the baseline too), `src/cloud/edgeStorage.test.js` (once: a timeout and an HMAC count),
+  `Dashboard/NotesView.review.test.jsx` (one or two unhandled `getClientRects is not a function` from the editor's
+  scroll under jsdom, in the baseline too) and, in one run, 5 s timeouts in `enterKey.render.test.jsx`,
+  `rabbitScenesRender.test.jsx` and `timelineVersions.test.jsx`. None is in F9's code; each passes alone. NOTE.
 - **F9-14 · Rows made before F9 with a name that slugs to nothing keep the shared fallback.** The reconcile and the rebase
   (kept in their words, F9-03) store `Untitled-Project` for a stored slug of `''`, the same for every such project, and
   never fill a `null` slug; where such a project's stored root is unusable they meet in one `<root>/Untitled-Project`.
