@@ -5729,8 +5729,9 @@ R.A.B.B.I.T.'s twins (rabbit A1, A3, A6, A7). What F10 built is in its hand-off
   view (reasoned, not measured).
 - **F10-02 · Levels and Experiences do not ask before dropping typed text** (Escape in a changed Description or Notes,
   the window closed with a half-filled new task, an exit through the tab strip). Scenes and Shots ask (D21). Pinned as
-  today's by `rabbitEntityViewsRender.test.jsx` (the W2 and Escape-in-the-task-form cases). Asked in F10's chat, her
-  answer pending: until then, as today.
+  today's by `rabbitEntityViewsRender.test.jsx`'s W2 case, run for Levels and Experiences (measured: red with `asks`
+  on, and nothing else in the views' suites) and by six cases in `views/entity/useEntityWindow.test.jsx`. Asked in
+  F10's chat, her answer pending: until then, as today.
 - **F10-03 · The Levels and Experiences window is not the Scene window's markup** (one grid, "Due date", the kit
   CellSelect status, greyed thumbnail actions for a reader where Scenes hides them). Asked: her answer pending.
 - **F10-04 · Mentions, tags and links are not drawn in the Levels and Experiences windows** although 0127 accepts both
