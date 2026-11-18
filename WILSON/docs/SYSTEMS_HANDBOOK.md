@@ -1105,8 +1105,15 @@ React, no adapter). Incoming rows are merged field by field: fields with an
 in-flight local write (the *pending-field set*, counted per `table:id`) keep
 the local value; everything else takes the incoming row. An `updated_at` stale
 guard drops an incoming row older than the local one. On `SUBSCRIBED` the
-client always fires a debounced refetch — including the first join — to close
-the missed-events window.
+client refetches the project on every join, the first included, to close the
+missed-events window. Since F5 (2026-11-17) the first join's refetch IS the
+open's one load: on the cloud an open waits for its project channel's join (at
+most `JOIN_WAIT_MS`, 500 ms, or the channel's error), then loads once, and the
+events the channel delivers while a load is out are kept and folded over its
+snapshot when it lands. A later join (a reconnect, a new topic epoch, an open
+the wait let through first) refetches, debounced, as before. A close, a
+sign-out, an adapter switch or a project trashed elsewhere supersedes an open
+still waiting or loading, so its snapshot and roster never land after it.
 
 **Yjs is used in exactly one place**: note bodies (§13.4). Nowhere else.
 
@@ -4867,6 +4874,42 @@ chosen at boot: if `hasLocalServer()` is false the mode is **forced** to
 defaulting to `local_server`. Google Drive is read-only in v0.1 and its write
 methods throw a generic `readOnly()`.
 
+**What the app reads, and how often (F5, 2026-11-17).** The roster and the rate
+card are module-level stores (`src/lib/readCache.js`, read through
+useSyncExternalStore): one entry per person and company (and adapter), one
+read for every reader that mounts with it, a generation so a late answer never
+lands for the next person, and an entry dropped once its last reader leaves.
+An edit's refusal is the editing reader's own error, not the entry's.
+The cloud roster is `useWorkspaceMembers`' entry; `useTeamMembers` maps the same
+entry on the cloud (`teamMembersFromDirectory`; the adapter has no
+`listTeamMembers` any more) and reads the Local Server's registry once
+elsewhere; R.A.B.B.I.T.'s workspace channel reloads it once per
+`workspace_members` event or (re)join (`noteRosterEvent`). `useRateCard` holds
+the cards per person and company and each card's entries and department
+defaults per card; the card a reader shows stays its own; an edit changes the
+card's one entry, so every reader redraws with no read; and since no channel
+event carries a rate card, a reader that mounts more than 2 s after the last
+read reads it again (one read, shared), so a view opened later shows the
+server's rates, a revoked grant included. A project open is one
+load (§4.5); that load reads the comments on the project's own rows only (the
+project, its phases, assets and tasks: comments have no `project_id`) and the
+project roster once (`projectMembers` beside `teamAssignments`; on the cloud
+`ctx.teamAssignments` is derived from the roster, so a seat change reaches every
+reader at once). A token refresh, or the SIGNED_IN auth-js sends on a return to
+the window, reads nothing when the person and the company (the token's claim)
+are the ones already listed, and a status that says the same keeps its object.
+Every collection is read through one paged reader (`read<Kind>With`, 1,000
+rows a page, `id` closing the order) by `loadProject` and its list method
+alike: phases, assets, tasks, scenes, shots, levels, experiences, milestones and
+folders. A create reads the true folder tree (the bundle's folders and scenes
+are not kept live: no channel event moves a folder, and scenes are not
+broadcast), and a shot's scene ensure shares the tree the shot's call read, so
+a New shot reads it once, not twice. A drop of files passes one batch: the
+container's folder, the INVOICES folder and a shot's scene are read once per
+drop when found; the project's privacy is read for every file, and a privacy
+probe that fails refuses the file (it fails closed: "not private" would send
+a private project's media to the cloud).
+
 **Realtime and merge** — see §4.5. Presence rides the same channels; the LIVE
 pill shows orange LIVE / grey SYNC / red SYNC ERR.
 
@@ -5225,9 +5268,21 @@ either direction:
 | `admin.terminal.access`, `member.invite`, `member.remove`, `member.role.change`, `member.grants.change`, `project.delete`, `rate_card.edit`, `workspace.settings.write` | ✓ | | |
 
 `usePermissions()` decodes the JWT directly (the claims are already in the
-token; there is no need to call `getUser()`) and re-reads on
-`onAuthStateChange`, so a workspace switch or token refresh propagates without
-a reload. `PermissionGate` takes exactly one of `requires` (an action) or
+token; there is no need to call `getUser()`) and follows every auth event, so a
+workspace switch or token refresh propagates without a reload. Since F5
+(2026-11-17) it reads ONE store, `src/cloud/auth/authSnapshot.js`: the first
+reader attaches one auth listener (synchronous: auth-js awaits it inside its
+lock) and one priming read, the store follows `heldSession`, and it detaches
+once the last reader leaves; a priming read answered after an auth event is
+not applied. Its permission fields are one object that changes only when one
+of them does, so a token refresh redraws no reader (before F5, each of the 38
+call sites subscribed, read the session and redrew on its own). The active
+company is the access token's claim everywhere (`workspaceFromSession`: the user
+object's `app_metadata` only when no token decodes): the onboarding check, the
+`app_events` row, the O.T.T.E.R. migration panel, model overrides, the
+connection dot and R.A.B.B.I.T.'s workspace channel all read it. The
+network-bound token readers still call `getSession()` (it refreshes an expired
+token). `PermissionGate` takes exactly one of `requires` (an action) or
 `requiresPlatformOperator`, and renders its fallback while permissions are not
 yet `ready` — so privileged UI never flashes at cold boot.
 
@@ -5300,7 +5355,9 @@ for an Escape a layer above already handled, so one Escape closes one layer.
 
 **Team Members** reads `workspace_members` through the `workspace_directory`
 RPC — not RABBIT's legacy local `team_members` entity. It has roster liveness
-over the workspace channel, an assigned-projects column fed by a second
+over the workspace channel (since F5 the one roster every page and picker
+shares, reloaded once per member event or channel join: §13.3's "What the app
+reads"), an assigned-projects column fed by a second
 subscription, a Day Rate column shown only to admins with rate access, three
 saved views (Admin/Manager/User) each filtered to *your role or below*, and a
 roster CSV export mirroring exactly the visible columns. Deactivation prefers
