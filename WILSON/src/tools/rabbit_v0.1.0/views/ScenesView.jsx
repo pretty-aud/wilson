@@ -111,6 +111,8 @@ import {
 // shot's inside its scene's), planned by the one path function when the
 // row is not there yet.
 import { entityFolderPath } from '../folderPaths'
+// Post-overhaul F10 (rabbit A1): the thumbnail's two writers, once for the six callers.
+import { pickEntityThumbnail, clearEntityThumbnail } from './entity/entityThumbnail'
 // Shot takes (milestone 2, DEMO_BINS_BRIEF §5): bin files assigned to shots.
 // Everything below is ADDED to the existing rows and popups — a chip strip
 // per shot row in both content modes, the primary take's poster standing in
@@ -2273,14 +2275,9 @@ function SceneTable({ scenes, columns = scenesTableColumnsAll, leading = ALL_SCE
                   <Td className="rb-scene-thumb-cell">
                     {/* S3b step 7: a picture, not a button, for a seat that may not write scenes. */}
                     <div className="rb-scene-thumb" data-static={canWrite ? undefined : 'true'}
-                      onClick={canWrite ? async e => {
+                      onClick={canWrite ? e => {
                         e.stopPropagation()
-                        if (!window.electronAPI?.rabbit?.pickImage) return
-                        const imagePath = await window.electronAPI.rabbit.pickImage()
-                        if (!imagePath) return
-                        ctx?.updateScene?.(sc.id, { thumbnail_image: imagePath })
-                        try { await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'scene', entityId: sc.id, sourcePath: imagePath }) } catch {}
-                        onThumbChanged?.()
+                        pickEntityThumbnail({ canWrite, entityType: 'scene', entityId: sc.id, update: p => ctx?.updateScene?.(sc.id, p), onChanged: onThumbChanged })
                       } : undefined}>
                       {sc.thumbnail_image ? (
                         <>
@@ -2394,14 +2391,9 @@ function SceneTable({ scenes, columns = scenesTableColumnsAll, leading = ALL_SCE
                                 {showThumb && (
                                   <Td className="rb-scene-thumb-cell">
                                     <div className="rb-scene-thumb" data-nested="true" data-static={canWrite ? undefined : 'true'}
-                                      onClick={canWrite ? async e => {
+                                      onClick={canWrite ? e => {
                                         e.stopPropagation()
-                                        if (!window.electronAPI?.rabbit?.pickImage) return
-                                        const imagePath = await window.electronAPI.rabbit.pickImage()
-                                        if (!imagePath) return
-                                        ctx?.updateShot?.(shot.id, { thumbnail_image: imagePath })
-                                        try { await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'shot', entityId: shot.id, sourcePath: imagePath }) } catch {}
-                                        onThumbChanged?.()
+                                        pickEntityThumbnail({ canWrite, entityType: 'shot', entityId: shot.id, update: p => ctx?.updateShot?.(shot.id, p), onChanged: onThumbChanged })
                                       } : undefined}>
                                       {shot.thumbnail_image ? (
                                         <>
@@ -2897,14 +2889,9 @@ function ShotTable({ shotGroups, columns = shotsTableColumnsAll, leading = ALL_S
                     {showThumb && (
                       <Td className="rb-scene-thumb-cell">
                         <div className="rb-scene-thumb" data-static={canWrite ? undefined : 'true'}
-                          onClick={canWrite ? async e => {
+                          onClick={canWrite ? e => {
                             e.stopPropagation()
-                            if (!window.electronAPI?.rabbit?.pickImage) return
-                            const imagePath = await window.electronAPI.rabbit.pickImage()
-                            if (!imagePath) return
-                            ctx?.updateShot?.(shot.id, { thumbnail_image: imagePath })
-                            try { await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'shot', entityId: shot.id, sourcePath: imagePath }) } catch {}
-                            onThumbChanged?.()
+                            pickEntityThumbnail({ canWrite, entityType: 'shot', entityId: shot.id, update: p => ctx?.updateShot?.(shot.id, p), onChanged: onThumbChanged })
                           } : undefined}>
                           {shot.thumbnail_image ? (
                             <>
@@ -3398,22 +3385,14 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
     else { setNotesDraft(scene.notes || ''); setEditingNotes(false) }
   }
 
-  async function handleSetThumbnail() {
-    if (!canWrite || !window.electronAPI?.rabbit?.pickImage) return
-    const imagePath = await window.electronAPI.rabbit.pickImage()
-    if (!imagePath) return
-    handleUpdate({ thumbnail_image: imagePath })
-    try {
-      await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'scene', entityId: scene.id, sourcePath: imagePath })
-    } catch (e) { console.error('scene thumbnail gen failed:', e) }
-    onThumbChanged?.()
+  // The thumbnail's two writers (F10: views/entity/entityThumbnail.js, the six
+  // callers' one pair, on the desktop channels as before).
+  function handleSetThumbnail() {
+    return pickEntityThumbnail({ canWrite, entityType: 'scene', entityId: scene.id, update: handleUpdate, onChanged: onThumbChanged, say: 'scene' })
   }
 
-  async function handleClearThumbnail() {
-    if (!canWrite) return
-    handleUpdate({ thumbnail_image: null })
-    try { await window.electronAPI.rabbit.clearEntityThumbnail({ entityType: 'scene', entityId: scene.id }) } catch {}
-    onThumbChanged?.()
+  function handleClearThumbnail() {
+    return clearEntityThumbnail({ canWrite, entityType: 'scene', entityId: scene.id, update: handleUpdate, onChanged: onThumbChanged })
   }
 
   async function handleCreateTask(draft) {
@@ -3902,22 +3881,14 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
     else { setNotesDraft(shot.notes || ''); setEditingNotes(false) }
   }
 
-  async function handleSetThumbnail() {
-    if (!canWrite || !window.electronAPI?.rabbit?.pickImage) return
-    const imagePath = await window.electronAPI.rabbit.pickImage()
-    if (!imagePath) return
-    handleUpdate({ thumbnail_image: imagePath })
-    try {
-      await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'shot', entityId: shot.id, sourcePath: imagePath })
-    } catch (e) { console.error('shot thumbnail gen failed:', e) }
-    onThumbChanged?.()
+  // The thumbnail's two writers (F10: views/entity/entityThumbnail.js, the six
+  // callers' one pair, on the desktop channels as before).
+  function handleSetThumbnail() {
+    return pickEntityThumbnail({ canWrite, entityType: 'shot', entityId: shot.id, update: handleUpdate, onChanged: onThumbChanged, say: 'shot' })
   }
 
-  async function handleClearThumbnail() {
-    if (!canWrite) return
-    handleUpdate({ thumbnail_image: null })
-    try { await window.electronAPI.rabbit.clearEntityThumbnail({ entityType: 'shot', entityId: shot.id }) } catch {}
-    onThumbChanged?.()
+  function handleClearThumbnail() {
+    return clearEntityThumbnail({ canWrite, entityType: 'shot', entityId: shot.id, update: handleUpdate, onChanged: onThumbChanged })
   }
 
   async function handleCreateTask(draft) {

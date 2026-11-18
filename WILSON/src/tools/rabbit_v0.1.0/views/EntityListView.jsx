@@ -102,6 +102,8 @@ import RelationsPanel, { NewTaskSidePopup } from '../components/RelationsPanel'
 // (addFilesToEntity), which nothing did before.
 import FileManager from '../components/FileManager'
 import { addFilesToEntity } from '../components/entityFiles'
+// Post-overhaul F10 (rabbit A1): the thumbnail's two writers, once for the six callers.
+import { pickEntityThumbnail, clearEntityThumbnail } from './entity/entityThumbnail'
 import { taskCountsByEntity } from '../state/taskItemsModel'
 
 // ── Status config ──
@@ -1022,22 +1024,14 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
 
   function handleUpdate(patch) { if (canWrite) ctx?.[entity.updateMethod]?.(item.id, patch) }
 
-  async function handleSetThumbnail() {
-    if (!canWrite || !window.electronAPI?.rabbit?.pickImage) return
-    const imagePath = await window.electronAPI.rabbit.pickImage()
-    if (!imagePath) return
-    handleUpdate({ thumbnail_image: imagePath })
-    try {
-      await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: entity.type, entityId: item.id, sourcePath: imagePath })
-    } catch (e) { console.error(`${entity.noun} thumbnail gen failed:`, e) }
-    onThumbChanged?.()
+  // The thumbnail's two writers (F10: views/entity/entityThumbnail.js, the six
+  // callers' one pair, on the desktop channels as before).
+  function handleSetThumbnail() {
+    return pickEntityThumbnail({ canWrite, entityType: entity.type, entityId: item.id, update: handleUpdate, onChanged: onThumbChanged, say: `${entity.noun}` })
   }
 
-  async function handleClearThumbnail() {
-    if (!canWrite) return
-    handleUpdate({ thumbnail_image: null })
-    try { await window.electronAPI.rabbit.clearEntityThumbnail({ entityType: entity.type, entityId: item.id }) } catch {}
-    onThumbChanged?.()
+  function handleClearThumbnail() {
+    return clearEntityThumbnail({ canWrite, entityType: entity.type, entityId: item.id, update: handleUpdate, onChanged: onThumbChanged })
   }
 
   async function handleCreateTask(draft) {
