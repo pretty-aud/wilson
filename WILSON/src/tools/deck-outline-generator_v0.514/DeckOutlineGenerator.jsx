@@ -20,6 +20,7 @@ import { PRESET_THEMES, SLIDE_LAYOUTS } from './constants';
 import { DEFAULT_SINGLE_PAGE_SYSTEM, DEFAULT_SINGLE_PAGE_OUTPUT_FORMAT, DEFAULT_SINGLE_PAGE_INSTRUCTIONS } from './prompts/singlePagePrompts';
 import { DEFAULT_FULL_DECK_SYSTEM, DEFAULT_FULL_DECK_OUTPUT_FORMAT, DEFAULT_FULL_DECK_INSTRUCTIONS } from './prompts/fullDeckPrompts';
 import { DEFAULT_THEME_COLOR_PROMPT } from './prompts/themePrompt';
+import { rewriteRequest, deckExcerpt } from './prompts/rewritePrompts';
 import { DEFAULT_IMG_PROMPT_API_SYSTEM, DEFAULT_IMG_PROMPT_SHARED_SYSTEM, DEFAULT_IMG_PROMPT_MIDJOURNEY, DEFAULT_IMG_PROMPT_FLUX, DEFAULT_IMG_PROMPT_NANOBANANA, DEFAULT_IMG_PROMPT_CHATGPT, DEFAULT_IMG_PROMPT_OUTPUT_FORMAT } from './prompts/imagePrompts';
 import { parseSlideContent, parsePlacedAssets, splitSlides, parseAssetLine } from './parser';
 import { saveFileToFolder, deriveDeckTitle, exportHistory, exportVisHistory } from './export';
@@ -640,14 +641,9 @@ export default function DeckOutlineGenerator({ onNavigate, currentPage = 'dog', 
 
     try {
       const historyToUse = overrideHistory || history;
-      const contextSnippet = (systemPrompt || '').substring(0, 800);
+      const { context: contextSnippet, excerpts: textSnippets } = deckExcerpt(systemPrompt, uploadedFiles, 800, 500);
       const titles = historyToUse.map(h => h.title).join(', ');
       const fileNames = uploadedFiles.map(f => f.file.name).join(', ');
-      const textSnippets = uploadedFiles
-        .filter(f => f.type === 'text')
-        .slice(0, 2)
-        .map(f => f.content.substring(0, 500))
-        .join('\n');
       
       const userMsg = `Deck context: ${contextSnippet || 'General presentation'}
 Slide titles: ${titles || 'Not yet generated'}
@@ -3169,68 +3165,12 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${srcFiles.some(f => 
     setRewritePreview({ visible: true, text: '', mode, isLoading: true });
 
     try {
-      const deckContext = (systemPrompt || '').substring(0, 600);
-      const docSnippets = uploadedFiles
-        .filter(f => f.type === 'text')
-        .slice(0, 2)
-        .map(f => f.content.substring(0, 400))
-        .join('\n');
-
-      // Build formatting context from surrounding markdown
-      const fullContent = activeTab?.content || '';
-      const selText = contextMenu.selectedText;
-      const selStart = contextMenu.selStart;
-      const selEnd = contextMenu.selEnd;
-
-      // Count lines in selected text for strict enforcement
-      const selLines = selText.split('\n');
-      const lineCount = selLines.length;
-      const nonEmptyLineCount = selLines.filter(l => l.trim()).length;
-
-      // Get surrounding context (lines before and after selection) to help AI understand formatting
-      const beforeSel = fullContent.substring(Math.max(0, selStart - 200), selStart);
-      const afterSel = fullContent.substring(selEnd, Math.min(fullContent.length, selEnd + 200));
-
-      // Detect formatting patterns in the selected text
-      const hasBold = /\*\*[^*]+\*\*/.test(selText);
-      const hasBullets = /^[\s]*[-•*▸▹►]\s/m.test(selText);
-      const hasNumbered = /^[\s]*\d+\.\s/m.test(selText);
-      const hasMultiLine = lineCount > 1;
-      const hasHeaders = /\*\*[^*]+\*\*\s*\n/.test(selText);
-
-      let formatHint = `\n\nSTRICT LINE COUNT: The input has exactly ${nonEmptyLineCount} non-empty line(s). Your output MUST have exactly ${nonEmptyLineCount} non-empty line(s). Do NOT add extra lines, blank lines, or remove lines.`;
-      if (mode === 'extend') {
-        formatHint += ' Expand the text WITHIN each existing line — make each line longer and more detailed. Do NOT add new lines or bullet points.';
-      } else if (mode === 'shorten') {
-        formatHint += ' Condense the text WITHIN each existing line — make each line shorter. Do NOT remove lines.';
-      }
-      if (hasBold || hasBullets || hasNumbered || hasMultiLine || hasHeaders) {
-        formatHint += '\nFORMATTING DETECTED:';
-        if (hasBullets) formatHint += ` Bullet points (${nonEmptyLineCount} bullets) — output exactly ${nonEmptyLineCount} bullets, same style.`;
-        if (hasBold) formatHint += ' **Bold** markers — keep ** around equivalent words.';
-        if (hasNumbered) formatHint += ' Numbered list — keep same numbering style.';
-        if (hasHeaders) formatHint += ' Bold section headers — keep exactly as-is.';
-      }
-
-      let userContent = `Selected text to rewrite:\n"""${selText}"""${formatHint}`;
-
-      // Add surrounding context so AI understands the formatting environment
-      if (beforeSel.trim() || afterSel.trim()) {
-        userContent += `\n\nSurrounding markdown context (for formatting reference only, do NOT rewrite this):\nBEFORE: """${beforeSel.trim().slice(-100)}"""\nAFTER: """${afterSel.trim().slice(0, 100)}"""`;
-      }
-
-      if (mode === 'extend' && (deckContext || docSnippets)) {
-        userContent += `\n\nDeck context: ${deckContext || 'None'}`;
-        if (docSnippets) userContent += `\n\nSource document excerpts:\n${docSnippets}`;
-      }
-
-      const data = await callAI({
-        model: modelFor('dog.rewrite'),
-        max_tokens: 1000,
-        system: rewritePrompts[mode],
-        messages: [{ role: 'user', content: userContent }],
-        tool: 'dog',
-      });
+      // One request for the rewrite and its Regenerate (prompts/rewritePrompts.js; F6, A5).
+      const data = await callAI(rewriteRequest(
+        { text: contextMenu.selectedText, start: contextMenu.selStart, end: contextMenu.selEnd, content: activeTab?.content || '' },
+        mode,
+        { deckPrompt: systemPrompt, uploads: uploadedFiles, system: rewritePrompts[mode], model: modelFor('dog.rewrite') },
+      ));
       const rewrittenText = textFromMessage(data).trim();
       setRewritePreview(prev => ({ ...prev, text: rewrittenText, isLoading: false }));
     } catch (err) {
@@ -3249,65 +3189,12 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${srcFiles.some(f => 
 
     (async () => {
       try {
-        const deckContext = (systemPrompt || '').substring(0, 600);
-        const docSnippets = uploadedFiles
-          .filter(f => f.type === 'text')
-          .slice(0, 2)
-          .map(f => f.content.substring(0, 400))
-          .join('\n');
-
-        // Build formatting context from surrounding markdown
-        const fullContent = activeTab?.content || '';
-        const selStart = contextMenu.selStart;
-        const selEnd = contextMenu.selEnd;
-
-        // Count lines for strict enforcement
-        const selLines = selectedText.split('\n');
-        const lineCount = selLines.length;
-        const nonEmptyLineCount = selLines.filter(l => l.trim()).length;
-
-        const beforeSel = fullContent.substring(Math.max(0, selStart - 200), selStart);
-        const afterSel = fullContent.substring(selEnd, Math.min(fullContent.length, selEnd + 200));
-
-        // Detect formatting patterns
-        const hasBold = /\*\*[^*]+\*\*/.test(selectedText);
-        const hasBullets = /^[\s]*[-•*▸▹►]\s/m.test(selectedText);
-        const hasNumbered = /^[\s]*\d+\.\s/m.test(selectedText);
-        const hasMultiLine = lineCount > 1;
-        const hasHeaders = /\*\*[^*]+\*\*\s*\n/.test(selectedText);
-
-        let formatHint = `\n\nSTRICT LINE COUNT: The input has exactly ${nonEmptyLineCount} non-empty line(s). Your output MUST have exactly ${nonEmptyLineCount} non-empty line(s). Do NOT add extra lines, blank lines, or remove lines.`;
-        if (mode === 'extend') {
-          formatHint += ' Expand the text WITHIN each existing line — make each line longer and more detailed. Do NOT add new lines or bullet points.';
-        } else if (mode === 'shorten') {
-          formatHint += ' Condense the text WITHIN each existing line — make each line shorter. Do NOT remove lines.';
-        }
-        if (hasBold || hasBullets || hasNumbered || hasMultiLine || hasHeaders) {
-          formatHint += '\nFORMATTING DETECTED:';
-          if (hasBullets) formatHint += ` Bullet points (${nonEmptyLineCount} bullets) — output exactly ${nonEmptyLineCount} bullets, same style.`;
-          if (hasBold) formatHint += ' **Bold** markers — keep ** around equivalent words.';
-          if (hasNumbered) formatHint += ' Numbered list — keep same numbering style.';
-          if (hasHeaders) formatHint += ' Bold section headers — keep exactly as-is.';
-        }
-
-        let userContent = `Selected text to rewrite:\n"""${selectedText}"""${formatHint}`;
-
-        if (beforeSel.trim() || afterSel.trim()) {
-          userContent += `\n\nSurrounding markdown context (for formatting reference only, do NOT rewrite this):\nBEFORE: """${beforeSel.trim().slice(-100)}"""\nAFTER: """${afterSel.trim().slice(0, 100)}"""`;
-        }
-
-        if (mode === 'extend' && (deckContext || docSnippets)) {
-          userContent += `\n\nDeck context: ${deckContext || 'None'}`;
-          if (docSnippets) userContent += `\n\nSource document excerpts:\n${docSnippets}`;
-        }
-
-        const data = await callAI({
-          model: modelFor('dog.rewriteRedo'),
-          max_tokens: 1000,
-          system: rewritePrompts[mode],
-          messages: [{ role: 'user', content: userContent }],
-          tool: 'dog',
-        });
+        // The same request as the rewrite itself, under its own model key (F6, A5).
+        const data = await callAI(rewriteRequest(
+          { text: selectedText, start: contextMenu.selStart, end: contextMenu.selEnd, content: activeTab?.content || '' },
+          mode,
+          { deckPrompt: systemPrompt, uploads: uploadedFiles, system: rewritePrompts[mode], model: modelFor('dog.rewriteRedo') },
+        ));
         const rewrittenText = textFromMessage(data).trim();
         setRewritePreview(prev => ({ ...prev, text: rewrittenText, isLoading: false }));
       } catch (err) {
