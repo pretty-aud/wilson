@@ -71,16 +71,19 @@ describe('clearEntityThumbnail', () => {
 
 describe('the six callers take these two and call no channel of their own', () => {
   const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8')
-  it('ScenesView and EntityListView name neither channel; the six call sites are the helpers', () => {
+  it('no view names a channel; the three table cells and the windows\' one hook are the helpers\' callers', () => {
     const scenes = read('../ScenesView.jsx')
     const entity = read('../EntityListView.jsx')
-    for (const [name, src] of [['ScenesView', scenes], ['EntityListView', entity]]) {
+    const windows = read('./useEntityWindow.jsx')
+    for (const [name, src] of [['ScenesView', scenes], ['EntityListView', entity], ['useEntityWindow', windows]]) {
       expect(src, name).not.toMatch(/rabbit\.(generateEntityThumbnail|clearEntityThumbnail)\(/)
     }
-    // Three table cells and the two windows set; the two windows clear.
-    expect((scenes.match(/pickEntityThumbnail\(\{/g) || []).length).toBe(5)
-    expect((scenes.match(/clearEntityThumbnail\(\{/g) || []).length).toBe(2)
-    expect((entity.match(/pickEntityThumbnail\(\{/g) || []).length).toBe(1)
-    expect((entity.match(/clearEntityThumbnail\(\{/g) || []).length).toBe(1)
+    // The three ScenesView cells set (a scene's row, a scene's nested shot row,
+    // a shot's row); the four kinds' windows set and clear through their hook.
+    expect((scenes.match(/pickEntityThumbnail\(\{/g) || []).length).toBe(3)
+    expect((scenes.match(/clearEntityThumbnail\(\{/g) || []).length).toBe(0)
+    expect((entity.match(/(pick|clear)EntityThumbnail\(\{/g) || []).length).toBe(0)
+    expect((windows.match(/pickEntityThumbnail\(\{/g) || []).length).toBe(1)
+    expect((windows.match(/clearEntityThumbnail\(\{/g) || []).length).toBe(1)
   })
 })

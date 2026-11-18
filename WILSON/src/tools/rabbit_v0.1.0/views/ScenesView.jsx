@@ -113,6 +113,8 @@ import {
 import { entityFolderPath } from '../folderPaths'
 // Post-overhaul F10 (rabbit A1): the thumbnail's two writers, once for the six callers.
 import { pickEntityThumbnail, clearEntityThumbnail } from './entity/entityThumbnail'
+// …and (A1) what a scene's or a shot's window does, written once for the four kinds.
+import { useEntityWindow } from './entity/useEntityWindow'
 // Shot takes (milestone 2, DEMO_BINS_BRIEF §5): bin files assigned to shots.
 // Everything below is ADDED to the existing rows and popups — a chip strip
 // per shot row in both content modes, the primary take's poster standing in
@@ -228,11 +230,6 @@ const NO_ROWS = Object.freeze([])
 // (greyed, saying why), and New scene / New shot give way to the cut's own
 // verbs. Search still finds a shot in the cut.
 const EDIT_ORDER_REASON = 'An edit shows its cut order. Choose List order on the shot-list bar to sort, group, filter or change the view.'
-// Post-overhaul S3c, step 7: the exits that would take a scene or shot popup
-// (and its typed text) away — leaving the tab, switching project, a jump
-// opening another row's popup. Leaving the page does not: the tab stays
-// mounted, the popup with it.
-const POPUP_EXITS = ['tab', 'project', 'popup']
 const EDIT_ADD_REASON = "An edit is on screen. Add shots to it from a row's or a scene's edit actions, or choose List order to add to the list."
 
 // ── Timecode helpers ──
@@ -3319,81 +3316,32 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
   const project = ctx?.project
   const managedFiles = ctx?.managedFiles || []
 
-  const [editingDesc, setEditingDesc] = useState(false)
-  const [editingNotes, setEditingNotes] = useState(false)
-  // Review round 1 (R1-06, D21): each draft follows the saved words while
-  // its editor is closed, or open and untouched — never once typed in.
-  const [descDraft, setDescDraft] = useSavedDraft(scene?.description || '', editingDesc)
-  const [notesDraft, setNotesDraft] = useSavedDraft(scene?.notes || '', editingNotes)
   // MO3 (0127): the scene's links and tags (useThingLinks).
   const sceneLinks = useThingLinks(ctx, 'scene', scene?.id, scene?.description, scene?.notes)
-  // Focus back to each one's words when its edit closes (R2-05, useFocusBack).
-  const descWordsRef = useFocusBack(editingDesc)
-  const notesWordsRef = useFocusBack(editingNotes)
   const [showCreateTask, setShowCreateTask] = useState(false)
-  const [nestedTaskId, setNestedTaskId] = useState(null)
-  const [nestedAssetId, setNestedAssetId] = useState(null)
-  // D21: the draft a question is about — 'close' (the popup), 'description'
-  // or 'notes' (Escape in its box) — while it asks.
-  const [askDiscard, setAskDiscard] = useState(null)
-  // Post-overhaul S3c, step 7 (S3b-05, S3b-08): the task form's typed work
-  // counts as the popup's, and an EXIT that would take the popup away — the
-  // tab strip, "Show in Bins", a project switch, a jump opening another
-  // row's popup — asks D21's question first (state/leaveGuard.js).
-  const [taskDirty, setTaskDirty] = useState(false)
-  const [leaveAsk, setLeaveAsk] = useState(null)
-  const dirtyRef = useRef(false)
-  useLeaveGuard({ order: 1, reasons: POPUP_EXITS, dirty: () => dirtyRef.current, ask: () => new Promise(resolve => setLeaveAsk({ resolve })) })
-  // Review round 1 (R1-10): the scene gone under an open question (deleted
-  // elsewhere) — it can never be answered here: the exit stays, the question
-  // goes, and the leave guard's lock is let go.
-  useEffect(() => {
-    if (!scene && leaveAsk) { leaveAsk.resolve(false); setLeaveAsk(null) }
-  }, [scene, leaveAsk])
-  // What opened this popup — a row's Open — captured in render, as
-  // the kit Dialog captures it (an effect would read the popup's own focus).
-  // The delete question asked from here is handed it (ConfirmDialog).
-  const openerRef = useRef(null)
-  if (openerRef.current === null && typeof document !== 'undefined') openerRef.current = document.activeElement
+  // F10 (rabbit A1): the window's behaviour, the four kinds' one hook
+  // (views/entity/useEntityWindow.jsx): the drafts, each following the saved
+  // words while closed or untouched (R1-06), and focus back to their words
+  // (R2-05); D21's question on a close, on Escape in a changed box and on an
+  // exit that would take the window away (S3b-05, S3b-08: the task form's
+  // typed work counts); the opener, handed to a delete asked from here; the
+  // thumbnail's two writers.
+  const {
+    editingDesc, setEditingDesc, editingNotes, setEditingNotes, descDraft, setDescDraft, notesDraft, setNotesDraft,
+    descWordsRef, notesWordsRef, nestedTaskId, setNestedTaskId, nestedAssetId, setNestedAssetId,
+    setTaskDirty, setAskDiscard, requestClose, handleUpdate, handleSetThumbnail, handleClearThumbnail, requestDelete, questions,
+  } = useEntityWindow({
+    row: scene, kind: 'scene', update: (patch) => ctx?.updateScene?.(scene.id, patch), canWrite, onClose, onRequestDelete,
+    deleteTarget: (row, opener) => ({ type: 'scene', id: row.id, name: row.name || 'Untitled', returnTo: opener }),
+    onThumbChanged, taskOpen: showCreateTask, say: 'scene',
+  })
 
-  if (!scene) { dirtyRef.current = false; return null }
+  if (!scene) return null
 
   // What the Dialog is named for: the name its title shows.
   const name = scene.name || 'Untitled scene'
   const status = scene.status || 'not_started'
   const hasThumbnail = !!scene.thumbnail_image
-
-  function handleUpdate(patch) { return canWrite ? ctx?.updateScene?.(scene.id, patch) : undefined }
-  // D21: a draft that differs from what is saved, in an open editor — and
-  // (S3b-05) a task form with anything typed or chosen in it.
-  const dirty = {
-    description: editingDesc && descDraft !== (scene.description || ''),
-    notes: editingNotes && notesDraft !== (scene.notes || ''),
-    task: showCreateTask && taskDirty,
-  }
-  dirtyRef.current = dirty.description || dirty.notes || dirty.task
-  /** The kit Dialog's onBeforeClose (Escape, ✕, the backdrop) and Close: ask first when a draft would go. */
-  const requestClose = () => {
-    if (!dirty.description && !dirty.notes && !dirty.task) return true
-    setAskDiscard('close')
-    return false
-  }
-  const discard = (what) => {
-    setAskDiscard(null)
-    if (what === 'close') { onClose(); return }
-    if (what === 'description') { setDescDraft(scene.description || ''); setEditingDesc(false) }
-    else { setNotesDraft(scene.notes || ''); setEditingNotes(false) }
-  }
-
-  // The thumbnail's two writers (F10: views/entity/entityThumbnail.js, the six
-  // callers' one pair, on the desktop channels as before).
-  function handleSetThumbnail() {
-    return pickEntityThumbnail({ canWrite, entityType: 'scene', entityId: scene.id, update: handleUpdate, onChanged: onThumbChanged, say: 'scene' })
-  }
-
-  function handleClearThumbnail() {
-    return clearEntityThumbnail({ canWrite, entityType: 'scene', entityId: scene.id, update: handleUpdate, onChanged: onThumbChanged })
-  }
 
   async function handleCreateTask(draft) {
     if (!canWrite) return
@@ -3440,7 +3388,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
                   class on both: GatedAction draws its wrapper only when it greys. */}
               <GatedAction allowed={canWrite} className="rb-scene-detail-delete">
                 <Button variant="danger" Icon={Trash2} className="rb-scene-detail-delete"
-                  onClick={() => { onClose(); onRequestDelete({ type: 'scene', id: scene.id, name: scene.name || 'Untitled', returnTo: openerRef.current }) }}>
+                  onClick={requestDelete}>
                   Delete scene
                 </Button>
               </GatedAction>
@@ -3774,29 +3722,8 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
       )}
       {/* P1-23: a related asset, in the Assets tab's own popup (it portals itself). */}
       <NestedAsset ctx={ctx} assetId={nestedAssetId} thumbRevision={thumbRevision} onThumbChanged={onThumbChanged} onClose={() => setNestedAssetId(null)} canWrite={canWrite} />
-      {/* D21: the draft question, over this popup. */}
-      {askDiscard && (
-        <ListConfirm
-          title="Discard your changes?"
-          confirmLabel="Discard"
-          onCancel={() => setAskDiscard(null)}
-          onConfirm={async () => discard(askDiscard)}
-        >
-          {discardWords(askDiscard, dirty)}
-        </ListConfirm>
-      )}
-      {/* S3c step 7: the same question when an exit would take this popup
-          away (S3b-08); Cancel stays, Discard lets the exit go on. */}
-      {leaveAsk && (
-        <ListConfirm
-          title="Discard your changes?"
-          confirmLabel="Discard"
-          onCancel={() => { setLeaveAsk(null); leaveAsk.resolve(false) }}
-          onConfirm={async () => { setLeaveAsk(null); leaveAsk.resolve(true) }}
-        >
-          {discardWords('close', dirty)}
-        </ListConfirm>
-      )}
+      {/* D21's questions, over the window (useEntityWindow). */}
+      {questions}
     </>
   )
 }
@@ -3827,69 +3754,31 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
   const project = ctx?.project
   const managedFiles = ctx?.managedFiles || []
 
-  const [editingDesc, setEditingDesc] = useState(false)
-  const [editingNotes, setEditingNotes] = useState(false)
-  // R1-06: as the scene popup's (useSavedDraft).
-  const [descDraft, setDescDraft] = useSavedDraft(shot?.description || '', editingDesc)
-  const [notesDraft, setNotesDraft] = useSavedDraft(shot?.notes || '', editingNotes)
   // MO3 (0127): the shot's links and tags (useThingLinks).
   const shotLinks = useThingLinks(ctx, 'shot', shot?.id, shot?.description, shot?.notes)
-  // Focus back to each one's words when its edit closes (R2-05, as the scene popup's).
-  const descWordsRef = useFocusBack(editingDesc)
-  const notesWordsRef = useFocusBack(editingNotes)
   const [showCreateTask, setShowCreateTask] = useState(false)
-  const [nestedTaskId, setNestedTaskId] = useState(null)
-  const [nestedAssetId, setNestedAssetId] = useState(null)
-  // D21: the draft a question is about, while it asks (the scene popup's).
-  const [askDiscard, setAskDiscard] = useState(null)
-  // S3c step 7 (S3b-05, S3b-08): the task form's typed work, and the exits
-  // that would take this popup away, as the scene popup's.
-  const [taskDirty, setTaskDirty] = useState(false)
-  const [leaveAsk, setLeaveAsk] = useState(null)
-  const dirtyRef = useRef(false)
-  useLeaveGuard({ order: 1, reasons: POPUP_EXITS, dirty: () => dirtyRef.current, ask: () => new Promise(resolve => setLeaveAsk({ resolve })) })
-  // R1-10, as the scene popup's: the shot gone under an open question.
-  useEffect(() => {
-    if (!shot && leaveAsk) { leaveAsk.resolve(false); setLeaveAsk(null) }
-  }, [shot, leaveAsk])
-  // What opened this popup, handed to the delete question (the scene popup's).
-  const openerRef = useRef(null)
-  if (openerRef.current === null && typeof document !== 'undefined') openerRef.current = document.activeElement
+  // F10 (rabbit A1): the window's behaviour, the four kinds' one hook
+  // (views/entity/useEntityWindow.jsx): the drafts, each following the saved
+  // words while closed or untouched (R1-06), and focus back to their words
+  // (R2-05); D21's question on a close, on Escape in a changed box and on an
+  // exit that would take the window away (S3b-05, S3b-08: the task form's
+  // typed work counts); the opener, handed to a delete asked from here; the
+  // thumbnail's two writers.
+  const {
+    editingDesc, setEditingDesc, editingNotes, setEditingNotes, descDraft, setDescDraft, notesDraft, setNotesDraft,
+    descWordsRef, notesWordsRef, nestedTaskId, setNestedTaskId, nestedAssetId, setNestedAssetId,
+    setTaskDirty, setAskDiscard, requestClose, handleUpdate, handleSetThumbnail, handleClearThumbnail, requestDelete, questions,
+  } = useEntityWindow({
+    row: shot, kind: 'shot', update: (patch) => ctx?.updateShot?.(shot.id, patch), canWrite, onClose, onRequestDelete,
+    deleteTarget: (row, opener) => ({ type: 'shot', id: row.id, name: row.name || 'Untitled', returnTo: opener }),
+    onThumbChanged, taskOpen: showCreateTask, say: 'shot',
+  })
 
-  if (!shot) { dirtyRef.current = false; return null }
+  if (!shot) return null
 
   const name = shot.name || 'Untitled shot'
   const status = shot.status || 'not_started'
   const hasThumbnail = !!shot.thumbnail_image
-
-  function handleUpdate(patch) { return canWrite ? ctx?.updateShot?.(shot.id, patch) : undefined }
-  const dirty = {
-    description: editingDesc && descDraft !== (shot.description || ''),
-    notes: editingNotes && notesDraft !== (shot.notes || ''),
-    task: showCreateTask && taskDirty,
-  }
-  dirtyRef.current = dirty.description || dirty.notes || dirty.task
-  const requestClose = () => {
-    if (!dirty.description && !dirty.notes && !dirty.task) return true
-    setAskDiscard('close')
-    return false
-  }
-  const discard = (what) => {
-    setAskDiscard(null)
-    if (what === 'close') { onClose(); return }
-    if (what === 'description') { setDescDraft(shot.description || ''); setEditingDesc(false) }
-    else { setNotesDraft(shot.notes || ''); setEditingNotes(false) }
-  }
-
-  // The thumbnail's two writers (F10: views/entity/entityThumbnail.js, the six
-  // callers' one pair, on the desktop channels as before).
-  function handleSetThumbnail() {
-    return pickEntityThumbnail({ canWrite, entityType: 'shot', entityId: shot.id, update: handleUpdate, onChanged: onThumbChanged, say: 'shot' })
-  }
-
-  function handleClearThumbnail() {
-    return clearEntityThumbnail({ canWrite, entityType: 'shot', entityId: shot.id, update: handleUpdate, onChanged: onThumbChanged })
-  }
 
   async function handleCreateTask(draft) {
     if (!canWrite) return
@@ -3935,7 +3824,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
             <>
               <GatedAction allowed={canWrite} className="rb-scene-detail-delete">
                 <Button variant="danger" Icon={Trash2} className="rb-scene-detail-delete"
-                  onClick={() => { onClose(); onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled', returnTo: openerRef.current }) }}>
+                  onClick={requestDelete}>
                   Delete shot
                 </Button>
               </GatedAction>
@@ -4271,29 +4160,8 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
       )}
       {/* P1-23: a related asset, in the Assets tab's own popup. */}
       <NestedAsset ctx={ctx} assetId={nestedAssetId} thumbRevision={thumbRevision} onThumbChanged={onThumbChanged} onClose={() => setNestedAssetId(null)} canWrite={canWrite} />
-      {/* D21: the draft question, over this popup. */}
-      {askDiscard && (
-        <ListConfirm
-          title="Discard your changes?"
-          confirmLabel="Discard"
-          onCancel={() => setAskDiscard(null)}
-          onConfirm={async () => discard(askDiscard)}
-        >
-          {discardWords(askDiscard, dirty)}
-        </ListConfirm>
-      )}
-      {/* S3c step 7: the same question when an exit would take this popup
-          away (S3b-08); Cancel stays, Discard lets the exit go on. */}
-      {leaveAsk && (
-        <ListConfirm
-          title="Discard your changes?"
-          confirmLabel="Discard"
-          onCancel={() => { setLeaveAsk(null); leaveAsk.resolve(false) }}
-          onConfirm={async () => { setLeaveAsk(null); leaveAsk.resolve(true) }}
-        >
-          {discardWords('close', dirty)}
-        </ListConfirm>
-      )}
+      {/* D21's questions, over the window (useEntityWindow). */}
+      {questions}
     </>
   )
 }
@@ -4512,16 +4380,6 @@ function PopupDraftText({ label, field, value, emptyWords, editing, setEditing, 
   )
 }
 
-/** D21's words: which draft would go. `what` is 'close', 'description' or 'notes'. */
-function discardWords(what, dirty) {
-  const parts = what === 'close'
-    ? [dirty.description && 'the description', dirty.notes && 'the notes', dirty.task && 'the new task'].filter(Boolean)
-    : [what === 'notes' ? 'the notes' : 'the description']
-  const list = parts.length > 2 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts.join(' and ')
-  // S3c (S3b-05): a task is created, not saved — the way back is to it.
-  const back = what === 'close' && dirty.task ? 'go back to it' : 'go back and Save it'
-  return `What you typed in ${list} is not saved. Discard it, or ${back}.`
-}
 
 // ─── NestedAsset (S3b step 7, P1-23) ───
 // A related asset clicked in a popup's sidebar opens the Assets tab's own

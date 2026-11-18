@@ -102,8 +102,8 @@ import RelationsPanel, { NewTaskSidePopup } from '../components/RelationsPanel'
 // (addFilesToEntity), which nothing did before.
 import FileManager from '../components/FileManager'
 import { addFilesToEntity } from '../components/entityFiles'
-// Post-overhaul F10 (rabbit A1): the thumbnail's two writers, once for the six callers.
-import { pickEntityThumbnail, clearEntityThumbnail } from './entity/entityThumbnail'
+// Post-overhaul F10 (rabbit A1): what the window does, written once for the four kinds.
+import { useEntityWindow } from './entity/useEntityWindow'
 import { taskCountsByEntity } from '../state/taskItemsModel'
 
 // ── Status config ──
@@ -993,21 +993,25 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
   const item = (ctx?.[entity.collection] || []).find(x => x.id === itemId)
   const project = ctx?.project
 
-  const [descDraft, setDescDraft] = useState(item?.description || '')
-  const [notesDraft, setNotesDraft] = useState(item?.notes || '')
-  const [editingDesc, setEditingDesc] = useState(false)
-  const [editingNotes, setEditingNotes] = useState(false)
   const [showCreateTask, setShowCreateTask] = useState(false)
-  const [nestedTaskId, setNestedTaskId] = useState(null)
-  const [nestedAssetId, setNestedAssetId] = useState(null)
-  // What opened this popup — the row's Open — captured in render,
-  // as the kit Dialog captures it (an effect would read the popup's own
-  // focus). The delete question asked from here is handed it (below).
-  const openerRef = useRef(null)
-  if (openerRef.current === null && typeof document !== 'undefined') openerRef.current = document.activeElement
-
-  useEffect(() => { setDescDraft(item?.description || '') }, [item?.description])
-  useEffect(() => { setNotesDraft(item?.notes || '') }, [item?.notes])
+  // F10 (rabbit A1): the window's behaviour, the four kinds' one hook
+  // (views/entity/useEntityWindow.jsx), as the scene and shot windows have it:
+  // each draft follows the saved words while closed or untouched (R1-06: an
+  // effect overwrote a typed draft when the saved words changed), focus goes
+  // back to the words when an edit closes (R2-05), the opener is handed to a
+  // delete asked from here, the thumbnail's two writers. D21's question
+  // (`asks`) is OFF here: this window's suite pins today's (the typed text
+  // goes without a word), and whether it should ask is Audrey's to say
+  // (OUTSTANDING F10-02).
+  const {
+    editingDesc, setEditingDesc, editingNotes, setEditingNotes, descDraft, setDescDraft, notesDraft, setNotesDraft,
+    descWordsRef, notesWordsRef, nestedTaskId, setNestedTaskId, nestedAssetId, setNestedAssetId,
+    handleUpdate, handleSetThumbnail, handleClearThumbnail, requestDelete,
+  } = useEntityWindow({
+    row: item || null, kind: entity.type, update: (patch) => ctx?.[entity.updateMethod]?.(item.id, patch), canWrite, onClose, onRequestDelete,
+    deleteTarget: (row, opener) => ({ id: row.id, name: row.name || 'Untitled', returnTo: opener }),
+    onThumbChanged, asks: false, say: entity.noun,
+  })
 
   if (!item) return null
 
@@ -1021,18 +1025,6 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
   const managed = ctx?.supportsManagedFiles === true
   const fileCount = ((managed ? ctx?.managedFiles : ctx?.files) || [])
     .filter(f => f && !f.deleted_at && !f.is_financial && f[entity.linkKey] === item.id).length
-
-  function handleUpdate(patch) { if (canWrite) ctx?.[entity.updateMethod]?.(item.id, patch) }
-
-  // The thumbnail's two writers (F10: views/entity/entityThumbnail.js, the six
-  // callers' one pair, on the desktop channels as before).
-  function handleSetThumbnail() {
-    return pickEntityThumbnail({ canWrite, entityType: entity.type, entityId: item.id, update: handleUpdate, onChanged: onThumbChanged, say: `${entity.noun}` })
-  }
-
-  function handleClearThumbnail() {
-    return clearEntityThumbnail({ canWrite, entityType: entity.type, entityId: item.id, update: handleUpdate, onChanged: onThumbChanged })
-  }
 
   async function handleCreateTask(draft) {
     if (!canWrite) return
@@ -1068,7 +1060,7 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
                   greys (the scene popup's rb-scene-detail-delete). */}
               <GatedAction allowed={canWrite} reason={writeReason} className="rb-ent-detail-delete">
                 <Button variant="danger" Icon={Trash2} className="rb-ent-detail-delete"
-                  onClick={() => { if (!canWrite) return; onClose(); onRequestDelete({ id: item.id, name: item.name || 'Untitled', returnTo: openerRef.current }) }}>
+                  onClick={requestDelete}>
                   {`Delete ${entity.noun}`}
                 </Button>
               </GatedAction>
@@ -1245,7 +1237,7 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
                     </div>
                   </>
                 ) : canWrite ? (
-                  <button type="button" onClick={() => setEditingDesc(true)}
+                  <button ref={descWordsRef} type="button" onClick={() => setEditingDesc(true)}
                     className="rb-ent-prop-text"
                     data-empty={item.description ? 'false' : 'true'}>
                     {item.description || 'Click to add a description...'}
@@ -1283,7 +1275,7 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
                     </div>
                   </>
                 ) : canWrite ? (
-                  <button type="button" onClick={() => setEditingNotes(true)}
+                  <button ref={notesWordsRef} type="button" onClick={() => setEditingNotes(true)}
                     className="rb-ent-prop-text"
                     data-empty={item.notes ? 'false' : 'true'}>
                     {item.notes || 'Click to add notes...'}
