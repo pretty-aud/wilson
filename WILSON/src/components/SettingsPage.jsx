@@ -17,9 +17,7 @@ import { otterFetch } from '../tools/otter_v0.3.1/adapters'
 import { hasLocalServer, loadOtterSettings, saveOtterSettings, loadAgentSkills, saveAgentSkills } from '../lib/localData'
 import { pushSettingsToCloud } from '../lib/userState'
 import WorkspaceSwitcher from '../cloud/auth/WorkspaceSwitcher'
-import MigrationPanel from '../cloud/migrate/MigrationPanel'
-import OtterMigrationPanel from '../cloud/migrate/OtterMigrationPanel'
-import AttachmentMigrationPanel from '../cloud/migrate/AttachmentMigrationPanel'
+import { LazyPart } from './LazyPageBoundary'
 import { MfaSecuritySection } from '../cloud/auth/MfaSection'
 import VersionPanel from './settings/VersionPanel'
 import StorageConnections from './settings/StorageConnections'
@@ -44,6 +42,12 @@ import { Section, Group, Row, Note } from './settings/SettingsChrome'
 import { Button, IconButton, Input, TextArea, Select, Dialog, Switch } from '../ui'
 import { Lock, X } from 'lucide-react'
 
+// F11 (C3): the R.A.B.B.I.T. tab's three migration panels, loaded on that tab's first open (LazyPart, below).
+const loadMigrationPanels = () => Promise.all([
+  import('../cloud/migrate/MigrationPanel'),
+  import('../cloud/migrate/OtterMigrationPanel'),
+  import('../cloud/migrate/AttachmentMigrationPanel'),
+])
 
 /**
  * The pet card's status word, as one named tone per state rather than the
@@ -885,17 +889,32 @@ export default function SettingsPage({
               {/* Session 9: per-provider connection details (locked #14). */}
               <StorageConnections />
 
-              <MigrationPanel />
+              {/* F11 (the review's shared-client C3): the three migration
+                  panels load the first time this tab is opened. Their runners
+                  are about 171 KB of the main chunk that most launches never
+                  open; a chunk that cannot load is a sentence with Try again. */}
+              <LazyPart
+                load={loadMigrationPanels}
+                title="The migration tools"
+                waiting="Opening the migration tools…"
+                surface="light"
+              >
+                {([{ default: MigrationPanel }, { default: OtterMigrationPanel }, { default: AttachmentMigrationPanel }]) => (
+                  <>
+                    <MigrationPanel />
 
-              {/* Session 11: runOtterMigration.js shipped in S10 with no caller.
-                  Sits beside the RABBIT one so both migrations are found in the
-                  same place. */}
-              <OtterMigrationPanel />
+                    {/* Session 11: runOtterMigration.js shipped in S10 with no caller.
+                        Sits beside the RABBIT one so both migrations are found in the
+                        same place. */}
+                    <OtterMigrationPanel />
 
-              {/* Track C, C3 (MASTER_PLAN §6 #31): the one-time move of
-                  D.O.G.'s legacy attachment arrays into the project's file
-                  store. Third in the same place, for the same reason. */}
-              <AttachmentMigrationPanel />
+                    {/* Track C, C3 (MASTER_PLAN §6 #31): the one-time move of
+                        D.O.G.'s legacy attachment arrays into the project's file
+                        store. Third in the same place, for the same reason. */}
+                    <AttachmentMigrationPanel />
+                  </>
+                )}
+              </LazyPart>
 
               {/* Default currency. H8 in the review is the one Hick's-law
                   hotspot on this surface that was ALREADY right: nineteen

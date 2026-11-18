@@ -121,9 +121,13 @@ import AuthShell, {
 import { TYPE, FONT_MONO } from '../../ui/tokens'
 import { SLUG_RE, slugifyWorkspace } from './workspaceSlug'
 import { withTimeout, AUTH_TIMEOUT_MS } from './withTimeout'
-
-const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL
-const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY
+// F11 (the review's shared-client A2): the steps are signIn.js's, written once for this screen, the reset wizard,
+// the switcher, the MFA panel and the operator console; this screen keeps its words, its order and its fake-email
+// miss. Every request is the one this screen sent (resolve-login, issue-session), now bounded.
+import {
+  resolveLogin, verifyCompany, issueSession, mfaStepNeeded, verifyTotp,
+  readLastCompany, saveLastCompany, companyFromDeepLink,
+} from './signIn'
 
 // Session 43: names the company too. The company is now one of the things the
 // user supplied, so a message that lists only two of the three sends someone
@@ -156,90 +160,18 @@ const RATE_LIMITED_ERROR = 'Too many attempts. Wait a minute and try again.'
 // decision (see AUTH-11 in the header).
 const COMPANY_NOT_FOUND = 'Company not found.'
 
-// B1: the last company that cleared step 1 on THIS DEVICE, so the next
-// sign-in starts with the field filled. Per device, never per account —
-// Audrey tests two accounts in two browsers, and each browser remembers
-// whatever was typed in it last. It is a display name, not a credential, so
-// plain localStorage on both hosts is fine (sessionStorage.js keeps the
-// session itself in safeStorage on the desktop; this key is not that).
-const LAST_COMPANY_KEY = 'wilson.lastCompany'
-function readLastCompany() {
-  try { return localStorage.getItem(LAST_COMPANY_KEY) ?? '' } catch { return '' }
-}
-function saveLastCompany(name) {
-  try { localStorage.setItem(LAST_COMPANY_KEY, name) } catch { /* private mode, quota */ }
-}
-// A deep link may pre-fill the company: `?company=<name or slug>` in the
-// query. Query only — the hash belongs to recovery links (recoveryLink.js).
-// It is still verified like anything typed; a link cannot skip step 1.
-function companyFromDeepLink(search) {
-  try {
-    return (new URLSearchParams(search).get('company') ?? '').trim().slice(0, 80)
-  } catch {
-    return ''
-  }
-}
-
-async function resolveLogin({ username, workspaceSlug }) {
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/resolve-login`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      apikey: SUPABASE_ANON,
-    },
-    body: JSON.stringify({
-      username,
-      ...(workspaceSlug ? { workspace_slug: workspaceSlug } : {}),
-    }),
-  })
-  if (res.status === 429) return { limited: true, exists: false, email: null }
-  if (!res.ok) return { exists: false, email: null }
-  return res.json()
-}
-
-// Step 1's existence check (Session 43, Audrey: "the system should verify that
-// company exists"). Returns the CANONICAL slug so step 2 matches the workspace
-// exactly, whether the person typed the display name or the slug.
+// B1: the last company that cleared step 1 on THIS DEVICE pre-fills the field
+// (readLastCompany / saveLastCompany, signIn.js). Per device, never per account
+// — Audrey tests two accounts in two browsers, and each browser remembers
+// whatever was typed in it last. A `?company=` deep link pre-fills it first
+// (companyFromDeepLink); either way step 1 still verifies it.
 //
-// `unavailable` is not a refusal. An older deployment of resolve-login answers
-// `{exists:false}` to any body without a username, which looks identical to
-// "no such company" — so the contract version is what separates "this company
-// is not real" from "this function has not been deployed yet". Without that
-// distinction, shipping this client before the function would lock out every
-// user instead of degrading to the previous behaviour.
-async function verifyCompany(company) {
-  try {
-    const res = await fetch(`${SUPABASE_URL}/functions/v1/resolve-login`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', apikey: SUPABASE_ANON },
-      body: JSON.stringify({ company }),
-    })
-    // 429 is a refusal from a deployment that DOES understand the contract —
-    // it must not read as "not deployed", or a throttled caller would be
-    // waved through step 1 on a derived slug with the gate off.
-    if (res.status === 429) return { unavailable: false, limited: true, exists: false, slug: null }
-    if (!res.ok) return { unavailable: true }
-    const data = await res.json()
-    if (data?.v !== 2) return { unavailable: true }
-    return { unavailable: false, exists: !!data.exists, slug: data.slug ?? null }
-  } catch {
-    return { unavailable: true }
-  }
-}
-
-async function issueSession(accessToken, workspaceId) {
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/issue-session`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      apikey: SUPABASE_ANON,
-      authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify(workspaceId ? { workspace_id: workspaceId } : {}),
-  })
-  if (!res.ok) return null
-  return res.json()
-}
+// Step 1's existence check (Session 43, Audrey: "the system should verify that
+// company exists") is signIn.js's verifyCompany: it returns the CANONICAL slug
+// so step 2 matches the workspace exactly, whether the person typed the display
+// name or the slug, and `unavailable` (an older resolve-login, or no answer) is
+// not a refusal — without that distinction, shipping this client before the
+// function would lock out every user instead of degrading.
 
 // Read the user's memberships after sign-in. RLS on workspaces restricts this
 // to rows the user can actually see (see supabase/migrations/0002_rls_workspaces.sql).
@@ -430,10 +362,7 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword, notice 
       // every real company (measured: four of four workspaces on wilson-dev
       // have a slug no derivation of their name produces — "Petal Studios" is
       // `petal`). If step 1 ever stops verifying, this line locks everyone out.
-      const { exists, email: resolved, limited } = await resolveLogin({
-        username: u,
-        workspaceSlug: companySlug,
-      })
+      const { exists, email: resolved, limited } = await resolveLogin(u, companySlug)
       // Throttled: say so and stop. This is the one failure on this step that
       // is worded differently, and it is safe because it is decided by this
       // address's request count alone — a wrong username and a wrong password
@@ -463,20 +392,21 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword, notice 
       // Session 9 (locked #9): enrolled users clear the TOTP challenge
       // BEFORE workspace resolution or reveal — the challenge upgrades the
       // session to aal2, which the admin Edge Functions require.
+      // F11: both reads are bounded now (they were not), and a stall is the
+      // timeout sentence: it must never skip the second factor.
       try {
-        const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
-        if (aal?.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') {
-          const { data: factors } = await supabase.auth.mfa.listFactors()
-          const totp = (factors?.totp ?? []).find(f => f.status === 'verified')
-          if (totp) {
-            setMfaFactorId(totp.id)
-            setMfaCode('')
-            setStage('mfa')
-            setBusy(false)
-            return
-          }
+        const step = await mfaStepNeeded()
+        if (step) {
+          setMfaFactorId(step.factorId)
+          setMfaCode('')
+          setStage('mfa')
+          setBusy(false)
+          return
         }
-      } catch { /* unenrolled (or MFA API unavailable) → proceed as aal1 */ }
+      } catch (err) {
+        if (err?.name === 'TimeoutError') throw err
+        /* unenrolled (or MFA API unavailable) → proceed as aal1 */
+      }
 
       const ws = await fetchUserWorkspaces()
       if (ws.length > 1) {
@@ -553,7 +483,7 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword, notice 
         if (!slug) { setError('COMPANY NOT FOUND.'); setBusy(false); return }
         setCompanySlug(slug)
         setStage('auth')
-        const { exists, email, limited } = await resolveLogin({ username: u, workspaceSlug: slug })
+        const { exists, email, limited } = await resolveLogin(u, slug)
         if (limited) { setError(RATE_LIMITED_ERROR); setBusy(false); return }
         if (!exists) { setError(GENERIC_ERROR); setBusy(false); return }
         const { data, error: signInErr } = await withTimeout(
@@ -561,13 +491,12 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword, notice 
         if (signInErr || !data.session) { setError(GENERIC_ERROR); setBusy(false); return }
         setPendingSession(data.session)
         try {
-          const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
-          if (aal?.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') {
-            const { data: factors } = await supabase.auth.mfa.listFactors()
-            const totp = (factors?.totp ?? []).find(f => f.status === 'verified')
-            if (totp) { setMfaFactorId(totp.id); setMfaCode(''); setStage('mfa'); setBusy(false); return }
-          }
-        } catch { /* unenrolled (or MFA API unavailable) → proceed as aal1 */ }
+          const step = await mfaStepNeeded()
+          if (step) { setMfaFactorId(step.factorId); setMfaCode(''); setStage('mfa'); setBusy(false); return }
+        } catch (err) {
+          if (err?.name === 'TimeoutError') throw err
+          /* unenrolled (or MFA API unavailable) → proceed as aal1 */
+        }
         const ws = await fetchUserWorkspaces()
         const match = ws.find(w => w.slug === slug)
         if (ws.length > 1 && !match) {
@@ -599,36 +528,18 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword, notice 
       // call left this button reading "Verifying…" forever with no error —
       // and the verify had usually already SUCCEEDED server-side, so the
       // user was locked out of an account that was working fine.
-      const { data: ch, error: chErr } = await withTimeout(
-        supabase.auth.mfa.challenge({ factorId: mfaFactorId }),
-        AUTH_TIMEOUT_MS, 'MFA challenge')
-      if (chErr || !ch?.id) throw chErr ?? new Error('challenge failed')
-      const { data: vData, error: vErr } = await withTimeout(
-        supabase.auth.mfa.verify({ factorId: mfaFactorId, challengeId: ch.id, code }),
-        AUTH_TIMEOUT_MS, 'MFA verify')
-      if (vErr) {
+      // Session 17 too: the session used is the one mfa.verify() RETURNS; a
+      // getSession() straight after it deadlocked on auth-js's lock. Both
+      // rules are signIn.js's verifyTotp now (F11), shared with the operator
+      // console and the MFA panel.
+      const verdict = await verifyTotp(mfaFactorId, code)
+      if (verdict.rejected) {
         setError(MFA_REJECTED_ERROR)
         setMfaCode('')
         setBusy(false)
         return
       }
-      // Session 17: use the session mfa.verify() RETURNS. We used to discard
-      // it and call getSession() instead, which deadlocked: auth-js guards
-      // every auth call with a navigator lock keyed on storageKey, and
-      // getSession() contended for the lock verify() was still holding. The
-      // symptom was brutal to diagnose because verify had ALREADY SUCCEEDED —
-      // staging showed 4 challenges, 0 unverified — so the server was fine and
-      // only the client hung, for the full timeout, every time.
-      //
-      // The extra round trip was never needed: verify() resolves with the
-      // upgraded aal2 session. getSession() remains only as a fallback for an
-      // auth-js version that omits it.
-      let session = vData?.access_token ? vData : null
-      if (!session) {
-        const { data: fresh } = await withTimeout(
-          supabase.auth.getSession(), AUTH_TIMEOUT_MS, 'session read')
-        session = fresh?.session ?? null
-      }
+      const session = verdict.session
       if (!session) {
         setError(GENERIC_ERROR)
         setBusy(false)

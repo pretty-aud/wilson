@@ -25,14 +25,13 @@ import {
 import { usePermissions } from '../../permissions'
 import { useWorkspaceMembers } from '../TeamMembers/useWorkspaceMembers'
 import EmptyState from '../../ui/EmptyState'
-import UsersSection from './UsersSection'
-import CompanySection from './CompanySection'
-import LogsSection from './LogsSection'
-import DiagnosticsSection from './DiagnosticsSection'
-import ChangeRequestsSection from './ChangeRequestsSection'
-import ModelsSection from './ModelsSection'
-import StorageSection from './StorageSection'
+import { LazyPart } from '../LazyPageBoundary'
 import './adminTerminal.css'
+
+// F11 (the review's shared-client C3): the seven sections load the first time an admin's body is drawn, as one
+// chunk (adminSections.js). The gate, the nav and the stylesheet stay here, so a person who is not an admin never
+// loads the sections at all.
+const loadSections = () => import('./adminSections')
 
 // Session 11 adds a fifth item. Miller's Law still holds (5 ≤ 7±2), and
 // Serial Position keeps the two most-used sections at the ends: Users first,
@@ -144,28 +143,37 @@ function AdminTerminalBody({ workspaceId }) {
             the RPCs — including a `workspace_directory` call — on every hop
             (review Risk 3). This is not a paint, so C3's state extraction left
             it alone and so does this conversion. */}
+        {/* F11: the sections come from one chunk (adminSections.js), loaded at the body's first draw. While it
+            loads, one line stands in the pane; if it cannot load, the pane says so with Try again, and the nav
+            above stays. The panes, their `display` ternaries and the sections' identities are as they were. */}
         <div className="at-pane">
-          <div className="at-view" style={{ display: section === 'users' ? 'block' : 'none' }}>
-            <UsersSection isActive={section === 'users'} wm={wm} />
-          </div>
-          <div className="at-view at-view-scroll wilson-dark-scroll" style={{ display: section === 'company' ? 'block' : 'none' }}>
-            <CompanySection isActive={section === 'company'} wm={wm} />
-          </div>
-          <div className="at-view" style={{ display: section === 'models' ? 'block' : 'none' }}>
-            <ModelsSection isActive={section === 'models'} />
-          </div>
-          <div className="at-view at-view-scroll wilson-dark-scroll" style={{ display: section === 'storage' ? 'block' : 'none' }}>
-            <StorageSection isActive={section === 'storage'} workspaceId={workspaceId} />
-          </div>
-          <div className="at-view" style={{ display: section === 'requests' ? 'block' : 'none' }}>
-            <ChangeRequestsSection isActive={section === 'requests'} />
-          </div>
-          <div className="at-view" style={{ display: section === 'logs' ? 'block' : 'none' }}>
-            <LogsSection isActive={section === 'logs'} workspaceId={workspaceId} wm={wm} />
-          </div>
-          <div className="at-view at-view-scroll wilson-dark-scroll" style={{ display: section === 'diagnostics' ? 'block' : 'none' }}>
-            <DiagnosticsSection isActive={section === 'diagnostics'} />
-          </div>
+          <LazyPart load={loadSections} title="The Admin terminal" waiting="Opening the Admin terminal…">
+            {({ UsersSection, CompanySection, ModelsSection, StorageSection, ChangeRequestsSection, LogsSection, DiagnosticsSection }) => (
+              <>
+                <div className="at-view" style={{ display: section === 'users' ? 'block' : 'none' }}>
+                  <UsersSection isActive={section === 'users'} wm={wm} />
+                </div>
+                <div className="at-view at-view-scroll wilson-dark-scroll" style={{ display: section === 'company' ? 'block' : 'none' }}>
+                  <CompanySection isActive={section === 'company'} wm={wm} />
+                </div>
+                <div className="at-view" style={{ display: section === 'models' ? 'block' : 'none' }}>
+                  <ModelsSection isActive={section === 'models'} />
+                </div>
+                <div className="at-view at-view-scroll wilson-dark-scroll" style={{ display: section === 'storage' ? 'block' : 'none' }}>
+                  <StorageSection isActive={section === 'storage'} workspaceId={workspaceId} />
+                </div>
+                <div className="at-view" style={{ display: section === 'requests' ? 'block' : 'none' }}>
+                  <ChangeRequestsSection isActive={section === 'requests'} />
+                </div>
+                <div className="at-view" style={{ display: section === 'logs' ? 'block' : 'none' }}>
+                  <LogsSection isActive={section === 'logs'} workspaceId={workspaceId} wm={wm} />
+                </div>
+                <div className="at-view at-view-scroll wilson-dark-scroll" style={{ display: section === 'diagnostics' ? 'block' : 'none' }}>
+                  <DiagnosticsSection isActive={section === 'diagnostics'} />
+                </div>
+              </>
+            )}
+          </LazyPart>
         </div>
       </div>
     </div>

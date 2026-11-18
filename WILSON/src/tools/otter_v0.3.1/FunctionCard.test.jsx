@@ -16,7 +16,10 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { render, cleanup } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
+// F11 review round 1 (1A): the app's own highlighter, not the package's full build. refractor's core is one shared
+// instance, so importing the full build here registered all 297 grammars and every colour this file asserts would
+// pass even if the app's module registered none.
+import SyntaxHighlighter from '../../components/codeHighlighter'
 import FunctionCard, { CodeWell, cardText } from './FunctionCard.jsx'
 import { LESSON_CODE_THEME } from './otterLanguage.js'
 import { functionCategoryName, functionEntries } from './adapters/otterRoutes.js'

@@ -847,6 +847,15 @@ const KNOWN_LABEL_COLLISIONS = [
 // being substrings of one another, which is a different failure and misses
 // this one entirely — 'Email' is a substring of nothing.
 const KNOWN_LABEL_SITE_COLLISIONS = [
+  // F11 (REV-05): the reset wizard asks for the company as the login does. Safe:
+  // App.jsx mounts the two on exclusive `authMode` branches, never together.
+  {
+    selector: "getByLabel('Company')",
+    declaredIn: [
+      'src/cloud/auth/ForgotPasswordWizard.jsx',
+      'src/cloud/auth/LoginScreen.jsx',
+    ],
+  },
   {
     selector: "getByLabel('Email')",
     declaredIn: [
@@ -871,7 +880,9 @@ const KNOWN_LABEL_SITE_COLLISIONS = [
 // label in more than one file is only safe while those files cannot be on
 // screen together — each one says why.
 const LABEL_SITES_EXPECTED = {
-  Company: ['src/cloud/auth/LoginScreen.jsx'],
+  // F11 (REV-05): the reset wizard's company field. The login and the wizard are
+  // exclusive `authMode` branches in App.jsx, so the two are never on screen together.
+  Company: ['src/cloud/auth/ForgotPasswordWizard.jsx', 'src/cloud/auth/LoginScreen.jsx'],
   // Two dialogs, each gated on its own `open` prop and living on different
   // pages (TeamMembersPage / AdminTerminal) — plus, since D1's Settings work,
   // the profile editor. 🚨 That third one is NOT gated the way the other two
