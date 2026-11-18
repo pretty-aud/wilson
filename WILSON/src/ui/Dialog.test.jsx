@@ -335,6 +335,29 @@ describe('Dialog', () => {
     expect(document.activeElement).toBe(name)
   })
 
+  it('from a focused element inside that the trap does not list (tabIndex -1: an inline editor\'s span words), Tab goes on to the control after it and Shift+Tab to the one before — not to an end (F10 review round 1, 1B-02)', () => {
+    render(
+      <Dialog title="Shots" onClose={() => {}} footer={<button>Done</button>}>
+        <button type="button">Before</button>
+        <span tabIndex={-1}>The door</span>
+        <button type="button">After</button>
+      </Dialog>,
+    )
+    const span = screen.getByText('The door')
+    span.focus()
+    const fwd = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
+    document.dispatchEvent(fwd)
+    expect(fwd.defaultPrevented).toBe(true)
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'After' }))
+    span.focus()
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true })
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Before' }))
+    // The ends still wrap: past the last control, Tab goes back to the first.
+    screen.getByRole('button', { name: 'Done' }).focus()
+    fireEvent.keyDown(document, { key: 'Tab' })
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close' }))
+  })
+
   it('pulls focus back in when it has escaped the dialog entirely', () => {
     // The Dashboard case: the confirm opens over a popup that stays mounted
     // by design, so focus could be sitting on a control behind the backdrop.

@@ -65,7 +65,10 @@ import {
 import {
   Toolbar, Button, IconButton, Tabs, Table, Th, Td, Row, Dialog, Field,
   Card, HoverActions, RowTitle, EmptyState, StatusDot, StatusBadge, StatusBanner, CellSelect, statusMeta,
-  Banner, Loading, MenuButton, useToast,
+  Loading, MenuButton,
+  // Post-overhaul F10 (rabbit A6): the kit's own editors, bulk picker,
+  // question and label; this file's names below are its look on them.
+  useInlineText, BulkSelect as KitBulkSelect, Confirm, FieldLabel as KitFieldLabel,
 } from '../../../ui'
 import './rabbitFiles.css'
 // VW1e (2026-10-25): the custom views on the Levels and Experiences tables
@@ -74,23 +77,16 @@ import './rabbitFiles.css'
 // Q-M3); the seat (step 0, finding 4); the old saved views removed (Q17).
 import { usePermissions } from '../../../permissions/usePermissions'
 import { canOnProject, projectActionDeniedReason } from '../../../permissions/projectRoleMatrix'
-import { useRosterMembers } from '../../../components/TeamMembers/useRosterMembers'
 import { buildItemLookup, KIND_LABEL, KIND_LABEL_PLURAL } from '../state/taskItemsModel'
-import { isGroupingLive } from '../state/tableViewsModel'
-import { GROUPINGS_GATE_WORDS } from '../state/tableViewsState'
-import { useTableView } from './tableViews/useTableView'
+import { useTableTab, useTableScreen } from './tableViews/useTableScreen'
 import { TableViewsMenu } from './tableViews/TableViewsMenu'
 import { ViewBar } from './tableViews/ViewBar'
 import { ViewFilterRow } from './tableViews/ViewFilterRow'
 import { CreateGroupingDialog } from './tableViews/CreateGroupingDialog'
-import { useAsk } from './tableViews/useAsk'
 import { combinationGroupsOf } from './tableViews/combinationGroups'
 import { entityDescription, entityTableColumns, entityTableWidths, assetsByEntity } from './tableViews/entityTableView'
 import { ASSET_LINKS_ABSENT_REASON, linksKept } from './tableViews/assetsTableView'
 import GatedAction, { WriteReasonProvider } from '../../../permissions/GatedAction'
-import {
-  applyViewFilters, applyViewSorts, effectiveFields, filterCount, withFirstSort, withFirstSortReversed,
-} from './tableViews/viewScreenModel'
 import { useRabbit } from '../state/RabbitProvider'
 import { useNavigateTarget } from '../state/rabbitNavigate'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
@@ -106,6 +102,8 @@ import RelationsPanel, { NewTaskSidePopup } from '../components/RelationsPanel'
 // (addFilesToEntity), which nothing did before.
 import FileManager from '../components/FileManager'
 import { addFilesToEntity } from '../components/entityFiles'
+// Post-overhaul F10 (rabbit A1): what the window does, written once for the four kinds.
+import { useEntityWindow } from './entity/useEntityWindow'
 import { taskCountsByEntity } from '../state/taskItemsModel'
 
 // ── Status config ──
@@ -126,12 +124,6 @@ const STATUS_OPTIONS = STATUSES.map(s => ({ value: s, label: STATUS_LABELS[s] })
 // VW1e (2026-10-25): the sorts, groupings and filters are the view's, read
 // through the table's description (views/tableViews/entityTableView.js); the
 // old lists here went with the old saved views (her Q17, "Start fresh").
-
-// The kit toast stack, or nothing where no ToastProvider is mounted (a test
-// that mounts the tab alone): a passing message, never a failure.
-function useOptionalToast() {
-  try { return useToast() } catch { return null }
-}
 
 // ── Gallery card sizes ──
 // The three card widths — 160, 220 and 300px, the picture 0.6 of each, as
@@ -269,68 +261,26 @@ export default function EntityListView({ entity }) {
   const taskCountOf = useCallback((row) => taskCountById[row.id] || 0, [taskCountById])
   const description = useMemo(() => entityDescription({ tableKey, assets, lookup, assetsOf, taskCountOf }),
     [tableKey, assets, lookup, assetsOf, taskCountOf])
-  const { members: rosterMembers } = useRosterMembers()
-  const rosterById = useMemo(() => { const m = {}; for (const mb of rosterMembers || []) m[mb.id] = mb; return m }, [rosterMembers])
-  const nameOf = useCallback((id) => {
-    const m = Object.prototype.hasOwnProperty.call(rosterById, id) ? rosterById[id] : null
-    return m ? (m.name || m.display_name || m.username || null) : null
-  }, [rosterById])
-  const toast = useOptionalToast()
-  const notify = useCallback((words) => { toast?.push({ tone: 'info', title: words }) }, [toast])
-  const { ask, dialog: askDialog } = useAsk()
-  const [announcement, setAnnouncement] = useState({ words: '', n: 0 })
-  const announce = useCallback((words) => setAnnouncement(a => ({ words, n: a.n + 1 })), [])
-  const [dropFailure, setDropFailure] = useState(null)
-  const [groupingKind, setGroupingKind] = useState(null)
-  const [focusGroupMenu, setFocusGroupMenu] = useState(false)
-  useEffect(() => {
-    if (!focusGroupMenu) return
-    document.querySelector('.rb-ent-toolbar select[aria-label="Group"]')?.focus({ preventScroll: true })
-    setFocusGroupMenu(false)
-  }, [focusGroupMenu])
-  const focusViews = useCallback(() => {
-    document.querySelector('.rb-ent-toolbar .rb-tv-button')?.focus({ preventScroll: true })
-  }, [])
-
-  // Q17 (her "Start fresh"): this browser's old saved views go, once.
-  useEffect(() => {
-    try { localStorage.removeItem(entity.savedViewsKey) } catch { /* storage unavailable: nothing kept to remove */ }
-  }, [entity.savedViewsKey])
-
-  const tv = useTableView({ ctx, tableKey, description, canWrite, nameOf, notify })
-  const config = tv.config
-  const viewMode = config.layout === 'gallery' ? 'gallery' : 'table'
-  const filters = config.filters || []
-  const sorts = config.sorts || []
-  const firstSort = sorts.find(s => s && description.field(s.field)?.sortable) || null
-  const sortField = firstSort?.field || ''
-  const sortDir = firstSort?.dir === 'desc' ? 'desc' : 'asc'
-  const storedGroup = config.group?.field || ''
-  const groupBy = description.groupFields.some(f => f.key === storedGroup) ? storedGroup : ''
-  const hideEmpty = config.group ? config.group.hideEmpty !== false : true
+  // F10 (rabbit A3): the screen around the views, the four tables' one hook
+  // (views/tableViews/useTableScreen.jsx): the roster's names, the toast, the
+  // views' questions, the live region, a refusal's Banner, the view on
+  // screen's layout, filters, sorts and grouping, the search-then-filter-
+  // then-sort of the rows, the columns and the cards' lines, the project's
+  // groupings, and this browser's old saved views removed once (Q17).
+  const tab = useTableTab()
+  const { ask, askDialog, announce, liveRegion, setDropFailure, failureBanner } = tab
+  const screen = useTableScreen({
+    tab, ctx, tableKey, description, rows: items, canWrite, toolbarSelector: '.rb-ent-toolbar',
+    search, baseOrder: 'sort_order', lookup, groupingWords: { rows: entity.nouns, kept: 'assets' },
+    oldViewsKey: entity.savedViewsKey,
+  })
+  const {
+    tv, config, viewMode, setViewMode, filters, addFilter, updateFilter, removeFilter, activeFilters,
+    sortField, sortDir, setSortField, reverseSort, groupBy, hideEmpty, setGroupBy,
+    columns, cardShows, savedOf: savedOfKind, groupingKind, setGroupingKind, createGrouping, removeGrouping, focusViews,
+  } = screen
+  const sorted = screen.processed
   const groupedKind = groupBy === 'asset' ? 'asset' : null
-  const setViewMode = (mode) => tv.update(c => ({ ...c, layout: mode === 'gallery' ? 'gallery' : 'table' }))
-  const setGroupBy = (value) => tv.update(c => ({ ...c, group: value ? { field: value, hideEmpty: description.hideEmptyDefault(viewMode, value) } : null }))
-  const setSortField = (field) => tv.update(c => ({ ...c, sorts: withFirstSort(c.sorts, field) }))
-  const reverseSort = () => tv.update(c => ({ ...c, sorts: withFirstSortReversed(c.sorts, s => !!description.field(s.field)?.sortable) }))
-
-  // ── The Filter strip: the shared row; a new row filters nothing until it
-  // has a value (defect 1).
-  function addFilter() {
-    const first = description.filterFields[0]
-    tv.update(c => ({ ...c, filters: [...(c.filters || []), { field: first.key, op: description.filterOps(first)[0].value, values: [] }] }))
-  }
-  function updateFilter(idx, row) { tv.update(c => ({ ...c, filters: (c.filters || []).map((f, i) => (i === idx ? row : f)) })) }
-  function removeFilter(idx) { tv.update(c => ({ ...c, filters: (c.filters || []).filter((_, i) => i !== idx) })) }
-
-  // ── Filtering (the tab's search, then the view's filters) and the view's
-  // sorts (several, in order, Q14); no sort: the table's own order.
-  const sorted = useMemo(() => {
-    const s = search.trim().toLowerCase()
-    const base = [...items].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-    const searched = s ? base.filter(item => (item.name || '').toLowerCase().includes(s)) : base
-    return applyViewSorts(applyViewFilters(searched, filters, description), sorts, description)
-  }, [items, search, filters, sorts, description])
 
   // ── Grouping ── by status, or (her Q-M3) by the assets that name a row:
   // one group per combination (combinationGroups.js), the project's
@@ -338,10 +288,7 @@ export default function EntityListView({ entity }) {
   // Every live asset's own group in the Assets table's order (§4.3; code
   // review round 1, R1-6): its sort_order, on a copy, as that table sorts.
   const assetsInOrder = useMemo(() => [...assets].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)), [assets])
-  const savedOf = useCallback(() => {
-    const list = typeof ctx?.groupingsOf === 'function' ? ctx.groupingsOf(tableKey, 'asset') : []
-    return list.filter(g => isGroupingLive(g, lookup.isLive)).map(g => ({ id: g.id, ids: g.entity_ids }))
-  }, [ctx, tableKey, lookup])
+  const savedOf = useCallback(() => savedOfKind('asset'), [savedOfKind])
   const groups = useMemo(() => {
     if (!groupBy) return null
     if (groupedKind) {
@@ -392,33 +339,11 @@ export default function EntityListView({ entity }) {
       .catch((err) => setDropFailure(`Could not move “${name}”: ${err?.message || err}`))
   }
 
-  // ── The project's groupings (her Q-D2, Q-D3, Q-D5) ──
-  async function createGrouping(ids) {
-    await ctx.addItemGrouping({ tableKey, kind: 'asset', entityIds: ids })
-  }
-  async function removeGrouping(group) {
-    const yes = await ask({
-      title: `Remove the grouping ${group.label}?`,
-      body: `Its ${entity.nouns} keep their assets. The group stays while ${entity.nouns} are in it.`,
-      confirm: 'Remove grouping',
-      danger: true,
-    })
-    if (!yes) return
-    try {
-      const res = await ctx.removeItemGrouping(group.groupingId)
-      if (res && res.removed === false && res.status === 'filtered') setDropFailure(GROUPINGS_GATE_WORDS)
-      else setFocusGroupMenu(true)
-    } catch (err) {
-      setDropFailure(`Could not remove the grouping ${group.label}: ${err?.message || err}`)
-    }
-  }
+  // ── The project's groupings (her Q-D2, Q-D3, Q-D5): Create grouping and a
+  // group's Remove grouping are the screen's (useTableScreen). ──
 
-  // ── What the view shows ──
-  const activeFilters = filterCount(filters, description)
-  const fieldList = useMemo(() => effectiveFields(config.fields, description.fieldKeys, { fixed: description.fixed }), [config.fields, description])
-  const columns = useMemo(() => fieldList.filter(f => f.visible).map(f => description.columns.find(c => c.key === f.key)).filter(Boolean), [fieldList, description])
-  const cardShows = useMemo(() => new Set(fieldList.filter(f => f.visible && description.cardFields.includes(f.key)).map(f => f.key)), [fieldList, description])
-  // The link lives on the assets (`level_ids` / `experience_ids`): on a cloud
+  // ── What the view shows: the columns and the cards' lines are the
+  // screen's. The link lives on the assets (`level_ids` / `experience_ids`): on a cloud
   // without 0099 they are not kept, so no drop and no Create grouping (R1-9).
   const kindKept = linksKept(ctx, entity.type)
   const canDrag = canWrite && !!groupedKind && kindKept
@@ -442,9 +367,7 @@ export default function EntityListView({ entity }) {
     <WriteReasonProvider reason={writeReason}>
     <div className="rb-ent-view h-full flex flex-col">
       {/* ── The table's one polite live region (VW1e, design §4.9). ── */}
-      <p className="sr-only" role="status" aria-live="polite">
-        <span key={announcement.n}>{announcement.words}</span>
-      </p>
+      {liveRegion}
 
       {/* ── Toolbar: the kit's, composed as the Assets toolbar is — every
           control the 28px sm height on one baseline (R4-16), the same
@@ -597,14 +520,7 @@ export default function EntityListView({ entity }) {
       )}
 
       {/* ── A drop or a grouping's removal that did not land, said ── */}
-      {dropFailure && (
-        <Banner
-          tone="danger"
-          action={<IconButton size="sm" Icon={X} title="Dismiss" onClick={() => setDropFailure(null)} />}
-        >
-          {dropFailure}
-        </Banner>
-      )}
+      {failureBanner}
 
       {/* ── The *changed for now* bar (design §4.4). ── */}
       <ViewBar tv={tv} ask={ask} announce={announce} focusViews={focusViews} />
@@ -657,7 +573,7 @@ export default function EntityListView({ entity }) {
           orderOf={lookup.orderOf}
           nameOf={lookup.nameOf}
           groupings={typeof ctx?.groupingsOf === 'function' ? ctx.groupingsOf(tableKey, 'asset') : []}
-          onCreate={(ids) => createGrouping(ids)}
+          onCreate={(ids) => createGrouping('asset', ids)}
           onClose={() => setGroupingKind(null)}
         />
       )}
@@ -822,26 +738,19 @@ function EntityTable({ entity, items, columns = DEFAULT_COLUMNS, assetCountById,
         ))}
       </Table>
 
-      {/* W9: the bulk question on the kit Dialog, 🚨 PORTALLED into <body> as
-          FileManager's delete question is (the kit Dialog does not portal,
-          B4-KR-2). React events still bubble through this tree. */}
-      {confirmBulkDelete && createPortal(
-        <Dialog
-          width="confirm"
+      {/* W9: the bulk question, the kit's Confirm, 🚨 PORTALLED into <body>
+          as FileManager's delete question is (B4-KR-2). React events still
+          bubble through this tree. */}
+      {confirmBulkDelete && (
+        <Confirm
           title={`Delete ${entity.nouns}`}
-          onClose={() => setConfirmBulkDelete(false)}
-          footer={(
-            <>
-              <Button autoFocus onClick={() => setConfirmBulkDelete(false)}>Cancel</Button>
-              <Button variant="danger" onClick={confirmedBulkDelete}>Delete</Button>
-            </>
-          )}
+          onCancel={() => setConfirmBulkDelete(false)}
+          onConfirm={() => { confirmedBulkDelete() }}
         >
           <p className="rb-ent-confirm">
             {`Delete ${selected.size} ${entity.noun}${selected.size === 1 ? '' : 's'}?`}
           </p>
-        </Dialog>,
-        document.body,
+        </Confirm>
       )}
     </div>
   )
@@ -1084,21 +993,31 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
   const item = (ctx?.[entity.collection] || []).find(x => x.id === itemId)
   const project = ctx?.project
 
-  const [descDraft, setDescDraft] = useState(item?.description || '')
-  const [notesDraft, setNotesDraft] = useState(item?.notes || '')
-  const [editingDesc, setEditingDesc] = useState(false)
-  const [editingNotes, setEditingNotes] = useState(false)
   const [showCreateTask, setShowCreateTask] = useState(false)
-  const [nestedTaskId, setNestedTaskId] = useState(null)
-  const [nestedAssetId, setNestedAssetId] = useState(null)
-  // What opened this popup — the row's Open — captured in render,
-  // as the kit Dialog captures it (an effect would read the popup's own
-  // focus). The delete question asked from here is handed it (below).
-  const openerRef = useRef(null)
-  if (openerRef.current === null && typeof document !== 'undefined') openerRef.current = document.activeElement
-
-  useEffect(() => { setDescDraft(item?.description || '') }, [item?.description])
-  useEffect(() => { setNotesDraft(item?.notes || '') }, [item?.notes])
+  // F10 (rabbit A1): the window's behaviour, the four kinds' one hook
+  // (views/entity/useEntityWindow.jsx), as the scene and shot windows have it:
+  // each draft follows the saved words while closed or untouched (R1-06: an
+  // effect overwrote a typed draft when the saved words changed), focus goes
+  // back to the words when an edit closes (R2-05), the opener is handed to a
+  // delete asked from here, the thumbnail's two writers. D21's question
+  // (`asks`) is OFF here: this window's suite pins today's (the typed text
+  // goes without a word), and whether it should ask is Audrey's to say
+  // (OUTSTANDING F10-02). Its wiring is in place all the same (the close,
+  // the boxes' Escape, the task form, the questions drawn: review round 1,
+  // 1E-01), so a yes is the one word below.
+  const {
+    editingDesc, setEditingDesc, editingNotes, setEditingNotes, descDraft, setDescDraft, notesDraft, setNotesDraft,
+    descWordsRef, notesWordsRef, nestedTaskId, setNestedTaskId, nestedAssetId, setNestedAssetId,
+    setTaskDirty, requestClose, escapeDraft, questions,
+    handleUpdate, handleSetThumbnail, handleClearThumbnail, requestDelete,
+  } = useEntityWindow({
+    row: item || null, kind: entity.type, update: (patch) => ctx?.[entity.updateMethod]?.(item.id, patch), canWrite, onClose, onRequestDelete,
+    deleteTarget: (row, opener) => ({ id: row.id, name: row.name || 'Untitled', returnTo: opener }),
+    // The task form counts while it is open (review round 2, 2B-01: without
+    // it, `setTaskDirty` fed nothing and a half-typed task would never ask).
+    taskOpen: showCreateTask,
+    onThumbChanged, asks: false, say: entity.noun,
+  })
 
   if (!item) return null
 
@@ -1112,26 +1031,6 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
   const managed = ctx?.supportsManagedFiles === true
   const fileCount = ((managed ? ctx?.managedFiles : ctx?.files) || [])
     .filter(f => f && !f.deleted_at && !f.is_financial && f[entity.linkKey] === item.id).length
-
-  function handleUpdate(patch) { if (canWrite) ctx?.[entity.updateMethod]?.(item.id, patch) }
-
-  async function handleSetThumbnail() {
-    if (!canWrite || !window.electronAPI?.rabbit?.pickImage) return
-    const imagePath = await window.electronAPI.rabbit.pickImage()
-    if (!imagePath) return
-    handleUpdate({ thumbnail_image: imagePath })
-    try {
-      await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: entity.type, entityId: item.id, sourcePath: imagePath })
-    } catch (e) { console.error(`${entity.noun} thumbnail gen failed:`, e) }
-    onThumbChanged?.()
-  }
-
-  async function handleClearThumbnail() {
-    if (!canWrite) return
-    handleUpdate({ thumbnail_image: null })
-    try { await window.electronAPI.rabbit.clearEntityThumbnail({ entityType: entity.type, entityId: item.id }) } catch {}
-    onThumbChanged?.()
-  }
 
   async function handleCreateTask(draft) {
     if (!canWrite) return
@@ -1160,6 +1059,7 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
           band={<StatusBanner status={status} />}
           dismissOnBackdrop
           onClose={onClose}
+          onBeforeClose={requestClose}
           footer={(
             <>
               {/* At the footer's left, where it was; Close at its right. The
@@ -1167,11 +1067,11 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
                   greys (the scene popup's rb-scene-detail-delete). */}
               <GatedAction allowed={canWrite} reason={writeReason} className="rb-ent-detail-delete">
                 <Button variant="danger" Icon={Trash2} className="rb-ent-detail-delete"
-                  onClick={() => { if (!canWrite) return; onClose(); onRequestDelete({ id: item.id, name: item.name || 'Untitled', returnTo: openerRef.current }) }}>
+                  onClick={requestDelete}>
                   {`Delete ${entity.noun}`}
                 </Button>
               </GatedAction>
-              <Button onClick={onClose}>
+              <Button onClick={() => { if (requestClose()) onClose() }}>
                 Close
               </Button>
             </>
@@ -1196,6 +1096,7 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
                   project={project}
                   onConfirm={handleCreateTask}
                   onClose={() => setShowCreateTask(false)}
+                  onDirtyChange={setTaskDirty}
                 />
               </div>
             )}
@@ -1327,7 +1228,7 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
                 {editingDesc ? (
                   <>
                     <textarea value={descDraft} onChange={e => setDescDraft(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); setDescDraft(item.description || ''); setEditingDesc(false) } }}
+                      onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); escapeDraft('description') } }}
                       aria-label="Description"
                       className="ui-input rb-ent-textarea"
                       data-field="description"
@@ -1344,7 +1245,7 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
                     </div>
                   </>
                 ) : canWrite ? (
-                  <button type="button" onClick={() => setEditingDesc(true)}
+                  <button ref={descWordsRef} type="button" onClick={() => setEditingDesc(true)}
                     className="rb-ent-prop-text"
                     data-empty={item.description ? 'false' : 'true'}>
                     {item.description || 'Click to add a description...'}
@@ -1365,7 +1266,7 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
                 {editingNotes ? (
                   <>
                     <textarea value={notesDraft} onChange={e => setNotesDraft(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); setNotesDraft(item.notes || ''); setEditingNotes(false) } }}
+                      onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); escapeDraft('notes') } }}
                       aria-label="Notes"
                       className="ui-input rb-ent-textarea"
                       data-field="notes"
@@ -1382,7 +1283,7 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
                     </div>
                   </>
                 ) : canWrite ? (
-                  <button type="button" onClick={() => setEditingNotes(true)}
+                  <button ref={notesWordsRef} type="button" onClick={() => setEditingNotes(true)}
                     className="rb-ent-prop-text"
                     data-empty={item.notes ? 'false' : 'true'}>
                     {item.notes || 'Click to add notes...'}
@@ -1428,6 +1329,9 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
         <TaskDetailPopup taskId={nestedTaskId} ctx={ctx} onClose={() => setNestedTaskId(null)} />,
         document.body,
       )}
+      {/* D21's two questions (the hook's), drawn whether or not this window
+          asks: none opens while it does not. */}
+      {questions}
     </>
   )
 }
@@ -1435,52 +1339,19 @@ function EntityDetailPopup({ entity, itemId, ctx, assetCountById, taskCountById,
 
 // ─── Shared sub-components ───
 
-// ─── The delete question: the kit's Dialog (W9's shape) ───
+// ─── The delete question: the kit's Confirm (W9's shape) ───
 // The row's delete, the card's and the detail popup's all ask here, in the
 // same words. Cancel and the backdrop keep the row, as they did; Escape does
-// too now (Q17). 🚨 PORTALLED into <body>, as FileManager's question is.
-//
-// 🚨 Cancel takes focus in an EFFECT, not only by `autoFocus`. From the
-// detail popup's Delete the popup closes in the same commit this opens:
-// `autoFocus` puts focus on Cancel during the commit, then the popup's
-// unmount hands focus back to what opened IT, and the kit Dialog's own
-// effect, finding focus outside, lands it on ✕ (B4c review round one). This
-// effect runs after both — a child's effects run before its parent's — so
-// the question opens on Cancel from every path, as it does from a row.
-//
-// 🚨 …and on close, focus goes back to `returnTo` when the popup asked (B4c
-// review round two). The kit Dialog hands it to what had it when the
-// question opened — the popup's own Delete, gone with the popup — so every
-// close from that path dropped focus to <body>. `returnTo` is what opened
-// the popup, the row's Open: taken while it is in the page and
-// focus has fallen to <body> (StrictMode's rehearsal of an unmount leaves it
-// on Cancel, so that does nothing). A delete takes the row, and its button,
-// with it — as a row's own delete question does.
+// too (Q17). Portalled into <body>, Cancel focused from every path, and focus
+// back to `returnTo` (the row's Open) when the popup asked: the kit's
+// Confirm does all three (F10; it was written here, B4c's rounds one and two).
+// The delete is called, not returned: the question does not wait on it.
 function ConfirmDialog({ title, message, onConfirm, onCancel, returnTo = null }) {
-  const cancelRef = useRef(null)
-  useEffect(() => {
-    cancelRef.current?.focus()
-    return () => {
-      const active = document.activeElement
-      if (returnTo && returnTo !== document.body && returnTo.isConnected && (!active || active === document.body)) returnTo.focus()
-    }
-  }, [])
-  return createPortal(
-    <Dialog
-      width="confirm"
-      title={title}
-      dismissOnBackdrop
-      onClose={onCancel}
-      footer={(
-        <>
-          <Button ref={cancelRef} autoFocus onClick={onCancel}>Cancel</Button>
-          <Button variant="danger" onClick={onConfirm}>Delete</Button>
-        </>
-      )}
-    >
+  return (
+    <Confirm title={title} dismissOnBackdrop returnTo={returnTo}
+      onConfirm={() => { onConfirm() }} onCancel={onCancel}>
       <p className="rb-ent-confirm">{message}</p>
-    </Dialog>,
-    document.body,
+    </Confirm>
   )
 }
 
@@ -1646,139 +1517,60 @@ function CreateEntityPopup({ entity, ctx, count, onClose }) {
 
 
 // ─── Bulk select dropdown ───
-// The floating bar's select, in the kit's small well (B2's BulkSelect).
+// The floating bar's select: the kit's BulkSelect (F10) in this lane's class.
 function BulkSelect({ label, options, labels, onPick }) {
-  return (
-    <select
-      defaultValue=""
-      aria-label={label}
-      onChange={e => { if (e.target.value !== '') { onPick(e.target.value); e.target.value = '' } }}
-      className="ui-input rb-ent-tool"
-      data-size="sm"
-    >
-      <option value="" disabled>{label}</option>
-      {options.map(o => <option key={o} value={o}>{(labels?.[o] || o).replace(/_/g, ' ')}</option>)}
-    </select>
-  )
+  return <KitBulkSelect label={label} options={options} labels={labels} onPick={onPick} className="ui-input rb-ent-tool" />
 }
 
 
 // ─── The table's inline editor ───
-// A cell's own text until it is clicked, then a native field in the kit's
-// small well (not the kit Input, whose own Enter blurs; B3d-KR-2). Enter and
-// blur commit the trimmed draft and Escape reverts — unchanged. The name is
-// the row's anchor, Dense 600 in the full ink; a `quiet` cell (the
-// description) reads at 400 in the second ink (R4-03); an empty one shows
-// its placeholder in the third.
+// The kit's useInlineText (F10: its behaviour — Enter and blur commit the
+// trimmed draft, Escape reverts, focus back to the words, P1-06) on this
+// lane's elements, as they were drawn: a cell's own text until it is clicked,
+// then a native field in the kit's small well. The name is the row's anchor,
+// Dense 600 in the full ink; a `quiet` cell (the description) reads at 400 in
+// the second ink (R4-03); an empty one shows its placeholder in the third.
 // R1 (2026-10-27): `readOnly` — a seat that cannot write gets the words alone,
 // as the Scenes rows' InlineText does: no click, no hover fill, no field
-// (`data-static`); the name's placeholder or a dash when empty.
+// (`data-static`); the name's placeholder or a dash when empty. An empty cell
+// showing the app's one empty mark (P1-76) would be read as a dash: it is
+// named by its field instead. A placeholder in words ("Untitled level") stays
+// the name, so the visible words are in it.
 function InlineText({ value, placeholder, label, onCommit, quiet = false, readOnly = false }) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(value)
-  const inputRef = useRef(null)
-  useEffect(() => { setDraft(value) }, [value])
-  useEffect(() => { if (editing && inputRef.current) inputRef.current.focus() }, [editing])
-  function commit() {
-    const trimmed = draft.trim()
-    if (trimmed !== value) onCommit(trimmed)
-    setEditing(false)
-  }
-  if (readOnly) {
-    return (
-      <span className="rb-ent-cell-text" data-static="true"
-        title={value || undefined}
-        aria-label={!value && placeholder === '—' ? `${label}, empty` : undefined}
-        data-quiet={quiet ? 'true' : 'false'}
-        data-empty={value ? 'false' : 'true'}>
-        {value || placeholder}
-      </span>
-    )
-  }
-  if (editing) {
-    return (
-      <input ref={inputRef} type="text" value={draft}
-        onChange={e => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); setEditing(false) } }}
-        aria-label={label}
-        className="ui-input rb-ent-cell-input"
-        data-size="sm"
-        data-quiet={quiet ? 'true' : 'false'} />
-    )
-  }
-  return (
-    <button type="button" onClick={() => setEditing(true)}
-      className="rb-ent-cell-text"
-      title={value || undefined}
-      // An empty cell showing the app's one empty mark (P1-76) would be read
-      // as a dash: it is named by its field instead. A placeholder in words
-      // ("Untitled level") stays the name, so the visible words are in it.
+  return useInlineText({
+    value, placeholder, label, onCommit, readOnly,
+    words: <button type="button" className="rb-ent-cell-text" title={value || undefined}
       aria-label={!value && placeholder === '—' ? `${label}, empty` : undefined}
-      data-quiet={quiet ? 'true' : 'false'}
-      data-empty={value ? 'false' : 'true'}>
-      {value || placeholder}
-    </button>
-  )
+      data-quiet={quiet ? 'true' : 'false'} data-empty={value ? 'false' : 'true'} />,
+    still: <span className="rb-ent-cell-text" data-static="true" title={value || undefined}
+      aria-label={!value && placeholder === '—' ? `${label}, empty` : undefined}
+      data-quiet={quiet ? 'true' : 'false'} data-empty={value ? 'false' : 'true'} />,
+    field: <input className="ui-input rb-ent-cell-input" data-size="sm" data-quiet={quiet ? 'true' : 'false'} />,
+  })
 }
 
 // ─── The popup's name field ───
-// Its words as a quiet button until clicked, the Assets popup's in-place
-// editor: no box, the kit's hover fill, an empty one's placeholder in the
-// third ink (it was #57534e, 2.29:1). Then a native field in the kit's small
-// well where the words were (not the kit Input, whose own Enter blurs;
-// B3d-KR-2), in the ink where it was orange. Enter and blur commit the
-// trimmed draft, as they did. Escape reverts it and is MARKED handled (K4's
-// mark), so the kit Dialog around it stands down: the first press reverts
-// the edit, the next one closes the popup (W2).
+// The kit's useInlineText (F10) on this lane's elements: its words as a quiet
+// button until clicked, the Assets popup's in-place editor — no box, the
+// kit's hover fill, an empty one's placeholder in the third ink — then a
+// native field in the kit's small well where the words were, in the ink.
+// Escape reverts and is MARKED handled, so the kit Dialog around it stands
+// down: the first press reverts the edit, the next one closes the popup (W2).
 // R1: `readOnly`, as InlineText's above.
 function PopupInlineText({ value, placeholder, label, onCommit, readOnly = false }) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(value)
-  const inputRef = useRef(null)
-  useEffect(() => { setDraft(value) }, [value])
-  useEffect(() => { if (editing && inputRef.current) inputRef.current.focus() }, [editing])
-  function commit() {
-    const trimmed = draft.trim()
-    if (trimmed !== value) onCommit(trimmed)
-    setEditing(false)
-  }
-  if (readOnly) {
-    return (
-      <span className="rb-ent-prop-text" data-static="true" data-empty={value ? 'false' : 'true'}>
-        {value || placeholder}
-      </span>
-    )
-  }
-  if (editing) {
-    return (
-      <input ref={inputRef} type="text" value={draft}
-        onChange={e => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { e.preventDefault(); setDraft(value); setEditing(false) } }}
-        aria-label={label}
-        className="ui-input rb-ent-name-input"
-        data-size="sm" />
-    )
-  }
-  return (
-    <button type="button" onClick={() => setEditing(true)}
-      className="rb-ent-prop-text"
-      data-empty={value ? 'false' : 'true'}>
-      {value || placeholder}
-    </button>
-  )
+  return useInlineText({
+    value, placeholder, label, onCommit, readOnly,
+    words: <button type="button" className="rb-ent-prop-text" data-empty={value ? 'false' : 'true'} />,
+    still: <span className="rb-ent-prop-text" data-static="true" data-empty={value ? 'false' : 'true'} />,
+    field: <input className="ui-input rb-ent-name-input" data-size="sm" />,
+  })
 }
 
 // ─── A property's label: the Label step ───
-// The kit Field's own label class — 11px, 600, capitals at the kit's
-// tracking, the second ink (7.85:1 on the Dialog's raised paper, where
-// #78716c measured 3.16 on the old ground) — a block over its value. As
-// before it labels no control by itself: each control carries its own name.
+// The kit's FieldLabel (F10) in this lane's class — 11px, 600, capitals at the
+// kit's tracking, the second ink (7.85:1 on the Dialog's raised paper) — a
+// block over its value. It labels no control by itself: each control carries
+// its own name.
 function FieldLabel({ children }) {
-  return (
-    <label className="ui-field-label rb-ent-label">
-      {children}
-    </label>
-  )
+  return <KitFieldLabel className="ui-field-label rb-ent-label">{children}</KitFieldLabel>
 }

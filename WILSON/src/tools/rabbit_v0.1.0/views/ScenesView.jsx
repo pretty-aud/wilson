@@ -39,7 +39,11 @@ import { v4 as uuidv4 } from 'uuid'
 import {
   Table, Th, Td, Row, Toolbar, Tabs, Button, IconButton, CellSelect, Stat, Card,
   StatusDot, StatusBadge, StatusBanner, statusMeta, humanizeStatus, EmptyState, HoverActions, RowTitle, Dialog, Badge, Banner,
-  SectionTitle, Loading, useToast,
+  SectionTitle, Loading,
+  // Post-overhaul F10 (rabbit A6): the kit's own editors, bulk picker,
+  // question and label; this file's names below are its look on them. (The
+  // windows' draft hooks are the windows' one hook's: views/entity.)
+  useInlineText, BulkSelect as KitBulkSelect, Confirm, FieldLabel as KitFieldLabel,
 } from '../../../ui'
 import './rabbitScenes.css'
 import { useRabbit } from '../state/RabbitProvider'
@@ -76,8 +80,8 @@ import {
 // …and (step 6) the drag.
 import { useCutDrag, blockLine } from './scenes/useCutDrag'
 import { Grip } from './scenes/EditTable'
-// …and (step 7) the leave guard: a popup's typed text, a jump between rows.
-import { useLeaveGuard } from './scenes/useLeaveGuard'
+// …and (step 7) the leave guard: a jump between rows (a popup's typed text
+// is guarded by the windows' one hook, views/entity/useEntityWindow.jsx).
 import { confirmLeave, hasUnsavedWork } from '../state/leaveGuard'
 // The three-answer questions (leave, recover) are at the form width: they count themselves.
 import { answersOpen } from './scenes/AnswerDialog'
@@ -106,6 +110,10 @@ import {
 // shot's inside its scene's), planned by the one path function when the
 // row is not there yet.
 import { entityFolderPath } from '../folderPaths'
+// Post-overhaul F10 (rabbit A1): the thumbnail's two writers, once for the six callers.
+import { pickEntityThumbnail, clearEntityThumbnail } from './entity/entityThumbnail'
+// …and (A1) what a scene's or a shot's window does, written once for the four kinds.
+import { useEntityWindow } from './entity/useEntityWindow'
 // Shot takes (milestone 2, DEMO_BINS_BRIEF §5): bin files assigned to shots.
 // Everything below is ADDED to the existing rows and popups — a chip strip
 // per shot row in both content modes, the primary take's poster standing in
@@ -129,19 +137,14 @@ import { visibleOverlayOpen, drawerOnScreen, appQuestionOnScreen } from './bins/
 // which list is on screen. Defect 3 (each keeps its own filters, sorts and
 // grouping) and defect 4 (ticked rows a filter or search hides are unticked:
 // these tables have done so since S3b, R1-05).
-import { useRosterMembers } from '../../../components/TeamMembers/useRosterMembers'
-import { useTableView } from './tableViews/useTableView'
+import { useTableTab, useTableScreen } from './tableViews/useTableScreen'
 import { TableViewsMenu } from './tableViews/TableViewsMenu'
 import { ViewBar } from './tableViews/ViewBar'
 import { ViewFilterRow } from './tableViews/ViewFilterRow'
-import { useAsk } from './tableViews/useAsk'
 import {
   SCENES_TABLE, SHOTS_TABLE, SCENE_STATUSES, SCENE_TYPES, TIME_OF_DAY_OPTIONS,
   scenesDescription, shotsDescription, sceneTableMin, nestColumnsOf, nestMin, scenesTableColumns, shotsTableColumns,
 } from './tableViews/scenesTableView'
-import {
-  applyViewFilters, applyViewSorts, effectiveFields, effectiveLeading, filterCount, withFirstSort, withFirstSortReversed,
-} from './tableViews/viewScreenModel'
 
 // ── Status config ──
 // VW1e: the statuses, types and times of day live with the tables'
@@ -213,26 +216,19 @@ const SIZE_KEYS = ['sm', 'md', 'lg']
 // scenesTableView.js; her Q16, two lists). Q17 (her "Start fresh"): the views
 // this browser kept for Scenes before VW1e, removed on the first load.
 const OLD_SAVED_VIEWS_KEY = 'rabbit_scene_saved_views'
+// What the tab's search reads of a scene or a shot (F10's table screen): its
+// name and its description's words, a mention token read as its words.
+// A line break between the two: nobody can type one into the search box.
+const nameAndWords = (r) => `${r.name || ''}\n${mentionPlainText(r.description || '')}`
 // One empty list for a backend with no takes: the same object every render,
 // so the Shots description (which counts takes) is not made anew each time.
 const NO_ROWS = Object.freeze([])
-
-// The kit toast stack, or nothing where no ToastProvider is mounted (a test
-// that mounts the tab alone): a passing message, never a failure.
-function useOptionalToast() {
-  try { return useToast() } catch { return null }
-}
 
 // Post-overhaul S3c, step 3: while an edit is on screen its cut order IS the
 // view — the toolbar's sort, group, filter and view controls stand aside
 // (greyed, saying why), and New scene / New shot give way to the cut's own
 // verbs. Search still finds a shot in the cut.
 const EDIT_ORDER_REASON = 'An edit shows its cut order. Choose List order on the shot-list bar to sort, group, filter or change the view.'
-// Post-overhaul S3c, step 7: the exits that would take a scene or shot popup
-// (and its typed text) away — leaving the tab, switching project, a jump
-// opening another row's popup. Leaving the page does not: the tab stays
-// mounted, the popup with it.
-const POPUP_EXITS = ['tab', 'project', 'popup']
 const EDIT_ADD_REASON = "An edit is on screen. Add shots to it from a row's or a scene's edit actions, or choose List order to add to the list."
 
 // ── Timecode helpers ──
@@ -390,75 +386,58 @@ export default function ScenesView({ pageActive = false } = {}) {
     defaultOrderLabel, takes: supportsTakes, scenes, framings: FRAMING_CHOICES, movements: MOVE_CHOICES,
     takesOf: (sh) => (takesByShotMap.get(sh.id) || []).length,
   }), [defaultOrderLabel, supportsTakes, scenes, takesByShotMap])
-  // Who changed a view, by the workspace roster (design §5.5).
-  const { members: rosterMembers } = useRosterMembers()
-  const rosterById = useMemo(() => { const m = {}; for (const mb of rosterMembers || []) m[mb.id] = mb; return m }, [rosterMembers])
-  const nameOf = useCallback((id) => {
-    const m = Object.prototype.hasOwnProperty.call(rosterById, id) ? rosterById[id] : null
-    return m ? (m.name || m.display_name || m.username || null) : null
-  }, [rosterById])
-  const toast = useOptionalToast()
-  const notify = useCallback((words) => { toast?.push({ tone: 'info', title: words }) }, [toast])
-  const { ask, dialog: askDialog } = useAsk()
-  const [announcement, setAnnouncement] = useState({ words: '', n: 0 })
-  const announce = useCallback((words) => setAnnouncement(a => ({ words, n: a.n + 1 })), [])
-  // Only the list on screen says a teammate's delete (finding 14): the
-  // other goes to All without a word.
-  const tvScenes = useTableView({ ctx, tableKey: SCENES_TABLE, description: sceneDescription, canWrite: canWriteProject, nameOf, notify: contentMode === 'scenes' ? notify : null })
-  const tvShots = useTableView({ ctx, tableKey: SHOTS_TABLE, description: shotDescription, canWrite: canWriteProject, nameOf, notify: contentMode === 'shots' ? notify : null })
+  // F10 (rabbit A3): the four tables' one hook (views/tableViews/
+  // useTableScreen.jsx), here twice over one tab: one roster for who changed
+  // a view (design §5.5), one toast, one question, one live region; and each
+  // table its own screen (her Q16, "Two lists"; defect 3: each keeps its own
+  // filters, sorts and grouping). Only the list on screen says a teammate's
+  // delete (finding 14): the other goes to All without a word. Each bar's
+  // keyboard goes back to its own table's Views button — never the other
+  // table's, when the content tab changed while a save was on its way (code
+  // review round 2, R2-3). The search (the tab's own) finds a name or a
+  // description, as typed; no sort: the rows as they come — in List order, the
+  // list's own. Q17 (her "Start fresh"): this browser's old Scenes views go,
+  // once.
+  const tab = useTableTab()
+  const { ask, askDialog, announce, liveRegion } = tab
+  const sScenes = useTableScreen({
+    tab, ctx, tableKey: SCENES_TABLE, description: sceneDescription, rows: scenes, canWrite: canWriteProject,
+    toolbarSelector: '.rb-scene-toolbar', viewsButton: `.rb-scene-toolbar .rb-tv-button[data-table="${SCENES_TABLE}"]`,
+    search, searchText: nameAndWords, searchTrim: false, notifyOn: contentMode === 'scenes', oldViewsKey: OLD_SAVED_VIEWS_KEY,
+  })
+  const sShots = useTableScreen({
+    tab, ctx, tableKey: SHOTS_TABLE, description: shotDescription, rows: shots, canWrite: canWriteProject,
+    toolbarSelector: '.rb-scene-toolbar', viewsButton: `.rb-scene-toolbar .rb-tv-button[data-table="${SHOTS_TABLE}"]`,
+    search, searchText: nameAndWords, searchTrim: false, notifyOn: contentMode === 'shots',
+  })
+  const tvScenes = sScenes.tv
+  const tvShots = sShots.tv
   const shotsMode = contentMode === 'shots'
-  const tv = shotsMode ? tvShots : tvScenes
+  // The table on screen: its bar, its Filter strip, its Sort and Group.
+  const screen = shotsMode ? sShots : sScenes
+  const tv = screen.tv
   const description = shotsMode ? shotDescription : sceneDescription
-  const viewMode = tv.config.layout === 'gallery' ? 'gallery' : 'table'
-  const firstSortOf = (cfg, desc) => (cfg.sorts || []).find(s => s && desc.field(s.field)?.sortable) || null
-  const onScreenSort = firstSortOf(tv.config, description)
-  const sortField = onScreenSort?.field || ''
-  const sortDir = onScreenSort?.dir === 'desc' ? 'desc' : 'asc'
+  const { viewMode, setViewMode, sortField, sortDir, setSortField, reverseSort, addFilter, updateFilter, removeFilter, activeFilters } = screen
+  const setOnScreenGroup = screen.setGroupBy
   // S3b step 2: "List order" — the list's own positions — is the default
   // sort while a list is on screen: the view of the mode on screen has no
   // sort (VW1e step 0, finding 2). Move up / Move down are offered only in
   // it, the list drag only then, and the nests and the shot table's scene
   // groups keep the list's order in it.
-  const listOrder = viewingList && !onScreenSort
+  const listOrder = viewingList && !screen.firstSort
   // Each table's grouping; one its table no longer offers reads as none.
-  const groupOf = (view, desc) => {
-    const g = view.config.group
-    return g && desc.groupFields.some(f => f.key === g.field) ? g.field : ''
-  }
-  const groupBy = groupOf(tvScenes, sceneDescription)
-  const sceneHideEmpty = tvScenes.config.group ? tvScenes.config.group.hideEmpty !== false : true
-  const shotGroupBy = groupOf(tvShots, shotDescription)
-  const shotHideEmpty = tvShots.config.group ? tvShots.config.group.hideEmpty !== false : true
-  const setViewMode = (mode) => tv.update(c => ({ ...c, layout: mode === 'gallery' ? 'gallery' : 'table' }))
-  const setOnScreenGroup = (value) => tv.update(c => ({ ...c, group: value ? { field: value, hideEmpty: description.hideEmptyDefault(viewMode, value) } : null }))
-  const setSortField = (field) => tv.update(c => ({ ...c, sorts: withFirstSort(c.sorts, field) }))
-  const reverseSort = () => tv.update(c => ({ ...c, sorts: withFirstSortReversed(c.sorts, s => !!description.field(s.field)?.sortable) }))
-  // The keyboard back to the Views button of the table whose bar acted —
-  // never the other table's, when the content tab changed while a save was
-  // on its way (code review round 2, R2-3).
-  const focusViewsOf = useCallback((key) => () => {
-    document.querySelector(`.rb-scene-toolbar .rb-tv-button[data-table="${key}"]`)?.focus({ preventScroll: true })
-  }, [])
-  // Q17 (her "Start fresh"): this browser's old Scenes views go, once.
-  useEffect(() => {
-    try { localStorage.removeItem(OLD_SAVED_VIEWS_KEY) } catch { /* storage unavailable: nothing kept to remove */ }
-  }, [])
-  // The columns each table shows: the view's fields over the table's, the
-  // name first; the leading columns the view shows (her Q-J).
-  const visibleCols = (view, desc) => effectiveFields(view.config.fields, desc.fieldKeys, { fixed: desc.fixed })
-    .filter(f => f.visible).map(f => desc.columns.find(c => c.key === f.key)).filter(Boolean)
-  const leadShown = (view, desc) => new Set(effectiveLeading(view.config.leading, desc.leadingKeys).filter(f => f.visible).map(f => f.key))
-  const sceneCols = visibleCols(tvScenes, sceneDescription)
-  const sceneLead = leadShown(tvScenes, sceneDescription)
-  const shotCols = visibleCols(tvShots, shotDescription)
-  const shotLead = leadShown(tvShots, shotDescription)
-  // The cards' own lines each view shows (her Q-E, Q-P2).
-  const cardShowsOf = (view, desc) => new Set([
-    ...effectiveFields(view.config.fields, desc.fieldKeys, { fixed: desc.fixed }).filter(f => f.visible && desc.cardFields.includes(f.key)).map(f => f.key),
-    ...[...leadShown(view, desc)].filter(k => (desc.cardLeading || []).includes(k)),
-  ])
-  const sceneCardShows = cardShowsOf(tvScenes, sceneDescription)
-  const shotCardShows = cardShowsOf(tvShots, shotDescription)
+  const groupBy = sScenes.groupBy
+  const sceneHideEmpty = sScenes.hideEmpty
+  const shotGroupBy = sShots.groupBy
+  const shotHideEmpty = sShots.hideEmpty
+  // The columns each table shows (the name first), the leading columns it
+  // shows (her Q-J), and the cards' own lines (her Q-E, Q-P2).
+  const sceneCols = sScenes.columns
+  const sceneLead = sScenes.leading
+  const shotCols = sShots.columns
+  const shotLead = sShots.leading
+  const sceneCardShows = sScenes.cardShows
+  const shotCardShows = sShots.cardShows
   const supportsBins = !!ctx?.supportsBins
   const bins = ctx?.bins || []
   const [takesShotId, setTakesShotId] = useState(null)     // the takes dialog, from a row
@@ -1088,32 +1067,11 @@ export default function ScenesView({ pageActive = false } = {}) {
     }).join(' ')
   }, [ctx, sceneById, shotById, allShotsByScene, viewed.mode, viewed.id, viewed.list, canListWrite, listLabel])
 
-  // ── The Filter strip: the view on screen's filters in the shared row
-  // (VW1e; the Filters card draws the same row). A new row is the first
-  // field's first condition and no value: it filters nothing and is not
-  // counted until it has one (defect 1).
-  function addFilter() {
-    const first = description.filterFields[0]
-    tv.update(c => ({ ...c, filters: [...(c.filters || []), { field: first.key, op: description.filterOps(first)[0].value, values: [] }] }))
-  }
-  function updateFilter(index, row) { tv.update(c => ({ ...c, filters: (c.filters || []).map((f, i) => (i === index ? row : f)) })) }
-  function removeFilter(index) { tv.update(c => ({ ...c, filters: (c.filters || []).filter((_, i) => i !== index) })) }
-  const activeFilters = filterCount(tv.config.filters, description)
-
-  // ── Scene filtering + sorting (the Scenes view's own: defect 3) ──
-  // The search (the tab's own) finds a name or a description; every
-  // complete filter must match (Q13); the sorts in order (Q14). No sort: the
-  // rows as they come — in List order, the list's own.
-  const filtered = useMemo(() => {
-    let list = scenes
-    if (search.trim()) {
-      const q = search.toLowerCase()
-      list = list.filter(s => (s.name || '').toLowerCase().includes(q) || mentionPlainText(s.description || '').toLowerCase().includes(q))
-    }
-    return applyViewFilters(list, tvScenes.config.filters, sceneDescription)
-  }, [scenes, search, tvScenes.config.filters, sceneDescription])
-
-  const sorted = useMemo(() => applyViewSorts(filtered, tvScenes.config.sorts, sceneDescription), [filtered, tvScenes.config.sorts, sceneDescription])
+  // ── The Filter strip (the view on screen's filters in the shared row; a new
+  // row filters nothing until it has a value, defect 1) and the Scenes rows
+  // searched, filtered and sorted (the Scenes view's own: defect 3) are the
+  // screens' (above).
+  const sorted = sScenes.processed
 
   // ── Groups ──
   // A group's words in sentence case (a status's are the kit's STATUS
@@ -1148,17 +1106,8 @@ export default function ScenesView({ pageActive = false } = {}) {
 
   // The Shots view's filters and sorts apply to the shot table and gallery
   // only (a Shots filter never empties the Scenes table: defect 3); the
-  // search, the tab's own, to both.
-  const filteredShots = useMemo(() => {
-    let list = shots
-    if (search.trim()) {
-      const q = search.toLowerCase()
-      list = list.filter(s => (s.name || '').toLowerCase().includes(q) || mentionPlainText(s.description || '').toLowerCase().includes(q))
-    }
-    return applyViewFilters(list, tvShots.config.filters, shotDescription)
-  }, [shots, search, tvShots.config.filters, shotDescription])
-
-  const sortedShots = useMemo(() => applyViewSorts(filteredShots, tvShots.config.sorts, shotDescription), [filteredShots, tvShots.config.sorts, shotDescription])
+  // search, the tab's own, to both: its screen's rows.
+  const sortedShots = sShots.processed
 
   const shotGroups = useMemo(() => {
     // No grouping — flat list in one group
@@ -1187,7 +1136,7 @@ export default function ScenesView({ pageActive = false } = {}) {
         // No sort: each scene's shots by number, as before. VW1e: a view's
         // sorts order the shots inside each scene (Q14); they reordered the
         // whole list and each scene then took shot-number order again.
-        if (!firstSortOf(tvShots.config, shotDescription)) {
+        if (!sShots.firstSort) {
           for (const key of Object.keys(buckets)) {
             buckets[key].sort((a, b) => (a.shot_number ?? 0) - (b.shot_number ?? 0))
           }
@@ -1297,9 +1246,7 @@ export default function ScenesView({ pageActive = false } = {}) {
     <div className="rb-scene-page">
       {/* ── The tab's one polite live region (VW1e, design §4.9): the bar's
           state and every reorder, always mounted. ── */}
-      <p className="sr-only" role="status" aria-live="polite">
-        <span key={announcement.n}>{announcement.words}</span>
-      </p>
+      {liveRegion}
 
       {/* ── Summary tiles (always visible): one kit Stat each (R3-10), as
           the Budget's. Stat has no icon slot, so the four icons are gone. ── */}
@@ -1537,7 +1484,7 @@ export default function ScenesView({ pageActive = false } = {}) {
           {editOnScreen
             ? `${cutMatchCount}/${editSession.rows.length}`
             : contentMode === 'scenes'
-              ? `${filtered.length}/${scenes.length}`
+              ? `${sorted.length}/${scenes.length}`
               : `${totalFilteredShots}/${shots.length}`}
         </span>
       </Toolbar>
@@ -1563,7 +1510,7 @@ export default function ScenesView({ pageActive = false } = {}) {
       {/* Keyed per table, as the Views button is (code review round 1, R1-1):
           a name being typed, or a save in flight, belongs to its own table's
           view, never to the other's bar. */}
-      {!editOnScreen && <ViewBar key={shotsMode ? 'shots' : 'scenes'} tv={tv} ask={ask} announce={announce} focusViews={focusViewsOf(shotsMode ? SHOTS_TABLE : SCENES_TABLE)} />}
+      {!editOnScreen && <ViewBar key={shotsMode ? 'shots' : 'scenes'} tv={tv} ask={ask} announce={announce} focusViews={screen.focusViews} />}
 
       {/* Bins could not be loaded for the take chips (milestone 2): said here
           on the page with a retry, not only inside a takes dialog she may
@@ -2324,14 +2271,9 @@ function SceneTable({ scenes, columns = scenesTableColumnsAll, leading = ALL_SCE
                   <Td className="rb-scene-thumb-cell">
                     {/* S3b step 7: a picture, not a button, for a seat that may not write scenes. */}
                     <div className="rb-scene-thumb" data-static={canWrite ? undefined : 'true'}
-                      onClick={canWrite ? async e => {
+                      onClick={canWrite ? e => {
                         e.stopPropagation()
-                        if (!window.electronAPI?.rabbit?.pickImage) return
-                        const imagePath = await window.electronAPI.rabbit.pickImage()
-                        if (!imagePath) return
-                        ctx?.updateScene?.(sc.id, { thumbnail_image: imagePath })
-                        try { await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'scene', entityId: sc.id, sourcePath: imagePath }) } catch {}
-                        onThumbChanged?.()
+                        pickEntityThumbnail({ canWrite, entityType: 'scene', entityId: sc.id, update: p => ctx?.updateScene?.(sc.id, p), onChanged: onThumbChanged })
                       } : undefined}>
                       {sc.thumbnail_image ? (
                         <>
@@ -2445,14 +2387,9 @@ function SceneTable({ scenes, columns = scenesTableColumnsAll, leading = ALL_SCE
                                 {showThumb && (
                                   <Td className="rb-scene-thumb-cell">
                                     <div className="rb-scene-thumb" data-nested="true" data-static={canWrite ? undefined : 'true'}
-                                      onClick={canWrite ? async e => {
+                                      onClick={canWrite ? e => {
                                         e.stopPropagation()
-                                        if (!window.electronAPI?.rabbit?.pickImage) return
-                                        const imagePath = await window.electronAPI.rabbit.pickImage()
-                                        if (!imagePath) return
-                                        ctx?.updateShot?.(shot.id, { thumbnail_image: imagePath })
-                                        try { await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'shot', entityId: shot.id, sourcePath: imagePath }) } catch {}
-                                        onThumbChanged?.()
+                                        pickEntityThumbnail({ canWrite, entityType: 'shot', entityId: shot.id, update: p => ctx?.updateShot?.(shot.id, p), onChanged: onThumbChanged })
                                       } : undefined}>
                                       {shot.thumbnail_image ? (
                                         <>
@@ -2948,14 +2885,9 @@ function ShotTable({ shotGroups, columns = shotsTableColumnsAll, leading = ALL_S
                     {showThumb && (
                       <Td className="rb-scene-thumb-cell">
                         <div className="rb-scene-thumb" data-static={canWrite ? undefined : 'true'}
-                          onClick={canWrite ? async e => {
+                          onClick={canWrite ? e => {
                             e.stopPropagation()
-                            if (!window.electronAPI?.rabbit?.pickImage) return
-                            const imagePath = await window.electronAPI.rabbit.pickImage()
-                            if (!imagePath) return
-                            ctx?.updateShot?.(shot.id, { thumbnail_image: imagePath })
-                            try { await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'shot', entityId: shot.id, sourcePath: imagePath }) } catch {}
-                            onThumbChanged?.()
+                            pickEntityThumbnail({ canWrite, entityType: 'shot', entityId: shot.id, update: p => ctx?.updateShot?.(shot.id, p), onChanged: onThumbChanged })
                           } : undefined}>
                           {shot.thumbnail_image ? (
                             <>
@@ -3383,89 +3315,32 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
   const project = ctx?.project
   const managedFiles = ctx?.managedFiles || []
 
-  const [editingDesc, setEditingDesc] = useState(false)
-  const [editingNotes, setEditingNotes] = useState(false)
-  // Review round 1 (R1-06, D21): each draft follows the saved words while
-  // its editor is closed, or open and untouched — never once typed in.
-  const [descDraft, setDescDraft] = useSavedDraft(scene?.description || '', editingDesc)
-  const [notesDraft, setNotesDraft] = useSavedDraft(scene?.notes || '', editingNotes)
   // MO3 (0127): the scene's links and tags (useThingLinks).
   const sceneLinks = useThingLinks(ctx, 'scene', scene?.id, scene?.description, scene?.notes)
-  // Focus back to each one's words when its edit closes (R2-05, useFocusBack).
-  const descWordsRef = useFocusBack(editingDesc)
-  const notesWordsRef = useFocusBack(editingNotes)
   const [showCreateTask, setShowCreateTask] = useState(false)
-  const [nestedTaskId, setNestedTaskId] = useState(null)
-  const [nestedAssetId, setNestedAssetId] = useState(null)
-  // D21: the draft a question is about — 'close' (the popup), 'description'
-  // or 'notes' (Escape in its box) — while it asks.
-  const [askDiscard, setAskDiscard] = useState(null)
-  // Post-overhaul S3c, step 7 (S3b-05, S3b-08): the task form's typed work
-  // counts as the popup's, and an EXIT that would take the popup away — the
-  // tab strip, "Show in Bins", a project switch, a jump opening another
-  // row's popup — asks D21's question first (state/leaveGuard.js).
-  const [taskDirty, setTaskDirty] = useState(false)
-  const [leaveAsk, setLeaveAsk] = useState(null)
-  const dirtyRef = useRef(false)
-  useLeaveGuard({ order: 1, reasons: POPUP_EXITS, dirty: () => dirtyRef.current, ask: () => new Promise(resolve => setLeaveAsk({ resolve })) })
-  // Review round 1 (R1-10): the scene gone under an open question (deleted
-  // elsewhere) — it can never be answered here: the exit stays, the question
-  // goes, and the leave guard's lock is let go.
-  useEffect(() => {
-    if (!scene && leaveAsk) { leaveAsk.resolve(false); setLeaveAsk(null) }
-  }, [scene, leaveAsk])
-  // What opened this popup — a row's Open — captured in render, as
-  // the kit Dialog captures it (an effect would read the popup's own focus).
-  // The delete question asked from here is handed it (ConfirmDialog).
-  const openerRef = useRef(null)
-  if (openerRef.current === null && typeof document !== 'undefined') openerRef.current = document.activeElement
+  // F10 (rabbit A1): the window's behaviour, the four kinds' one hook
+  // (views/entity/useEntityWindow.jsx): the drafts, each following the saved
+  // words while closed or untouched (R1-06), and focus back to their words
+  // (R2-05); D21's question on a close, on Escape in a changed box and on an
+  // exit that would take the window away (S3b-05, S3b-08: the task form's
+  // typed work counts); the opener, handed to a delete asked from here; the
+  // thumbnail's two writers.
+  const {
+    editingDesc, setEditingDesc, editingNotes, setEditingNotes, descDraft, setDescDraft, notesDraft, setNotesDraft,
+    descWordsRef, notesWordsRef, nestedTaskId, setNestedTaskId, nestedAssetId, setNestedAssetId,
+    setTaskDirty, setAskDiscard, requestClose, handleUpdate, handleSetThumbnail, handleClearThumbnail, requestDelete, questions,
+  } = useEntityWindow({
+    row: scene, kind: 'scene', update: (patch) => ctx?.updateScene?.(scene.id, patch), canWrite, onClose, onRequestDelete,
+    deleteTarget: (row, opener) => ({ type: 'scene', id: row.id, name: row.name || 'Untitled', returnTo: opener }),
+    onThumbChanged, taskOpen: showCreateTask, say: 'scene',
+  })
 
-  if (!scene) { dirtyRef.current = false; return null }
+  if (!scene) return null
 
   // What the Dialog is named for: the name its title shows.
   const name = scene.name || 'Untitled scene'
   const status = scene.status || 'not_started'
   const hasThumbnail = !!scene.thumbnail_image
-
-  function handleUpdate(patch) { return canWrite ? ctx?.updateScene?.(scene.id, patch) : undefined }
-  // D21: a draft that differs from what is saved, in an open editor — and
-  // (S3b-05) a task form with anything typed or chosen in it.
-  const dirty = {
-    description: editingDesc && descDraft !== (scene.description || ''),
-    notes: editingNotes && notesDraft !== (scene.notes || ''),
-    task: showCreateTask && taskDirty,
-  }
-  dirtyRef.current = dirty.description || dirty.notes || dirty.task
-  /** The kit Dialog's onBeforeClose (Escape, ✕, the backdrop) and Close: ask first when a draft would go. */
-  const requestClose = () => {
-    if (!dirty.description && !dirty.notes && !dirty.task) return true
-    setAskDiscard('close')
-    return false
-  }
-  const discard = (what) => {
-    setAskDiscard(null)
-    if (what === 'close') { onClose(); return }
-    if (what === 'description') { setDescDraft(scene.description || ''); setEditingDesc(false) }
-    else { setNotesDraft(scene.notes || ''); setEditingNotes(false) }
-  }
-
-  async function handleSetThumbnail() {
-    if (!canWrite || !window.electronAPI?.rabbit?.pickImage) return
-    const imagePath = await window.electronAPI.rabbit.pickImage()
-    if (!imagePath) return
-    handleUpdate({ thumbnail_image: imagePath })
-    try {
-      await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'scene', entityId: scene.id, sourcePath: imagePath })
-    } catch (e) { console.error('scene thumbnail gen failed:', e) }
-    onThumbChanged?.()
-  }
-
-  async function handleClearThumbnail() {
-    if (!canWrite) return
-    handleUpdate({ thumbnail_image: null })
-    try { await window.electronAPI.rabbit.clearEntityThumbnail({ entityType: 'scene', entityId: scene.id }) } catch {}
-    onThumbChanged?.()
-  }
 
   async function handleCreateTask(draft) {
     if (!canWrite) return
@@ -3512,7 +3387,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
                   class on both: GatedAction draws its wrapper only when it greys. */}
               <GatedAction allowed={canWrite} className="rb-scene-detail-delete">
                 <Button variant="danger" Icon={Trash2} className="rb-scene-detail-delete"
-                  onClick={() => { onClose(); onRequestDelete({ type: 'scene', id: scene.id, name: scene.name || 'Untitled', returnTo: openerRef.current }) }}>
+                  onClick={requestDelete}>
                   Delete scene
                 </Button>
               </GatedAction>
@@ -3846,29 +3721,8 @@ function SceneDetailPopup({ sceneId, ctx, fps, sceneShots, assetCountByScene, ta
       )}
       {/* P1-23: a related asset, in the Assets tab's own popup (it portals itself). */}
       <NestedAsset ctx={ctx} assetId={nestedAssetId} thumbRevision={thumbRevision} onThumbChanged={onThumbChanged} onClose={() => setNestedAssetId(null)} canWrite={canWrite} />
-      {/* D21: the draft question, over this popup. */}
-      {askDiscard && (
-        <ListConfirm
-          title="Discard your changes?"
-          confirmLabel="Discard"
-          onCancel={() => setAskDiscard(null)}
-          onConfirm={async () => discard(askDiscard)}
-        >
-          {discardWords(askDiscard, dirty)}
-        </ListConfirm>
-      )}
-      {/* S3c step 7: the same question when an exit would take this popup
-          away (S3b-08); Cancel stays, Discard lets the exit go on. */}
-      {leaveAsk && (
-        <ListConfirm
-          title="Discard your changes?"
-          confirmLabel="Discard"
-          onCancel={() => { setLeaveAsk(null); leaveAsk.resolve(false) }}
-          onConfirm={async () => { setLeaveAsk(null); leaveAsk.resolve(true) }}
-        >
-          {discardWords('close', dirty)}
-        </ListConfirm>
-      )}
+      {/* D21's questions, over the window (useEntityWindow). */}
+      {questions}
     </>
   )
 }
@@ -3899,77 +3753,31 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
   const project = ctx?.project
   const managedFiles = ctx?.managedFiles || []
 
-  const [editingDesc, setEditingDesc] = useState(false)
-  const [editingNotes, setEditingNotes] = useState(false)
-  // R1-06: as the scene popup's (useSavedDraft).
-  const [descDraft, setDescDraft] = useSavedDraft(shot?.description || '', editingDesc)
-  const [notesDraft, setNotesDraft] = useSavedDraft(shot?.notes || '', editingNotes)
   // MO3 (0127): the shot's links and tags (useThingLinks).
   const shotLinks = useThingLinks(ctx, 'shot', shot?.id, shot?.description, shot?.notes)
-  // Focus back to each one's words when its edit closes (R2-05, as the scene popup's).
-  const descWordsRef = useFocusBack(editingDesc)
-  const notesWordsRef = useFocusBack(editingNotes)
   const [showCreateTask, setShowCreateTask] = useState(false)
-  const [nestedTaskId, setNestedTaskId] = useState(null)
-  const [nestedAssetId, setNestedAssetId] = useState(null)
-  // D21: the draft a question is about, while it asks (the scene popup's).
-  const [askDiscard, setAskDiscard] = useState(null)
-  // S3c step 7 (S3b-05, S3b-08): the task form's typed work, and the exits
-  // that would take this popup away, as the scene popup's.
-  const [taskDirty, setTaskDirty] = useState(false)
-  const [leaveAsk, setLeaveAsk] = useState(null)
-  const dirtyRef = useRef(false)
-  useLeaveGuard({ order: 1, reasons: POPUP_EXITS, dirty: () => dirtyRef.current, ask: () => new Promise(resolve => setLeaveAsk({ resolve })) })
-  // R1-10, as the scene popup's: the shot gone under an open question.
-  useEffect(() => {
-    if (!shot && leaveAsk) { leaveAsk.resolve(false); setLeaveAsk(null) }
-  }, [shot, leaveAsk])
-  // What opened this popup, handed to the delete question (the scene popup's).
-  const openerRef = useRef(null)
-  if (openerRef.current === null && typeof document !== 'undefined') openerRef.current = document.activeElement
+  // F10 (rabbit A1): the window's behaviour, the four kinds' one hook
+  // (views/entity/useEntityWindow.jsx): the drafts, each following the saved
+  // words while closed or untouched (R1-06), and focus back to their words
+  // (R2-05); D21's question on a close, on Escape in a changed box and on an
+  // exit that would take the window away (S3b-05, S3b-08: the task form's
+  // typed work counts); the opener, handed to a delete asked from here; the
+  // thumbnail's two writers.
+  const {
+    editingDesc, setEditingDesc, editingNotes, setEditingNotes, descDraft, setDescDraft, notesDraft, setNotesDraft,
+    descWordsRef, notesWordsRef, nestedTaskId, setNestedTaskId, nestedAssetId, setNestedAssetId,
+    setTaskDirty, setAskDiscard, requestClose, handleUpdate, handleSetThumbnail, handleClearThumbnail, requestDelete, questions,
+  } = useEntityWindow({
+    row: shot, kind: 'shot', update: (patch) => ctx?.updateShot?.(shot.id, patch), canWrite, onClose, onRequestDelete,
+    deleteTarget: (row, opener) => ({ type: 'shot', id: row.id, name: row.name || 'Untitled', returnTo: opener }),
+    onThumbChanged, taskOpen: showCreateTask, say: 'shot',
+  })
 
-  if (!shot) { dirtyRef.current = false; return null }
+  if (!shot) return null
 
   const name = shot.name || 'Untitled shot'
   const status = shot.status || 'not_started'
   const hasThumbnail = !!shot.thumbnail_image
-
-  function handleUpdate(patch) { return canWrite ? ctx?.updateShot?.(shot.id, patch) : undefined }
-  const dirty = {
-    description: editingDesc && descDraft !== (shot.description || ''),
-    notes: editingNotes && notesDraft !== (shot.notes || ''),
-    task: showCreateTask && taskDirty,
-  }
-  dirtyRef.current = dirty.description || dirty.notes || dirty.task
-  const requestClose = () => {
-    if (!dirty.description && !dirty.notes && !dirty.task) return true
-    setAskDiscard('close')
-    return false
-  }
-  const discard = (what) => {
-    setAskDiscard(null)
-    if (what === 'close') { onClose(); return }
-    if (what === 'description') { setDescDraft(shot.description || ''); setEditingDesc(false) }
-    else { setNotesDraft(shot.notes || ''); setEditingNotes(false) }
-  }
-
-  async function handleSetThumbnail() {
-    if (!canWrite || !window.electronAPI?.rabbit?.pickImage) return
-    const imagePath = await window.electronAPI.rabbit.pickImage()
-    if (!imagePath) return
-    handleUpdate({ thumbnail_image: imagePath })
-    try {
-      await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'shot', entityId: shot.id, sourcePath: imagePath })
-    } catch (e) { console.error('shot thumbnail gen failed:', e) }
-    onThumbChanged?.()
-  }
-
-  async function handleClearThumbnail() {
-    if (!canWrite) return
-    handleUpdate({ thumbnail_image: null })
-    try { await window.electronAPI.rabbit.clearEntityThumbnail({ entityType: 'shot', entityId: shot.id }) } catch {}
-    onThumbChanged?.()
-  }
 
   async function handleCreateTask(draft) {
     if (!canWrite) return
@@ -4015,7 +3823,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
             <>
               <GatedAction allowed={canWrite} className="rb-scene-detail-delete">
                 <Button variant="danger" Icon={Trash2} className="rb-scene-detail-delete"
-                  onClick={() => { onClose(); onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled', returnTo: openerRef.current }) }}>
+                  onClick={requestDelete}>
                   Delete shot
                 </Button>
               </GatedAction>
@@ -4351,77 +4159,38 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
       )}
       {/* P1-23: a related asset, in the Assets tab's own popup. */}
       <NestedAsset ctx={ctx} assetId={nestedAssetId} thumbRevision={thumbRevision} onThumbChanged={onThumbChanged} onClose={() => setNestedAssetId(null)} canWrite={canWrite} />
-      {/* D21: the draft question, over this popup. */}
-      {askDiscard && (
-        <ListConfirm
-          title="Discard your changes?"
-          confirmLabel="Discard"
-          onCancel={() => setAskDiscard(null)}
-          onConfirm={async () => discard(askDiscard)}
-        >
-          {discardWords(askDiscard, dirty)}
-        </ListConfirm>
-      )}
-      {/* S3c step 7: the same question when an exit would take this popup
-          away (S3b-08); Cancel stays, Discard lets the exit go on. */}
-      {leaveAsk && (
-        <ListConfirm
-          title="Discard your changes?"
-          confirmLabel="Discard"
-          onCancel={() => { setLeaveAsk(null); leaveAsk.resolve(false) }}
-          onConfirm={async () => { setLeaveAsk(null); leaveAsk.resolve(true) }}
-        >
-          {discardWords('close', dirty)}
-        </ListConfirm>
-      )}
+      {/* D21's questions, over the window (useEntityWindow). */}
+      {questions}
     </>
   )
 }
 
 
 // ─── Confirmation dialog ───
-// The kit Dialog at the confirm width (W9), portalled into <body> so no
-// container on the page can hold it (the kit Dialog does not portal): the
-// same words, Cancel first and focused, Delete the kit's danger button, and
+// The kit's Confirm (F10; W9's shape), portalled into <body> so no container
+// on the page can hold it: the same words, Cancel first and focused from
+// every path (surface 6c, B4c's lesson), Delete the kit's danger button, and
 // Escape and the focus trap the kit adds (Q17). A row's delete keeps its
 // backdrop click, as the hand-rolled one had; the three bulk deletes that
-// were window.confirm pass `dismissOnBackdrop={false}`.
+// were window.confirm pass `dismissOnBackdrop={false}`. On close, focus goes
+// back to `returnTo` when a popup asked: what opened the popup, the row's
+// Open (the popup's own Delete has gone with the popup).
 //
-// 🚨 Cancel takes focus in an EFFECT, not only by `autoFocus` (surface 6c,
-// B4c's lesson). From a detail popup's Delete the popup closes in the same
-// commit this opens: `autoFocus` puts focus on Cancel during the commit, the
-// popup's unmount hands focus back to what opened IT, and the kit Dialog's
-// own effect, finding focus outside, lands it on ✕. This effect runs after
-// both — a child's effects run before its parent's — so the question opens on
-// Cancel from every path, as it does from a row.
-//
-// 🚨 …and on close, focus goes back to `returnTo` when a popup asked: what
-// opened the popup, the row's Open. The kit Dialog hands focus to
-// what had it when the question opened — the popup's own Delete, gone with
-// the popup — so every close from that path dropped focus to <body>. Only
-// when focus has fallen there, and only while the opener is in the page (a
-// delete takes the row, and its button, with it; StrictMode's rehearsal of an
-// unmount leaves focus on Cancel, so that does nothing).
-//
-// 🚨 …and while one is up, the page's Ctrl+Z / Ctrl+Y stand down (R1-08,
-// above). This page's question counts itself in `openQuestions` while it is
-// mounted: the tables' bulk questions are their own state, which the page's
-// key handler cannot read. Module state, as the kit's modal stack is
-// (overlay.js): there is one page and one keyboard.
-//
-// 🚨 This component is NOT every question on the page (review round two,
-// R2-01). The popups host FileManager's "Delete file" and RelationsPanel's
-// "Create task", each the kit Dialog at the confirm width in <body>, and
-// Ctrl+Z behind them reverted an edit (a status set in the table) while the
-// question was up. So the handler also stands down while ANY kit Dialog at
-// the confirm width is on screen, whoever opened it: the kit writes the
-// width token on its surface (`data-width="confirm"`, Dialog.jsx). A popup
-// is the kit Dialog at another width, so the keys still undo there (C1).
-const openQuestions = { count: 0 }
+// 🚨 While a question is up, the page's Ctrl+Z / Ctrl+Y stand down (R1-08,
+// above), and not only under this one (review round two, R2-01): the popups
+// host FileManager's "Delete file" and RelationsPanel's "Create task", each
+// the kit Dialog at the confirm width in <body>, and Ctrl+Z behind them
+// reverted an edit (a status set in the table) while the question was up. So
+// the handler stands down while ANY kit Dialog at the confirm width is on
+// screen, whoever opened it: the kit writes the width token on its surface
+// (`data-width="confirm"`, Dialog.jsx). This page's own questions are among
+// them (they are the kit's Confirm since F10, which counted itself here
+// before, in a module count the width query already covered). A popup is the
+// kit Dialog at another width, so the keys still undo there (C1).
 // Post-overhaul S3c review round 2 (R2-05): the window's close question too
 // (App's own, no kit Dialog) — with or without a popup open, as any question.
 function questionOnScreen() {
-  return openQuestions.count > 0 || answersOpen.count > 0 || document.querySelector('.ui-dialog[data-width="confirm"]') !== null
+  return answersOpen.count > 0 || document.querySelector('.ui-dialog[data-width="confirm"]') !== null
     || appQuestionOnScreen()
 }
 /** A kit menu ON SCREEN (a row's shot-list menu, the bar's More): a key
@@ -4434,32 +4203,11 @@ function menuOnScreen() {
   return false
 }
 function ConfirmDialog({ title, message, onConfirm, onCancel, dismissOnBackdrop = true, returnTo = null }) {
-  const cancelRef = useRef(null)
-  useEffect(() => {
-    openQuestions.count += 1
-    cancelRef.current?.focus()
-    return () => {
-      openQuestions.count -= 1
-      const active = document.activeElement
-      if (returnTo && returnTo !== document.body && returnTo.isConnected && (!active || active === document.body)) returnTo.focus()
-    }
-  }, [])
-  return createPortal(
-    <Dialog
-      width="confirm"
-      title={title}
-      dismissOnBackdrop={dismissOnBackdrop}
-      onClose={onCancel}
-      footer={(
-        <>
-          <Button ref={cancelRef} autoFocus onClick={onCancel}>Cancel</Button>
-          <Button variant="danger" onClick={onConfirm}>Delete</Button>
-        </>
-      )}
-    >
+  return (
+    <Confirm title={title} dismissOnBackdrop={dismissOnBackdrop} returnTo={returnTo}
+      onConfirm={() => { onConfirm() }} onCancel={onCancel}>
       {message}
-    </Dialog>,
-    document.body,
+    </Confirm>
   )
 }
 
@@ -4471,140 +4219,67 @@ function ConfirmDialog({ title, message, onConfirm, onCancel, dismissOnBackdrop 
 
 
 // ─── Bulk select ───
-// A bulk bar's picker: the kit's small field (B4b's AssetBulkSelect), its
+// A bulk bar's picker: the kit's BulkSelect (F10) in this lane's class, its
 // first option the label it always showed, its choices in sentence case.
 function SceneBulkSelect({ label, options, onPick }) {
-  return (
-    <select defaultValue="" aria-label={label}
-      onChange={e => { if (e.target.value) { onPick(e.target.value); e.target.value = '' } }}
-      className="ui-input rb-scene-bulk-select"
-      data-size="sm">
-      <option value="" disabled>{label}</option>
-      {options.map(o => <option key={o} value={o}>{humanizeStatus(o)}</option>)}
-    </select>
-  )
+  return <KitBulkSelect label={label} options={options} onPick={onPick} className="ui-input rb-scene-bulk-select" />
 }
 
 
 // ─── InlineText ───
-// A cell's words that become a field on a click, exactly as before. At rest
-// the words — `strong` (a row's name) at 600 in the ink, the rest in the
-// second ink, `size="xs"` (the scene popup's shot line) in the third, an
-// empty one its placeholder in the third (R3-13: it was #57534e, 2.3:1) —
+// A cell's words that become a field on a click: the kit's useInlineText (F10)
+// on this lane's elements. At rest the words — `strong` (a row's name) at 600
+// in the ink, the rest in the second ink, `size="xs"` (the scene popup's shot
+// line) in the third, an empty one its placeholder in the third (R3-13) —
 // with the kit's hover fill; editing, the kit's small field, a native
-// `ui-input` (the kit Input's own Escape and Enter would break the draft,
-// B3d trap 3). `label` names the field for a screen reader. Escape reverts
-// the draft and is MARKED handled, as PopupInlineText's is (K4's mark): a
-// shot's description in the scene popup is inside the kit Dialog, which
-// stands down on a handled Escape, so the first press only reverts (review
-// round one, R1-02: it reverted AND closed the popup).
+// `ui-input`. `label` names the field for a screen reader. Escape reverts the
+// draft and is MARKED handled (K4's mark): a shot's description in the scene
+// popup is inside the kit Dialog, which stands down on a handled Escape, so
+// the first press only reverts (review round one, R1-02). Enter and blur
+// commit the trimmed draft. The words are a span, not a control: a tab stop
+// on every row was ruled out (C1). Since F10 the span is focusable by script
+// only (tabIndex -1), so focus comes back to it when an edit closes (P1-06)
+// and the row gains no tab stop. Its click stops there (the row's own).
 // `title` (S3b, D10): the words' tooltip — a name's lists ("In: …").
 // `readOnly` (S3b step 7): a seat that may not write scenes and shots gets
 // the words alone — no click, no hover fill, no field (`data-static`); an
 // empty one a dash, not an "Add …" it could not do.
 function InlineText({ value, placeholder, onCommit, size = 'md', strong = false, label, title, readOnly = false }) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(value)
-  const inputRef = useRef(null)
-
-  useEffect(() => { setDraft(value) }, [value])
-  useEffect(() => { if (editing && inputRef.current) inputRef.current.focus() }, [editing])
-
-  if (readOnly) {
-    return (
-      <span
-        className="rb-scene-inline"
-        data-static="true"
-        data-tone={strong ? 'strong' : size === 'xs' ? 'quiet' : undefined}
-        data-empty={value ? undefined : 'true'}
-        title={title}
-      >
-        {mentionPlainText(value || '') || (strong ? placeholder : '—')}
-      </span>
-    )
-  }
-  if (editing) {
-    return (
-      <input ref={inputRef} type="text" value={draft}
-        onChange={e => setDraft(e.target.value)}
-        onBlur={() => { if (draft !== value) onCommit(draft); setEditing(false) }}
-        onKeyDown={e => {
-          if (e.key === 'Enter') { if (draft !== value) onCommit(draft); setEditing(false) }
-          if (e.key === 'Escape') { e.preventDefault(); setDraft(value); setEditing(false) }
-        }}
-        aria-label={label}
-        className="ui-input rb-scene-inline-input"
-        data-size="sm"
-        onClick={e => e.stopPropagation()}
-      />
-    )
-  }
-  return (
-    <span
-      className="rb-scene-inline"
-      data-tone={strong ? 'strong' : size === 'xs' ? 'quiet' : undefined}
-      data-empty={value ? undefined : 'true'}
-      title={title}
-      onClick={e => { e.stopPropagation(); setEditing(true) }}
-    >
-      {mentionPlainText(value || '') || placeholder}
-    </span>
-  )
+  return useInlineText({
+    value, placeholder, label, onCommit, readOnly,
+    display: mentionPlainText, staticEmpty: strong ? placeholder : '—', stopClick: true,
+    words: <span className="rb-scene-inline" data-tone={strong ? 'strong' : size === 'xs' ? 'quiet' : undefined}
+      data-empty={value ? undefined : 'true'} title={title} />,
+    still: <span className="rb-scene-inline" data-static="true" data-tone={strong ? 'strong' : size === 'xs' ? 'quiet' : undefined}
+      data-empty={value ? undefined : 'true'} title={title} />,
+    field: <input className="ui-input rb-scene-inline-input" data-size="sm" />,
+  })
 }
 
 
 // ─── PopupInlineText ───
-// The popups' name field (surface 6c). At rest its words in the kit's small
-// well, a button — legible as a field, and a tab stop where it was a span
-// only a pointer could open — an empty one's placeholder in the third ink
-// (it was #57534e, 2.3:1). On a click the kit's small field takes its place,
-// the same size (a native `ui-input`: the kit Input's own Escape and Enter
-// would break the draft, B3d trap 3), in the ink where it was orange with an
-// orange underline. Enter and blur commit the draft as they did. Escape
-// reverts it and is MARKED handled (K4's mark), so the kit Dialog around it
-// stands down: the first press reverts the edit, the next closes the popup
-// (W2). Closed, it gives focus back to its words (R2-05, useFocusBack).
-// `label` names the field. `readOnly` (S3b step 7): the words inert, as a
-// value nobody can type is (R3-36) — no well, no tab stop.
+// The popups' name field (surface 6c): the kit's useInlineText (F10) on this
+// lane's elements. At rest its words in the kit's small well, a button —
+// legible as a field, and a tab stop — an empty one's placeholder in the
+// third ink. On a click the kit's small field takes its place, the same size,
+// in the ink. Enter and blur commit the trimmed draft. Escape reverts it and
+// is MARKED handled (K4's mark), so the kit Dialog around it stands down: the
+// first press reverts the edit, the next closes the popup (W2). Closed, it
+// gives focus back to its words (R2-05). `label` names the field.
+// `readOnly` (S3b step 7): the words inert, as a value nobody can type is
+// (R3-36) — no well, no tab stop.
 function PopupInlineText({ value, placeholder, label, onCommit, readOnly = false }) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(value)
-  const inputRef = useRef(null)
-  const wordsRef = useFocusBack(editing)
-
-  useEffect(() => { setDraft(value) }, [value])
-  useEffect(() => { if (editing && inputRef.current) inputRef.current.focus() }, [editing])
-
-  if (readOnly) {
-    return (
+  return useInlineText({
+    value, placeholder, label, onCommit, readOnly,
+    display: mentionPlainText,
+    words: <button type="button" className="ui-input rb-scene-name-text" data-size="sm" data-empty={value ? undefined : 'true'} />,
+    still: (
       <span className="rb-scene-prop-inert" data-empty={value ? undefined : 'true'}>
         <span className="rb-scene-prop-words">{value || placeholder}</span>
       </span>
-    )
-  }
-  if (editing) {
-    return (
-      <input ref={inputRef} type="text" value={draft}
-        onChange={e => setDraft(e.target.value)}
-        onBlur={() => { if (draft !== value) onCommit(draft); setEditing(false) }}
-        onKeyDown={e => {
-          if (e.key === 'Enter') { if (draft !== value) onCommit(draft); setEditing(false) }
-          if (e.key === 'Escape') { e.preventDefault(); setDraft(value); setEditing(false) }
-        }}
-        aria-label={label}
-        className="ui-input"
-        data-size="sm"
-      />
-    )
-  }
-  return (
-    <button ref={wordsRef} type="button" onClick={() => setEditing(true)}
-      className="ui-input rb-scene-name-text"
-      data-size="sm"
-      data-empty={value ? undefined : 'true'}>
-      {mentionPlainText(value || '') || placeholder}
-    </button>
-  )
+    ),
+    field: <input className="ui-input" data-size="sm" />,
+  })
 }
 
 
@@ -4704,16 +4379,6 @@ function PopupDraftText({ label, field, value, emptyWords, editing, setEditing, 
   )
 }
 
-/** D21's words: which draft would go. `what` is 'close', 'description' or 'notes'. */
-function discardWords(what, dirty) {
-  const parts = what === 'close'
-    ? [dirty.description && 'the description', dirty.notes && 'the notes', dirty.task && 'the new task'].filter(Boolean)
-    : [what === 'notes' ? 'the notes' : 'the description']
-  const list = parts.length > 2 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts.join(' and ')
-  // S3c (S3b-05): a task is created, not saved — the way back is to it.
-  const back = what === 'close' && dirty.task ? 'go back to it' : 'go back and Save it'
-  return `What you typed in ${list} is not saved. Discard it, or ${back}.`
-}
 
 // ─── NestedAsset (S3b step 7, P1-23) ───
 // A related asset clicked in a popup's sidebar opens the Assets tab's own
@@ -4740,65 +4405,20 @@ function NestedAsset({ ctx, assetId, thumbRevision, onThumbChanged, onClose, can
 }
 
 
-// ─── useFocusBack ───
-// An editor in a popup whose words at rest are a control — the name field
-// (PopupInlineText) and each popup's description and notes — gives focus
-// back to them when its edit closes (review round two, R2-05). The field
-// that had focus goes with the edit, and focus fell to <body>: the next Tab
-// started again from the popup's first control (Escape in the description,
-// then Tab, landed on the popup's Close). Whenever focus has fallen there —
-// always after Escape, Enter, Save or Cancel, whose control is the one that
-// went; after a blur that commits only then, so a Tab or a click elsewhere
-// keeps where it went. Returns the ref for the words' button.
-// InlineText (the tables' editor, also in the scene popup's shot list) is
-// NOT on it: its words are a span, not a control, and making them one would
-// add a Tab stop to every row (C1; recorded for Audrey), so its close there
-// still leaves focus on <body>.
-/**
- * A popup's draft of one saved text (D21; review round 1, R1-06). The saved
- * words replace the draft while its editor is closed — and while it is open
- * but still holds the words it opened on, so a change from elsewhere (a
- * teammate, a re-read, Ctrl+Z) shows in an editor nobody has typed in,
- * which neither reads as changed nor writes the old words back on Save. A
- * draft someone HAS typed in stays put, and closing the popup still asks.
- * The basis is read before the update is queued: React may run the updater
- * after this effect has moved the ref on.
- */
-function useSavedDraft(saved, editing) {
-  const [draft, setDraft] = useState(saved)
-  const basisRef = useRef(saved)
-  useEffect(() => {
-    const basis = basisRef.current
-    basisRef.current = saved
-    setDraft(d => (!editing || d === basis ? saved : d))
-  }, [saved, editing])
-  return [draft, setDraft]
-}
-
-function useFocusBack(editing) {
-  const wordsRef = useRef(null)
-  const wasEditing = useRef(editing)
-  useEffect(() => {
-    const closed = wasEditing.current && !editing
-    wasEditing.current = editing
-    if (!closed) return
-    const active = document.activeElement
-    if (!active || active === document.body) wordsRef.current?.focus()
-  }, [editing])
-  return wordsRef
-}
+// ─── useFocusBack, useSavedDraft ───
+// The popups' description and notes give focus back to their words when an
+// edit closes (review round two, R2-05), and each draft follows the saved
+// words while its editor is closed or untouched (D21; review round 1, R1-06).
+// Both hooks are the kit's since F10 (src/ui/useInlineText.jsx), where the
+// inline editors use them too, and the windows take them through their one
+// hook (views/entity/useEntityWindow.jsx); their rules are written there.
 
 
 // ─── FieldLabel ───
-// A property's label: the kit Field's own label class — 11px, 600, capitals
-// at the kit's tracking, the second ink (7.85:1 on the Dialog's raised paper,
-// where #78716c measured 3.16 on #292524) — a block over its value, as B4c's
-// FieldLabel. As before it labels no control by itself: each control carries
-// its own name.
+// A property's label: the kit's FieldLabel (F10) in this lane's class —
+// 11px, 600, capitals at the kit's tracking, the second ink (7.85:1 on the
+// Dialog's raised paper) — a block over its value, as B4c's FieldLabel. As
+// before it labels no control by itself: each control carries its own name.
 function FieldLabel({ children }) {
-  return (
-    <label className="ui-field-label rb-scene-label">
-      {children}
-    </label>
-  )
+  return <KitFieldLabel className="ui-field-label rb-scene-label">{children}</KitFieldLabel>
 }

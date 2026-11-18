@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { describe, it, expect, afterEach } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
-import { Field } from './Field'
+import { Field, FieldLabel } from './Field'
 import { Input } from './Input'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -19,6 +19,13 @@ describe('Field', () => {
     const field = input.closest('.ui-field')
     expect(field.tagName).toBe('LABEL')
     expect(field.querySelector('.ui-field-label').textContent).toBe('Scene')
+  })
+
+  it('FieldLabel (F10): the Label step on its own, the caller\'s class beside the kit\'s, written once; it labels nothing', () => {
+    render(<><FieldLabel className="ui-field-label rb-x-label">Scene name</FieldLabel><FieldLabel>Notes</FieldLabel></>)
+    const a = screen.getByText('Scene name')
+    expect([a.tagName, a.className, a.htmlFor]).toEqual(['LABEL', 'ui-field-label rb-x-label', ''])
+    expect(screen.getByText('Notes').className).toBe('ui-field-label')
   })
 
   it('renders inline, mixed and hint as data and content, not as inline styles', () => {

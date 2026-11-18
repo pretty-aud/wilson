@@ -9,9 +9,13 @@
 // this; the table renders `dialog` once. *Cancel* has the keyboard (the safe
 // answer first); Escape answers Cancel (the kit Dialog's topmost-only
 // Escape, and a Popover under it stands down while it is open).
+//
+// The question itself is the kit's Confirm since post-overhaul F10 (rabbit
+// A6, the one confirm-width question), drawn in place as before; this hook
+// is the promise around it, which the views and the dropdown await.
 
 import { useCallback, useRef, useState } from 'react'
-import { Button, Dialog } from '../../../../ui'
+import { Confirm } from '../../../../ui'
 import './tableViews.css'
 
 /** `ask({ title, body, confirm, danger })` answers true or false; render `dialog` at the root. */
@@ -30,19 +34,16 @@ export function useAsk() {
     resolve?.(yes)
   }, [])
   const dialog = asking ? (
-    <Dialog
-      width="confirm"
+    <Confirm
+      portal={false}
       title={asking.title}
-      onClose={() => answer(false)}
-      footer={(
-        <>
-          <Button autoFocus onClick={() => answer(false)}>Cancel</Button>
-          <Button variant={asking.danger ? 'danger' : 'primary'} onClick={() => answer(true)}>{asking.confirm || 'OK'}</Button>
-        </>
-      )}
+      confirmLabel={asking.confirm || 'OK'}
+      variant={asking.danger ? 'danger' : 'primary'}
+      onCancel={() => answer(false)}
+      onConfirm={() => { answer(true) }}
     >
       {typeof asking.body === 'string' ? <p className="rb-tv-ask">{asking.body}</p> : (asking.body || null)}
-    </Dialog>
+    </Confirm>
   ) : null
   return { ask, dialog }
 }

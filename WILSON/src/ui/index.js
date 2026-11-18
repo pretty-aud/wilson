@@ -15,6 +15,11 @@
 // HoverActions right after them.
 // Post-overhaul VW1b adds Popover (VW1-KR-1): a non-modal floating card,
 // portalled out of a scroller that would clip it (the Tasks item picker).
+// Post-overhaul F10 (rabbit A6) adds BulkSelect, Confirm and FieldLabel, the
+// inline editor useInlineText (a hook that draws: a view's own editor calls
+// it, so a table's row keeps one component per editor), and the hooks
+// useOptionalToast, useSavedDraft and useFocusBack: twenty copies in
+// R.A.B.B.I.T.'s views, folded into one behaviour each.
 // =============================================================================
 
 export * from './tokens'
@@ -39,17 +44,21 @@ export { Badge } from './Badge'
 export { StatusDot, STATUS, STATUS_TONES, statusMeta, humanizeStatus } from './StatusDot'
 export { StatusBadge } from './StatusBadge'
 export { StatusBanner } from './StatusBanner'
-export { Field } from './Field'
+export { Field, FieldLabel } from './Field'
 export { Input, useEscapeRevert } from './Input'
 export { TextArea } from './TextArea'
 export { Select } from './Select'
 export { CellSelect } from './CellSelect'
+// Post-overhaul F10 (rabbit A6): from R.A.B.B.I.T.'s views to the kit.
+export { useInlineText, useSavedDraft, useFocusBack } from './useInlineText'
+export { BulkSelect } from './BulkSelect'
+export { Confirm } from './Confirm'
 export { Dialog, DIALOG_WIDTHS } from './Dialog'
 export { Menu } from './Menu'
 // Post-overhaul VW1b (VW1-KR-1): a non-modal floating card, portalled.
 export { Popover } from './Popover'
 export { MenuButton } from './MenuButton'
-export { Toast, ToastProvider, useToast, TOAST_TONES } from './Toast'
+export { Toast, ToastProvider, useToast, useOptionalToast, TOAST_TONES } from './Toast'
 export { Banner, BANNER_TONES } from './Banner'
 export { EmptyState } from './EmptyState'
 export { Loading } from './Loading'

@@ -34,6 +34,9 @@ export const COMPONENTS = [
   'Popover',
   // Post-overhaul VW1d (VW1-KR-3): from views/scenes/ to the kit
   'MenuButton',
+  // Post-overhaul F10 (rabbit A6): from R.A.B.B.I.T.'s views to the kit
+  // (the inline editor is a hook that draws, useInlineText, listed below)
+  'BulkSelect', 'Confirm', 'FieldLabel',
 ]
 
 describe('src/ui inventory', () => {
@@ -61,6 +64,8 @@ describe('src/ui inventory', () => {
       const base = f.replace(/\.(js|jsx)$/, '')
       const represented =
         names.has(base) ||
+        // A hook module is represented by its hook (F10's useInlineText).
+        (/^use[A-Z]/.test(base) && typeof kit[base] === 'function') ||
         (base === 'tokens' && names.has('THEME')) ||
         (base === 'contrast' && names.has('contrast')) ||
         (base === 'overlay' && names.has('overlayOpen'))
@@ -69,7 +74,7 @@ describe('src/ui inventory', () => {
   })
 
   it('the hooks and helpers are there too', () => {
-    for (const name of ['useToast', 'useEscapeRevert', 'statusMeta', 'overlayOpen', 'token', 'contrast', 'over']) {
+    for (const name of ['useToast', 'useOptionalToast', 'useEscapeRevert', 'useInlineText', 'useSavedDraft', 'useFocusBack', 'statusMeta', 'overlayOpen', 'token', 'contrast', 'over']) {
       expect(typeof kit[name], name).toBe('function')
     }
     expect(kit.DIALOG_WIDTHS.confirm).toBe(400)

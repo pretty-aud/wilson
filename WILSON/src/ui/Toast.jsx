@@ -305,4 +305,14 @@ export function useToast() {
   return ctx
 }
 
+/**
+ * The toast stack, or null where no ToastProvider is mounted (a test that
+ * mounts a tab alone): for a passing message, never a failure, which a caller
+ * that cannot do without its toast must not use. R.A.B.B.I.T.'s four table
+ * views each wrote this (post-overhaul F10, rabbit A6).
+ */
+export function useOptionalToast() {
+  return useContext(ToastContext)
+}
+
 export default Toast

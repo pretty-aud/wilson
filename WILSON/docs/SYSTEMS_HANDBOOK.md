@@ -4978,6 +4978,30 @@ holidays and zoom levels; Budget is a 13-tab spreadsheet (Summary, by
 Phase/Role/Asset/Scene/Shot/Level/Experience, Custom, Crew, Talent, Expenses,
 Client View).
 
+**One piece for each thing the views share (F10, 2026-11-18).** The Tasks, Assets, Levels/Experiences and
+Scenes pages draw their inline editors, bulk pickers and delete questions with the kit's own: `useInlineText` (a
+hook that draws: each view's editor, under the name its suites pin, calls it with its own words, field and read-only
+elements, so the lanes' sheets and guards keep reading the classes and `data-*` in the view's source and a table row
+keeps one component an editor — F4's render counts), `BulkSelect` ("None" answers null), `Confirm` (the one
+confirm-width question; `ListConfirm` and `useAsk` draw it), `FieldLabel` and `useOptionalToast`. Enter and blur
+commit the trimmed draft once, Escape reverts and is marked handled and stopped, and focus comes back to the words
+(P1-06). 🚨 Browser rules jsdom cannot show (F10 review rounds 1 and 2, measured in Chromium): a blur's close renders
+INSIDE the browser's focus change, while `<body>` has focus, so the editor tells `useFocusBack` where a closing blur
+goes — 'away' (to a control, the blur's `relatedTarget`: focus stays there, or the Tab or the click lands on the
+words) or 'nowhere' (no target, or an element that holds the field: a kit Dialog's surface, which a click on nothing
+in the window focuses) — and after 'nowhere' the words take it back without a scroll (a scroll moved a re-sorted list
+under the pointer between press and release, and the click was lost). Enter is marked handled, or its keypress clicks
+the words focused back in the same press and reopens the editor. The kit Dialog's Tab trap treats any focused element
+inside it that its list leaves out (a span focusable by script only, a button that disabled itself, a stepper focused
+by a click) as a place in the order. The glue around each table's views is one hook, `views/tableViews/useTableScreen.jsx` (`useTableTab` once a
+tab, `useTableScreen` once a table: the Scenes tab has two). The provider's twelve writers for the four 0040
+entities come from `state/entityMutators.js` (eleven from one factory, `deleteScene` by hand), each in its own
+`useCallback` with the dependencies it always had; an add de-duplicates by id for all four. The scene, shot, level
+and experience windows share their behaviour (`views/entity/useEntityWindow.jsx`: the drafts, focus back, D21's
+question — off for Levels and Experiences until Audrey says, OUTSTANDING F10-02 — the leave guard, the opener) and
+their thumbnail writers (`views/entity/entityThumbnail.js`, the desktop's `generateEntityThumbnail` /
+`clearEntityThumbnail`); each window keeps its own markup (F10-13: one markup, one table and one gallery are left).
+
 **The adapter layer is the rule.** All RABBIT data access goes through one
 adapter interface with three implementations — `supabaseAdapter`,
 `localServerAdapter`, `googleDriveAdapter` — and nothing may bypass it. Mode is

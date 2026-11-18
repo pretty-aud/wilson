@@ -50,4 +50,23 @@ export function Field({ label, children, hint, inline = false, mixed = false, su
   )
 }
 
+/**
+ * The Label step on its own (post-overhaul F10, rabbit A6): a property's
+ * label over its value in the R.A.B.B.I.T. windows — 11px, 600, capitals at
+ * the kit's tracking, the second ink — where the value is a control that
+ * carries its own name, or a value that is no control at all, so the whole
+ * Field (a <label> around its control) does not fit. It labels no control by
+ * itself, as the two copies it replaces did not. A caller may write the pair
+ * whole (`className="ui-field-label rb-scene-label"`, so its sheet's guards
+ * read it in its own source); the kit's class is not written twice.
+ */
+export function FieldLabel({ className = '', children }) {
+  const lane = String(className).split(/\s+/).filter(c => c && c !== 'ui-field-label')
+  return (
+    <label className={['ui-field-label', ...lane].join(' ')}>
+      {children}
+    </label>
+  )
+}
+
 export default Field
