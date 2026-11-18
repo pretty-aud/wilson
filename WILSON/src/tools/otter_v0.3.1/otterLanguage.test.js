@@ -8,6 +8,8 @@
 //     looser map is shown to fall into it.
 //  2. Every id the map can return is a language the shipped Prism build has
 //     (an id it lacks would draw plain text and look like a working map).
+//     F11: the shipped build is src/components/codeHighlighter.js, refractor's
+//     core with the app's languages registered, no longer the full build.
 //  3. The one code theme's token colours, measured against the ground every
 //     O.T.T.E.R. code well has (paper-recessed): every colour the highlighter
 //     can actually write onto a token clears AA at the 13px Dense step. The
@@ -18,7 +20,7 @@
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
-import { Prism } from 'react-syntax-highlighter'
+import { HIGHLIGHTED_LANGUAGES } from '../../components/codeHighlighter.js'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import {
   courseLanguage, COURSE_LANGUAGES, LESSON_CODE_THEME, LESSON_CODE_TEXT, WELL_CODE_TEXT,
@@ -144,8 +146,8 @@ describe('courseLanguage — a course, read as a Prism language', () => {
 // ── 2. the Prism build has every id ──────────────────────────────────────────
 describe('every language the map can return is in the shipped Prism build', () => {
   it('no id draws plain text by being missing', () => {
-    const supported = new Set(Prism.supportedLanguages)
-    expect(supported.size, 'the build lists its languages').toBeGreaterThan(100)
+    const supported = new Set(HIGHLIGHTED_LANGUAGES)
+    expect(supported.size, 'the build lists its languages').toBeGreaterThan(30)
     const ids = [...new Set(Object.values(COURSE_LANGUAGES))]
     expect(ids.filter((id) => !supported.has(id))).toEqual([])
     // CONTROL: a made-up id is reported.
