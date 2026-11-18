@@ -1335,6 +1335,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| F11 (2026-11-18, wave 4 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f11-bundle-and-sign-in` into `feat/post-overhaul-edit-versioning`) — the bundle and the sign-in: the highlighter with the app's languages (297 grammars to 46 and their dependencies), three parts of pages loaded on first open through one helper, one Edge Function caller with words for F8's 413, one sign-in module, and Forgot password asking for the company at her answer; the main chunk 5,093,158 → 4,289,154 bytes; two review rounds, whose findings in F11's own work were fixed in the session; no migration, no SQL, no Edge Function | F11-01 to F11-20 | REV-05 and F8-06, fixed. Comment markers: 4 → 4. |
 | F6 (2026-11-18, wave 3 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f6-dog-otter-one-copy` into `feat/post-overhaul-edit-versioning`) — D.O.G. and O.T.T.E.R. without their copies: the Validator on O.T.T.E.R.'s one AI wrapper, one response reader at 82 reads, one slide splitter and asset-line reader, one rewrite request, one pipeline for five generators, and the prompt boxes made to work at her answer; measured before and after; two review rounds and a one-agent check of the last item, whose findings in F6's own work were fixed in the session; no migration, no SQL, no Edge Function | F6-01 to F6-37 | REV-03 and REV-04, fixed. Comment markers: 4 → 4. |
 | F5 (2026-11-17 and 18, wave 3 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f5-one-roster-one-load` into `feat/post-overhaul-edit-versioning`) — one roster, one rate card, one project load: the roster and the rate card as module-level stores (`src/lib/readCache.js`), the project loaded once after its channel joins with the comments of its own rows, the project roster read once, every collection paged in one place, a New shot's folder tree read once and a drop's shared lookups once, one auth snapshot (`src/cloud/auth/authSnapshot.js`) and the company from the token's claim everywhere; measured before and after by counting tests; two review rounds on Opus 5.5, whose security defects (a private project's drop sent to the cloud after one failed privacy probe; a sign-out not superseding an open's load; the privacy probe failing open) and what F5 had made worse were fixed in the session; no migration, no SQL, no Edge Function | F5-01 to F5-12 | none. Comment markers: 4 → 4. |
 | F8 (2026-11-13, wave 2 of `docs/sessions/PLAN_WEEK_2026-11-04.md`; `po/f8-edge-shared-plumbing`) — the Edge Functions' shared plumbing: one envelope crypto, one bucket loader, the caller checks once, one raw-HTTP transport and host rule, every body read under a measured cap (413 past it), the master keys and the opened ticket key kept per isolate, one SigV4 key per batch; deployed to wilson-dev; two review rounds. | F8-01 to F8-19 (below, the F8 section). | F1-01's 28 known type errors to 1 (F1-01, lowered). F8-01 and F8-02, closed by F8 as the second merger (`8a0bdb4f`); F8-03 tried there and taken back (`6515a9d2`), open on purpose. |
@@ -3805,13 +3806,13 @@ the way are recorded below. Nothing becomes a session unless she names it
   Prompt Export Schema is the layout of a file D.O.G. writes itself, so it is read-only, as the Visual Deck one;
   `prompts/rules.js` (fed only the old, unsent defaults) is deleted; D.O.G.'s Help says what is true. What remains:
   F6-17, F6-35, F6-36, F6-37.
-- **REV-05 · Forgot password can silently send nothing.**
-  `src/cloud/auth/ForgotPasswordWizard.jsx:50` resolves the username with no
-  company; `supabase/functions/resolve-login/index.ts` takes a username and a
-  company and answers a miss when a bare username exists in two companies, and
-  the wizard then shows its uniform "sent" screen. The wizard's body MEASURED
-  by reading; the two-company miss INFERRED (would settle it: one username in
-  two companies on wilson-dev, Forgot password, no mail). Owner: Audrey.
+- ~~**REV-05 · Forgot password can silently send nothing.**~~ **CLOSED by F11 (2026-11-18, `058f5c8a` and
+  `79049d64`).** The wizard asks for the company the way the login does (her answer in F11's chat: the device's last
+  company, or a `?company=` link, shown above the username with *Change company*; a company field when none is
+  known), verifies it and sends `{ username, workspace_slug }`, so a username in two companies gets its reset at that
+  company's address; a company step that cannot be answered is the timeout sentence, never a guessed slug
+  (`signInScreens.test.jsx`, red on the wizard as it was). What remains: the two-company miss is still INFERRED from
+  resolve-login's code, not run on wilson-dev (walkthrough 101, F11, look 3); the hit/miss timing as before (F11-06).
 - **REV-06 · Listing a course's subjects on the Local Server rewrites every
   subject file.** `electron/main.cjs:796-821` (`renumberSubjects`: `writeJSON`
   per subject) runs on the GET at `:824-830`; O.T.T.E.R.'s warm-up calls it
@@ -5137,10 +5138,11 @@ recorded out of scope:
   alone reads it as `{}`. The same for resolve-login's `{ "username": 5 }` or a non-string `workspace_slug`
   (`:323-324`), after the limiter has counted it: no floor, not the uniform body. All as at `a71cd144`: F8 is a
   refactor and kept them. No app sends either. Fix shape: one object check per function, each a change of answer.
-- **F8-06 · The clients' message tables have no `too_large`.** An admin, operator or AI request refused for size
-  reads "Request failed (413)." or "AI request failed (413)." (`src/cloud/adminApi.js:77`, `src/admin/operatorApi.js`,
-  `src/cloud/aiProxy.js:30-57,130`); storage shows the `detail`. No app request comes near a cap (the design round and
-  review round 1 re-read every caller). For a session in `src/`.
+- ~~**F8-06 · The clients' message tables have no `too_large`.**~~ **CLOSED by F11 (2026-11-18, `f50383b1` and
+  `79049d64`).** The one Edge Function caller's base words (`EDGE_WORDS.too_large`, `http_413`) answer it for the
+  admin, operator, invite, upload, file-store and clean-up calls; callAI has its own (attach fewer documents), for the
+  house body and a bare 413; storage and the gateway still show the function's `detail` ("the request is too large").
+  Pinned in `src/cloud/edgeFunctions.test.js` (red on the helpers as they were). Nothing remains.
 - **F8-07 · A client made with no `auth` options starts a refresh timer that is never stopped.** INFERRED from
   auth-js 2.65.0 (the library supabase-js 2.45.4 ships): outside a browser, `GoTrueClient` starts a 30 s auto-refresh
   ticker. The guards', issue-session's, resolve-login's and the two storage functions' clients are made that way, as
@@ -5714,3 +5716,67 @@ Terminal's change requests (MEASURED by grep, comments stripped; `otterRoutes.te
   for anyone to read, forbids colour references. Older. Item 6's check, LOW.
 - **F6-40 · Item 6's wiring is pinned by text.** `promptBoxes.test.js` checks the requests' compose calls and the
   callbacks' lists as source text; no test edits a box in the mounted screen and reads the request. Item 6's check, LOW.
+
+## F11 (2026-11-18, wave 4 of `docs/sessions/PLAN_WEEK_2026-11-04.md`) — left open
+
+From the design round and review round 1 (1A to 1E) and round 2; each left as found, by the brief's rule.
+"As before" marks behaviour F11 did not change.
+
+- **F11-01 · The Notes editor's stack stays in the main chunk: 496,756 bytes.** MEASURED (sourcemap bytes, a
+  module-graph cut: the NotesView cut removes 41,379). `src/components/Dashboard/noteText.js` imports yjs, tiptap and
+  ProseMirror and is imported statically by D.O.G.'s `references/useReferences.js:40`; its `readNoteText` (:306-311)
+  is async, so one dynamic import there releases them. D.O.G.'s file, not F11's.
+- **F11-02 · `binsMigration.js` stays in the main chunk (9,952 bytes)** through `rabbitHelpContent.jsx:19` (two word
+  constants). MEASURED. F10's file.
+- **F11-03 · An admin's terminal sections load at launch, not on first open.** The body mounts at launch for an admin
+  (`AdminTerminalPage` takes no `isActive`); one prop at `App.jsx:2198` would defer it. Seen in the dev app. LOW.
+- **F11-04 · The storage functions' calls have no ceiling of their own.** FX11's contract
+  (`storageApiProbe.test.js`) pins the probe's signal reaching fetch as itself and no signal for other callers, so a
+  presign or the secret's calls from uploads, previews and Settings still wait on a dead connection, as before. Fix
+  shape: `AbortSignal.any` for the probe, a ceiling for the rest, the pins moved with them. LOW.
+- **F11-05 · 252 grammars the full build had draw as plain text.** MEASURED (1A). Closest to her field: tcl,
+  maxscript, opencl, wgsl, cmake, unrealscript, processing, docker; also json5, graphql, nginx, latex, haskell, scala,
+  dart, matlab, julia, fsharp and the `vb` alias (`.vb` files use vbnet, kept). One import and one line each in
+  `src/components/codeHighlighter.js`. LOW.
+- **F11-06 · Forgot password's hit and miss differ in time, as before.** A hit waits for the reset request (bounded at
+  15 s since F11), a miss 220 ms: 1,225 ms against 264 ms with a slow auth server (1E, measured). resolve-login answers
+  the same to anyone with the anon key, so the screen adds nothing. LOW.
+- **F11-07 · A refused issue-session at the login is ignored, as before** (`LoginScreen.jsx` completeSignIn): the
+  sign-in completes into the token's workspace with no words. LOW.
+- **F11-08 · A dead network at the login's company step advances to step 2 on a derived slug, as before.** The reset
+  wizard no longer does (round 1). LOW.
+- **F11-09 · Unbounded still, as before:** MfaSection's `listFactors`, `enroll` and `unenroll`; the switcher's
+  load-time `getSession`, its `refreshSession` and `saveSession`; `fetchUserWorkspaces`. And the second factor is
+  skipped (an aal1 sign-in) when the level or factor read RETURNS an error rather than throwing; only a stall is
+  rethrown (1E, INFERRED). LOW.
+- **F11-10 · The 420 s and 600 s ceilings rest on the platform's documented run limits** (150 s free, 400 s paid), not
+  on a measurement of this project's plan. The app's and the agent's own retry loops (`App.jsx:3375`,
+  `AgentProvider.jsx:453`) retry a timeout up to three times, so a dead connection is waited out about 30 minutes;
+  before F11 it hung (1D). LOW.
+- **F11-11 · On the web, a tab left open across a deploy cannot open Notes or the migration tools for the first
+  time.** The old chunk is gone (Vercel's rewrite answers `index.html`, 200), so the sentence and *Reload the page*
+  show and *Try again* cannot succeed (1B, INFERRED); whether *Try again* refetches a failed import is
+  browser-dependent, as for M.O.T.H. The desktop reads its chunks from disk. Fix shape: call the loaders at idle after
+  launch. LOW.
+- **F11-12 · The boundary also holds a part that throws after it loaded,** and replaces the whole pane with "could not
+  open" (the Admin terminal's seven sections at once; *Try again* resets their state) (1B, measured). Before F11 the
+  same throw blanked the whole app. LOW.
+- **F11-13 · A pending note can outlive a failed Notes load** (1B, INFERRED): opened much later, Notes jumps to it. LOW.
+- **F11-14 · At an offline launch with a held session, every Edge Function call reads "sign in again", as before**
+  (1D, measured): the SDK holds no session then, so `getSession` answers null. LOW.
+- **F11-15 · callAI's raw mode keeps its abort listener on a reused signal** (one per call until it aborts; otterAI's
+  loops reuse one for up to 16) (1D, measured, harmless in size). As before: its refusal body read after the headers is
+  unbounded and swallows a caller's abort; the caller's signal is not watched during the bounded session read. LOW.
+- **F11-16 · The bulk-invite dialog reads the session per row:** a stall costs 15 s a row, a hung server 60 s (1C). LOW.
+- **F11-17 · `inviteMember` (`adminApi.js`) has no dev-fixtures guard of its own;** the two dialogs guard first (1C;
+  dev builds only). LOW.
+- **F11-18 · Test gaps:** the two invite dialogs have no behavioural test (201, `onInvited`'s argument, a throwing
+  `onInvited`: round 1's fix of it is unpinned); `FilePreview.test.jsx`'s "code is highlighted" checks no colour;
+  OperatorLogin has no screen test; nothing pins the 220 ms or a pending note at launch through the real pair (1A, 1B,
+  1C, 1E). LOW.
+- **F11-19 · Two full-suite failures not F11's:** `aiFilesProbe.test.js`'s retry control timed out once under the full
+  run's load (green alone and in every other run); the Windows-only `gateway/test/platform.test.mjs` check-state reads
+  this machine's folder owners, as at the baseline. LOW.
+- **F11-20 · Failure words that changed, stated:** no answer reads "Network error — check your connection." in the
+  switcher, the invite dialogs and the clean-up card (it was the browser's "Failed to fetch"); an unreadable 2xx the
+  `bad_answer` sentence in the switcher (it was a SyntaxError's text). Visible in a failure only. LOW.
