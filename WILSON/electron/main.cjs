@@ -10,6 +10,9 @@ const { execFile } = require('child_process');
 // required there, when a poster is first made.
 const posters = require('./posters.cjs');
 const { generateVideoThumbOnce } = posters;
+// F9 (B1): O.T.T.E.R.'s two library merges, generated from otterRoutes.js by
+// scripts/build-electron-rules.mjs (they were kept here a second time by hand).
+const { mergeFunctions, mergeHotkeys } = require('./rules/otterMerges.cjs');
 const { loadEnv } = require('./env.cjs');
 const { initMainSentry } = require('./sentry.cjs');
 const { resolveContainedFilePath, isPathInside, checkFolderRootShape, dataFilePath } = require('./pathContainment.cjs');
@@ -954,63 +957,14 @@ function startLocalServer(distPath) {
     });
 
     expressApp.post('/api/software/:slug/hotkeys/merge', (req, res) => {
-      // Post-overhaul S2c (S2b-02): the SAME rules, line for line, as
-      // otterRoutes.js's mergeHotkeys (the cloud and the dev fixtures);
-      // hotkeysMerge.test.js replays both and demands the same document for
-      // every case. The keying is mergeFunctionsDoc's (S2b), above: a sent
-      // category's name is its `category`, else its `name`, else "General" —
-      // a non-empty string, trimmed, invisible characters dropped — and it
-      // joins a stored heading with case and punctuation aside, letters of
-      // any script kept. The a-z0-9 key this replaces made "文字列" and "数学"
-      // one category, joined either to a category with no `category`, and
-      // threw on a name that was not a string, on every later merge.
-      //  - It joins only a category the Hotkeys page and the Search dialog
-      //    draw: a `shortcuts` list headed by its `category` (a non-empty
-      //    string). One they do not draw (a `hotkeys` list alone, no
-      //    `category`) is never joined; what was sent gets its own heading.
-      //  - A shortcut is not added again under the same heading: the same
-      //    action, case and surrounding spaces aside; an action that is not a
-      //    string reads as none. A sent category's shortcuts are its
-      //    `shortcuts`, else its `hotkeys`.
-      //  - Stored categories are kept exactly as stored: only a category a
-      //    shortcut joins is rewritten (a copy, the new ones after its own).
-      //    A new category is written `{ category, shortcuts }` when it brings
-      //    a shortcut or was sent with none.
-      //  - Entries that are not categories are carried over untouched; the
-      //    document's other keys are kept; a stored document that is not a
-      //    library is left exactly as it is.
+      // Post-overhaul S2c (S2b-02): the hotkeys merge is otterRoutes.js's
+      // mergeHotkeys (the cloud and the dev fixtures) — since F9 the very
+      // function, generated into electron/rules/otterMerges.cjs (B1), where it
+      // was kept inline here line for line. Its rules are stated there.
       const filePath = path.join(getSoftwareDir(), req.params.slug, '_hotkeys.json');
       const stored = readJSON(filePath, { categories: [] });
       const incoming = (req.body || {}).categories;
-      const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
-      const clean = (v) => (typeof v === 'string' ? v.replace(/\p{Cf}/gu, '').trim() : '');
-      const catName = (c) => clean(c && c.category) || clean(c && c.name) || 'General';
-      const catKey = (n) => n.toLowerCase().replace(/[^\p{L}\p{N}#+]+/gu, ' ').trim() || n.toLowerCase();
-      const heading = (c) => (isObj(c) && Array.isArray(c.shortcuts) ? clean(c.category) : '');
-      const actionKey = (h) => (typeof h.action === 'string' ? h.action.toLowerCase().trim() : '');
-      const doc = stored == null ? {} : stored;
-      let merged = stored;
-      if (isObj(doc) && (doc.categories === undefined || Array.isArray(doc.categories))) {
-        const out = { ...doc, categories: [...(doc.categories || [])] };
-        for (const inCat of (Array.isArray(incoming) ? incoming : [])) {
-          if (!isObj(inCat)) continue;
-          const name = catName(inCat);
-          const key = catKey(name);
-          const i = out.categories.findIndex(c => { const h = heading(c); return !!h && catKey(h) === key; });
-          const into = i < 0 ? null : out.categories[i];
-          const have = new Set((into ? into.shortcuts : []).filter(isObj).map(actionKey));
-          const list = Array.isArray(inCat.shortcuts) ? inCat.shortcuts : Array.isArray(inCat.hotkeys) ? inCat.hotkeys : [];
-          const add = [];
-          for (const hk of list) {
-            if (!isObj(hk) || have.has(actionKey(hk))) continue;
-            have.add(actionKey(hk));
-            add.push(hk);
-          }
-          if (i < 0) { if (add.length || !list.length) out.categories.push({ category: name, shortcuts: add }); }
-          else if (add.length) out.categories[i] = { ...into, shortcuts: [...into.shortcuts, ...add] };
-        }
-        merged = out;
-      }
+      const merged = mergeHotkeys(stored, incoming);
       writeJSON(filePath, merged);
       res.json(merged);
     });
@@ -1021,69 +975,14 @@ function startLocalServer(distPath) {
       res.json(data);
     });
 
-    // Post-overhaul S2b (C10): the function library's merge — the SAME rules,
-    // line for line, as otterRoutes.js's mergeFunctions (the cloud and the
-    // dev fixtures); functionsMerge.test.js replays both and demands the same
-    // document for every case. The `name` keying this replaces matched every
-    // incoming category (the client posts `category`) to the first nameless
-    // one and collapsed a generated library into one category with no name.
-    //  - A category's name is its `category`, else its `name`, else
-    //    "General" — a non-empty string, trimmed, invisible characters
-    //    dropped; anything else is no name.
-    //  - Categories match on that name with case and punctuation aside —
-    //    letters of any script, digits, '#' and '+' kept ("C" is not "C++").
-    //  - A function is not added again where it already is: under the same
-    //    heading by its exact name, or anywhere in a NAMELESS category (the
-    //    collapsed library the old keying wrote — hers holds 46). Functions
-    //    that differ in case or sit under different headings are different
-    //    (`map` and `Map`, `split` in "String methods" and in "os.path");
-    //    a function with no name is never taken for another.
-    //  - Stored categories are kept exactly as stored: only a category a
-    //    function is added to is rewritten (a copy, with the new functions
-    //    after its own). A new category is written `{ category, functions }`
-    //    when it brings a function or was sent with none, never when every
-    //    function it brought was already there (an empty heading). Entries
-    //    that are not categories (null, a string, `functions` not a list)
-    //    are carried over untouched and never matched. A stored document
-    //    that is not a library (an array, `categories` not a list) is left
-    //    exactly as it is.
-    function mergeFunctionsDoc(stored, incoming) {
-      const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
-      const clean = (v) => (typeof v === 'string' ? v.replace(/\p{Cf}/gu, '').trim() : '');
-      const catName = (c) => clean(c && c.category) || clean(c && c.name) || 'General';
-      const named = (c) => !!(clean(c.category) || clean(c.name));
-      const catKey = (n) => n.toLowerCase().replace(/[^\p{L}\p{N}#+]+/gu, ' ').trim() || n.toLowerCase();
-      const fnKey = (f) => clean(f && f.name);
-      const isCat = (c) => isObj(c) && (c.functions === undefined || Array.isArray(c.functions));
-      const doc = stored == null ? {} : stored;
-      if (!isObj(doc) || (doc.categories !== undefined && !Array.isArray(doc.categories))) return stored;
-      const out = { ...doc, categories: [...(doc.categories || [])] };
-      const unfiled = new Set();
-      for (const c of out.categories) if (isCat(c) && !named(c)) for (const f of (c.functions || [])) if (fnKey(f)) unfiled.add(fnKey(f));
-      for (const inCat of (Array.isArray(incoming) ? incoming : [])) {
-        if (!isObj(inCat)) continue;
-        const name = catName(inCat);
-        const i = out.categories.findIndex(c => isCat(c) && catKey(catName(c)) === catKey(name));
-        const into = i < 0 ? null : out.categories[i];
-        const have = new Set((into ? into.functions || [] : []).map(fnKey).filter(Boolean));
-        const add = [];
-        for (const fn of (Array.isArray(inCat.functions) ? inCat.functions : [])) {
-          if (!isObj(fn)) continue;
-          const k = fnKey(fn);
-          if (k && (have.has(k) || unfiled.has(k))) continue;
-          if (k) { have.add(k); if (into && !named(into)) unfiled.add(k); }
-          add.push(fn);
-        }
-        const sentEmpty = !(Array.isArray(inCat.functions) && inCat.functions.length);
-        if (i < 0) { if (add.length || sentEmpty) out.categories.push({ category: name, functions: add }); }
-        else if (add.length) out.categories[i] = { ...into, functions: [...(into.functions || []), ...add] };
-      }
-      return out;
-    }
+    // Post-overhaul S2b (C10): the function library's merge is otterRoutes.js's
+    // mergeFunctions (the cloud and the dev fixtures) — since F9 the very
+    // function, generated into electron/rules/otterMerges.cjs and required at
+    // the top of this file (B1), where it was kept here line for line.
 
     expressApp.post('/api/software/:slug/functions/merge', (req, res) => {
       const filePath = path.join(getSoftwareDir(), req.params.slug, '_functions.json');
-      const merged = mergeFunctionsDoc(readJSON(filePath, { categories: [] }), (req.body || {}).categories);
+      const merged = mergeFunctions(readJSON(filePath, { categories: [] }), (req.body || {}).categories);
       writeJSON(filePath, merged);
       res.json(merged);
     });

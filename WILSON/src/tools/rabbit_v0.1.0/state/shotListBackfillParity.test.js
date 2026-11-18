@@ -88,31 +88,19 @@ function sameSet(a, b) {
   return x.size === y.size && [...x].every(k => y.has(k))
 }
 
+// F9 (B1): the order is no longer restated by hand: the Local Server's
+// backfillItems, its two comparators and the backfill's title and summary are
+// the generated module's own (electron/rules/shotLists.cjs, esbuild's bundle of
+// shotListModel.js), held current by src/lib/electronRules.test.js. The two
+// pairwise comparisons ran unedited on it before they were retired; the
+// absolute pin, the read backfill's membership and the controls stay.
 describe('the Local Server backfill order equals shotListModel.backfillItems', () => {
-  it('the same rows, in the same order, for twenty shuffles of the same input', () => {
-    const expected = triple(backfillItems(SCENES, SHOTS))
-    expect(expected).toHaveLength(SCENES.length + SHOTS.length)
-    for (let seed = 1; seed <= 20; seed++) {
-      const scenes = shuffle(SCENES, seed)
-      const shots = shuffle(SHOTS, seed * 7919)
-      const model = backfillItems(scenes, shots)
-      const local = cjs.backfillItems(scenes, shots)
-      expect(triple(local), `seed ${seed}`).toEqual(triple(model))
-      expect(sameSet(local, model)).toBe(true)
-      // And the model is order-independent itself, or "parity" would be luck.
-      expect(triple(model), `seed ${seed}`).toEqual(expected)
+  it('F9: the order and its titles ARE the generated module\'s, the very functions', () => {
+    const gen = require('../../../../electron/rules/shotLists.cjs')
+    for (const name of ['backfillItems', 'compareScenesForList', 'compareShotsForList', 'SHOT_LIST_BACKFILL_TITLE', 'SHOT_LIST_BACKFILL_SUMMARY']) {
+      expect(cjs[name], name).toBe(gen[name])
     }
   })
-
-  it('the comparators agree pairwise on every pair of rows', () => {
-    for (const a of SCENES) for (const b of SCENES) {
-      expect(Math.sign(cjs.compareScenesForList(a, b)), `${a.id} vs ${b.id}`).toBe(Math.sign(compareScenesForList(a, b)))
-    }
-    for (const a of SHOTS) for (const b of SHOTS) {
-      expect(Math.sign(cjs.compareShotsForList(a, b)), `${a.id} vs ${b.id}`).toBe(Math.sign(compareShotsForList(a, b)))
-    }
-  })
-
   it('pins the order itself, so both copies cannot drift together unnoticed', () => {
     const rows = cjs.backfillItems(shuffle(SCENES, 3), shuffle(SHOTS, 4))
     expect(rows.filter(r => r.scene_id).map(r => r.scene_id)).toEqual([

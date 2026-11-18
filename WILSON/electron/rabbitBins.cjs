@@ -61,31 +61,19 @@ const posters = require('./posters.cjs');
 const BIN_POSTER = Object.freeze({ edge: 256, quality: 80, fit: 'inside' });
 
 // ── Media tables ──────────────────────────────────────────────────────────────
-// The renderer carries the same tables in src/tools/rabbit_v0.1.0/bins/binMedia.js
-// and binMedia.test.js asserts the two agree (the S40 pattern for
-// VIDEO_EXTENSIONS: ESM in one process, CJS in another, agreement by test).
-const VIDEO_EXTS = new Set([
-  '.mp4', '.m4v', '.mov', '.webm', '.mkv', '.avi', '.wmv', '.flv', '.mpg',
-  '.mpeg', '.m2v', '.mts', '.m2ts',
-  '.mxf', '.r3d', '.ari', '.arri', '.braw', '.dnx', '.dnxhd', '.dnxhr',
-]);
-const STILL_EXTS = new Set([
-  '.jpg', '.jpeg', '.png', '.gif', '.webp', '.tiff', '.tif', '.bmp', '.avif', '.heic', '.heif',
-]);
-const AUDIO_EXTS = new Set(['.wav', '.bwf', '.aif', '.aiff', '.mp3', '.flac', '.m4a', '.ogg', '.aac', '.wma']);
-const GRAPHIC_EXTS = new Set(['.psd', '.psb', '.ai', '.svg', '.eps', '.indd', '.afdesign', '.sketch', '.fig']);
-const VFX_EXTS = new Set(['.exr', '.dpx', '.tga', '.hdr', '.cin']);
-const DOC_EXTS = new Set(['.pdf', '.txt', '.md', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.rtf', '.pages', '.numbers']);
-// A folder whose files all share a prefix and a frame number is ONE item.
+// src/tools/rabbit_v0.1.0/bins/binMedia.js's own, GENERATED (F9, B1) into
+// electron/rules/binMedia.cjs by scripts/build-electron-rules.mjs — no longer
+// copied here by hand (src/lib/electronRules.test.js fails while it is stale;
+// npm run build:rules): the extension sets, the type, flag, colour and kind
+// lists, and guessMediaType. BROWSER_VIDEO_EXTS: what Chromium decodes
+// natively — the only ones the stream route can PLAY (as opposed to serve).
+const {
+  VIDEO_EXTS, STILL_EXTS, AUDIO_EXTS, GRAPHIC_EXTS, VFX_EXTS, DOC_EXTS, BROWSER_VIDEO_EXTS,
+  MEDIA_TYPES, REVIEW_FLAGS, COLORS, BIN_KINDS, guessMediaType,
+} = require('./rules/binMedia.cjs');
+// A folder whose files all share a prefix and a frame number is ONE item
+// (frameSequence.cjs's list; this file's own).
 const SEQUENCE_EXTS = new Set(SEQUENCE_EXT_LIST);
-// Chromium decodes these natively — the only ones the stream route can PLAY
-// (as opposed to serve); the renderer decides the notice, this decides nothing.
-const BROWSER_VIDEO_EXTS = new Set(['.mp4', '.m4v', '.webm']);
-
-const MEDIA_TYPES = ['video', 'still', 'sequence', 'audio', 'graphic', 'vfx', 'document', 'other'];
-const REVIEW_FLAGS = ['unflagged', 'select', 'reject'];
-const COLORS = ['red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'purple', 'pink'];
-const BIN_KINDS = ['footage', 'audio', 'stills', 'graphics', 'vfx', 'selects', 'other'];
 
 const MIME_BY_EXT = {
   '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm',
@@ -101,19 +89,11 @@ const MIME_BY_EXT = {
   '.aac': 'audio/aac', '.pdf': 'application/pdf', '.txt': 'text/plain', '.csv': 'text/csv',
 };
 
+// This file's own: path.extname, so `.bashrc` has no extension here, where the
+// renderer's extOf (lastIndexOf('.')) reads one — the two are not the same rule.
 function extOf(name) {
   const e = path.extname(String(name || '')).toLowerCase();
   return /^\.[a-z0-9]{1,12}$/.test(e) ? e : '';
-}
-function guessMediaType(ext) {
-  const e = String(ext || '').toLowerCase();
-  if (VIDEO_EXTS.has(e)) return 'video';
-  if (STILL_EXTS.has(e)) return 'still';
-  if (AUDIO_EXTS.has(e)) return 'audio';
-  if (VFX_EXTS.has(e)) return 'vfx';
-  if (GRAPHIC_EXTS.has(e)) return 'graphic';
-  if (DOC_EXTS.has(e)) return 'document';
-  return 'other';
 }
 function guessMime(ext) { return MIME_BY_EXT[String(ext || '').toLowerCase()] || null; }
 

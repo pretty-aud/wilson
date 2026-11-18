@@ -21,6 +21,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import {
   mergeHotkeys, mergeFunctions, functionCategoryName, DOC_MERGERS, CR_DOC_MERGE, parseOtterRoute,
 } from './otterRoutes.js'
@@ -59,9 +60,15 @@ function extractFunction(source, name) {
 
 /** A route body as a merge: the disk is a Map of JSON text, so a read is a
  *  parsed COPY and only what the route writes is kept, as on the desktop. */
+// F9 (B1): main.cjs's route merges through otterRoutes.js's own mergeHotkeys,
+// generated into electron/rules/otterMerges.cjs (src/lib/electronRules.test.js
+// holds it current), where it kept a second copy inline. The replayed route
+// is handed it, as main.cjs requires it.
+const { mergeHotkeys: DESKTOP_MERGE } = createRequire(import.meta.url)('../../../../electron/rules/otterMerges.cjs')
 function routeAsMerge(body) {
   // eslint-disable-next-line no-new-func
-  const run = new Function('req', 'res', 'readJSON', 'writeJSON', 'path', 'getSoftwareDir', body)
+  const run0 = new Function('req', 'res', 'readJSON', 'writeJSON', 'path', 'getSoftwareDir', 'mergeHotkeys', body)
+  const run = (...args) => run0(...args, DESKTOP_MERGE)
   return (existing, incoming) => {
     const disk = new Map()
     const file = '/sw/blender/_hotkeys.json'
@@ -438,23 +445,15 @@ describe('the hotkeys merge keys a category as the function library\'s merge doe
     for (const name of ['mergeHotkeys', 'mergeFunctions']) expect(body(name), name).not.toMatch(/normKey\(/)
   })
 
-  it('ONE algorithm on the desktop: the route keys exactly as mergeFunctionsDoc does (S2b)', () => {
+  it('ONE algorithm on the desktop: the route merges through the module\'s own mergeHotkeys (F9: no copy of its own)', () => {
+    // Retired by F9: this pinned main.cjs's inline copy line for line against
+    // its mergeFunctionsDoc. Both copies are gone; the route merges through
+    // the generated module, which the cases and the 600 documents above ran.
     const route = extractRouteBody(MAIN_CJS, ROUTE_HEAD)
-    const helper = extractFunction(MAIN_CJS, 'mergeFunctionsDoc')
-    for (const line of [
-      "const clean = (v) => (typeof v === 'string' ? v.replace(/\\p{Cf}/gu, '').trim() : '');",
-      "const catName = (c) => clean(c && c.category) || clean(c && c.name) || 'General';",
-      "const catKey = (n) => n.toLowerCase().replace(/[^\\p{L}\\p{N}#+]+/gu, ' ').trim() || n.toLowerCase();",
-    ]) {
-      expect(helper, 'the functions helper keys with this line').toContain(line)
-      expect(route, 'the hotkeys route keys with the same line').toContain(line)
-    }
-    // …applied as the cloud applies it: a sent name, against the heading of a
-    // category the page draws (review round 1).
-    expect(route).toMatch(/const heading = \(c\) => \(isObj\(c\) && Array\.isArray\(c\.shortcuts\) \? clean\(c\.category\) : ''\);/)
-    expect(route).toMatch(/findIndex\(c => \{ const h = heading\(c\); return !!h && catKey\(h\) === key; \}\)/)
-    // …and a shortcut de-duplicated on the cloud's key (review round 2).
-    expect(route).toContain("const actionKey = (h) => (typeof h.action === 'string' ? h.action.toLowerCase().trim() : '');")
+    expect(route).toContain('const merged = mergeHotkeys(stored, incoming);')
+    expect(route).not.toMatch(/const catKey = |const heading = |const actionKey = /)
+    expect(MAIN_CJS).not.toMatch(/function mergeFunctionsDoc\(/)
+    expect(MAIN_CJS).toContain("const { mergeFunctions, mergeHotkeys } = require('./rules/otterMerges.cjs');")
     expect(ROUTES_JS).toContain("const actionKey = (hk) => (typeof hk.action === 'string' ? hk.action.toLowerCase().trim() : '')")
   })
 

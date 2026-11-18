@@ -101,7 +101,19 @@ const VIEWS = [
   null,
 ]
 
+// F9 (B1): the copy is no longer kept by hand. Every rule both carry is the
+// generated module's own (electron/rules/tableViews.cjs, esbuild's bundle of
+// tableViewsModel.js), and src/lib/electronRules.test.js fails while it is
+// stale — the one check in place of this file's pairwise comparisons, which ran
+// unedited on the generated copy before they were retired. What stays: the
+// placement test, the CONTROLs and absolute pins (0098's numbers, jsonb's text).
 describe('the CommonJS copy says what the model says', () => {
+  it('F9: each rule both carry IS the generated module\'s, the very function', () => {
+    const gen = require('../../../../electron/rules/tableViews.cjs')
+    const names = Object.keys(gen)
+    expect(names.length).toBe(34)
+    for (const name of names) expect(cjs[name], name).toBe(gen[name])
+  })
   it('carries exactly the backend half: every shared rule, nothing of the screens, and every model export is placed', () => {
     for (const name of [...SHARED_CONSTANTS, ...SHARED_RULES]) {
       expect(cjs, name).toHaveProperty(name)
@@ -118,28 +130,11 @@ describe('the CommonJS copy says what the model says', () => {
     expect(Object.keys(esm).filter(k => ![...SHARED_CONSTANTS, ...SHARED_RULES, ...SCREENS_ONLY].includes(k))).toEqual([])
   })
 
-  it('the same constants, frozen alike, the grouping pairs in the same order', () => {
-    for (const k of SHARED_CONSTANTS) expect(cjs[k], k).toEqual(esm[k])
-    expect(Object.keys(cjs.GROUPING_KINDS)).toEqual(Object.keys(esm.GROUPING_KINDS))
-    expect(Object.isFrozen(cjs.TABLE_KEYS)).toBe(Object.isFrozen(esm.TABLE_KEYS))
-    expect(Object.isFrozen(cjs.GROUPING_KINDS)).toBe(Object.isFrozen(esm.GROUPING_KINDS))
-    for (const t of Object.keys(esm.GROUPING_KINDS)) {
-      expect(Object.isFrozen(cjs.GROUPING_KINDS[t]), t).toBe(Object.isFrozen(esm.GROUPING_KINDS[t]))
-    }
-    // 0098's numbers, so both copies cannot drift together from the cloud.
-    expect([cjs.VIEW_NAME_MAX, cjs.VIEW_CONFIG_MAX_BYTES, cjs.VIEWS_PER_TABLE_MAX, cjs.GROUPINGS_PER_TABLE_MAX,
-      cjs.GROUPING_IDS_MAX, cjs.TABLE_VIEW_LAST_MAX, cjs.ALL_VIEW_ID]).toEqual([80, 32768, 200, 500, 100, 300, 'all'])
-  })
-
   // ── Tables and pairs ──────────────────────────────────────────────────────
   const TABLE_INPUTS = [...esm.TABLE_KEYS, 'Tasks', ' tasks', 'tasks ', 'task', 'milestones', '', null, undefined, 0, 1,
     ['tasks'], { toString: () => 'tasks' }, 'toString', 'constructor', '__proto__', 'hasOwnProperty', 'valueOf']
   const KIND_INPUTS = ['asset', 'scene', 'shot', 'level', 'experience', 'Asset', 'assets', 'task', 'phase', '', null, undefined, ['asset']]
 
-  it('isTableKey and isGroupingPair, for every table and kind and the near misses', () => {
-    agree('isTableKey', TABLE_INPUTS.map(k => [k]))
-    agree('isGroupingPair', TABLE_INPUTS.flatMap(t => KIND_INPUTS.map(k => [t, k])))
-  })
   it('CONTROL: the pairs are 0098\'s CHECK, and a name the prototype carries is no table', () => {
     expect(esm.isGroupingPair('tasks', 'experience')).toBe(true)
     expect(esm.isGroupingPair('assets', 'asset')).toBe(false)
@@ -162,11 +157,6 @@ describe('the CommonJS copy says what the model says', () => {
     `${ASTRAL_80}😀`, 'a\nb', 'a\tb', 'a\u0000b', 'a\u001fb', 'a\u007fb', 'a\u0085b', 'a\u009fb', 'a b',
     ' x ', 'x﻿', 'a b', 'Café ✓', null, undefined, 42, ['x'], { name: 'x' },
   ]
-  it('normalizeViewName and viewNameProblem, word for word (raw and trimmed)', () => {
-    agree('normalizeViewName', NAMES.map(n => [n]))
-    agree('viewNameProblem', NAMES.map(n => [n]))
-    agree('viewNameProblem', NAMES.map(n => [esm.normalizeViewName(n)]))
-  })
   it('CONTROL: a name is counted in characters, bounded inclusively, and C1 controls are refused while a no-break space is not', () => {
     expect(ASTRAL_80.length).toBe(160)
     expect(esm.viewNameProblem(ASTRAL_80)).toBeNull() // a UTF-16 .length count refuses it
@@ -179,9 +169,6 @@ describe('the CommonJS copy says what the model says', () => {
 
   // ── Configs ───────────────────────────────────────────────────────────────
   const TEXTS = ['', 'a', 'abc', 'é', '€', '😀', 'a😀é€', '\ud800', '\udc00x', 'x\ud83d', 123, null, undefined, true, { a: 1 }]
-  it('utf8Length', () => {
-    agree('utf8Length', TEXTS.map(t => [t]))
-  })
   it('CONTROL: UTF-8 bytes, not UTF-16 units — a lone surrogate counted as Buffer counts it', () => {
     expect(esm.utf8Length('é')).toBe(2)
     expect('é'.length).toBe(1)
@@ -201,17 +188,11 @@ describe('the CommonJS copy says what the model says', () => {
     // Review round 2, R2-4: what JSON.stringify writes with an exponent.
     1e21, 1e-7, [1e300], -2.5e22, 5e-324, { v: 1.5e-7 },
   ]
-  it('canonicalJson, including what JSON cannot say (and what makes it throw)', () => {
-    agree('canonicalJson', VALUES.map(v => [v]))
-  })
   const PAIRS = [
     [{ a: 1, b: 2 }, { b: 2, a: 1 }], [{ a: undefined }, {}], [[1, undefined], [1, null]], [{ a: 1 }, { a: '1' }],
     [{ a: [1, 2] }, { a: [2, 1] }], [{}, []], [null, undefined], [{ x: { b: 1, a: 2 } }, { x: { a: 2, b: 1 } }],
     [{ v: 1, filters: [] }, { filters: [], v: 1, extra: undefined }], [NaN, null], [KEYED, { ...KEYED }],
   ]
-  it('configsEqual', () => {
-    agree('configsEqual', PAIRS)
-  })
   it('CONTROL: key order and undefined keys do not count; values, array order and types do; keys sort by code unit', () => {
     expect(JSON.stringify({ a: 1, b: 2 })).not.toBe(JSON.stringify({ b: 2, a: 1 }))
     expect(esm.configsEqual({ a: 1, b: 2 }, { b: 2, a: 1 })).toBe(true)
@@ -260,9 +241,6 @@ describe('the CommonJS copy says what the model says', () => {
     expect(JSON.stringify(1e-7)).toBe('1e-7')
     expect(esm.utf8Length(JSON.stringify({ v: 1e21 }))).toBeLessThan(29)
   })
-  it('viewConfigProblem, word for word', () => {
-    agree('viewConfigProblem', CONFIGS.map(c => [c]))
-  })
   it('CONTROL: the cap is 32,768 UTF-8 bytes of JSON, inclusive', () => {
     expect(esm.jsonbText(sized(32768)).length).toBe(32768)
     expect(JSON.stringify(sized(32768)).length).toBe(32767) // JSON.stringify would let 32769 through
@@ -273,11 +251,6 @@ describe('the CommonJS copy says what the model says', () => {
   })
 
   // ── Views ─────────────────────────────────────────────────────────────────
-  it('compareViews: the same order, every pair', () => {
-    for (const a of VIEWS) for (const b of VIEWS) {
-      expect(Math.sign(cjs.compareViews(a, b)), `${a?.id} vs ${b?.id}`).toBe(Math.sign(esm.compareViews(a, b)))
-    }
-  })
   it('CONTROL: the pairs tell the dropdown\'s order from time-first, id-first, the millisecond alone and taskItemsModel\'s microseconds', () => {
     const rows = VIEWS.filter(Boolean)
     const time = (v) => Date.parse(v.created_at) || 0
@@ -294,11 +267,6 @@ describe('the CommonJS copy says what the model says', () => {
     expect(Math.sign(compareItems(VIEWS[6], VIEWS[7]))).not.toBe(Math.sign(esm.compareViews(VIEWS[6], VIEWS[7])))
   })
 
-  it('compareViewRows (the loads\' order of every table\'s views): the same order, every pair', () => {
-    for (const a of VIEWS) for (const b of VIEWS) {
-      expect(Math.sign(cjs.compareViewRows(a, b)), `${a?.id} vs ${b?.id}`).toBe(Math.sign(esm.compareViewRows(a, b)))
-    }
-  })
   it('CONTROL: tables in code-unit order (not TABLE_KEYS\' order), then the dropdown\'s order within each', () => {
     const sorted = VIEWS.filter(Boolean).sort(esm.compareViewRows)
     expect([...new Set(sorted.map(v => v.table_key))]).toEqual(['assets', 'levels', 'tasks'])
@@ -323,11 +291,6 @@ describe('the CommonJS copy says what the model says', () => {
     'q-4': '2026-10-17T06:00:00Z', 'q-m2': '2026-10-17T03:00:00.123456+00:00', 'q-m1': '2026-10-17T03:00:00.123789+00:00',
     'q-s1': '2026-10-17T04:00:00.1234567Z', 'q-s2': '2026-10-17T04:00:00.1234561Z' }
   for (const g of ROWS) if (g && at[g.id]) g.created_at = at[g.id]
-  it('compareGroupingRows (the loads\' order of the groupings): the same order, every pair', () => {
-    for (const a of ROWS) for (const b of ROWS) {
-      expect(Math.sign(cjs.compareGroupingRows(a, b)), `${a?.id} vs ${b?.id}`).toBe(Math.sign(esm.compareGroupingRows(a, b)))
-    }
-  })
   it('CONTROL: table, then kind, then created_at to the seventh digit, then id — not id-first, time-first or the millisecond', () => {
     const rows = ROWS.filter(Boolean)
     expect(rows.slice().sort(esm.compareGroupingRows).map(g => g.id))
@@ -342,23 +305,6 @@ describe('the CommonJS copy says what the model says', () => {
     expect(differs(millisecond)).toBe(true)
   })
 
-  it('viewsOfTable: the same views of each table, in the same order, the stored array untouched', () => {
-    const before = VIEWS.map(v => v?.id)
-    for (const t of [...esm.TABLE_KEYS, 'nope', undefined]) {
-      expect(cjs.viewsOfTable(VIEWS, t).map(v => v.id), String(t)).toEqual(esm.viewsOfTable(VIEWS, t).map(v => v.id))
-    }
-    agree('viewsOfTable', [[null, 'tasks'], ['x', 'tasks'], [[], 'tasks'], [VIEWS, 'assets']])
-    expect(VIEWS.map(v => v?.id)).toEqual(before)
-  })
-
-  it('nextViewPosition, for every table and the odd stored positions', () => {
-    agree('nextViewPosition', [...esm.TABLE_KEYS, 'nope'].map(t => [VIEWS, t]))
-    agree('nextViewPosition', [
-      [null, 'tasks'], [[], 'tasks'], [[{ table_key: 'tasks', position: 'x' }], 'tasks'],
-      [[{ table_key: 'tasks', position: -5 }], 'tasks'], [[{ table_key: 'tasks', position: 2.5 }], 'tasks'],
-      [[{ table_key: 'tasks', position: Infinity }], 'tasks'],
-    ])
-  })
   it('CONTROL: after the highest position (a string one counts), not the count, not after the last to arrive', () => {
     const tasks = VIEWS.filter(v => v && v.table_key === 'tasks')
     const next = esm.nextViewPosition(VIEWS, 'tasks')
@@ -383,10 +329,6 @@ describe('the CommonJS copy says what the model says', () => {
     ['nope', ['r1']], [undefined, []], ['Tasks', []], ['tasks', ['r1', 'r1']], ['tasks', ['r1', '']], ['tasks', [null]],
     ['tasks', [undefined]], ['tasks', [1, '1']],
   ]
-  it('planReorderViews: the same changes, and the same refusals (message and code)', () => {
-    agree('planReorderViews', REORDERS.map(([t, ids]) => [R, t, ids]))
-    agree('planReorderViews', [[null, 'tasks', ['a']], [[null, R[0]], 'tasks', ['r1']]])
-  })
   it('CONTROL: a stale list\'s omitted views follow the named in their current order (a tie read by created_at), and only moves are answered', () => {
     expect(esm.planReorderViews(R, 'tasks', ['r5'])).toEqual([
       { id: 'r5', position: 0 }, { id: 'r1', position: 1 }, { id: 'r2', position: 2 },
@@ -401,10 +343,6 @@ describe('the CommonJS copy says what the model says', () => {
   // ── Groupings ─────────────────────────────────────────────────────────────
   const IDSETS = [['b', 'a', 'b'], ['B', 'a', 'A', 'b'], [10, 9, '9'], ['x', null, '', undefined, 'y'], [], null, 'ab',
     undefined, [{}, 'a'], ['é', 'e', 'z', 'E'], [UUID, UUID.toUpperCase()]]
-  it('normalizeEntityIds and groupingKeyOf', () => {
-    agree('normalizeEntityIds', IDSETS.map(s => [s]))
-    agree('groupingKeyOf', IDSETS.map(s => [s]))
-  })
   it('CONTROL: strings, distinct, in code-unit order (as Postgres orders uuids), not locale or number order', () => {
     expect(esm.normalizeEntityIds(['B', 'a', 'A', 'b'])).toEqual(['A', 'B', 'a', 'b'])
     expect(['B', 'a', 'A', 'b'].sort((x, y) => x.localeCompare(y))).not.toEqual(['A', 'B', 'a', 'b'])
@@ -424,9 +362,6 @@ describe('the CommonJS copy says what the model says', () => {
     { table_key: undefined, kind: undefined, entity_ids: ['a'] }, { table_key: 'tasks', kind: 'phase', entity_ids: ['a'] },
     { table_key: 'experiences', kind: 'asset', entity_ids: [' '] },
   ]
-  it('groupingProblem, word for word', () => {
-    agree('groupingProblem', SHAPES.map(s => [s]))
-  })
   it('CONTROL: the 100 is counted on the set, not on what was sent; an id must be a string, not made one', () => {
     expect(esm.groupingProblem({ table_key: 'tasks', kind: 'asset', entity_ids: [...ids(100), 'i000'] })).toBeNull()
     expect(esm.groupingProblem({ table_key: 'tasks', kind: 'asset', entity_ids: ids(101) })).toMatch(/at most 100/)
@@ -438,13 +373,6 @@ describe('the CommonJS copy says what the model says', () => {
     grouping('g1', 'tasks', 'asset', ['a', 'b']), grouping('g2', 'tasks', 'scene', ['a', 'b']),
     grouping('g3', 'levels', 'asset', ['b', 'a']), grouping('g4', 'tasks', 'asset', ['c']), null,
   ]
-  it('findGroupingBySet', () => {
-    const FINDS = [['tasks', 'asset', ['b', 'a', 'a']], ['tasks', 'scene', ['a', 'b']], ['levels', 'asset', ['a', 'b']],
-      ['tasks', 'asset', ['a']], ['tasks', 'asset', []], ['experiences', 'asset', ['a', 'b']], ['tasks', 'asset', null],
-      ['tasks', 'shot', ['a', 'b']]]
-    agree('findGroupingBySet', FINDS.map(([t, k, s]) => [GR, t, k, s]))
-    agree('findGroupingBySet', [[null, 'tasks', 'asset', ['a']], ['x', 'tasks', 'asset', ['a']]])
-  })
   it('CONTROL: a set matches in any order and with repeats, but only in its own table and kind', () => {
     expect(esm.findGroupingBySet(GR, 'tasks', 'asset', ['b', 'a', 'a']).id).toBe('g1')
     expect(esm.findGroupingBySet(GR, 'levels', 'asset', ['a', 'b']).id).toBe('g3') // g1 comes first in the array
@@ -464,11 +392,6 @@ describe('the CommonJS copy says what the model says', () => {
     grouping('k6', 'tasks', 'asset', ['7', 'b']),
     null,
   ]
-  it('planForgetItem: the same removals and shrinks, in the same order', () => {
-    const FORGETS = [['asset', 'x'], ['asset', 'a'], ['asset', 'b'], ['scene', 'x'], ['asset', 'nope'], ['shot', 'x'], ['asset', 7]]
-    agree('planForgetItem', FORGETS.map(([k, id]) => [SWEEP, k, id]))
-    agree('planForgetItem', [[null, 'asset', 'x'], [[], 'asset', 'x'], ['x', 'asset', 'x']])
-  })
   it('CONTROL: a shrink onto another grouping\'s set removes, but only within the table; the answer runs in id order', () => {
     const plan = esm.planForgetItem(SWEEP, 'asset', 'x')
     expect(plan).toEqual({
@@ -487,11 +410,6 @@ describe('the CommonJS copy says what the model says', () => {
     'a:b:tasks', `${'p'.repeat(64)}:assets`, `${'p'.repeat(65)}:assets`, 'p q:tasks', 'p/q:tasks', 'p_q-1:levels',
     'é:tasks', '', null, undefined, 42, [`${UUID}:tasks`]]
   const VIEW_IDS = ['all', 'ALL', 'All', UUID, '', 'a b', 'x'.repeat(64), 'x'.repeat(65), 'a/b', 'a:b', 'é', null, undefined, 7, ['all']]
-  it('tableViewLastKey, tableViewLastKeyProblem and isViewIdOrAll', () => {
-    agree('tableViewLastKey', [[UUID, 'tasks'], [null, undefined], [1, 2], ['', '']])
-    agree('tableViewLastKeyProblem', KEYS.map(k => [k]))
-    agree('isViewIdOrAll', VIEW_IDS.map(v => [v]))
-  })
   it('CONTROL: an id is 1 to 64 safe characters', () => {
     expect(esm.tableViewLastKeyProblem(`${'p'.repeat(64)}:assets`)).toBeNull()
     expect(esm.tableViewLastKeyProblem(`${'p'.repeat(65)}:assets`)).toMatch(/not a project id and a table/) // an unbounded class passes it
@@ -513,11 +431,6 @@ describe('the CommonJS copy says what the model says', () => {
     [full(300, () => 7), 'new:tasks', 'v', 7], [full(301), 'new:tasks', 'v', 0], [full(300), 'new:tasks', 'v', NaN],
     ['x', 'k:tasks', 'all', 1], [[], 'k:tasks', 'all', 1],
   ]
-  it('mergeTableViewLast: the same map, its keys in the same order', () => {
-    for (const args of MERGES) {
-      expect(Object.entries(cjs.mergeTableViewLast(...args)), label(args)).toEqual(Object.entries(esm.mergeTableViewLast(...args)))
-    }
-  })
   it('CONTROL: an `at` that is not a number is the oldest; ties go by key A to Z; a replaced key trims nothing', () => {
     const junk = esm.mergeTableViewLast({ ...full(300), 'str:tasks': entry('v', '99999') }, 'new:tasks', 'v', 1000)
     expect(junk).not.toHaveProperty(['str:tasks']) // Number('99999') would keep it, and drop p001

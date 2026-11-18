@@ -20,6 +20,8 @@
     "_comment:test:lock": "Bundle B3 — the desktop loopback lock over a real socket (401 without the per-launch token, 200 with header or cookie), plus a control that must fail. Pass --show-control to watch it go red.",
     "test:lock": "node scripts/local-server-lock-harness.mjs",
     "build": "vite build",
+    "_comment:build:rules": "F9: writes electron/rules/ — the desktop's CommonJS copies of the renderer's rule modules, bundled from them by esbuild. Run it after changing a rule module; the files are committed, and src/lib/electronRules.test.js fails while they are stale.",
+    "build:rules": "node scripts/build-electron-rules.mjs",
     "build:dev": "vite build --mode development",
     "build:web": "vite build --base=/wilson/ --outDir dist-web",
     "build:vercel": "vite build --base=/wilson/ --outDir dist-vercel/wilson --emptyOutDir",

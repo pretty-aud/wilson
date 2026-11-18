@@ -107,71 +107,25 @@ const MSG = {
   archivedFlag: 'archived must be true or false',
 };
 
-const SHOT_LIST_BACKFILL_TITLE = 'Shot list 1';
-const SHOT_LIST_BACKFILL_SUMMARY = 'Created from existing scenes';
+// ── ordering — src/tools/rabbit_v0.1.0/state/shotListModel.js's own, GENERATED
+//    (F9, B1) into electron/rules/shotLists.cjs by scripts/build-electron-rules.mjs
+//    (this file cannot import that ESM module synchronously): the backfill's
+//    title and summary, compareScenesForList, compareShotsForList and
+//    backfillItems — 0084's backfill ORDER BY (scene_number NULLS LAST,
+//    sort_order, created_at, id; shots PARTITION BY scene_id the same way on
+//    shot_number). src/lib/electronRules.test.js fails while the generated
+//    file is stale (npm run build:rules). ──────────────────────────────────
+const {
+  SHOT_LIST_BACKFILL_TITLE, SHOT_LIST_BACKFILL_SUMMARY, compareScenesForList, compareShotsForList, backfillItems,
+} = require('./rules/shotLists.cjs');
 
-// ── ordering — a CJS restatement of src/tools/rabbit_v0.1.0/state/
-//    shotListModel.js (this file cannot import that ESM module synchronously).
-//    🚨 It MUST stay identical to the model's backfillItems and to 0084's
-//    backfill ORDER BY (scene_number NULLS LAST, sort_order, created_at, id;
-//    shots PARTITION BY scene_id the same way on shot_number).
-//    src/tools/rabbit_v0.1.0/state/shotListBackfillParity.test.js runs both on
-//    the same shuffled input and fails on any difference. ──────────────────
-
-function cmpNullsLast(a, b) {
-  const an = a === null || a === undefined || a === '';
-  const bn = b === null || b === undefined || b === '';
-  if (an && bn) return 0;
-  if (an) return 1;
-  if (bn) return -1;
-  const x = Number(a);
-  const y = Number(b);
-  if (x < y) return -1;
-  if (x > y) return 1;
-  return 0;
-}
-
+// A text order with nulls first, for the item rows' tie (sortItemRows below).
 function cmpText(a, b) {
   const x = a == null ? '' : String(a);
   const y = b == null ? '' : String(b);
   if (x < y) return -1;
   if (x > y) return 1;
   return 0;
-}
-
-function compareScenesForList(a, b) {
-  return cmpNullsLast(a?.scene_number, b?.scene_number)
-    || cmpNullsLast(a?.sort_order, b?.sort_order)
-    || cmpText(a?.created_at, b?.created_at)
-    || cmpText(a?.id, b?.id);
-}
-
-function compareShotsForList(a, b) {
-  return cmpNullsLast(a?.shot_number, b?.shot_number)
-    || cmpNullsLast(a?.sort_order, b?.sort_order)
-    || cmpText(a?.created_at, b?.created_at)
-    || cmpText(a?.id, b?.id);
-}
-
-/** The model's backfillItems, line for line: [{ scene_id, shot_id, position }]. */
-function backfillItems(scenes, shots) {
-  const out = [];
-  const orderedScenes = [...(scenes || [])].sort(compareScenesForList);
-  orderedScenes.forEach((s, i) => out.push({ scene_id: s.id, shot_id: null, position: i }));
-  const groups = new Map();
-  for (const sh of shots || []) {
-    const key = sh.scene_id || null;
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(sh);
-  }
-  const sceneOrder = new Map(orderedScenes.map((s, i) => [s.id, i]));
-  const rank = (k) => (k === null ? Number.MAX_SAFE_INTEGER
-    : (sceneOrder.has(k) ? sceneOrder.get(k) : Number.MAX_SAFE_INTEGER - 1));
-  const keys = [...groups.keys()].sort((a, b) => (rank(a) - rank(b)) || cmpText(a, b));
-  for (const k of keys) {
-    groups.get(k).sort(compareShotsForList).forEach((sh, i) => out.push({ scene_id: null, shot_id: sh.id, position: i }));
-  }
-  return out;
 }
 
 // ── small helpers ────────────────────────────────────────────────────────────
