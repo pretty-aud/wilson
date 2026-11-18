@@ -5586,3 +5586,107 @@ what its review rounds recorded. None is fixed unless it says so.
   - Pins: "an open overtaken by its late join's refetch" has about 150 ms of slack on the old code (a slow mount passes
     it there); "a token refresh with a new role" uses sessions with no access token, so only personKeyOf's
     user-object branch is exercised.
+
+## F6 (2026-11-18, wave 3 of `docs/sessions/PLAN_WEEK_2026-11-04.md`) — left open
+
+D.O.G. and O.T.T.E.R. without their copies (`po/f6-dog-otter-one-copy`; brief
+`docs/sessions/briefs/po-f6-dog-otter-one-copy.md`). What each finding (REV-03, REV-04; dog-otter A1, A2, A5, A6, B1,
+B5) has left, what F6 met outside its list, and what its review rounds recorded. None is fixed unless it says so.
+
+**What remains of A2 (one slide format): where generation and the History import read the same text differently.**
+Unifying would change an output, so each kept its reading (`splitSlides(text, { as })` in `parser.js`), pinned side by
+side in `parser.test.js` (MEASURED there).
+
+- **F6-01 · Generation loses a slide's body under a bracketed header with a rule beneath it.** `═══ / SLIDE #1 — [LAYOUT
+  TYPE: Title Slide] / ═══ / ▸ TITLE: …`: the header's match stops at the bracket, `]` becomes the body, the real body
+  (the next block) is skipped and the title is "Untitled"; the import reads it whole. Today's prompts ask for the plain
+  header, so only an old-format or hand-written text meets it. Fix shape: take the closing bracket with the header.
+- **F6-02 · The import runs a `SLIDE #X` slide on into the next.** Format 2's end needs a digit (`SLIDE\s*#\d`); two `X`
+  slides import as one. Generation reads two.
+- **F6-03 · An empty title reads the next line on generation and in the visualiser.** `▸ TITLE:` then `▸ SUBTITLE: …`
+  titles the slide "▸ SUBTITLE: …" (`slideTitle`); the import says "Untitled".
+- **F6-04 · A loose "Slide 1" (no #) is read by generation's last resort only;** the import reads nothing.
+- **F6-05 · The drawer's full-deck format keeps its layout's bracket on import only** (`[Layout Name` vs `[Layout Name]`).
+- **F6-06 · The import keeps short-ruled text raw and doubles a closing rule.** Rules under 20 `═` import as one raw item;
+  the model's own format imports with its closing rule doubled, so each import-then-export round trip adds one rule
+  between slides (`exportHistory` strips one).
+- **F6-07 · The visualiser reads asset frames its own way.** `LayoutVisualizer.jsx` takes any piece of the section
+  (`split(/[•\n]/)`) and a ratio anywhere in it; the image prompts take only `• [Type | ratio] - description`. A line
+  without the dash (`scripts/dog-preview-probe.mjs`'s `[Image | 16:9] Hero image`) is drawn and never gets a prompt.
+- **F6-08 · The `<<file>>` marker is read by one identical regex in three places** (the visualiser, the visual-assets
+  export, the image-prompt filter). Nothing drifts today; left.
+
+**What remains of B5 (one response reader).** 83 code reads of `.json()` → 1 in O.T.T.E.R.'s files and the Admin
+Terminal's change requests (MEASURED by grep, comments stripped; `otterRoutes.test.js` bans them in seven files).
+
+- **F6-09 · `petKnowledge.js` keeps a second reader.** Its `readJson` reads the status first and treats a body that will
+  not parse as a failure, but it is a second copy of the rule; its suite's sixteen fakes have `json()` only and the brief
+  keeps the pet's tests unedited. Fix shape: `readJson` over `otterCall` once the fakes carry `text()`.
+- **F6-10 · otterFetch answers outside F6's files are still read with `.json()`:** `src/components/SettingsPage.jsx` 2
+  (`/api/software` and a course's `/subjects`, no `res.ok`; a refusal gives an empty subject-lock picker with no words),
+  `src/cloud/storageApi.js` 1 (MEASURED by grep). Out of F6's line.
+- **F6-11 · A refused course opens empty with no words.** Since round 1 (`69abf5e1`) a refused course read clears to the
+  empty course (before F6 the refusal was cached as its meta, which drew the same); the read's words reach the console
+  only. Saying them is a visible change, hers to call.
+- **F6-12 · A refused hotkeys or nodes merge is not reported.** Since F6 it no longer blanks the Hotkeys or Nodes view
+  (before, the refusal became the documents); the person is still not told the generated hotkeys or nodes were dropped.
+  The functions merge's answer has never been read.
+- **F6-19 · A refused subject reads as "nothing selected".** `selectSubject`'s catch (F6) clears the subject while the
+  sidebar still highlights it, and a late refusal can blank a subject picked after it (no request guard; the success
+  path's twin race, a late subject replacing a newer one, is older). Round 1 (1B), LOW.
+- **F6-20 · A refused functions, nodes or references read is cached as empty for the session.** The fan-outs' fallbacks
+  now also catch a JSON refusal (before, only a thrown or non-JSON read), so a transient 500 on `/functions` shows "none"
+  until reload, and the generators' duplicate check sees a truthy empty document. The nodes fallback has the wrong shape
+  (`{ categories: [] }` where nodes use `{ systems: [] }`; older). Round 1 (1B), LOW.
+- **F6-21 · A subject is deleted without a backup when the backup read is refused** (no undo entry; before F6 the refusal
+  itself was pushed and Undo re-posted it). Round 1 (1B), LOW.
+- **F6-22 · `exportAll` has no `try`:** a local read that rejects (server down) is an unhandled rejection with no alert;
+  F6's alert covers an answered refusal. Older. Round 1 (1B), LOW.
+- **F6-23 · Adding to an existing course whose subjects read is refused saves every stub unchecked** and offers nothing to
+  batch receivers (older: the refusal threw into the same catch). Round 1 (1B), reasoned, not reproduced.
+- **F6-27 · The `.json()` ban is a fixed list and a spelling.** `ShareSubjectDialog.jsx`, `NewSubjectShareReminder.jsx`
+  and `otterAI.js` are not listed; `res.json?.()`, `res.json( )` and `JSON.parse(await res.text())` pass; a `/*` inside a
+  string would hide code from its comment stripper (none today). Round 1 (1B, 1C), LOW.
+- **F6-28 · A response without `text()`, or a 200 whose body is not JSON, reads as an empty success** at the `readBody`
+  sites (deliberate, pinned in `otterRoutes.test.js`; no backend produces it today). Round 1 (1C), LOW.
+- **F6-29 · `ChangeRequestDialog.jsx` reads `row.id` of a null row** when a create answers 2xx with an empty body ("Sent."
+  then a TypeError). Older and not reachable today (the cloud create returns the row). Round 1 (1C), LOW.
+
+**What remains of A6 and REV-03 (the Validator's wrapper).**
+
+- **F6-24 · The Validator's other edges.** A refused subject read in "request fixes" reaches the console only (older); the
+  queue's words for a missing subject are now the server's ("Not found") where they were "Lesson not found"; Stop cannot
+  interrupt the new retry wait (the task lingers up to 12 s, the screen is right); a Stop landing after the reply but
+  before the result is written is overwritten by "completed" (older); a reply split across text blocks is read from its
+  last block, which fails where the JSON sat in an earlier one followed by a short tail (not reproduced). Round 1 (1A,
+  1C), LOW.
+- **F6-25 · The quiz keeps its own parse, without the diagnostic** (`Failed to parse ${type} quiz JSON.`, no
+  `describeResponse`). Round 1 (1A), LOW.
+- **F6-26 · The `.find` guard's blind spots** (`src/cloud/textFromMessage.test.js`): `.filter(b => b.type === 'text')[0]`,
+  a block-body arrow, a `function` callback and `b && b.type === 'text'` pass; and it would flag a legitimate
+  `files.find(f => f.type === 'text')` (D.O.G.'s uploads carry that type). Round 1 (1A), LOW.
+
+**What remains of A5 (one rewrite request) and A1 (one generation pipeline).**
+
+- **F6-13 · The rewrite reads its prompts stale.** Neither `handleRewriteRequest` nor `handleRewriteRedo` lists
+  `rewritePrompts` in its dependencies: edit a rewrite prompt, then Regenerate on the same selection, and the old prompt
+  is sent. Older.
+- **F6-14 · The agent's single subject uses the OPEN course's documents for another course.** Generating on a course that
+  is not open, the request lists the open course's hotkeys and nodes as "existing", and the merge's answer updates the
+  open course's Hotkeys and Nodes state. Older, kept by the pipeline (each path passes what it passed).
+- **F6-15 · An agent generation's failure is never drawn.** `agentGenerateCourse` and `agentGenerateSingleSubject` write
+  their error under a temporary slug no row shows, and do not rethrow. Older.
+- **F6-16 · The stub fill reads its stub twice** (`stubPre` for the title, then `stubData`). Older, kept.
+- **F6-18 · The two topic paths now set "Sending request…" again just before the model call** (the pipeline's phase,
+  which only the stub fill used to set): after slow duplicate reads the label steps back from "Searching the web…" for
+  under a second. Nothing sent or saved differs. Round 1 (1E), LOW, F6's.
+- **F6-30 · `correctGeometryIconOrder` treats `$` in the rebuilt geometry as a replacement pattern** (`content.replace`
+  with a string): a title slide whose icon description holds `$$` is stored with `$`. Older. Round 1 (1D), LOW.
+- **F6-31 · The theme colours read the uploads' text before their file names** (`deckExcerpt` moved up): only the error
+  words of a doubly malformed upload would differ, and none is built that way. Round 1 (1D), LOW.
+- **F6-32 · The kept tests are thinner than the equivalence they describe.** Items 3 to 5 were proved by temporary
+  harnesses (the hand-off records them), and round 1's reviewer 1D ran its own (481,794 slide-reading and 120,000 rewrite
+  comparisons, 0 differences); but `parser.test.js` leaves 22 of 39 single-line mutants of `parser.js` alive (generation's
+  strategy 2, the geometry correction calls, header variants, the import rule's lower bound), `rewritePrompts.test.js`
+  15 of 15 of `rewriteRequest`, and the pipeline's `signal` and `stubSlug` passing and its second "Cancelled" check are
+  unpinned. Round 1 (1D, 1E), LOW.
