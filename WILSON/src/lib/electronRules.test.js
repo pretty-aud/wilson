@@ -140,36 +140,39 @@ const takenOut = (files) => (files || []).filter((f) => typeof f === 'string' &&
  * comment). Read: `require(…)`, `require.resolve(…)` and `import(…)`, by their
  * FIRST argument (a second one, or a line break, changes nothing).
  *
- * What reading cannot follow is itself a problem (review round 1): a first
- * argument that is not a string literal, and a second require function made
- * with `createRequire(`. A relative path is ours, but one that climbs out of
- * electron/ must land inside what `build.files` packs. A name with a trailing
- * slash (`punycode/`) is the npm package, not Node's module of that name.
+ * What reading cannot follow is itself a problem (review rounds 1 and 2): a
+ * first argument that is not a string literal; a second require function made
+ * with `createRequire(`; and a code file under electron/ that is not `.cjs`,
+ * because a static `import … from` is not read here and only such a file can
+ * hold one. A relative path is ours, but one that leaves electron/ must land
+ * inside what `build.files` packs. A name with a trailing slash (`punycode/`)
+ * is the npm package, not Node's module of that name.
  */
 function unshippedRequires(files, pkg) {
   const ships = new Set([...Object.keys(pkg.dependencies || {}), ...Object.keys(pkg.optionalDependencies || {})])
   const devOnly = new Set(Object.keys(pkg.devDependencies || {}))
   const nodes = new Set(builtinModules)
   const ELECTRONS = new Set(['electron', 'original-fs']) // modules the Electron runtime itself provides
-  // What electron-builder packs beside electron/ itself (package.json's build.files).
-  const packedOutside = (p) => p === '../package.json' || p.startsWith('../dist/') || p.startsWith('../public/extensions/')
+  // What electron-builder packs (package.json's build.files), as paths from the app's root.
+  const packed = (p) => p.startsWith('electron/') || p === 'package.json' || p.startsWith('dist/') || p.startsWith('public/extensions/')
   const problems = new Set()
   const seen = new Set()
   for (const [file, text] of Object.entries(files)) {
+    if (/\.(m?js|jsx|[mc]?ts|tsx)$/.test(file)) problems.add(`${file}: is not a .cjs file, so a static import in it would not be read by this check`)
     if (/\bcreateRequire\s*\(/.test(text)) problems.add(`${file}: makes a second require function with createRequire(, which this check cannot follow`)
-    for (const m of text.matchAll(/\b(require(?:\.resolve)?|import)\(\s*/g)) {
+    for (const m of text.matchAll(/\b(require(?:\.resolve)?|import)\s*\(\s*/g)) {
       const rest = text.slice(m.index + m[0].length)
       if (rest.startsWith(')')) continue // "require()'d" in a comment: with no argument nothing is loaded
       const literal = rest.match(/^\\?(['"`])([^'"`\\$]+)\\?\1\s*[,)]/)
       if (!literal) { problems.add(`${file}: ${m[1]}(${rest.slice(0, rest.search(/[)\n]|$/)).trim()}) is not a string literal, so what it loads cannot be checked`); continue }
       const name = literal[2]
       if (name.startsWith('.')) {                                                     // a file of ours…
-        const from = file.split('/').slice(0, -1)
+        // …walked from the app's root, so a path that leaves electron/ and comes back is seen to.
+        const from = ['electron', ...file.split('/').slice(0, -1)]
         for (const part of name.split('/')) {
           if (part === '..') { if (from.length && from[from.length - 1] !== '..') from.pop(); else from.push('..') } else if (part !== '.') from.push(part)
         }
-        const landed = from.join('/')
-        if (landed.startsWith('..') && !packedOutside(landed)) problems.add(`${file}: requires '${name}', a file outside electron/ that the build does not pack`)
+        if (!packed(from.join('/'))) problems.add(`${file}: requires '${name}', a file outside electron/ that the build does not pack`)
         continue
       }
       if (name.startsWith('/')) continue
@@ -233,10 +236,12 @@ describe('a packaged build carries the folder', () => {
         "require('punycode/');",                                              // the npm package, not Node's module of the name
         "require('../src/lib/storage.js'); require('../../outside.cjs');",   // files the build does not pack
         'require(`./rules/${which}.cjs`);',                                   // a template with a hole
-        // none of these is a problem: ours (beside, below, and the three places the build packs outside electron/),
-        // Node's (three spellings), Electron's (three), a shipped package by a deep path, with a second argument,
-        // over lines, and inside worker source held in a string with its quotes escaped
-        "require('./beside.cjs'); require('./rules/taskItems.cjs'); require('../package.json'); require('../dist/index.html'); require('../public/extensions/Code.gs');",
+        "require ('jsdom');",                                                 // review round 2: a gap before the parenthesis
+        // none of these is a problem: ours (beside, below, out of electron/ and back in, and the three places
+        // the build packs outside it), Node's (three spellings), Electron's (three), a shipped package by a
+        // deep path, with a second argument, over lines, and inside worker source held in a string with its
+        // quotes escaped
+        "require('./beside.cjs'); require('./rules/taskItems.cjs'); require('../electron/ffmpeg.cjs'); require('../package.json'); require('../dist/index.html'); require('../public/extensions/Code.gs');",
         "require('node:fs'); require('fs/promises'); require('path'); require('electron'); require('electron/main'); require('original-fs'); require('express/lib/router');",
         "require.resolve('sharp', { paths: [dir] });",
         'require(',
@@ -246,6 +251,8 @@ describe('a packaged build carries the folder', () => {
         "// a comment may say a file can't be require()'d",
       ].join('\n'),
       'made.cjs': "const { createRequire } = require('node:module');\nconst load = createRequire(__filename);\nload('vite');\n",
+      // review round 2: the one kind of file that can hold a static import (this folder is "type": "module").
+      'rules/helper.mjs': "import { defineConfig } from 'vite'\n",
     }
     expect(unshippedRequires(planted, pkg)).toEqual({
       problems: [
@@ -258,10 +265,14 @@ describe('a packaged build carries the folder', () => {
         "planted.cjs: requires '../src/lib/storage.js', a file outside electron/ that the build does not pack",
         "planted.cjs: requires '../../outside.cjs', a file outside electron/ that the build does not pack",
         'planted.cjs: require(`./rules/${which}.cjs`) is not a string literal, so what it loads cannot be checked',
+        `planted.cjs: requires 'jsdom', ${DEV}`,
         'made.cjs: makes a second require function with createRequire(, which this check cannot follow',
+        'rules/helper.mjs: is not a .cjs file, so a static import in it would not be read by this check',
       ],
-      seen: ['@playwright/test', 'express', 'left-pad', 'punycode', 'sharp', 'vite', 'vitest'],
+      seen: ['@playwright/test', 'express', 'jsdom', 'left-pad', 'punycode', 'sharp', 'vite', 'vitest'],
     })
+    // …and the real folder holds nothing but .cjs files, so no static import can be written in it today.
+    expect(Object.keys(electronSources()).filter((name) => !name.endsWith('.cjs'))).toEqual([])
     // The build's own list is what "packs" means: the three places outside electron/ are in it.
     expect(pkg.build.files).toEqual(expect.arrayContaining(['dist/**/*', 'electron/**/*', 'public/extensions/**/*', 'package.json']))
     // On the real files: a dependency moved to devDependencies is named in every file that requires it.

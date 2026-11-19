@@ -14,7 +14,12 @@
 // measures which lever actually helps, against the same prompt and the same
 // 16384-token budget, in one run so conditions are shared:
 //
-//   A  no thinking field      — today's behaviour, the 150.4s baseline
+//   A  no thinking field      — Session 19's baseline, 150.4s (NOT today's
+//                               request: the app now sends
+//                               tuningFor('dog.fullDeck') with every full
+//                               deck, the operator's effort or the registry's
+//                               built-in, so "today" is whichever row below
+//                               that tuning matches; review round 2, F12)
 //   B  thinking: disabled     — closest to how Sonnet 4 behaved
 //   C  adaptive, effort low   — Anthropic's preferred lever over disabling
 //   D  adaptive, effort medium
@@ -191,7 +196,7 @@ Key talent: Dr. Maren Ostlund (marine biologist), archive from NOAA.
 The deck is for a funding pitch and must stand alone without a presenter.`
 
 const VARIANTS = [
-  { label: 'A  no thinking field (today)', extra: {} },
+  { label: 'A  no thinking field (S19)', extra: {} },
   { label: 'B  thinking: disabled', extra: { thinking: { type: 'disabled' } } },
   { label: 'C  adaptive, effort low', extra: { thinking: { type: 'adaptive' }, output_config: { effort: 'low' } } },
   { label: 'D  adaptive, effort medium', extra: { thinking: { type: 'adaptive' }, output_config: { effort: 'medium' } } },

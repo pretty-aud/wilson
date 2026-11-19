@@ -17,6 +17,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { createRequire } from 'node:module'
 import { spawn } from 'node:child_process'
+import { createServer } from 'node:net'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, dirname } from 'node:path'
@@ -148,7 +149,7 @@ describe('the web preview, scripts/serve-web.mjs (F12)', () => {
     // address in every test run). Review round 1: the order of two words in the source proved
     // nothing; this is the behaviour.
     const importer = `await import(${JSON.stringify(pathToFileURL(SCRIPT).href)})`
-    const child = spawn(process.execPath, ['--input-type=module', '-e', importer], { env: { ...process.env, PORT: '0', HOST: '127.0.0.1' }, stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(process.execPath, ['--input-type=module', '-e', importer], { env: { ...process.env, PORT: '0', WILSON_PREVIEW_HOST: '127.0.0.1' }, stdio: ['ignore', 'pipe', 'pipe'] })
     let said = ''
     child.stdout.on('data', (c) => { said += c })
     child.stderr.on('data', (c) => { said += c })
@@ -165,16 +166,16 @@ describe('the web preview, scripts/serve-web.mjs (F12)', () => {
     expect(src.match(/\.listen\(/g)).toHaveLength(1)
     expect(src).not.toMatch(/sendFile\(/)
     // PORT=0: any free port, so nothing here can collide with a preview someone has open on 4174.
-    // HOST=127.0.0.1: this computer only, as every other listener in the suite (unset, the script
-    // listens on every address, as `npm run preview:web` always has).
-    const child = spawn(process.execPath, [SCRIPT], { env: { ...process.env, PORT: '0', HOST: '127.0.0.1' }, stdio: ['ignore', 'pipe', 'pipe'] })
+    // WILSON_PREVIEW_HOST=127.0.0.1: this computer only, as every other listener in the suite
+    // (unset, the script listens on every address, as `npm run preview:web` always has).
+    const child = spawn(process.execPath, [SCRIPT], { env: { ...process.env, PORT: '0', WILSON_PREVIEW_HOST: '127.0.0.1' }, stdio: ['ignore', 'pipe', 'pipe'] })
     try {
       const port = await new Promise((done, fail) => {
         let said = ''
         const timer = setTimeout(() => fail(new Error(`the script printed no address in 15 s: ${said}`)), 15_000)
         const read = (chunk) => {
           said += chunk
-          const m = said.match(/http:\/\/localhost:(\d+)\/wilson/)
+          const m = said.match(/http:\/\/127\.0\.0\.1:(\d+)\/wilson/)
           if (m) { clearTimeout(timer); done(Number(m[1])) }
         }
         child.stdout.on('data', read)
@@ -187,6 +188,31 @@ describe('the web preview, scripts/serve-web.mjs (F12)', () => {
       expect(res.headers.get('location')).toBe('/wilson')
     } finally {
       child.kill()
+    }
+  }, 30_000)
+
+  // Review round 2: the taken-port answer had no case. Express hands the failed listen to the
+  // script's callback; without its `if (err)` branch the script would read the port of a server
+  // that is not listening and die with a TypeError that names no port.
+  it('on a port already taken it says so and exits 1', async () => {
+    const holder = await new Promise((done) => { const s = createServer().listen(0, '127.0.0.1', () => done(s)) })
+    const taken = holder.address().port
+    try {
+      const child = spawn(process.execPath, [SCRIPT], { env: { ...process.env, PORT: String(taken), WILSON_PREVIEW_HOST: '127.0.0.1' }, stdio: ['ignore', 'pipe', 'pipe'] })
+      let said = ''
+      child.stdout.on('data', (c) => { said += c })
+      child.stderr.on('data', (c) => { said += c })
+      const code = await new Promise((done) => {
+        const timer = setTimeout(() => { child.kill(); done('still running after 15 s') }, 15_000)
+        child.on('close', (c) => { clearTimeout(timer); done(c) })
+      })
+      expect(code, said).toBe(1)
+      expect(said).toContain(`[wilson-web] cannot listen on 127.0.0.1, port ${taken}: `)
+      expect(said).toContain('EADDRINUSE')
+      expect(said).not.toContain('TypeError')
+      expect(said).not.toContain('serving dist-web')
+    } finally {
+      await new Promise((done) => holder.close(done))
     }
   }, 30_000)
 })
