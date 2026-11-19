@@ -19,7 +19,7 @@ import {
   DEFAULT_SINGLE_PAGE_INSTRUCTIONS, DEFAULT_SINGLE_PAGE_OUTPUT_FORMAT, composeSinglePageInstructions,
   EXPORT_SCHEMA_MARK, SLIDE_NUMBER_MARK, LAYOUT_NAME_MARK,
 } from './singlePagePrompts.js'
-import { DEFAULT_FULL_DECK_INSTRUCTIONS, DEFAULT_FULL_DECK_OUTPUT_FORMAT, composeFullDeckInstructions } from './fullDeckPrompts.js'
+import { DEFAULT_FULL_DECK_SYSTEM, DEFAULT_FULL_DECK_INSTRUCTIONS, DEFAULT_FULL_DECK_OUTPUT_FORMAT, composeFullDeckInstructions } from './fullDeckPrompts.js'
 
 const sha = (t) => createHash('sha256').update(t, 'utf8').digest('hex')
 const DOG = readFileSync(fileURLToPath(new URL('../DeckOutlineGenerator.jsx', import.meta.url)), 'utf8')
@@ -76,5 +76,104 @@ describe('the requests read the boxes (DeckOutlineGenerator.jsx)', () => {
   it('the image prompts schema is the file\'s layout, read-only', () => {
     expect(DOG).toMatch(/<textarea readOnly value=\{DEFAULT_IMG_PROMPT_OUTPUT_FORMAT\}/)
     expect(DOG).not.toMatch(/imgPromptOutputFormat/)
+  })
+})
+
+// ── F12 (OUTSTANDING F6-17): the two probes build the request D.O.G. sends ───
+// scripts/probes/deck-latency.mjs and generation-e2e.mjs measured a prompt D.O.G. never sends: the
+// export format glued onto the SYSTEM prompt, and the rules in the user turn with {{EXPORT SCHEMA}}
+// left as written. They compose it as the app does now: the system prompt alone, and the rules with
+// the format in the mark's place, after the source text.
+//
+// 🚨 The probes are NEVER imported or run here. Each reads an env file, signs in and calls the one
+// AI key the moment it is loaded. Only the request's object literal is lifted from the script's
+// TEXT and evaluated, with the app's own constants and a made-up brief; the literal makes no call
+// but composeFullDeckInstructions and modelFor (a comment beside each says to keep it so).
+const PROBES = {
+  'deck-latency.mjs': (text) => literalAfter(text, 'const body = '),
+  'generation-e2e.mjs': (text) => literalAfter(text, 'body: ', text.indexOf("name: 'D.O.G. full deck'")),
+}
+const probeText = (name) => readFileSync(fileURLToPath(new URL(`../../../../scripts/probes/${name}`, import.meta.url)), 'utf8')
+
+/** The object literal that follows `marker` (searched from `from`), by brace matching. */
+function literalAfter(text, marker, from = 0) {
+  const at = from < 0 ? -1 : text.indexOf(marker, from)
+  if (at < 0) throw new Error(`the probe no longer has "${marker}"`)
+  const open = text.indexOf('{', at)
+  let depth = 0
+  for (let i = open; i < text.length; i++) {
+    if (text[i] === '{') depth++
+    else if (text[i] === '}') { depth--; if (depth === 0) return text.slice(open, i + 1) }
+  }
+  throw new Error(`unbalanced braces after "${marker}"`)
+}
+
+const BRIEF = 'PROJECT: a made-up brief, two lines.\nIts second line.'
+const COMPOSED = composeFullDeckInstructions(DEFAULT_FULL_DECK_INSTRUCTIONS, DEFAULT_FULL_DECK_OUTPUT_FORMAT)
+const count = (hay, needle) => hay.split(needle).length - 1
+
+/** What is wrong with a probe's full-deck request, as its text builds it. */
+function probeProblems(name, text) {
+  const problems = []
+  if (!/import \{[^}]*\bcomposeFullDeckInstructions\b[^}]*\} from '\.\.\/\.\.\/src\/tools\/deck-outline-generator_v0\.514\/prompts\/fullDeckPrompts\.js'/.test(text)) {
+    problems.push('does not import composeFullDeckInstructions from the app\'s own prompts module')
+  }
+  // eslint-disable-next-line no-new-func
+  const body = new Function(
+    'DEFAULT_FULL_DECK_SYSTEM', 'DEFAULT_FULL_DECK_INSTRUCTIONS', 'DEFAULT_FULL_DECK_OUTPUT_FORMAT', 'composeFullDeckInstructions', 'modelFor', 'BRIEF', 'extra',
+    `return (${PROBES[name](text)})`,
+  )(DEFAULT_FULL_DECK_SYSTEM, DEFAULT_FULL_DECK_INSTRUCTIONS, DEFAULT_FULL_DECK_OUTPUT_FORMAT, composeFullDeckInstructions, () => 'a-model', BRIEF, {})
+  if (body.system !== DEFAULT_FULL_DECK_SYSTEM) problems.push('system is not the app\'s system prompt alone')
+  const turns = body.messages || []
+  const said = turns.length === 1 && turns[0].role === 'user' && typeof turns[0].content === 'string' ? turns[0].content : null
+  if (said === null) problems.push('the request is not one user turn of text')
+  else {
+    if (!said.endsWith(COMPOSED) || count(said, COMPOSED) !== 1) problems.push('the user turn does not end with the composed instructions, once')
+    if (!said.startsWith(BRIEF)) problems.push('the source text does not come before the instructions')
+  }
+  const whole = JSON.stringify(body)
+  if (whole.includes(EXPORT_SCHEMA_MARK)) problems.push('{{EXPORT SCHEMA}} is sent as written')
+  if (count(whole, JSON.stringify(DEFAULT_FULL_DECK_OUTPUT_FORMAT).slice(1, -1)) !== 1) problems.push('the export format is not sent exactly once')
+  if (body.tool !== 'dog') problems.push('tool is not dog')
+  return problems
+}
+
+describe('F12: the probes build the full-deck request D.O.G. sends (OUTSTANDING F6-17)', () => {
+  it('the app\'s side, read from the component: the system box alone as system, the composed boxes at the end of the user turn', () => {
+    expect(DOG).toContain('useState(DEFAULT_FULL_DECK_SYSTEM)')
+    expect(DOG).toContain('system: fullDeckSystemPrompt,')
+    expect(DOG).toContain('const outputInstructions = composeFullDeckInstructions(fullDeckInstructions, fullDeckOutputFormat);')
+    expect(DOG).toMatch(/\$\{fullDeckPlacementPrompt\.instructions\}\$\{outputInstructions\}\$\{fullDeckPlacementPrompt\.rules\}`;/)
+    // …and with no placed asset the placement prompt is two empty strings, so the turn ends with the instructions.
+    expect(DOG).toContain(": { instructions: '', rules: '' };")
+  })
+
+  for (const name of Object.keys(PROBES)) {
+    it(`${name}: its request is the app's — the same system prompt, the same composed instructions (by the fingerprint above)`, () => {
+      expect(probeProblems(name, probeText(name))).toEqual([])
+      expect(sha(COMPOSED)).toBe('869b49a9f5f5f6ea47c6f1d69ad226cbf93f1f23aab32fea05d3edbe58e44b2c')
+    })
+  }
+
+  it('CONTROL: the request as both probes built it before F12 is named for each thing wrong with it', () => {
+    const before = [
+      "import { composeFullDeckInstructions } from '../../src/tools/deck-outline-generator_v0.514/prompts/fullDeckPrompts.js'",
+      'const body = {',
+      "  model: modelFor('dog.fullDeck'),",
+      '  system: `${DEFAULT_FULL_DECK_SYSTEM}\\n\\n${DEFAULT_FULL_DECK_OUTPUT_FORMAT}`,',
+      "  messages: [{ role: 'user', content: `${DEFAULT_FULL_DECK_INSTRUCTIONS}\\n\\n${BRIEF}` }],",
+      "  tool: 'dog',",
+      '  ...extra,',
+      '}',
+    ].join('\n')
+    expect(probeProblems('deck-latency.mjs', before)).toEqual([
+      'system is not the app\'s system prompt alone',
+      'the user turn does not end with the composed instructions, once',
+      'the source text does not come before the instructions',
+      '{{EXPORT SCHEMA}} is sent as written',
+    ])
+    // …and one that never took the app's function is named for that too.
+    expect(probeProblems('deck-latency.mjs', before.replace('composeFullDeckInstructions', 'somethingElse'))[0])
+      .toBe('does not import composeFullDeckInstructions from the app\'s own prompts module')
   })
 })

@@ -32,7 +32,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import {
-  DEFAULT_FULL_DECK_SYSTEM, DEFAULT_FULL_DECK_OUTPUT_FORMAT, DEFAULT_FULL_DECK_INSTRUCTIONS,
+  DEFAULT_FULL_DECK_SYSTEM, DEFAULT_FULL_DECK_OUTPUT_FORMAT, DEFAULT_FULL_DECK_INSTRUCTIONS, composeFullDeckInstructions,
 } from '../../src/tools/deck-outline-generator_v0.514/prompts/fullDeckPrompts.js'
 import { modelFor } from '../../src/lib/activeModel.js'
 
@@ -103,11 +103,21 @@ async function res200Text(r) {
 async function run(extra, label) {
   const started = Date.now()
   const el = () => ((Date.now() - started) / 1000).toFixed(0)
+  // F12 (OUTSTANDING F6-17): THE REQUEST D.O.G. SENDS. The system prompt alone
+  // as `system`; then the source text, then the rules with the export format
+  // composed into them where {{EXPORT SCHEMA}} stands, which is how
+  // generateFullDeck ends its user turn. Until F12 this sent the format glued
+  // onto the system prompt and the rules with the mark left as written: a
+  // prompt the app never sends, so figures from before F12 are of another
+  // request and do not compare with later ones.
+  // 🚨 Keep this literal free of any call but composeFullDeckInstructions and
+  // modelFor: prompts/promptBoxes.test.js lifts it from this file's text and
+  // evaluates it (this script is never imported by a test: it spends money).
   const body = {
     model: modelFor('dog.fullDeck'),
     max_tokens: 16384,
-    system: `${DEFAULT_FULL_DECK_SYSTEM}\n\n${DEFAULT_FULL_DECK_OUTPUT_FORMAT}`,
-    messages: [{ role: 'user', content: `${DEFAULT_FULL_DECK_INSTRUCTIONS}\n\n${BRIEF}` }],
+    system: DEFAULT_FULL_DECK_SYSTEM,
+    messages: [{ role: 'user', content: `${BRIEF}\n\n${composeFullDeckInstructions(DEFAULT_FULL_DECK_INSTRUCTIONS, DEFAULT_FULL_DECK_OUTPUT_FORMAT)}` }],
     tool: 'dog',
     ...extra,
   }
