@@ -5893,6 +5893,13 @@ left, what F9 met outside its list, and what its review rounds recorded. None is
   answer, only where missing), and a case that puts the selection in the note's text and scrolls on purpose was red
   first with CI's very error. With it the full suite here exited 0 for the first time in F12 (562 files, no error).
   The timeouts are not touched.
+  **F13 (2026-11-19), the lock's read FIXED (`593ccddc`):** in "a note moved to the trash elsewhere" the editor's lock
+  was read at once after the refusal's words, but an effect sets it after that render (red once on CI, run
+  `44007829693`, "expected true to be false"). The file's three reads of `isEditable` wait for it now (the third one's
+  earlier wait, on the list read again, is met before that render, so it never covered the lock); a control holds the
+  lock back and shows the old read failing. The file alone: 20 runs of 20 green. What remains of F9-13 is the
+  gateway's PowerShell timeout and the 5 s timeouts that move under a full run (F12-13; F13-18 says what F13's runs
+  showed).
 - **F9-14 · Rows made before F9 with a name that slugs to nothing keep the shared fallback.** The reconcile and the rebase
   (kept in their words, F9-03) store `Untitled-Project` for a stored slug of `''`, the same for every such project, and
   never fill a `null` slug; where such a project's stored root is unusable they meet in one `<root>/Untitled-Project`.
@@ -6047,8 +6054,15 @@ then three) gave 45 findings, none High and none a security defect: the twenty i
 
 **Found by the reviewers outside F12's file list (each older than F12)**
 
-- **F12-02 · The desktop's PDF text route throws on every call.** `electron/main.cjs`'s `POST /api/extract-pdf` calls
-  `require('pdf-parse')` as a function. In the installed 2.4.5 (in `package.json` since 2026-04-06, the commit that
+- ~~**F12-02 · The desktop's PDF text route throws on every call.**~~ **CLOSED by F13 (2026-11-19, `52740e74`):** the
+  route lives in `electron/pdfText.cjs` and calls the package its own way (`PDFParse`, `getText`, destroyed in a
+  `finally`), still required inside the handler. The answer keeps its shape; its text is the pages' own text joined by
+  a blank line, with no marker line. A body that is not a PDF, an empty one and a PDF locked with a password are
+  answered 422 in plain words, which the rate card's import shows; a missing `dataUrl` is 400 as before. Its test
+  (`RateCard/importers/pdfText.test.js`, the PDFs built in the test) was red on the old handler moved verbatim and is
+  green; the module also read both test PDFs in Electron 33.4.11's own Node, from the source and from the packaged
+  `app.asar` (F13-04). Intake still reads a refused PDF as empty, silently (F13-02). The entry as it stood:
+  `electron/main.cjs`'s `POST /api/extract-pdf` calls `require('pdf-parse')` as a function. In the installed 2.4.5 (in `package.json` since 2026-04-06, the commit that
   added the call) the export is an object whose reader is the class `PDFParse`, so the call throws "pdfParse is not a
   function" and the route answers 500. MEASURED in plain Node against the installed package (`typeof` is `object`);
   the route and its callers were read, not run, and it was not tried inside Electron. By reading: R.A.B.B.I.T.'s
@@ -6156,3 +6170,118 @@ then three) gave 45 findings, none High and none a security defect: the twenty i
 - **F12-20 · Desktop B5 (two IPC paths for "show this file in its folder") was not F12's.** F9-08 says it is; the
   week plan's row does not, and the channels are as F9 left them. The four thumbnail channels keep F9-04 and the two
   attachment constants keep N1-01.
+
+## F13 (2026-11-19, after wave 4 of `docs/sessions/PLAN_WEEK_2026-11-04.md`) — left open
+
+The desktop reads a PDF's text again (F12-02, closed above), and the Notes test's last chance failure is gone (F9-13,
+its note). What F13 built is in its hand-off (`docs/sessions/handoffs/po-f13-2026-11-19.md`); what it measured and
+left is here. F12-03 (a JSON body over 50 MB is answered 500, not 413) and F12-19 (the route's body rides the 50 MB
+limit) stay as recorded.
+
+**Hers to rule (asked in F13's chat and in walkthrough 102)**
+
+- **F13-01 · In the browser nothing reads a PDF's text** (Session 12's choice): the rate card says "PDF import runs in
+  the desktop app only…", and intake treats a PDF as empty with only a console warning. MEASURED by reading, not by
+  building: the package has a browser build (its `browser` export, `dist/pdf-parse/web/pdf-parse.es.js`, 1,012,345
+  bytes before minifying; its minified UMD twin is 480,992) with a worker of its own (`web/pdf.worker.mjs`, 2,076,112
+  bytes). Loading it on first use would take a dynamic `import('pdf-parse')` in the two callers' browser branch (a
+  chunk of about half a megabyte, nothing in the main chunk), the worker served as a file of the site and named with
+  `PDFParse.setWorker(url)`, and the same joining of pages the desktop does. The browser has `DOMMatrix`, so it needs
+  no native canvas. Not built, not tried in a browser.
+- **F13-02 · Intake says nothing when a PDF cannot be read.** A file that is not a PDF, or one locked with a
+  password, now gets plain words from the route (422), which the rate card shows; intake still catches every refusal,
+  warns in the console ("extract-pdf 422") and reads the file as empty, so the AI is sent nothing from it and nobody is
+  told. Whether intake should name the file it could not read is hers.
+- **F13-03 · The desktop ships about 94 MB of packages for its PDF text, and a read loads under 2 MB of them.**
+  MEASURED in the unpacked build (`npm run package`, never started): `pdf-parse` inside `app.asar`, 86 files,
+  21,173,454 bytes, of which a read loads two (its CommonJS entry, 480,695 bytes, and its worker, 1,099,167);
+  `pdfjs-dist` inside, 295 files, 36,297,740 bytes, which a read never loads (traced: the CommonJS entry carries its
+  own pdf.js, and only the package's ES-module and worker entries name `pdfjs-dist`); the canvas's JavaScript inside
+  (6 files, 43,729 bytes) and its Windows binary beside it in `app.asar.unpacked` (3 files, 36,741,006 bytes;
+  `skia.win32-x64-msvc.node` alone is 26,272,256). The binary is not optional: without it the package's require
+  throws. Nothing was changed (no dependency is F13's to move).
+
+**F13's own, left as built**
+
+- **F13-04 · Only the running packaged app proves that its main process loads the native binary.** F13 proved the
+  route in Electron 33.4.11's own Node (`ELECTRON_RUN_AS_NODE` on the worktree's binary), from the source and from the
+  packaged build's `app.asar`: the binary opened from `app.asar.unpacked`, the worker imported from inside the archive.
+  Never in the running app, which opens the real data folder of whoever starts it. Walkthrough 102 gives her two
+  things to try after her next installer. LOW.
+- **F13-05 · A refused read leaves pdf.js's loading task undestroyed.** The package keeps no handle to it when the
+  load fails, so `destroy()` (in the route's `finally`) reaches only a document that opened. MEASURED: 300 refused
+  reads of a 1 MB body leave the heap and the array buffers where they were (11.7 to 10.8 MB; 2 to 3 MB). INFO.
+- **F13-06 · A require that fails is pinned by no test.** With the binary missing the require throws "DOMMatrix is not
+  defined" (measured by blocking it in a script); the route answers it as any failure, the fixed 500 that a case pins
+  with a broken page, and the import shows "extract-pdf 500". INFO.
+- **F13-07 · The text keeps a tab between cells far apart on one line** (the package's `cellSeparator`), where the
+  1.x package this route was first written for joined them with nothing. The import's row scan reads a tab as a space;
+  intake sends it to the AI as it is. INFO.
+
+**Found by review round 1 (two agents on Opus 5.5), in the route's reading; recorded**
+
+The round's one finding that was security is fixed (`3de62808`): the route's 500 answered with the package's own
+words, the line TPN_AUDIT's open finding on exception handlers names (with `fetch-url` and `fetch-raw`, which are as
+they were); a load that fails can put absolute paths under the user's profile in them. It answers "extract-pdf failed"
+now and logs the detail, as the thumbnail routes do. TPN_AUDIT is not a session's to edit: its next re-audit should
+find two of the three sites.
+
+- **F13-08 · CJK text in a font with a predefined CMap is dropped without a word.** MEASURED by the reviewer: a line
+  "監督 1250" in a font using `UniJIS-UCS2-H` reads as "1250"; `UniGB-UCS2-H` and `UniKS-UCS2-H` alike; Identity-H
+  with a ToUnicode map (CJK, Cyrillic, Arabic) and accented WinAnsi text read. Intake then sends the AI the text
+  without those words. Fix shape: `cMapUrl` at `pdfjs-dist`'s own `cmaps/` (already packed: 169 files, 1,167,747
+  bytes) with `cMapPacked: true`, the path in forward slashes ending in `/`; with it all three read. The catch:
+  `pdfjs-dist` is not a declared dependency, so `electronRules.test.js` refuses its name under `electron/`, and
+  declaring it is a dependency change, not F13's; a path found from `pdf-parse`'s own folder would avoid that. The rate
+  card's row scan gains nothing (it needs a–z letters in a role; older). MEDIUM. Owner: whoever the controller names.
+- **F13-09 · One page that cannot be read loses the whole document.** A bad entry in the page tree (a missing object,
+  an integer, a Pages node that loops) opens, reads page 1, then throws on page 2: the route answers 500 and the import
+  shows "extract-pdf 500" (MEASURED by the reviewer with three hand-built PDFs; the route's test uses one). Fix shape:
+  read page by page and skip a page that fails, saying so, or give it the "damaged" words. LOW.
+- **F13-10 · A read holds the desktop's main thread while it runs.** In Node the package runs pdf.js's "fake worker"
+  on the calling thread. MEASURED by the reviewer, in Node, not Electron: a 2,000-page PDF of 40 lines a page (5.1 MB)
+  held the event loop 1.2 s; a crafted 0.26 MB PDF whose content inflates to 256 MiB held it 1.2 s and took about
+  605 MB more memory (64 MiB: 0.3 s, 169 MB), which grows in line, so a 2 MB file of that kind would hold it about
+  10 s and need several GB (worked out, not run). Meanwhile IPC, every other loopback route and the window wait.
+  Fix shape: a worker thread, as `copyInWorker.cjs` and `networkShareWalk.cjs` use, with a size or time cap. LOW.
+- **F13-11 · A filled form's typed values are not read.** MEASURED by the reviewer: a text field holding "Producer
+  1250" reads as the page's printed words only, and the import then says "No rate-like rows detected…". Fix shape: the
+  document's field values after it opens (`getFieldObjects()`); read, not run. LOW.
+- **F13-12 · A global only Electron's main process gets.** Electron 33's Node (20.18) has no `navigator`, so after the
+  first read the package's top sets `globalThis.navigator` (with `DOMMatrix`, `ImageData` and `Path2D`) in the main
+  process; CI's Node 22 and this PC's 24 have one, so no test sees it. No `electron/` file and none of main's other
+  packages read it (read, not run). INFO.
+- **F13-13 · The 50 MB body, measured** (F12-03, F12-19): the largest PDF that fits is 39,321,555 bytes (37.50 MiB);
+  4 KB under that reads (200, 254 ms); 4 KB over is a 413 that `localServerErrorHandler` answers 500 "internal error",
+  so the import shows "extract-pdf 500", as it does for JSON that does not parse. INFO.
+- **F13-14 · A comment in intake still says the route lives in `main.cjs`** (`intake/pipeline.js`, the comment above
+  its `.pdf` branch). In the callers F13 was given only the words shown for a refused PDF, so it waits for that
+  file's next edit. INFO.
+
+**Found by review round 1, in the tests; recorded**
+
+- **F13-15 · How the Notes test's old read failed, reproduced.** The lock is flushed by its own `setImmediate`, about
+  1 to 2 ms after the words reach the page; the old read passed only while Testing Library's `setTimeout(0)` drain
+  fired after it, an order Node does not promise. A 3 ms busy spell after the words made the old read see `true` ten
+  times in ten. The waits hold under it; the control holds the lock back by hand rather than by a slow machine. INFO.
+- **F13-16 · The check that the route's module loads none of the package reads `require.cache` only**, so a top-level
+  `import('pdf-parse')` (the ES-module build) would go unseen; under `--no-isolate` with one worker another file's load
+  could make it fail, never pass, wrongly. INFO.
+- **F13-17 · No run had loaded the package on Linux before this merge.** CI's `npm ci` has installed
+  `@napi-rs/canvas-linux-x64-gnu` since April (the lockfile carries it), but nothing loaded it; the merge commit's unit
+  job is the first. If the binary failed there, all the route test's reading cases would fail every time, not by
+  chance. LOW until a run shows it (the hand-off says what it showed).
+
+**Review round 2** (one agent on Opus 5.5, on `3de62808`) found the fix clean; its two notes were in F13's own test and
+are fixed (`00aa5db4`). It measured that the "not a PDF" words come only from pdf.js itself: with the worker or the
+package made to fail, every file gets the fixed 500, which is what walkthrough 102's second try relies on.
+
+**Measured out of the row: the brief's six, each left for the reason given**
+
+- **F13-18 · The 5 s timeouts that move between files under a full run (F12-13)** did not show in F13's four full
+  runs here: two on the tip before (562 files, 14,869 passed) and two after its last commit (563 files, 14,881
+  passed), 9 skipped in each, each exit 0 with no failed test, no timeout and no uncaught error, about 147 s apiece.
+  They are not touched.
+- **F13-19 · The two tests F12 fixed** (the Notes editor's jsdom stubs and forcing case; `binsDesktopProvider.test.jsx`)
+  passed in every run here, and the order of the provider's loads (F12-13) is as F12 left it. No other test failed
+  in any run here either: four full runs, and 40 runs of the Notes file alone (10 before, 30 after).

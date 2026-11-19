@@ -173,7 +173,12 @@ export async function importPdf(file, defaultCurrency = 'USD') {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: file.name, dataUrl }),
     })
-    if (!res.ok) throw new Error(`extract-pdf ${res.status}`)
+    if (!res.ok) {
+      // F13: a file the route refuses for what it is (not a PDF, or one locked with a password) is answered 4xx in
+      // plain words, shown here as they are; anything else shows its status.
+      const words = res.status < 500 ? (await res.json().catch(() => null))?.error : null
+      throw new Error(typeof words === 'string' && words ? words : `extract-pdf ${res.status}`)
+    }
     const data = await res.json()
     text = data?.text || ''
   } catch (err) {

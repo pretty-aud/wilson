@@ -229,7 +229,7 @@ roughly 144 endpoints at runtime.
 | O.T.T.E.R. content | `GET/POST /api/software`, `…/:slug/subjects` (**incl. `PUT …/subjects/:sub`, S30**), `…/hotkeys`, `…/functions`, `…/nodes`, `…/progress`, `…/references`, `…/corrections`, `GET /api/export-all` | O.T.T.E.R. local mode |
 | O.T.T.E.R. quiz history | `GET/POST /api/otter/quiz-history` (**S30 — not per course, and the one `/api/otter/` route that is NOT cloud-only**) | O.T.T.E.R., both backends |
 | O.T.T.E.R. settings | `GET/POST /api/otter-settings`, `GET/POST /api/agent-skills` | Settings, agent |
-| Shared utilities | `POST /api/fetch-url`, `POST /api/fetch-raw`, `POST /api/extract-pdf` | O.T.T.E.R. references; RABBIT rate-card import; RABBIT intake |
+| Shared utilities | `POST /api/fetch-url`, `POST /api/fetch-raw`, `POST /api/extract-pdf` (since F13 mounted from `electron/pdfText.cjs`: a PDF's words page by page, a blank line between, no marker line; 422 in plain words for a file that is not a PDF or is locked with a password; `pdf-parse` loads on the first call and needs its native canvas binary) | O.T.T.E.R. references; RABBIT rate-card import; RABBIT intake |
 | R.A.B.B.I.T. projects | `GET/POST /api/rabbit/projects`, `GET/PATCH/DELETE /api/rabbit/projects/:id` | RABBIT local mode |
 | R.A.B.B.I.T. sub-entities | factory-generated POST/PATCH/DELETE for phases, tasks, dependencies, task-links, asset-versions, comments, ingestion-runs, team-assignments, budget-versions, expenses, budget-lines, budget-actuals, scenes, shots, levels, experiences, milestones, project-team | RABBIT |
 | Files | `POST /api/rabbit/projects/:p/files`, `…/files/:id/download`, PATCH/DELETE, `…/files/:id/events`, `…/file-events`, `…/files/relink-scan`, `…/files/relink-apply` | RABBIT attachments + relink |

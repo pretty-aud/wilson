@@ -206,7 +206,7 @@ describe('a save the note itself refuses', () => {
     act(() => { ed.commands.insertContent('Harbour light') })
     expect(await screen.findByText(/This note was moved to the trash, or is no longer shared with you/, {}, { timeout: 4000 })).toBeTruthy()
     expect(container.querySelector('.dash-save-state').textContent).toBe('Not saved')
-    expect(ed.isEditable).toBe(false)
+    await waitFor(() => expect(ed.isEditable).toBe(false))
     const saves = a.saveNoteDoc.mock.calls.length
     act(() => { ed.commands.insertContent(' more') })
     await wait(1500)
@@ -233,7 +233,35 @@ describe('a save the note itself refuses', () => {
     expect(await screen.findByText(/This note became the company standard/, {}, { timeout: 4000 })).toBeTruthy()
     await waitFor(() => expect(a.listNotes.mock.calls.length).toBeGreaterThan(reads))
     expect(a.saveNoteDoc).toHaveBeenCalledTimes(1)
-    expect(ed.isEditable).toBe(false)
+    // The wait above does not cover the lock: the list is asked again in the step that sets the refusal, before the
+    // render that shows its words, so that wait is met at once.
+    await waitFor(() => expect(ed.isEditable).toBe(false))
+  }, 10000)
+
+  // F13 (2026-11-19; OUTSTANDING F9-13): the editor locks in an effect (setEditable) that runs after the render showing
+  // the refusal's words, so a read of isEditable made at once after the words can come before it: red once on CI, run
+  // 44007829693, "expected true to be false". The three reads in this file wait for the lock. This control holds the
+  // lock back and shows the read at once failing where the wait for it does not.
+  it('control: with the lock held back, a read at once after the words fails and a wait for the lock does not', async () => {
+    picker.current = inertPicker()
+    const lists = { mine: [row()] }
+    harness({ lists, saveNoteDoc: vi.fn(async () => null) })
+    const { container } = mount()
+    fireEvent.click(await screen.findByText('Look of the film'))
+    const ed = await editorOf(container)
+    const setEditable = ed.setEditable.bind(ed)
+    let held = null
+    ed.setEditable = (editable, ...rest) => {
+      if (editable) setEditable(editable, ...rest)
+      else held = () => setEditable(editable, ...rest)
+    }
+    lists.mine = []
+    act(() => { ed.commands.insertContent('Harbour light') })
+    await screen.findByText(/This note was moved to the trash, or is no longer shared with you/, {}, { timeout: 4000 })
+    expect(() => expect(ed.isEditable).toBe(false)).toThrow('expected true to be false')
+    await waitFor(() => expect(held).toBeTruthy())
+    act(() => { held() })
+    await waitFor(() => expect(ed.isEditable).toBe(false))
   }, 10000)
 })
 
@@ -417,7 +445,7 @@ describe('a save row security leaves out (the note is still there, at the versio
     expect(await screen.findByText(/This note can no longer be changed by you/, {}, { timeout: 4000 })).toBeTruthy()
     expect(container.querySelector('.dash-save-state').textContent).toBe('Not saved')
     expect(a.saveNoteDoc).toHaveBeenCalledTimes(1)
-    expect(ed.isEditable).toBe(false)
+    await waitFor(() => expect(ed.isEditable).toBe(false))
     await waitFor(() => expect(a.listNotes.mock.calls.length).toBeGreaterThan(reads))
   }, 10000)
 })
