@@ -1,5 +1,7 @@
 node_modules/
 dist/
+# out/ was Electron Forge's output folder. Forge is gone (F12, 2026-11-18); the
+# line stays because an old out/ may still sit in a checkout and the repo is PUBLIC.
 out/
 *.exe
 
@@ -41,7 +43,8 @@ dist-vercel/
 # `npm run build:admin` target.
 dist-web-admin/
 
-# Session 40: electron-builder's output (`npm run dist` / `dist:publish`).
+# Session 40: electron-builder's output (`npm run dist`, and since F12
+# `npm run package`'s unpacked build).
 # 🚨 THIS WAS MISSING AND THE REPO IS PUBLIC. `directories.output` has been
 # "release" since v1.0.0 was prepared, but nobody had run `npm run dist` in a
 # working tree before, so the directory never existed to be noticed — and it

@@ -317,8 +317,9 @@ html {
    operator console) still suppresses the ring there. Unlayered, these
    rules would beat every utility regardless of specificity (review round
    1 measured it on the built sheet). The 362 `focus:outline-none` utilities
-   the sweep removed (scripts/sweepOutlineNone.mjs) were removed because a
-   utility WINS: each one would have kept its control ring-less.
+   the sweep removed (the codemod scripts/sweepOutlineNone.mjs: it is in the
+   history, last at f21d2eb2, and F12 removed the file) were removed because
+   a utility WINS: each one would have kept its control ring-less.
    ═══════════════════════════════════════════════════════════════ */
 @layer base {
   :focus-visible {

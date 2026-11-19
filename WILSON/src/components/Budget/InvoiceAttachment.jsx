@@ -33,9 +33,14 @@
 // Reference format, stored in budget_actuals.attachment_path:
 //   `file:<uuid>`  a files row — the only thing written from now on
 //   anything else  a legacy absolute Windows path from the desktop-only
-//                  implementation. Still openable in the desktop app, and
-//                  honestly labelled everywhere else rather than silently
-//                  doing nothing, which is the bug this replaces.
+//                  implementation. Honestly labelled everywhere ("Saved by
+//                  the desktop app to a folder on that computer…") rather
+//                  than silently doing nothing, which is the bug this
+//                  replaces. F12 (2026-11-18): it is not opened anywhere.
+//                  A branch here opened it through `window.rabbitDesktop`,
+//                  a bridge the preload never exposes (it exposes
+//                  `wilsonSession` and `electronAPI`), so that button was
+//                  never drawn; the branch is gone.
 
 //
 // UI overhaul B5 (2026-09-26): on the kit and lane B5's sheet (`rb-inv-`),
@@ -76,7 +81,6 @@ export default function InvoiceAttachment({
   const [error, setError] = useState(null)
 
   const desktopOnlyLegacy = !!path && !isCloudRef(path)
-  const canOpenLegacy = desktopOnlyLegacy && !!window.rabbitDesktop?.openInExplorer
 
   async function handlePicked(e) {
     const file = e.target.files?.[0]
@@ -106,10 +110,6 @@ export default function InvoiceAttachment({
   }
 
   async function handleOpen() {
-    if (canOpenLegacy) {
-      window.rabbitDesktop.openInExplorer({ filePath: path })
-      return
-    }
     if (!isCloudRef(path)) return
 
     const adapter = getAdapter?.()
@@ -150,7 +150,7 @@ export default function InvoiceAttachment({
         <div className="rb-inv-file">
           <Paperclip className="rb-inv-glyph" aria-hidden="true" />
           <span className="rb-inv-name" title={name}>{name}</span>
-          {(isCloudRef(path) || canOpenLegacy) && (
+          {isCloudRef(path) && (
             <IconButton
               // V2 (B5b §4.2 item 10): busy said so only to a screen
               // reader; the kit Spinner in the glyph's place says it to
@@ -161,7 +161,7 @@ export default function InvoiceAttachment({
               onClick={handleOpen}
               disabled={busy}
               aria-busy={busy || undefined}
-              title={isCloudRef(path) ? 'Open invoice' : 'Show in explorer'}
+              title="Open invoice"
             />
           )}
           <IconButton
@@ -188,7 +188,7 @@ export default function InvoiceAttachment({
 
       {/* A legacy row points at a path on one particular machine. Say so —
           the old code just made the button do nothing. */}
-      {desktopOnlyLegacy && !canOpenLegacy && (
+      {desktopOnlyLegacy && (
         <span className="rb-inv-note">
           Saved by the desktop app to a folder on that computer. Re-attach it here
           to make it available everywhere.

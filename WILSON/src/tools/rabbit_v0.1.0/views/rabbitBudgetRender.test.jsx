@@ -2160,6 +2160,25 @@ describe('InvoiceAttachment', () => {
     expect(onChange).toHaveBeenCalledWith({ name: '', path: '' })
     noStyle(container)
   })
+  // F12 (desktop-build D1): the component kept a branch for `window.rabbitDesktop`, a bridge the preload
+  // never exposes (it exposes `wilsonSession` and `electronAPI`), so "Show in explorer" could never be
+  // drawn in WILSON. The branch is gone: a legacy path says where it is, and nothing tries to open it.
+  it('F12: a legacy path (a folder on one computer) gets the note and no open button, even where something defines the old bridge', () => {
+    const openInExplorer = vi.fn()
+    window.rabbitDesktop = { openInExplorer }
+    try {
+      const { container } = render(<InvoiceAttachment getAdapter={() => null} projectId="p1" lineId="l1" name="inv.pdf" path="D:/Invoices/inv.pdf" onChange={() => {}} />)
+      expect(container.querySelector('.rb-inv-name').textContent).toBe('inv.pdf')
+      expect(screen.queryByRole('button', { name: 'Show in explorer' })).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Open invoice' })).toBeNull()
+      expect(screen.getByRole('button', { name: 'Remove attachment' })).toBeTruthy()
+      expect(container.querySelector('.rb-inv-note').textContent).toContain('Saved by the desktop app to a folder on that computer.')
+      expect(openInExplorer).not.toHaveBeenCalled()
+      noStyle(container)
+    } finally {
+      delete window.rabbitDesktop
+    }
+  })
 })
 
 /* ── review round one, R1-11: one rounding for a days figure ─────────────── */

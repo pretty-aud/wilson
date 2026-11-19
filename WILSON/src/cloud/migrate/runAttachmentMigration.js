@@ -54,21 +54,38 @@ import { documentKindFor } from '../../tools/rabbit_v0.1.0/deckAttachments';
 /**
  * Per-file ceiling. Stated in the panel and in the report.
  *
- * 🚨 32 MiB, NOT 64 — review round 1. THE BACKEND THAT WILL ACTUALLY RUN THIS
- * IS LOCAL SERVER, because it is the only one whose projects can hold legacy
- * arrays at all, and `localServerAdapter.uploadFile` base64-encodes the body
- * into a JSON request that `express.json({ limit: '50mb' })` caps. base64
- * inflates by 4/3, so the real refusal is at roughly 36 MiB decoded — and a
- * 64 MiB ceiling meant every file between 36 and 64 MiB failed with a raw
- * `[localServer] HTTP 413`, counted under `failed` rather than under
- * `oversize` where the panel explains it. A ceiling that never binds on the
- * one backend that runs the tool is worse than no ceiling: it makes the panel
- * promise something it cannot do.
+ * 32 MiB. The NUMBER is the one review round 1 set; F12 (2026-11-18) changed
+ * no behaviour here and rewrote only the reasons, because both of the written
+ * ones had stopped being true:
  *
- * 32 MiB encodes to about 42.7 MB, comfortably inside the 50 MB body limit
- * with room for the JSON envelope, and it is the same number D.O.G. spends on
- * a whole project — so nothing this tool moves can be a file D.O.G. could
- * never read back anyway.
+ *   - It was sized to fit a base64 body inside Local Server's 50 MB JSON
+ *     limit. Round 1 lowered it from 64 for that: THE BACKEND THAT RUNS THIS
+ *     IS LOCAL SERVER (the only one whose projects can hold legacy arrays),
+ *     its upload then rode base64 inside JSON, and every file between 36 and
+ *     64 MiB failed with a raw `[localServer] HTTP 413`, counted under
+ *     `failed` rather than under `oversize` where the panel explains it.
+ *     Uploads have streamed since 2026-09-11 (`localServerAdapter.uploadFile`
+ *     PUTs the body to …/files-stream) and F12 removed the base64 route, so no
+ *     upload rides that limit any more.
+ *   - It was called "the same number D.O.G. spends on a whole project".
+ *     D.O.G. applies no whole-project byte budget: the 32 MiB constant in
+ *     `deckAttachments.js` has no reader (OUTSTANDING N1-01).
+ *
+ * What is true of 32 MiB today:
+ *
+ *   - It is the size past which D.O.G. itself warns that the AI may refuse a
+ *     PDF (`PDF_BYTE_LIMIT` in references/referenceModel.js, the provider's
+ *     request ceiling), so no PDF this tool moves is one D.O.G. then warns
+ *     about for its size. A picture has its own, lower line there (10 MiB,
+ *     `IMAGE_BYTE_LIMIT`), which this ceiling does not follow: a picture
+ *     between 10 and 32 MiB moves, and D.O.G. warns about it.
+ *   - It can bind only in a narrow band. A legacy attachment is base64 ON THE
+ *     PROJECT ROW, and that row is still saved as JSON through the 50 MB body
+ *     limit (this tool's own write-back is such a save), so a row written
+ *     through Local Server holds at most about 37 MiB of attachments in all.
+ *     Only a single attachment between 32 and about 37 MiB can be "too large"
+ *     here. Whether so narrow a limit is worth keeping is Audrey's to rule
+ *     (OUTSTANDING F12-01); until she does, the number stands.
  */
 export const MAX_ATTACHMENT_BYTES = 32 * 1024 * 1024;
 

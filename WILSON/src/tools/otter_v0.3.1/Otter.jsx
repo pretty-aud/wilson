@@ -1222,8 +1222,11 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
   // fetch. In a browser there is no in-app Express server, so the old
   // fetch('/api/otter-settings') chain rejected, the catch swallowed it, and
   // the library never loaded at all. localData routes settings to Express in
-  // Electron (unchanged order: settings → legacy migration → list) and to
-  // localStorage on the web; the list load now runs in every case.
+  // Electron (order: settings → list) and to localStorage on the web; the
+  // list load now runs in every case. F12 (2026-11-18): between the two the
+  // desktop used to ask `/api/migration-needed` and, on yes, POST
+  // `/api/migrate`, a route that did nothing (the v1 → v2 move had long been
+  // "handled client-side or not needed"); the two routes and the call are gone.
   useEffect(() => {
     (async () => {
       try {
@@ -1238,17 +1241,6 @@ export default function Otter({ onNavigate, currentPage, onContextChange }) {
           codeWrite: s.prompts?.codeWrite || CODE_WRITING_PROMPT,
           companion: s.prompts?.companion || COMPANION_PROMPT,
         });
-        // Check migration — the one-shot legacy disk migration only exists
-        // where the local server does.
-        if (hasLocalServer()) {
-          try {
-            const migRes = await localFetch('/api/migration-needed');
-            const migData = await okBody(migRes);
-            if (migData?.needed) {
-              await localFetch('/api/migrate', { method: 'POST' });
-            }
-          } catch { /* ignore */ }
-        }
       } catch { /* ignore — prompts fall back to their defaults */ }
       loadSoftwareList();
     })();

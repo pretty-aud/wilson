@@ -9,14 +9,19 @@
 // measured in Electron: `/` 200 (express.static is root-relative), every
 // other address "500 internal error"; and that the same form passes from a
 // path with no dot-folder, so the test is about the dot, not the server.
+//
+// F12 (2026-11-18): the web preview (scripts/serve-web.mjs) had the same
+// absolute form and has the same fallback now; its cases are at the end.
 // =============================================================================
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { createRequire } from 'node:module'
+import { spawn } from 'node:child_process'
+import { createServer } from 'node:net'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const require = createRequire(import.meta.url)
 const express = require('express')
@@ -88,4 +93,126 @@ describe('the SPA fallback (Local Server)', () => {
     expect(main).toContain("expressApp.get('/{*splat}', require('./spaFallback.cjs').sendSpaIndex(distPath));")
     expect(main).not.toMatch(/sendFile\(\s*path\.join\(\s*distPath\s*,\s*['"]index\.html['"]\s*\)/)
   })
+})
+
+// ── F12 (desktop-build D2): the web preview has the same fallback ───────────
+// scripts/serve-web.mjs (`npm run preview:web`, and the Playwright web lane)
+// sent index.html by ABSOLUTE path: the form the CONTROL above shows failing
+// under a dot-folder, which every session worktree is, so a deep link into
+// the web build could not be previewed from one. It mounts sendSpaIndex now,
+// and exports its app so this file can serve it without the script listening.
+const SCRIPT = resolve(here, '../../scripts/serve-web.mjs')
+
+/** Listen on a loopback port, GET each path without following a redirect, close. */
+async function ask(app, paths) {
+  const server = await new Promise((done) => { const s = app.listen(0, '127.0.0.1', () => done(s)) })
+  const { port } = server.address()
+  try {
+    const out = {}
+    for (const p of paths) {
+      const res = await fetch(`http://127.0.0.1:${port}${p}`, { redirect: 'manual' })
+      out[p] = { status: res.status, location: res.headers.get('location'), body: await res.text() }
+    }
+    return out
+  } finally {
+    await new Promise((done) => server.close(done))
+  }
+}
+
+describe('the web preview, scripts/serve-web.mjs (F12)', () => {
+  it('serves /wilson/, a tool page and a nested address from a build under a dot-folder, and sends the bare origin to /wilson', async () => {
+    const { webPreviewApp } = await import('../../scripts/serve-web.mjs')
+    const r = await ask(webPreviewApp(underDot), ['/', '/wilson/', '/wilson/dog', '/wilson/rabbit/files/3'])
+    expect(r['/']).toMatchObject({ status: 302, location: '/wilson' })
+    for (const p of ['/wilson/', '/wilson/dog', '/wilson/rabbit/files/3']) {
+      expect(r[p], p).toMatchObject({ status: 200, body: INDEX })
+    }
+    // …and from a path with no dot-folder, as before.
+    expect((await ask(webPreviewApp(plain), ['/wilson/dog']))['/wilson/dog']).toMatchObject({ status: 200, body: INDEX })
+  })
+
+  it('CONTROL: the absolute form it used answers a deep link 404 under the dot-folder, and 200 without it', async () => {
+    const old = (dist) => {
+      const app = express()
+      app.use('/wilson', express.static(dist))
+      app.get('/wilson/{*splat}', (_req, res) => { res.sendFile(join(dist, 'index.html')) })
+      return app
+    }
+    const bad = await ask(old(underDot), ['/wilson/', '/wilson/dog'])
+    expect(bad['/wilson/'].status).toBe(200) // express.static is root-relative
+    expect(bad['/wilson/dog'].status).toBe(404)
+    expect((await ask(old(plain), ['/wilson/dog']))['/wilson/dog'].status).toBe(200)
+  })
+
+  it('imported, it does not listen: a process that only imports it ends at once, with nothing said', async () => {
+    // A listener would keep that process alive (and, unguarded, would open port 4174 on every
+    // address in every test run). Review round 1: the order of two words in the source proved
+    // nothing; this is the behaviour.
+    const importer = `await import(${JSON.stringify(pathToFileURL(SCRIPT).href)})`
+    const child = spawn(process.execPath, ['--input-type=module', '-e', importer], { env: { ...process.env, PORT: '0', WILSON_PREVIEW_HOST: '127.0.0.1' }, stdio: ['ignore', 'pipe', 'pipe'] })
+    let said = ''
+    child.stdout.on('data', (c) => { said += c })
+    child.stderr.on('data', (c) => { said += c })
+    const code = await new Promise((done) => {
+      const timer = setTimeout(() => { child.kill(); done('still running after 15 s') }, 15_000)
+      child.on('exit', (c) => { clearTimeout(timer); done(c) })
+    })
+    expect(code, said).toBe(0)
+    expect(said).not.toContain('serving dist-web')
+  }, 30_000)
+
+  it('run as a script it listens and says the port it took (the Playwright web lane starts it so)', async () => {
+    const src = readFileSync(SCRIPT, 'utf8')
+    expect(src.match(/\.listen\(/g)).toHaveLength(1)
+    expect(src).not.toMatch(/sendFile\(/)
+    // PORT=0: any free port, so nothing here can collide with a preview someone has open on 4174.
+    // WILSON_PREVIEW_HOST=127.0.0.1: this computer only, as every other listener in the suite
+    // (unset, the script listens on every address, as `npm run preview:web` always has).
+    const child = spawn(process.execPath, [SCRIPT], { env: { ...process.env, PORT: '0', WILSON_PREVIEW_HOST: '127.0.0.1' }, stdio: ['ignore', 'pipe', 'pipe'] })
+    try {
+      const port = await new Promise((done, fail) => {
+        let said = ''
+        const timer = setTimeout(() => fail(new Error(`the script printed no address in 15 s: ${said}`)), 15_000)
+        const read = (chunk) => {
+          said += chunk
+          const m = said.match(/http:\/\/127\.0\.0\.1:(\d+)\/wilson/)
+          if (m) { clearTimeout(timer); done(Number(m[1])) }
+        }
+        child.stdout.on('data', read)
+        child.stderr.on('data', read)
+        child.on('exit', (code) => { clearTimeout(timer); fail(new Error(`the script exited (${code}) before listening: ${said}`)) })
+      })
+      expect(port).toBeGreaterThan(0)
+      const res = await fetch(`http://127.0.0.1:${port}/`, { redirect: 'manual' })
+      expect(res.status).toBe(302)
+      expect(res.headers.get('location')).toBe('/wilson')
+    } finally {
+      child.kill()
+    }
+  }, 30_000)
+
+  // Review round 2: the taken-port answer had no case. Express hands the failed listen to the
+  // script's callback; without its `if (err)` branch the script would read the port of a server
+  // that is not listening and die with a TypeError that names no port.
+  it('on a port already taken it says so and exits 1', async () => {
+    const holder = await new Promise((done) => { const s = createServer().listen(0, '127.0.0.1', () => done(s)) })
+    const taken = holder.address().port
+    try {
+      const child = spawn(process.execPath, [SCRIPT], { env: { ...process.env, PORT: String(taken), WILSON_PREVIEW_HOST: '127.0.0.1' }, stdio: ['ignore', 'pipe', 'pipe'] })
+      let said = ''
+      child.stdout.on('data', (c) => { said += c })
+      child.stderr.on('data', (c) => { said += c })
+      const code = await new Promise((done) => {
+        const timer = setTimeout(() => { child.kill(); done('still running after 15 s') }, 15_000)
+        child.on('close', (c) => { clearTimeout(timer); done(c) })
+      })
+      expect(code, said).toBe(1)
+      expect(said).toContain(`[wilson-web] cannot listen on 127.0.0.1, port ${taken}: `)
+      expect(said).toContain('EADDRINUSE')
+      expect(said).not.toContain('TypeError')
+      expect(said).not.toContain('serving dist-web')
+    } finally {
+      await new Promise((done) => holder.close(done))
+    }
+  }, 30_000)
 })

@@ -43,8 +43,8 @@ Built with Electron + Vite + React 19 + Tailwind CSS 4.
 | Command | What it does |
 |---|---|
 | `npm run build` | Vite production build to `dist/` |
-| `npm run package` | Build + Electron Forge package (unpacked app in `out/`) |
-| `npm run make` | Build + Electron Forge make (Windows installer via Squirrel) |
+| `npm run package` | Build + electron-builder, unpacked (on Windows: the app in `release/win-unpacked/`, no installer) |
+| `npm run dist` | Build + electron-builder (the Windows installer users receive, in `release/`) |
 
 ## Project Structure
 
@@ -63,9 +63,8 @@ WILSON/
 │   ├── App.jsx        # Root app component
 │   ├── main.jsx       # React entry point
 │   └── storage.js     # Storage utilities
-├── forge.config.cjs   # Electron Forge config
 ├── vite.config.js     # Vite config
-└── package.json
+└── package.json       # Scripts, dependencies and electron-builder's `build` config
 ```
 
 ## Troubleshooting

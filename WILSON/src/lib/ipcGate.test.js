@@ -402,7 +402,7 @@ describe('D3 — the preload: a dropped file\'s place only for a page the main p
 // run time from a variable (`x[name]`); the rules above are what keep such a
 // listener from reaching Electron's ipcMain in the first place, and a second
 // listener for a channel main.cjs already registers is caught by the count of
-// registrations (47) and, at load, by the gate itself, which refuses a second
+// registrations (46) and, at load, by the gate itself, which refuses a second
 // listener for one channel (build review round 2, F4). The repo only: a
 // library in node_modules (Sentry, with a DSN) is OUTSTANDING D3-01.
 //
@@ -606,13 +606,33 @@ describe('D3 — the reader: every source file, sub-folders included (round 1, F
 })
 
 describe('D3 — the source: no channel is registered past the gate', () => {
-  it('every source file under electron/, parsed: no problem; 47 registrations in main.cjs, 7 in updater.cjs, 51 channels, the preload\'s 51 the same', () => {
+  it('every source file under electron/, parsed: no problem; 46 registrations in main.cjs, 7 in updater.cjs, 50 channels, the preload\'s 50 the same', () => {
     const r = checkElectron(ELECTRON_FILES)
     expect(r.problems).toEqual([])
-    expect(r.counts).toEqual({ main: 47, updater: 7 })
-    expect(r.channels).toBe(51)
-    expect(r.preloadChannels).toBe(51)
+    expect(r.counts).toEqual({ main: 46, updater: 7 })
+    expect(r.channels).toBe(50)
+    expect(r.preloadChannels).toBe(50)
     expect(Object.keys(ELECTRON_FILES)).toEqual(expect.arrayContaining(['ipcGate.cjs', 'main.cjs', 'updater.cjs', 'preload.cjs']))
+  })
+
+  // F12 (2026-11-18): `zoom-get` had no caller (App.jsx reads the level each
+  // of the other three answers with), so the channel and the preload's
+  // `zoomGet` are gone: 47 registrations became 46 and 51 channels 50, above.
+  // Further up, 'zoom-get' is still the SAMPLE name on a gate of this file's
+  // own; that is a made-up channel there, not main.cjs's.
+  it('F12: the zoom channel nothing called is gone on both sides, and the three App.jsx calls are as they were', () => {
+    const main = ELECTRON_FILES['main.cjs'].replace(/\r\n/g, '\n')
+    expect(main).not.toContain("'zoom-get'")
+    expect(main).toContain("ipcMain.handle('zoom-in', () => {\n  if (mainWindow) { const wc = mainWindow.webContents; const c = wc.getZoomLevel(); if (c < 5) wc.setZoomLevel(c + 0.5); return wc.getZoomLevel(); }\n});")
+    expect(main).toContain("ipcMain.handle('zoom-out', () => {\n  if (mainWindow) { const wc = mainWindow.webContents; const c = wc.getZoomLevel(); if (c > -5) wc.setZoomLevel(c - 0.5); return wc.getZoomLevel(); }\n});")
+    expect(main).toContain("ipcMain.handle('zoom-reset', () => { if (mainWindow) { mainWindow.webContents.setZoomLevel(0); return 0; } });")
+    expect(main).toContain("mainWindow.webContents.send('zoom-reset-notify', 0);")
+    const api = runPreloadWith(TOKEN).exposed.electronAPI
+    for (const name of ['zoomIn', 'zoomOut', 'zoomReset', 'onZoomReset']) expect(typeof api[name], name).toBe('function')
+    expect(api).not.toHaveProperty('zoomGet')
+    const app = readFileSync(resolve(here, '../App.jsx'), 'utf8')
+    for (const call of ['window.electronAPI.zoomIn()', 'window.electronAPI.zoomOut()', 'window.electronAPI.zoomReset()', 'window.electronAPI.onZoomReset(']) expect(app, call).toContain(call)
+    expect(app).not.toMatch(/zoomGet|zoom-get/)
   })
 
   it('main.cjs makes the gate before its first registration, with D1\'s rule read at each call', () => {
@@ -679,7 +699,7 @@ describe('D3 — the source: no channel is registered past the gate', () => {
     it('and a registration written in a comment is not code: nothing counted, nothing wrong', () => {
       const r = checkElectron(swap('main.cjs', MAIN_ANCHOR, `// ipcMain.handle('d3-in-a-comment', () => 1)\n/* electronIpcMain.on('d3-in-a-block', () => {}) */\n${MAIN_ANCHOR}`))
       expect(r.problems).toEqual([])
-      expect(r.counts.main).toBe(47)
+      expect(r.counts.main).toBe(46)
     })
   })
 })

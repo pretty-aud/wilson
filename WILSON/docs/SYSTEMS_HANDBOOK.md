@@ -173,7 +173,8 @@ starts in the app (`startSignedDownload` → `wilson:download-url` →
 keeps its plain link).
 **Every channel the preload bridges answers WILSON's page only** (D3,
 2026-10-29; `electron/ipcGate.cjs`, `docs/design/RECONNECT_DESIGN.md` §14),
-the second lock behind the window's: the 51 channels are registered through
+the second lock behind the window's: the 50 channels (51 until F12 removed
+`zoom-get`, which nothing called, 2026-11-18) are registered through
 one gate (`ipcMain` in `main.cjs` is the gate; the updater is handed it),
 which asks D1's rule first — the main window's own `webContents`, its top
 frame, this launch's origin — and answers any other sender `null` at once,
@@ -191,9 +192,11 @@ Window close is intercepted and handed to the renderer as a `close-requested`
 event unless `_forceClose` is set (`main.cjs:2142-2146`) — the updater sets that
 flag before `quitAndInstall()`.
 
-**Single instance (B3, 2026-09-07).** `app.requestSingleInstanceLock()` is taken
-immediately after the Squirrel guard — after, because an installer run is a
-legitimate second process. A second launch quits, and the running app's
+**Single instance (B3, 2026-09-07).** `app.requestSingleInstanceLock()` is the
+first thing a launch decides. (Until F12, 2026-11-18, a Squirrel guard sat
+above it. It went with Electron Forge: it acted only on a `--squirrel-*`
+argument, and the installer that ships is electron-builder's NSIS, which
+starts the app with `--updated` at most.) A second launch quits, and the running app's
 `second-instance` handler restores, shows and focuses the existing window; the
 flag is checked again at `whenReady` because `app.quit()` only STARTS the
 shutdown. Before this, two copies ran against the same `userData` directory,
@@ -212,7 +215,7 @@ Created inside `startLocalServer(distPath)` (`main.cjs:140-2086`).
 | Bind | `listen(0, '127.0.0.1')` — **loopback only**, never reachable off-host | `main.cjs:2079` |
 | Port | OS-assigned ephemeral; read back and used as the window's own origin, so no port-discovery IPC exists | `main.cjs:2079-2082, 2121` |
 | CORS | Narrowed (B3) to the renderer's own origin, `credentials: true`; a missing `Origin` is allowed because a same-origin `fetch`, a plain `<img>` and a `<video crossOrigin>` all send none | `electron/localToken.cjs` `localCorsOptions` |
-| Body limit | `express.json({ limit: '50mb' })`; no multipart parser — uploads ride base64 inside JSON | `main.cjs:144` |
+| Body limit | `express.json({ limit: '50mb' })`; no multipart parser. A file upload does not ride it: it streams to `PUT …/files-stream` (§12.1; F12 removed the base64-in-JSON POST, 2026-11-18). The project row still does, with the base64 deck attachments older projects carry | `main.cjs:144` |
 | Static | `express.static(dist)` + an Express-5 catch-all `GET /{*splat}` → `index.html` | `main.cjs:2074-2077` |
 | Authentication | **A per-launch token on every `/api` route** (B3): 32 random bytes, header `x-wilson-local-token` OR an httpOnly cookie, constant-time compare, bare 401. Static shell deliberately unguarded | `electron/localToken.cjs`, `src/lib/localServerFetch.js` |
 
@@ -484,7 +487,7 @@ stores and their record together.
 |---|---|---|
 | `wilsonSession.{save,load,clear}` | `wilson:session-{save,load,clear}` | safeStorage-encrypted Supabase session. Fails **closed** when the OS keychain is unavailable — `save` returns `{ok:false, reason:'no_keychain'}`, `load` returns `null`. None of the three ever falls back to plaintext (`main.cjs:2419-2451`). |
 | Window | `window-{minimize,maximize,close,force-close}`, `close-requested` | Custom title bar |
-| Zoom | `zoom-{in,out,reset,get}`, `zoom-reset-notify` | Zoom control |
+| Zoom | `zoom-{in,out,reset}`, `zoom-reset-notify` | Zoom control (each of the three answers the new level; `zoom-get` had no caller and went with F12) |
 | Updates | `wilson:update-{state,check,download,install}`, `wilson:update-status` | §11 |
 | Drive | `rabbit:{read,write}-gdrive-{config,tokens}`, `rabbit:clear-gdrive` | Google Drive credentials |
 | Files | `rabbit:pick-directory`, `rabbit:pick-files`, `rabbit:pick-image`, `rabbit:copy-file` (+ `rabbit:copy-progress`), `rabbit:get-file-stats`, `rabbit:open-in-explorer`, `rabbit:ensure-project-folder`, `rabbit:{read,write}-files-config` | RABBIT file plane |
@@ -2015,6 +2018,32 @@ the last two, `admin-user-security`'s and `operator-ai-keys`' TS2352 (CI's run
 on `18d73eea`: "1 known errors in 1 groups … deno counted 1"; OUTSTANDING
 F1-01, F8-01).
 
+**The two install changes (F12, 2026-11-18; desktop-build C5).** Only the env
+and the install steps of the Vitest and Playwright jobs changed.
+
+- Both jobs set `ELECTRON_SKIP_BINARY_DOWNLOAD: '1'` at job level, so `npm ci`
+  no longer fetches Electron's binary (about 100 MB), which neither job starts:
+  `node_modules/electron/install.js` exits at once when it is set. Vitest
+  reads the desktop's files as modules or as text and never loads `main.cjs`
+  or `preload.cjs` as a module; the lock harness is plain Node; Playwright
+  starts the Vite dev server and the web build's preview. **A step added to
+  either job that runs `electron` must take the line out.**
+- The Playwright job keeps Playwright's browsers between the runs of one
+  branch. The key is the installed `playwright-core` version, the
+  distribution and the processor, with no restore-keys; its first word names
+  what "Install Chromium" installs and must change with that line. On a miss
+  the install step does what it always did and the folder is saved once it
+  has exited 0. On a hit the same command installs the system packages (they
+  are not cached) and downloads nothing. A cache belongs to its branch, so a
+  branch's first run misses; and on a session's branch (`po/**`), which is
+  pushed once, nothing is saved.
+- Measured on the branch's one run (`44439790489`): `npm ci` 20 s in the
+  Vitest job and 16 s in the Playwright job, against 16 to 24 s in the three
+  runs before. No saving shows there, because the lockfile changed and so that
+  run's npm cache was cold. "Install Chromium" took 95 s on its miss (26, 27
+  and once 566 s before). The hit has not been seen by a run yet
+  (`docs/OUTSTANDING.md` F12-08).
+
 Repository secrets consumed (names only): `DEV_SUPABASE_URL`,
 `DEV_SUPABASE_ANON_KEY`, `DEV_PROBE_USERNAME`, `DEV_PROBE_PASSWORD`. The
 hosted jobs self-skip when any is missing, so fork PRs do not fail.
@@ -2046,10 +2075,12 @@ runs npm 11, sidesteps this by using `npm install` instead (§3.2).
 
 ### 7.4 There is no release pipeline
 
-Only `rls.yml` and `backups.yml` exist. `npm run dist` / `dist:publish` are
-local, manual commands that publish the installer straight to the B2 feed —
-there is no reviewed workflow building or publishing the artifact that
-`electron-updater` distributes (§17).
+Only `rls.yml` and `backups.yml` exist. `npm run dist` is a local, manual
+command that builds the installer; publishing it is by hand too (the feed is
+a `generic` provider, for which electron-builder has no uploader, so the
+`dist:publish` script uploaded nothing and F12 removed it, 2026-11-18;
+`docs/PRODUCTION_RUNBOOK.md` has the steps) — there is no reviewed workflow
+building or publishing the artifact that `electron-updater` distributes (§17).
 
 ---
 
@@ -2164,13 +2195,17 @@ is not a security log and there is no aggregation or alerting anywhere (§16).
 - **Status channel**: `wilson:update-status` carries
   `checking | available | not-available | downloading | downloaded | error |
   unsupported | disabled`.
-- **Forge/Squirrel degradation**: Forge's only maker is Squirrel, which
-  produces no `app-update.yml`. The updater degrades rather than throwing —
+- **A build with no `app-update.yml` degrades**: `npm run package`'s
+  unpacked build carries none (measured on Windows, F12, 2026-11-18;
+  electron-builder writes the file only with the installer). The updater
+  degrades rather than throwing —
   a missing `electron-updater` module reports `unsupported / module-missing`,
   and an error mentioning `app-update.yml` reports
   `unsupported / no-app-update-yml`. Unpackaged runs report
-  `disabled / dev` and never even require the module. Forge stays for dev
-  packaging; **NSIS is the only auto-updatable artifact.**
+  `disabled / dev` and never even require the module. Electron Forge and its
+  Squirrel maker, the other build that had no such file, were removed by F12:
+  electron-builder is the one packager, and **NSIS is the only auto-updatable
+  artifact.**
 
 *Known posture note:* `WILSON_UPDATE_URL` comes from an operator-writable,
 unsigned `env.json` and is passed to the generic provider with no scheme or
@@ -2286,7 +2321,7 @@ segment — for any caller that bypasses the client.
 
 | Provider | `storage_path` means | Read | Write | Web |
 |---|---|---|---|---|
-| `local_server` | A bare disk filename, **relative to whatever the project's files directory resolves to right now** — not portable on its own | Express download route → `sendFile` | Base64 JSON body → `writeFileSync` | ✗ |
+| `local_server` | A bare disk filename, **relative to whatever the project's files directory resolves to right now** — not portable on its own | Express download route → `sendFile` | The body streamed to `PUT …/files-stream` → a temp file renamed into place (`electron/projectFileStream.cjs`, the one upload route since F12 removed the base64 JSON POST) | ✗ |
 | `supabase` | The full object key inside the private `rabbit-files` bucket | `storage.download(path)` | `storage.upload(path, file, {upsert:false})` | ✓ |
 | `s3` (S37) | The **row-shaped** key (`projects/{id}/…`) — the workspace's bucket **prefix is deliberately NOT stored**: `files_money_provider_chk` reads the third segment, and a prefix edit must not orphan keys. The presign function prepends the prefix at resolution | presigned GET, direct to the customer's bucket; for DISPLAY (thumbnails, the preview, the player) a batch of GETs from `storage-read-urls` (P1, §12.7b) | presigned PUT, direct (`storage-presign` is the authorisation boundary; the secret never reaches any client) | ✓ |
 | `google_drive` | **Not a path** — the Drive file's opaque id | `files/{id}?alt=media` | Every write throws `readOnly()` | ✗ |
@@ -3258,8 +3293,9 @@ and both ProRes and DNxHD decoders are in the LGPL build.
 
 **The binary is not in git** — the repo is public. `resources/ffmpeg/README.md`
 carries the install and which build to download. Packaged by
-**electron-builder** (`build.extraResources`), which is the packager that ships;
-`forge.config.cjs` does not.
+**electron-builder** (`build.extraResources`), the one packager since F12
+removed Electron Forge and `forge.config.cjs` (2026-11-18). A checkout with no
+binary staged builds with no `resources/ffmpeg/` folder at all.
 
 #### Limits, stated
 
@@ -3586,11 +3622,19 @@ dry run required first, per-file ceiling **32 MiB**, oversized files named and
 left in place, and each entry cleared from the array only after its upload
 returns — so a crash mid-run means a re-run moves exactly what is left.
 
-⚠️ The ceiling is 32 MiB because `localServerAdapter.uploadFile` base64-encodes
-into a JSON body that `express.json({ limit: '50mb' })` caps — and Local Server
-is the only backend whose projects can hold legacy arrays at all, so a ceiling
-above ~37 MiB would never bind: those files would fail with a raw HTTP 413,
-counted as failures rather than named as oversize.
+⚠️ **The ceiling's reason, as it is true since F12 (2026-11-18).** The number
+did not change. It was set to fit a base64 upload inside the 50 MB JSON body;
+uploads have streamed since 2026-09-11 and F12 removed the base64 route, so no
+upload rides that limit. What is true of 32 MiB now: it is the size past which
+D.O.G. itself warns that the AI may refuse a PDF (`PDF_BYTE_LIMIT`; a picture
+has its own line at 10 MiB, which the ceiling does not follow), and it can bind
+only in a narrow band, because a legacy attachment is base64 on the project
+row and that row is still saved through the 50 MB limit: a row written through
+Local Server holds at most about 37 MiB of attachments in all, so only a
+single attachment between 32 and about 37 MiB is "too large". Whether to keep
+so narrow a limit is hers to rule (`docs/OUTSTANDING.md` F12-01). The budget
+of "20 files and 32 MiB in total" stated above is not applied by any code
+today (OUTSTANDING N1-01).
 
 **Two CORE flags with opposite defaults**, deliberately not unified — see
 §17's "Correctness" note. `runAttachmentMigration` is the one place they meet
@@ -5608,9 +5652,13 @@ signalling uses props, counters or context.
 
 **Design tokens (S43).** Two shared modules, both with contrast tests that
 carry FAILING CONTROLS so a regression fails a test rather than shipping:
-`src/cloud/auth/AuthShell.jsx` (auth surfaces) and
-`src/components/lightSurface.js` (light pages — Home, Settings, Projects, Rate
-Card, Team Members, Dashboard, Admin Terminal, Help).
+`src/cloud/auth/AuthShell.jsx` (auth surfaces) and `src/ui/tokens.js` (every
+other surface, the light pages among them — Home, Settings, Projects, Rate
+Card, Team Members, Dashboard, Admin Terminal, Help). The light pages' tokens
+began in `src/components/lightSurface.js`, which `tokens.js` absorbed in the UI
+overhaul; F12 (2026-11-18) deleted that file, its test and its five `LIGHT_*`
+aliases once only the test imported it, and `src/ui/tokens.test.js` holds the
+pins that test held.
 
 🚨 **Light pages are text on `#f4a261`, and the whole stone ramp fails there**
 — `#a8a29e` 1.42:1, `#78716c` 2.33:1, `#57534e` 3.70:1, and `#d6d3d1`/`#e7e5e4`
@@ -6482,11 +6530,12 @@ of a session — this section is limits by design, that file is faults.
   kind and path (the planner's spelling, `INVOICES_PLANNED`) and made under
   the project's root where the tree lacks it; a failure is said in the
   console and files it at the top (Audrey's ruling of 2026-10-30, M1-L6;
-  `invoiceUploadFolder.test.js`). Local Server mode's two upload routes file
-  it there too since her ruling of the same day (`electron/projectFileStream.cjs`:
-  the base64 POST and the streamed PUT write the INVOICES row on a financial
-  row as `folder_id`, through `invoicesFolderOfBundle` with main.cjs's planner
-  row and its one row writer; `docs/OUTSTANDING.md` M1-L7, closed).
+  `invoiceUploadFolder.test.js`). Local Server mode's upload route files it
+  there too since her ruling of the same day (`electron/projectFileStream.cjs`:
+  the streamed PUT writes the INVOICES row on a financial row as `folder_id`,
+  through `invoicesFolderOfBundle` with main.cjs's planner row and its one row
+  writer; `docs/OUTSTANDING.md` M1-L7, closed. There were two routes then; F12
+  removed the base64 POST, which nothing called, on 2026-11-18).
 - **All file links are `ON DELETE SET NULL`.** Deleting a scene, or a folder,
   must not delete the file ROW: the blob stays in the bucket and the row is the
   only thing that knows where it is.
@@ -7695,10 +7744,13 @@ global Space shortcut firing from every page.
   * The **legacy arrays are still read** on every backend, so no existing
     project lost anything. Moving them is Audrey's own one-time action:
     Settings → RABBIT → "Move deck attachments into project files", dry run
-    first, per-file ceiling **32 MiB** (Local Server's JSON body limit is
-    50 MB and the migration base64-encodes, so a larger ceiling would refuse
-    with a raw HTTP 413 instead of naming the file), oversized files named and
-    left in place.
+    first, per-file ceiling **32 MiB**, oversized files named and left in
+    place. The number is unchanged; its reason was rewritten by F12
+    (2026-11-18), since no upload rides the 50 MB JSON body any more (they
+    stream): 32 MiB is D.O.G.'s own warning line for a PDF, and because the
+    project row that holds a legacy attachment is still saved through that
+    50 MB limit, only a single attachment between 32 and about 37 MiB can be
+    "too large" (§12.8b; whether to keep the limit: OUTSTANDING F12-01).
   * `is_core_definer` keeps its `NOT NULL DEFAULT false`. D.O.G.'s legacy
     arrays default `isCore` TRUE and the two are deliberately NOT unified —
     see §17's "Correctness" note and 0075's header. The migration carries
@@ -8081,6 +8133,13 @@ Panel's handle)**
   a language not on the list draws as plain text, OUTSTANDING F11-05), and the
   three parts of §13.4. The operator console 523,609 → 526,138 (+2,529: the one
   caller and the sign-in module). Never carry these; build and measure.
+- **The subtractions, measured (F12, 2026-11-18).** The main chunk
+  4,277,807 → 4,277,505 bytes (−302: O.T.T.E.R.'s mount call, the invoice
+  attachment's dead branch and five token aliases; the rest of F12 is outside
+  the renderer). `dependencies` 31 → 30 and `devDependencies` 15 → 13; the
+  lockfile 1,298 → 1,048 entries, deletions only; `scripts/` 48 → 45 files;
+  the bridge 51 → 50 channels; `electron/` 46 files before and after
+  (922,613 → 918,840 bytes).
 - **A cache lives as long as its isolate, and no longer than its secret.**
   The master keys, and the opened ticket key, are kept per isolate and checked
   against the environment's value (and, for the ticket key, the row read on

@@ -8,7 +8,7 @@
 // server's global `express.json({ limit: '50mb' })` capped a project file at
 // roughly 37 MB and answered 413 for anything larger — a single clip.
 //
-// This route is the same upload with a different transport:
+// This route is that upload with a transport that has no such cap:
 //
 //   PUT /api/rabbit/projects/:projectId/files-stream
 //       ?name=<file name>&mimeType=<type>&sizeBytes=<n>&scope=<json>
@@ -19,33 +19,42 @@
 // temp file beside its final path and renamed on finish. Nothing is buffered
 // on either side, and the global JSON parser never sees an octet-stream body.
 //
-// It records EXACTLY what the base64 POST records — the same row shape, the
-// same directory choice (LEGAL for a Legal scope since S4b, INVOICES for a
-// financial one, the project's files dir otherwise), the same 'uploaded'
-// file event — so every reader of
-// bundle.files is unchanged. The POST stays for anything that still calls
-// it, and since S4b's review round 1 (R1-BEH-05) it lives HERE too, moved
-// word for word from main.cjs, so both transports share one scope check
-// (fileTags.checkLegalUpload) and one directory choice, and both are served
-// for real in tests. Every host dependency is injected (the helpers are
-// closures inside main.cjs's startLocalServer); projectFileStream.test.js
-// drives both through a real express app on a temp root.
+// It records the row every reader of bundle.files knows: the directory
+// choice (LEGAL for a Legal scope since S4b, INVOICES for a financial one,
+// the project's files dir otherwise), the scope check
+// (fileTags.checkLegalUpload) and the 'uploaded' file event. Every host
+// dependency is injected (the helpers are closures inside main.cjs's
+// startLocalServer); projectFileStream.test.js drives it through a real
+// express app on a temp root.
+//
+// F12 (2026-11-18): THE ONE UPLOAD TRANSPORT. The base64-in-JSON route
+// (POST …/files) stayed mounted beside this one from the demo until F12 "for
+// anything that still calls it". Nothing did: the local adapter has streamed
+// every upload here since 2026-09-11, and only that route's own tests called
+// it. It is gone with its row builder, and a POST to its address is answered
+// as any unknown route is. Every rule its tests held that this route shares
+// (the Legal scope check, INVOICES for money, the row's shape, the 'uploaded'
+// event, a request with no name refused) is held on this route by
+// projectFileStream.test.js. One rule was that transport's own and went with
+// it: it refused a request with no body, where this route stores what it is
+// sent, an empty file included.
 //
 // OUTSTANDING M1-L7 (Audrey's ruling of 2026-10-30, "Yes, M1 fixes it now":
 // "The same rule in the desktop's two upload routes, so the desktop and the
-// cloud agree, as your parity rule asks"): a financial upload — an invoice or
-// a receipt — is filed in the project's INVOICES category folder, as the
-// cloud's uploadFile files it: `invoicesFolderFor` (main.cjs's planner and
-// its one row writer, addFolderRow) answers the row, made under the root
-// where the tree lacks it, or null where the project has no tree (left to the
-// planner). Both transports write it on the row as `folder_id`; a hook that
-// fails is said in the log, without the file's name, and the file still lands,
-// at the top as before. The cloud files money in INVOICES only when it has no
-// folder of its own (a named folder, or a scene's, shot's, level's or
-// experience's); these routes record no folder and none of those links for
-// any upload, so here every financial upload has none of its own (review
-// round 1: the same rule over what each backend records). The host builds
-// the hook from its planner and its row writer (invoicesFolderHook).
+// cloud agree, as your parity rule asks"; there were two routes then): a
+// financial upload — an invoice or a receipt — is filed in the project's
+// INVOICES category folder, as the cloud's uploadFile files it:
+// `invoicesFolderFor` (main.cjs's planner and its one row writer,
+// addFolderRow) answers the row, made under the root where the tree lacks it,
+// or null where the project has no tree (left to the planner). The route
+// writes it on the row as `folder_id`; a hook that fails is said in the log,
+// without the file's name, and the file still lands, at the top as before.
+// The cloud files money in INVOICES only when it has no folder of its own (a
+// named folder, or a scene's, shot's, level's or experience's); this route
+// records no folder and none of those links for any upload, so here every
+// financial upload has none of its own (review round 1: the same rule over
+// what each backend records). The host builds the hook from its planner and
+// its row writer (invoicesFolderHook).
 // =============================================================================
 'use strict';
 
@@ -54,7 +63,6 @@ const path = require('path');
 const { checkLegalUpload } = require('./fileTags.cjs');
 
 const ROUTE = '/api/rabbit/projects/:projectId/files-stream';
-const POST_ROUTE = '/api/rabbit/projects/:projectId/files';
 
 function parseScope(raw) {
   if (typeof raw !== 'string' || !raw) return {};
@@ -106,7 +114,7 @@ function invoicesFolderOfBundle(bundle, projectId, { planned, addFolderRow } = {
 }
 
 /**
- * M1-L7: the host's hook for both routes, built from its planner
+ * M1-L7: the host's hook for the upload route, built from its planner
  * (`planProjectFolderList(project)`: the project's planned folders, the root
  * and the categories) and its one row writer (`addFolderRow`) — the planner's
  * INVOICES category row is the one found or made (invoicesFolderOfBundle).
@@ -140,9 +148,9 @@ function mountProjectFileStream(expressApp, {
     if (typeof fn !== 'function') throw new Error(`mountProjectFileStream: ${name} is required`);
   }
 
-  // The one directory choice both transports make: a Legal body in LEGAL
-  // (never anywhere else — legalFiling.cjs), an invoice in INVOICES, any
-  // other file in the project's files directory.
+  // The directory choice: a Legal body in LEGAL (never anywhere else —
+  // legalFiling.cjs), an invoice in INVOICES, any other file in the project's
+  // files directory.
   const uploadDirFor = (bundle, projectId, { isLegal, isFinancial }) => (isLegal
     ? resolveProjectLegalDir(bundle, projectId)
     : isFinancial
@@ -165,79 +173,6 @@ function mountProjectFileStream(expressApp, {
     }
   };
 
-  // ── Files: upload (base64 JSON payload) — moved from main.cjs (S4b) ──
-  // Renderer reads File as ArrayBuffer, base64-encodes, POSTs JSON.
-  // Server decodes and writes {file_id}-{name} into the directory
-  // uploadDirFor chooses (LEGAL, INVOICES or the project's files dir).
-  // Multipart was the original spec but base64 keeps us off a new dep
-  // (multer/formidable) and works fine inside the existing 50mb json limit.
-  expressApp.post(POST_ROUTE, (req, res) => {
-    const bundle = readRabbitBundle(req.params.projectId);
-    if (!bundle) return rabbitNotFound(res);
-    const { name, mimeType, sizeBytes, base64, scope = {} } = req.body || {};
-    if (!name || !base64) return res.status(400).json({ error: 'name and base64 required' });
-
-    const fileId = uuidv4();
-    const safeName = name.replace(/[^a-zA-Z0-9._-]+/g, '_');
-    const diskName = `${fileId}-${safeName}`;
-    // S4b (0088): a Legal file — its own LEGAL folder, the tag written now
-    // and never after. Never an invoice too, never core (the cloud refuses
-    // both).
-    const placement = checkLegalUpload(scope);
-    if (!placement.ok) return res.status(400).json({ error: placement.error, code: placement.code });
-    const { isLegal, isFinancial } = placement;
-    const filesDir = uploadDirFor(bundle, req.params.projectId, placement);
-    fs.writeFileSync(path.join(filesDir, diskName), Buffer.from(base64, 'base64'));
-    // M1-L7: an invoice or a receipt in the project's INVOICES folder.
-    const folderId = isFinancial ? invoicesFolderIdFor(bundle, req.params.projectId) : null;
-
-    const row = rabbitTouch({
-      id:               fileId,
-      project_id:       req.params.projectId,
-      phase_id:         scope.phaseId || null,
-      asset_id:         scope.assetId || null,
-      task_id:          scope.taskId  || null,
-      name,
-      mime_type:        mimeType || null,
-      size_bytes:       sizeBytes ?? null,
-      storage_provider: 'local_server',
-      storage_path:     diskName,
-      kind:             scope.kind || 'source',
-      // 🚨 The polarity flag travels EXPLICITLY, exactly as it does in
-      // supabaseAdapter.uploadFile — see the long note there. §6 #31 (b).
-      is_core_definer:  !!scope.isCoreDefiner,
-      // 0075's two columns, mirrored here so the desktop bundle and the
-      // cloud row have the same shape. Audrey's parity rule (2026-08-10):
-      // "all functionality should be the same in both versions of the app."
-      // Before C3 this route stored neither, while the PATCH route below
-      // spread them in from req.body — so a kind set on the desktop
-      // persisted and the same gesture in cloud mode was silently dropped.
-      // The two halves now agree at BOTH ends.
-      document_kind:    scope.documentKind || null,
-      description:      scope.description  || null,
-      // Mirrors public.files.is_financial (0038). On Local Server it also
-      // decides which directory the body resolves against.
-      is_financial:     isFinancial,
-      uploaded_at:      new Date().toISOString(),
-      // S4b: the legal tag, written with the LEGAL folder (and only then).
-      ...(isLegal ? { tags: ['legal'] } : {}),
-      // M1-L7: written only for money filed in INVOICES, as the stream does.
-      ...(folderId ? { folder_id: folderId } : {}),
-    });
-    bundle.files.push(row);
-    rabbitLogFileEvent(bundle, {
-      file_id:          row.id,
-      project_id:       req.params.projectId,
-      file_name:        row.name,
-      storage_provider: row.storage_provider,
-      event:            'uploaded',
-      new_path:         row.storage_path,
-      size_bytes:       row.size_bytes ?? null,
-    });
-    writeRabbitBundle(req.params.projectId, bundle);
-    res.json(row);
-  });
-
   expressApp.put(ROUTE, (req, res) => {
     const bundle = readRabbitBundle(req.params.projectId);
     if (!bundle) return rabbitNotFound(res);
@@ -250,13 +185,14 @@ function mountProjectFileStream(expressApp, {
     const sourceModifiedAt = parseIsoDate(req.query.sourceModifiedAt);
 
     const fileId = uuidv4();
-    // The same sanitiser the POST uses: stored_name is joined under the
-    // project root, and a name with a separator in it would walk out of it.
+    // The sanitiser: stored_name is joined under the project root, and a name
+    // with a separator in it would walk out of it.
     const safeName = name.replace(/[^a-zA-Z0-9._-]+/g, '_');
     const diskName = `${fileId}-${safeName}`;
     // Post-overhaul S4b (0088): a Legal file goes to the project's LEGAL
-    // folder and carries the legal tag from now on — the base64 POST's rule,
-    // and the cloud's (the LEGAL segment). Never an invoice too, never core.
+    // folder and carries the legal tag from now on — the cloud's rule (the
+    // LEGAL segment). Never an invoice too, never core (the cloud refuses
+    // both).
     const placement = checkLegalUpload(scope);
     if (!placement.ok) return res.status(400).json({ error: placement.error, code: placement.code });
     const { isLegal, isFinancial } = placement;
@@ -300,7 +236,11 @@ function mountProjectFileStream(expressApp, {
         if (!res.headersSent) res.status(500).json({ error: `upload failed: ${err.message}` });
         return;
       }
-      // The row, field for field the one the base64 POST writes.
+      // The row. Each column written here mirrors the cloud row's column of
+      // the same name (Audrey's parity rule, 2026-08-10: "all functionality
+      // should be the same in both versions of the app."). It is not the
+      // whole cloud row: this route records no scene, shot, level or
+      // experience link and no folder but INVOICES for money (the header).
       const fresh = readRabbitBundle(req.params.projectId) || bundle;
       if (!fresh.files) fresh.files = [];
       // M1-L7: found or made on the bundle this route writes.
@@ -317,15 +257,19 @@ function mountProjectFileStream(expressApp, {
         storage_provider: 'local_server',
         storage_path:     diskName,
         kind:             scope.kind || 'source',
+        // 🚨 The polarity flag travels EXPLICITLY, exactly as it does in
+        // supabaseAdapter.uploadFile — see the long note there. §6 #31 (b).
         is_core_definer:  !!scope.isCoreDefiner,
-        // 0075's two columns (Track C / C3), mirrored here as the base64 POST
-        // mirrors them: the local adapter sends EVERY upload down this route
-        // since the demo, so without these the desktop threw a file's kind
-        // and description away at upload — the exact loss 0075 closed in the
-        // cloud. Added at the post-overhaul merge (2026-09-30); the POST is
-        // the reference and this row must stay field for field its equal.
+        // 0075's two columns (Track C / C3), mirrored here so the desktop
+        // bundle and the cloud row have the same shape: the local adapter
+        // sends EVERY upload down this route since the demo, so without
+        // these the desktop threw a file's kind and description away at
+        // upload — the exact loss 0075 closed in the cloud. Added at the
+        // post-overhaul merge (2026-09-30).
         document_kind:    scope.documentKind || null,
         description:      scope.description  || null,
+        // Mirrors public.files.is_financial (0038). On Local Server it also
+        // decides which directory the body resolves against.
         is_financial:     isFinancial,
         uploaded_at:      new Date().toISOString(),
         // S4b: the legal tag, written with the LEGAL folder (and only then).
@@ -354,4 +298,4 @@ function mountProjectFileStream(expressApp, {
   });
 }
 
-module.exports = { mountProjectFileStream, invoicesFolderOfBundle, invoicesFolderHook, parseScope, parseSize, parseDuration, parseIsoDate, ROUTE, POST_ROUTE };
+module.exports = { mountProjectFileStream, invoicesFolderOfBundle, invoicesFolderHook, parseScope, parseSize, parseDuration, parseIsoDate, ROUTE };

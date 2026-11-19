@@ -58,9 +58,10 @@
  * ═══════════════════════════════════════════════════════════════════════════
  * WHAT THIS MODULE IS NOT
  * ═══════════════════════════════════════════════════════════════════════════
- * It decides steps. It does not edit files. Pass 1 (`ui-pass1-sizes.mjs`)
- * applies it; `ui-type-inventory.mjs` reads it so a reviewer can re-derive
- * every decision without trusting the codemod's own report.
+ * It decides steps. It does not edit files. Pass 1's codemod applied it once
+ * (`ui-pass1-sizes.mjs`; it is in the history, last at 3f785d6a, and F12
+ * removed the file); `ui-type-inventory.mjs` reads it so a reviewer can
+ * re-derive every decision without trusting the codemod's own report.
  */
 
 /* ── Label evidence, and there is exactly one signal. ─────────────────────

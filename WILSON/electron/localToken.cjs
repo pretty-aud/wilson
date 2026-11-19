@@ -302,7 +302,6 @@ module.exports = {
   TOKEN_COOKIE,
   mintLaunchToken,
   tokensMatch,
-  localCorsOptions,
   applyLocalServerLock,
   localServerErrorHandler,
 };

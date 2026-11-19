@@ -38,7 +38,7 @@ import { fileURLToPath } from 'node:url'
 // WILSON's real prompts. Imported rather than copied so this cannot drift into
 // testing a prompt the app no longer uses.
 import {
-  DEFAULT_FULL_DECK_SYSTEM, DEFAULT_FULL_DECK_OUTPUT_FORMAT, DEFAULT_FULL_DECK_INSTRUCTIONS,
+  DEFAULT_FULL_DECK_SYSTEM, DEFAULT_FULL_DECK_OUTPUT_FORMAT, DEFAULT_FULL_DECK_INSTRUCTIONS, composeFullDeckInstructions,
 } from '../../src/tools/deck-outline-generator_v0.514/prompts/fullDeckPrompts.js'
 import { FULL_COURSE_OUTLINE_PROMPT } from '../../src/tools/otter_v0.3.1/prompts.js'
 // The same resolver the 28 call sites use. Importing it means this probe tests
@@ -248,10 +248,21 @@ const CASES = [
     // to 3 times, appending the partial output plus a "continue" USER turn.
     // Truncation here is the design, not a fault.
     continues: true,
+    // F12 (OUTSTANDING F6-17): D.O.G.'S SYSTEM PROMPT AND INSTRUCTIONS, AS IT
+    // SENDS THEM. The system prompt alone as `system`; then the source text,
+    // then the rules with the export format composed into them where
+    // {{EXPORT SCHEMA}} stands, which is how generateFullDeck ends its user
+    // turn. Until F12 the format was glued onto the system prompt and the mark
+    // was sent as written, so readings from before F12 are of another request.
+    // Still this probe's own, not the app's: the brief in place of the app's
+    // lead-in, project context and files, and max_tokens.
+    // 🚨 Keep this literal free of any call but composeFullDeckInstructions:
+    // prompts/promptBoxes.test.js lifts it from this file's text and evaluates
+    // it (this script is never imported by a test: it spends money).
     body: {
       max_tokens: 16384,
-      system: `${DEFAULT_FULL_DECK_SYSTEM}\n\n${DEFAULT_FULL_DECK_OUTPUT_FORMAT}`,
-      messages: [{ role: 'user', content: `${DEFAULT_FULL_DECK_INSTRUCTIONS}\n\n${BRIEF}` }],
+      system: DEFAULT_FULL_DECK_SYSTEM,
+      messages: [{ role: 'user', content: `${BRIEF}\n\n${composeFullDeckInstructions(DEFAULT_FULL_DECK_INSTRUCTIONS, DEFAULT_FULL_DECK_OUTPUT_FORMAT)}` }],
       tool: 'dog',
     },
     // WILSON's parser reads a "SLIDE #n" format; anything else is a failed deck.

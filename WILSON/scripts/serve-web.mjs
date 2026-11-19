@@ -10,30 +10,64 @@
 //   npm run build:web && npm run preview:web
 //   → http://localhost:4174/wilson
 //
-// PORT env overrides the default 4174.
+// PORT env overrides the default 4174 (PORT=0 takes any free port; the line
+// printed at start says which). WILSON_PREVIEW_HOST, when set, is the one
+// address it listens on (unset, as `npm run preview:web` leaves it: every
+// address of this computer, as before). A name of its own on purpose: some
+// shells export a variable called HOST for other uses (review round 2).
+//
+// F12 (2026-11-18): the fallback is electron/spaFallback.cjs's, root-relative.
+// It used to send `path.join(distWeb, 'index.html')`, an ABSOLUTE path,
+// which `send` refuses when any folder on it starts with a dot: from a
+// session's worktree (…/.claude/worktrees/…) every deep link answered 404
+// while /wilson/ itself still worked. The app is exported so
+// src/lib/spaFallback.test.js can serve it from such a folder, and the script
+// listens only when it is run, not when it is imported.
 // =============================================================================
 
 import express from 'express'
 import path from 'node:path'
+import { realpathSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
-const distWeb = path.join(here, '..', 'dist-web')
-const port = Number(process.env.PORT || 4174)
+const { sendSpaIndex } = createRequire(import.meta.url)('../electron/spaFallback.cjs')
 
-const app = express()
+/** The web preview's app over a web build's folder (dist-web/ beside this folder, by default). */
+export function webPreviewApp(distWeb = path.join(here, '..', 'dist-web')) {
+  const app = express()
 
-// Bare origin → the app path, so "open localhost:4174" just works.
-app.get('/', (_req, res) => res.redirect('/wilson'))
+  // Bare origin → the app path, so "open localhost:4174" just works.
+  app.get('/', (_req, res) => res.redirect('/wilson'))
 
-app.use('/wilson', express.static(distWeb))
+  app.use('/wilson', express.static(distWeb))
 
-// SPA fallback for deep links (/wilson/dog, /wilson/otter, …). Express 5
-// wildcard syntax, matching electron/main.cjs.
-app.get('/wilson/{*splat}', (_req, res) => {
-  res.sendFile(path.join(distWeb, 'index.html'))
-})
+  // SPA fallback for deep links (/wilson/dog, /wilson/otter, …). Express 5
+  // wildcard syntax and the same handler as electron/main.cjs.
+  app.get('/wilson/{*splat}', sendSpaIndex(distWeb))
 
-app.listen(port, () => {
-  console.log(`[wilson-web] serving dist-web at http://localhost:${port}/wilson`)
-})
+  return app
+}
+
+// Real paths on both sides, as scripts/build-electron-rules.mjs does: node
+// resolves the entry through a junction, a symlink or a subst drive, so a
+// plain comparison could leave the script silent when it is run.
+const real = (p) => { try { return realpathSync(p) } catch { return path.resolve(p) } }
+const runAsScript = Boolean(process.argv[1]) && real(process.argv[1]) === real(fileURLToPath(import.meta.url))
+
+if (runAsScript) {
+  const port = Number(process.env.PORT || 4174)
+  const host = process.env.WILSON_PREVIEW_HOST || ''
+  // Express hands a failed listen (a port already taken, a host that does not
+  // resolve) to this callback as its argument; say so and stop, rather than
+  // print an address nobody serves.
+  const started = (err) => {
+    if (err) {
+      console.error(`[wilson-web] cannot listen on ${host || 'this computer'}, port ${port}: ${err.message}`)
+      process.exit(1)
+    }
+    console.log(`[wilson-web] serving dist-web at http://${host || 'localhost'}:${server.address().port}/wilson`)
+  }
+  const server = webPreviewApp().listen(...(host ? [port, host] : [port]), started)
+}

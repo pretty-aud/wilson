@@ -120,7 +120,7 @@ export function cloudDay(v) {
  * move by Settings' "Move deck attachments into project files", and the files
  * folder is this computer's.
  */
-export const PROJECT_LEFT_AT_HOME = Object.freeze([
+const PROJECT_LEFT_AT_HOME = Object.freeze([
   'active_shot_list_id', 'budget_active_version_id', 'open_budget_version_id', 'folder_root',
   'created_by', 'updated_by', 'last_updated_by', 'deleted_by',
 ])
@@ -134,7 +134,7 @@ const PROJECT_ROW_COLUMNS = without(new Set([...COLUMN_ALLOWLIST.projects, 'fold
  * with them the whole project; the runner then sends the row again without
  * its status and says so (STATUS_NOT_IN_CLOUD).
  */
-export const CLOUD_PROJECT_STATUSES = Object.freeze(['draft', 'active', 'on_hold', 'inactive', 'wrapped', 'completed', 'archived', 'cancelled'])
+const CLOUD_PROJECT_STATUSES = Object.freeze(['draft', 'active', 'on_hold', 'inactive', 'wrapped', 'completed', 'archived', 'cancelled'])
 // Columns that are NOT NULL with a default (read on wilson-dev): an explicit
 // null refuses the whole row (23502) — a cleared frame rate is stored null —
 // so it is left out and the default applies.
@@ -368,7 +368,7 @@ const FOLDER_ENTITY_FKS = ['asset_id', 'scene_id', 'shot_id', 'level_id', 'exper
 const FOLDER_ROW_COLUMNS = without(COLUMN_ALLOWLIST.folders, ['workspace_id', 'created_by', 'updated_by'])
 
 /** The entity a folder (or a file) is about — its first set link, as fileTree.js reads one — or null. */
-export function entityOf(row) {
+function entityOf(row) {
   for (const fk of FOLDER_ENTITY_FKS) if (named(row?.[fk])) return { fk, id: row[fk] }
   return null
 }
@@ -543,7 +543,7 @@ function blankToNull(row, keys) {
 }
 
 /** The kinds 0037's CHECK takes (budget_versions_type_check). */
-export const VERSION_TYPES = Object.freeze(['bid', 'actual', 'final'])
+const VERSION_TYPES = Object.freeze(['bid', 'actual', 'final'])
 // Not locked_by: who locked it is a person on this computer, and the cloud
 // knows people by their accounts (a claim the file cannot prove — the rule
 // for every maker column here); the lock's day goes up.
@@ -567,7 +567,7 @@ export function budgetVersionRowForCloud(v, projectId) {
 }
 
 /** The sheets 0037's CHECK takes (budget_lines_sheet_check). */
-export const LINE_SHEETS = Object.freeze(['crew', 'talent', 'expenses_travel'])
+const LINE_SHEETS = Object.freeze(['crew', 'talent', 'expenses_travel'])
 const LINE_ROW_COLUMNS = without(withDays(COLUMN_ALLOWLIST.budget_lines), STAMPED)
 const LINE_DEFAULTED = ['sheet', 'sort_order', 'is_section_header', 'rate', 'days', 'qty', 'cost', 'is_na_days', 'is_na_qty', 'agency_opt_out', 'created_at', 'updated_at']
 /** A line's own percentages (null: the project's applies). NUMERIC(7,3), none below zero (budget_lines_pct_nonneg) — measured. */
@@ -600,9 +600,9 @@ export function budgetLineRowForCloud(line, projectId, people = null) {
 }
 
 /** The sources 0037's CHECK takes (budget_actuals_source_check). */
-export const ACTUAL_SOURCES = Object.freeze(['manual', 'timecard', 'expense'])
+const ACTUAL_SOURCES = Object.freeze(['manual', 'timecard', 'expense'])
 /** An attachment that is a files row of this project: `file:<uuid>` (InvoiceAttachment.jsx). */
-export const FILE_REF = 'file:'
+const FILE_REF = 'file:'
 /** An actual's attachment that is a path on one computer (the desktop-only builds before InvoiceAttachment): no address in the cloud. */
 export const isLegacyAttachment = (path) => named(path) && !String(path).startsWith(FILE_REF)
 const ACTUAL_ROW_COLUMNS = without(withDays(COLUMN_ALLOWLIST.budget_actuals), STAMPED)
@@ -752,10 +752,10 @@ export function carriedRecordOf(bundle, workspaceId) {
 // two desktop entries with one email (the seed store's and the company's,
 // say) both name the one account (auth.users' email is unique).
 
-export const PEOPLE_MATCH_ROLES = Object.freeze(['admin', 'manager'])
+const PEOPLE_MATCH_ROLES = Object.freeze(['admin', 'manager'])
 
 /** An email as the match reads it: trimmed, lower-cased; none when empty. */
-export function normalizeEmail(v) {
+function normalizeEmail(v) {
   const s = typeof v === 'string' ? v.trim().toLowerCase() : ''
   return s || null
 }
@@ -825,9 +825,9 @@ export const isUuid = (v) => UUID.test(String(v ?? ''))
 // ── M3: the roster (project_members, 0013) ──────────────────────────────────
 
 /** The roles 0013's CHECK takes (project_members_project_role_check — measured). */
-export const MEMBER_ROLES = Object.freeze(['manager', 'reviewer', 'member'])
+const MEMBER_ROLES = Object.freeze(['manager', 'reviewer', 'member'])
 /** An assignment's dates: no columns in project_members (counted, left). */
-export const ASSIGNMENT_DATES = Object.freeze(['start_date', 'end_date'])
+const ASSIGNMENT_DATES = Object.freeze(['start_date', 'end_date'])
 
 /**
  * A desktop team assignment as project_members takes it — `{ row, roleLeft,
@@ -851,7 +851,7 @@ export function projectMemberRowForCloud(assignment, projectId, people, member) 
 // ── M3: the rate cards (0000, 0015, 0020, 0032) ─────────────────────────────
 
 /** The kinds 0032's CHECK takes (rc_type_chk — measured). */
-export const RATE_CARD_TYPES = Object.freeze(['general', 'internal'])
+const RATE_CARD_TYPES = Object.freeze(['general', 'internal'])
 // The card's own columns: the workspace is the cloud's (sent explicitly: none,
 // and the desktop's seed id, are refused by the policy before anything else —
 // 42501, measured), the maker the cloud's, source_file_id a desktop file's id
@@ -882,7 +882,7 @@ export function roleSlugOf(label) {
   return String(label || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
 }
 /** The types 0015's CHECKs take (rce_burden_type_chk, rce_overhead_type_chk — measured). */
-export const RATE_ENTRY_TYPES = Object.freeze(['percent', 'fixed'])
+const RATE_ENTRY_TYPES = Object.freeze(['percent', 'fixed'])
 // wilson-dev's columns (2026-10-28) less the audit stamps; not the desktop's
 // computed `total` (42703, measured) nor anything else the hook derives.
 const RATE_ENTRY_COLUMNS = new Set([
@@ -927,7 +927,7 @@ const TEMPLATE_COLUMNS = new Set(['id', 'name', 'description', 'tasks', 'created
  * `title`), `bid_days` a finite number, `sort_order` an integer (its place
  * when none), `depends_on` an array of sibling ids as strings.
  */
-export function templateTasksForCloud(tasks) {
+function templateTasksForCloud(tasks) {
   return (Array.isArray(tasks) ? tasks : []).filter(isRow).map((t, i) => {
     const out = {}
     if (named(t.id)) out.id = String(t.id)

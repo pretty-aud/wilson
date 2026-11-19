@@ -3,14 +3,23 @@
 // (electron/projectFileStream.cjs) through a real express app on a temp
 // root, with the SAME global json parser main.cjs mounts in front of it.
 //
-// What this pins: a body far above the json limit lands on disk intact and
-// its row, directory and 'uploaded' event match what the base64 POST writes;
-// a financial scope goes to INVOICES; an unknown project is 404; a missing
-// name is 400; a name with separators is sanitised; no .part file survives.
+// What this pins: a body far above the json limit lands on disk intact with
+// its row, its directory and its 'uploaded' event; a financial scope goes to
+// INVOICES and a Legal one to LEGAL, each refused with the other; an unknown
+// project is 404; a missing name is 400; a name with separators is sanitised;
+// no .part file survives.
+//
+// F12 (2026-11-18): this is the ONE upload transport. The base64-in-JSON POST
+// …/files that sat beside it (nothing had called it since 2026-09-11) is
+// gone, and a POST to its address answers as any unknown route does. Every
+// rule its cases pinned that the stream shares is pinned here on the stream:
+// the Legal scope check, INVOICES for money, the row's shape, the 'uploaded'
+// event, a request with no name refused. One was the POST's own and went
+// with it: it refused a missing body, where the stream stores an empty file.
 //
 // OUTSTANDING M1-L7 (Audrey's ruling of 2026-10-30, "Yes, M1 fixes it now"):
 // with the host's hook (main.cjs: its planner's INVOICES row and its one row
-// writer), both transports file an invoice or a receipt in the project's
+// writer), the upload files an invoice or a receipt in the project's
 // INVOICES category folder — found, or made under the root where the tree
 // lacks it — as the cloud's uploadFile does; no tree, no hook, or a hook that
 // fails: the top, as before, the failure said without the file's name.
@@ -72,11 +81,7 @@ afterAll(async () => {
 const put = (pid, q, body) => fetch(`${base}/${pid}/files-stream?${new URLSearchParams(q)}`, {
   method: 'PUT', headers: { 'content-type': 'application/octet-stream' }, body,
 })
-// The base64 POST, moved here from main.cjs in S4b's review round 1 (R1-BEH-05).
-const post = (pid, body) => fetch(`${base}/${pid}/files`, {
-  method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
-})
-const counts = () => [legalDir, invoicesDir, filesDir].map(d => (fs.existsSync(d) ? fs.readdirSync(d).length : 0))
+const counts =() => [legalDir, invoicesDir, filesDir].map(d => (fs.existsSync(d) ? fs.readdirSync(d).length : 0))
 
 describe('parseScope / parseSize', () => {
   it('tolerate anything a query string can carry', () => {
@@ -99,7 +104,7 @@ describe('parseScope / parseSize', () => {
 })
 
 describe('PUT …/files-stream', () => {
-  it('lands a body well above the json limit on disk, intact, with the POST\'s row and event', async () => {
+  it('lands a body well above the json limit on disk, intact, with its row and its uploaded event', async () => {
     const big = Buffer.alloc(64 * 1024 * 1024, 7) // 64 MB > the 50mb json cap
     big.write('HEAD', 0)
     big.write('TAIL', big.length - 4)
@@ -131,6 +136,8 @@ describe('PUT …/files-stream', () => {
     expect(r.status).toBe(200)
     const row = await r.json()
     expect(row.is_financial).toBe(true)
+    // Money is not Legal: no tag (the removed POST's own financial case held this).
+    expect(row.tags).toBeUndefined()
     expect(fs.existsSync(path.join(invoicesDir, row.storage_path))).toBe(true)
     expect(fs.existsSync(path.join(filesDir, row.storage_path))).toBe(false)
     // M1-L7: a host without the INVOICES hook (this mount) files it nowhere.
@@ -147,7 +154,9 @@ describe('PUT …/files-stream', () => {
     const row = await r.json()
     expect(row.tags).toEqual(['legal'])
     expect(row.is_financial).toBe(false)
-    expect(fs.existsSync(path.join(legalDir, row.storage_path))).toBe(true)
+    // …and never core (the removed POST's own Legal case held this).
+    expect(row.is_core_definer).toBe(false)
+    expect(fs.readFileSync(path.join(legalDir, row.storage_path), 'utf8')).toBe('pdf')
     expect(fs.existsSync(path.join(filesDir, row.storage_path))).toBe(false)
     expect(fs.existsSync(path.join(invoicesDir, row.storage_path))).toBe(false)
     expect(readRabbitBundle(PID).files.find(f => f.id === row.id).tags).toEqual(['legal'])
@@ -181,16 +190,16 @@ describe('PUT …/files-stream', () => {
   })
 
   it('a scope with a document kind and a description lands both on the row (0075, Track C / C3)', async () => {
-    // The row is "field for field the base64 POST's", and the POST carries
-    // these two since Track C; without them the desktop threw a file's kind
-    // and description away on the one transport every upload uses.
+    // 0075's two columns, as the cloud row carries them since Track C;
+    // without them the desktop threw a file's kind and description away on
+    // the one transport every upload uses.
     const r = await put(PID, { name: 'Nightjar_brief.pdf', mimeType: 'application/pdf', sizeBytes: '3', scope: JSON.stringify({ documentKind: 'brief', description: 'the v3 brief', isCoreDefiner: true }) }, Buffer.from('pdf'))
     expect(r.status).toBe(200)
     const row = await r.json()
     expect(row).toMatchObject({ document_kind: 'brief', description: 'the v3 brief', is_core_definer: true, is_financial: false })
     const bundle = readRabbitBundle(PID)
     expect(bundle.files.find(f => f.id === row.id)).toMatchObject({ document_kind: 'brief', description: 'the v3 brief' })
-    // Absent from the scope: null, as the POST writes them — never undefined.
+    // Absent from the scope: null — never undefined.
     const r2 = await put(PID, { name: 'plate.png', mimeType: 'image/png', sizeBytes: '3', scope: JSON.stringify({ kind: 'source' }) }, Buffer.from('png'))
     const row2 = await r2.json()
     expect(row2.document_kind).toBe(null)
@@ -214,71 +223,53 @@ describe('PUT …/files-stream', () => {
     const before = fs.readdirSync(filesDir).length
     expect((await put('nope', { name: 'x.bin' }, Buffer.from('x'))).status).toBe(404)
     expect((await put(PID, { name: '   ' }, Buffer.from('x'))).status).toBe(400)
+    // No name at all (review round 1: the removed POST's case held this; a
+    // String(undefined) here would store a file called "undefined").
+    const none = await put(PID, {}, Buffer.from('x'))
+    expect(none.status).toBe(400)
+    expect(await none.json()).toEqual({ error: 'name required' })
     expect(fs.readdirSync(filesDir).length).toBe(before)
+  })
+
+  // The removed POST refused a request with no body ("name and base64
+  // required"); that refusal was the base64 transport's own and went with it.
+  // The stream has always stored what it is sent, an empty file included
+  // (the route every upload has used since 2026-09-11): pinned here so the
+  // one difference between the two transports is on the record.
+  it('an empty body is an empty file: stored, with its row, size 0', async () => {
+    const r = await put(PID, { name: 'empty.txt', mimeType: 'text/plain' }, Buffer.alloc(0))
+    expect(r.status).toBe(200)
+    const row = await r.json()
+    expect(row.size_bytes).toBe(0)
+    expect(fs.statSync(path.join(filesDir, row.storage_path)).size).toBe(0)
+    expect(readRabbitBundle(PID).files.find(f => f.id === row.id)).toBeTruthy()
   })
 })
 
-describe('POST …/files — the base64 transport, beside the stream (S4b review round 1, R1-BEH-05)', () => {
-  const b64 = (text) => Buffer.from(text).toString('base64')
+describe('F12: the base64 POST …/files is gone, and the stream is the one transport', () => {
+  const postJson = (url, body) => fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
 
-  it('an ordinary file goes to the files dir with the stream\'s row and an uploaded event', async () => {
-    const r = await post(PID, { name: 'call sheet.pdf', mimeType: 'application/pdf', sizeBytes: 4, base64: b64('call'), scope: { type: 'project' } })
-    expect(r.status).toBe(200)
-    const row = await r.json()
-    expect(row).toMatchObject({ project_id: PID, name: 'call sheet.pdf', storage_provider: 'local_server', is_financial: false, is_core_definer: false })
-    expect(row.tags).toBeUndefined()
-    expect(row.storage_path).toBe(`${row.id}-call_sheet.pdf`)
-    expect(fs.readFileSync(path.join(filesDir, row.storage_path), 'utf8')).toBe('call')
-    const bundle = readRabbitBundle(PID)
-    expect(bundle.files.find(f => f.id === row.id)).toBeTruthy()
-    expect(bundle.fileEvents.find(e => e.file_id === row.id)?.event).toBe('uploaded')
-  })
-
-  it('a Legal scope goes to LEGAL with the tag, and nowhere else', async () => {
-    const r = await post(PID, { name: 'nda.pdf', sizeBytes: 3, base64: b64('nda'), scope: { type: 'project', legal: true } })
-    expect(r.status).toBe(200)
-    const row = await r.json()
-    expect(row.tags).toEqual(['legal'])
-    expect(row.is_financial).toBe(false)
-    expect(row.is_core_definer).toBe(false)
-    expect(fs.readFileSync(path.join(legalDir, row.storage_path), 'utf8')).toBe('nda')
-    expect(fs.existsSync(path.join(filesDir, row.storage_path))).toBe(false)
-    expect(fs.existsSync(path.join(invoicesDir, row.storage_path))).toBe(false)
-    expect(readRabbitBundle(PID).files.find(f => f.id === row.id).tags).toEqual(['legal'])
-  })
-
-  it('keeps a document kind and a description on the row (0075; planted fault R2-5)', async () => {
-    const row = await (await post(PID, { name: 'brief.pdf', base64: b64('b'), scope: { documentKind: 'brief', description: 'the v3 brief' } })).json()
-    expect(row).toMatchObject({ document_kind: 'brief', description: 'the v3 brief' })
-    const bare = await (await post(PID, { name: 'plate.png', base64: b64('p'), scope: {} })).json()
-    expect(bare.document_kind).toBe(null)
-    expect(bare.description).toBe(null)
-  })
-
-  it('a financial scope goes to INVOICES (CONTROL: the third directory)', async () => {
-    const row = await (await post(PID, { name: 'inv.pdf', base64: b64('inv'), scope: { financial: true } })).json()
-    expect(row.is_financial).toBe(true)
-    expect(row.tags).toBeUndefined()
-    expect(fs.existsSync(path.join(invoicesDir, row.storage_path))).toBe(true)
-  })
-
-  it('Legal with financial, and Legal with core, are refused before anything is written', async () => {
+  it('a POST to the old address answers as any unknown route does, and writes nothing', async () => {
     const before = counts()
     const rows = readRabbitBundle(PID).files.length
-    const both = await post(PID, { name: 'x.pdf', base64: b64('x'), scope: { legal: true, financial: true } })
-    expect(both.status).toBe(400)
-    expect((await both.json()).code).toBe('legal_and_financial')
-    const core = await post(PID, { name: 'y.pdf', base64: b64('y'), scope: { legal: true, isCoreDefiner: true } })
-    expect(core.status).toBe(400)
-    expect((await core.json()).code).toBe('legal_not_core')
+    // The very body the route used to take (a name, a type, a size, the bytes as base64, a scope).
+    const body = { name: 'call sheet.pdf', mimeType: 'application/pdf', sizeBytes: 4, base64: Buffer.from('call').toString('base64'), scope: { type: 'project' } }
+    const old = await postJson(`${base}/${PID}/files`, body)
+    const never = await postJson(`${base}/${PID}/never-a-route`, body)
+    expect(old.status).toBe(404)
+    expect(never.status).toBe(404)
+    expect(old.headers.get('content-type')).toBe(never.headers.get('content-type'))
+    const said = (await old.text()).replace(`/${PID}/files`, '/<the path>')
+    expect(said).toBe((await never.text()).replace(`/${PID}/never-a-route`, '/<the path>'))
+    expect(said).toContain('Cannot POST')
     expect(counts()).toEqual(before)
     expect(readRabbitBundle(PID).files.length).toBe(rows)
   })
 
-  it('an unknown project is 404; a missing name or body is 400', async () => {
-    expect((await post('nope', { name: 'a', base64: b64('a') })).status).toBe(404)
-    expect((await post(PID, { base64: b64('a') })).status).toBe(400)
-    expect((await post(PID, { name: 'a' })).status).toBe(400)
+  it('the module hands out one address, the stream\'s, and no POST address', () => {
+    const mod = require('../../../../electron/projectFileStream.cjs')
+    expect(mod.ROUTE).toBe('/api/rabbit/projects/:projectId/files-stream')
+    expect(Object.keys(mod)).not.toContain('POST_ROUTE')
   })
 })
 
@@ -439,7 +430,7 @@ describe('main.cjs\'s folder DELETE lets its files\' folder_id go, as 0043\'s SE
   })
 })
 
-describe('both transports with the host\'s INVOICES hook (M1-L7)', () => {
+describe('the stream with the host\'s INVOICES hook (M1-L7)', () => {
   const P_FILED = 'p-invoices-filed'
   const P_NO_INVOICES = 'p-invoices-missing'
   const P_NO_TREE = 'p-invoices-no-tree'
@@ -447,9 +438,7 @@ describe('both transports with the host\'s INVOICES hook (M1-L7)', () => {
   let srv2, base2
   const logged2 = []
   const put2 = (pid, q, body) => fetch(`${base2}/${pid}/files-stream?${new URLSearchParams(q)}`, { method: 'PUT', headers: { 'content-type': 'application/octet-stream' }, body })
-  const post2 = (pid, body) => fetch(`${base2}/${pid}/files`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
   const folderIdOf = (pid, id) => readRabbitBundle(pid).files.find(f => f.id === id)?.folder_id
-  const b64 = (text) => Buffer.from(text).toString('base64')
 
   beforeAll(async () => {
     store.set(P_FILED, JSON.stringify({ project: { id: P_FILED }, files: [], folders: [ROOT, INVOICES_ROW] }))
@@ -485,8 +474,8 @@ describe('both transports with the host\'s INVOICES hook (M1-L7)', () => {
     expect(readRabbitBundle(P_FILED).folders).toHaveLength(2)
   })
 
-  it('the base64 POST likewise (a receipt: financial, no line)', async () => {
-    const row = await (await post2(P_FILED, { name: 'receipt.pdf', base64: b64('rcpt'), scope: { financial: true } })).json()
+  it('a receipt likewise: financial with no line (the case the removed POST held)', async () => {
+    const row = await (await put2(P_FILED, { name: 'receipt.pdf', scope: JSON.stringify({ financial: true }) }, Buffer.from('rcpt'))).json()
     expect(row).toMatchObject({ is_financial: true, folder_id: 'f-invoices' })
     expect(folderIdOf(P_FILED, row.id)).toBe('f-invoices')
   })
@@ -494,19 +483,19 @@ describe('both transports with the host\'s INVOICES hook (M1-L7)', () => {
   it('CONTROL: an ordinary file and a Legal file are filed in no folder by this rule', async () => {
     const plain = await (await put2(P_FILED, { name: 'notes.txt' }, Buffer.from('n'))).json()
     expect(plain).not.toHaveProperty('folder_id')
-    const legal = await (await post2(P_FILED, { name: 'release.pdf', base64: b64('l'), scope: { legal: true } })).json()
+    const legal = await (await put2(P_FILED, { name: 'release.pdf', scope: JSON.stringify({ legal: true }) }, Buffer.from('l'))).json()
     expect(legal.tags).toEqual(['legal'])
     expect(legal).not.toHaveProperty('folder_id')
   })
 
-  it('a project whose tree lacks the INVOICES row has it made under the root, kept in the bundle, and the invoice filed in it — by either transport', async () => {
+  it('a project whose tree lacks the INVOICES row has it made under the root, kept in the bundle, and the invoice filed in it', async () => {
     const r = await put2(P_NO_INVOICES, { name: 'invoice.pdf', scope: JSON.stringify({ financial: true }) }, Buffer.from('pdf'))
     const row = await r.json()
     expect(row.folder_id).toBe('made-INVOICES')
     const folders = readRabbitBundle(P_NO_INVOICES).folders
     expect(folders.find(f => f.id === 'made-INVOICES')).toMatchObject({ parent_id: 'f-root', kind: 'category', path: 'INVOICES' })
     // A second upload finds it: one INVOICES row.
-    const again = await (await post2(P_NO_INVOICES, { name: 'invoice-2.pdf', base64: b64('i2'), scope: { financial: true } })).json()
+    const again = await (await put2(P_NO_INVOICES, { name: 'invoice-2.pdf', scope: JSON.stringify({ financial: true }) }, Buffer.from('i2'))).json()
     expect(again.folder_id).toBe('made-INVOICES')
     expect(readRabbitBundle(P_NO_INVOICES).folders.filter(f => f.path === 'INVOICES')).toHaveLength(1)
   })
@@ -528,10 +517,10 @@ describe('both transports with the host\'s INVOICES hook (M1-L7)', () => {
     const said = logged2.filter(l => l.startsWith('[files]'))
     expect(said).toEqual([`[files] ${P_HOOK_FAILS}: the INVOICES folder could not be found or made, so the file sits at the project's top: the bundle's folders could not be read`])
     expect(said.some(l => l.includes('secret-budget'))).toBe(false)
-    // CONTROL: the POST says the same.
+    // And it is said once an upload, not once a launch: a second one says it again.
     logged2.length = 0
-    const viaPost = await (await post2(P_HOOK_FAILS, { name: 'secret-budget-q4.pdf', base64: b64('s'), scope: { financial: true } })).json()
-    expect(viaPost).not.toHaveProperty('folder_id')
+    const second = await (await put2(P_HOOK_FAILS, { name: 'secret-budget-q4.pdf', scope: JSON.stringify({ financial: true }) }, Buffer.from('s'))).json()
+    expect(second).not.toHaveProperty('folder_id')
     expect(logged2.filter(l => l.startsWith('[files]'))).toHaveLength(1)
   })
 })

@@ -304,9 +304,9 @@ describe('the Local Server files Legal files as the cloud does (S4b, 0088)', () 
     expect(scan.slice(0, scan.indexOf('const { folderPath }'))).toContain('if (!legalFiling.relinkable(f)) continue;')
     const apply = code.slice(code.indexOf("'/api/rabbit/projects/:projectId/files/relink-apply'"))
     expect(apply.slice(0, apply.indexOf('if (changingBase)'))).toMatch(/if \(!legalFiling\.relinkable\(file\)\) \{\s*return res\.status\(400\)/)
-    // The base64 POST lives beside the stream now (projectFileStream.test.js
-    // serves both for real); main.cjs registers it nowhere, in any quotes
-    // (round 2, R2-10: a second registration would shadow the module's).
+    // F12: the base64 POST is gone (projectFileStream.test.js serves the one
+    // transport for real, and pins that a POST to the old address is unknown);
+    // main.cjs registers it nowhere, in any quotes (round 2, R2-10).
     expect(code).not.toMatch(/\.post\(\s*['"`]\/api\/rabbit\/projects\/:projectId\/files['"`]/)
     // The stream module is handed the LEGAL resolver.
     expect(code).toContain('resolveProjectFilesDir, resolveProjectInvoicesDir, resolveProjectLegalDir, uuidv4,')

@@ -14,7 +14,12 @@
 // measures which lever actually helps, against the same prompt and the same
 // 16384-token budget, in one run so conditions are shared:
 //
-//   A  no thinking field      — today's behaviour, the 150.4s baseline
+//   A  no thinking field      — Session 19's baseline, 150.4s (NOT today's
+//                               request: the app now sends
+//                               tuningFor('dog.fullDeck') with every full
+//                               deck, the operator's effort or the registry's
+//                               built-in, so "today" is whichever row below
+//                               that tuning matches; review round 2, F12)
 //   B  thinking: disabled     — closest to how Sonnet 4 behaved
 //   C  adaptive, effort low   — Anthropic's preferred lever over disabling
 //   D  adaptive, effort medium
@@ -32,7 +37,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import {
-  DEFAULT_FULL_DECK_SYSTEM, DEFAULT_FULL_DECK_OUTPUT_FORMAT, DEFAULT_FULL_DECK_INSTRUCTIONS,
+  DEFAULT_FULL_DECK_SYSTEM, DEFAULT_FULL_DECK_OUTPUT_FORMAT, DEFAULT_FULL_DECK_INSTRUCTIONS, composeFullDeckInstructions,
 } from '../../src/tools/deck-outline-generator_v0.514/prompts/fullDeckPrompts.js'
 import { modelFor } from '../../src/lib/activeModel.js'
 
@@ -103,11 +108,23 @@ async function res200Text(r) {
 async function run(extra, label) {
   const started = Date.now()
   const el = () => ((Date.now() - started) / 1000).toFixed(0)
+  // F12 (OUTSTANDING F6-17): D.O.G.'S SYSTEM PROMPT AND INSTRUCTIONS, AS IT
+  // SENDS THEM. The system prompt alone as `system`; then the source text,
+  // then the rules with the export format composed into them where
+  // {{EXPORT SCHEMA}} stands, which is how generateFullDeck ends its user
+  // turn. Until F12 this sent the format glued onto the system prompt and the
+  // rules with the mark left as written: a prompt the app never sends, so
+  // figures from before F12 are of another request and do not compare with
+  // later ones. Still this probe's own, not the app's: the brief in place of
+  // the app's lead-in, project context and files, and max_tokens.
+  // 🚨 Keep this literal free of any call but composeFullDeckInstructions and
+  // modelFor: prompts/promptBoxes.test.js lifts it from this file's text and
+  // evaluates it (this script is never imported by a test: it spends money).
   const body = {
     model: modelFor('dog.fullDeck'),
     max_tokens: 16384,
-    system: `${DEFAULT_FULL_DECK_SYSTEM}\n\n${DEFAULT_FULL_DECK_OUTPUT_FORMAT}`,
-    messages: [{ role: 'user', content: `${DEFAULT_FULL_DECK_INSTRUCTIONS}\n\n${BRIEF}` }],
+    system: DEFAULT_FULL_DECK_SYSTEM,
+    messages: [{ role: 'user', content: `${BRIEF}\n\n${composeFullDeckInstructions(DEFAULT_FULL_DECK_INSTRUCTIONS, DEFAULT_FULL_DECK_OUTPUT_FORMAT)}` }],
     tool: 'dog',
     ...extra,
   }
@@ -179,7 +196,7 @@ Key talent: Dr. Maren Ostlund (marine biologist), archive from NOAA.
 The deck is for a funding pitch and must stand alone without a presenter.`
 
 const VARIANTS = [
-  { label: 'A  no thinking field (today)', extra: {} },
+  { label: 'A  no thinking field (S19)', extra: {} },
   { label: 'B  thinking: disabled', extra: { thinking: { type: 'disabled' } } },
   { label: 'C  adaptive, effort low', extra: { thinking: { type: 'adaptive' }, output_config: { effort: 'low' } } },
   { label: 'D  adaptive, effort medium', extra: { thinking: { type: 'adaptive' }, output_config: { effort: 'medium' } } },

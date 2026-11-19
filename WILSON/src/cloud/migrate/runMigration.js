@@ -158,7 +158,7 @@ export const FILES_IN_CLOUD_BIN = (n, names = []) => {
 export const ARCHIVED_AGAIN = (labels) => `Archived on this computer, so archived in the cloud once carried: ${labels.join(', ')} (a workspace admin or the project's manager can; anyone else, only a list or edit nobody has saved or built on)`
 export const LIVE_IN_CLOUD = (n) => `${n} ${n === 1 ? 'shot list or edit' : 'shot lists or edits'} archived on this computer ${n === 1 ? 'is' : 'are'} live in the cloud: a run archives only what it carries (archive ${n === 1 ? 'it' : 'them'} on the Scenes tab)`
 export const SHOT_LIST_NAME_TAKEN = (label) => `a shot list called "${label}" is already in the cloud under another id (made there since), so this one was not carried: rename it on this computer and run again`
-export const EDIT_NAME_TAKEN = (label) => `this shot list already has an edit called "${label}" in the cloud (made there since), so this one was not carried: rename it on this computer and run again`
+const EDIT_NAME_TAKEN = (label) => `this shot list already has an edit called "${label}" in the cloud (made there since), so this one was not carried: rename it on this computer and run again`
 // M2 (night 4): part 2's sentences (the panel and the tests quote them).
 // A row an earlier run carried that the cloud no longer shows: a teammate
 // removed it (or put it in the cloud's trash), and no run brings it back.
@@ -224,7 +224,7 @@ export const RECEIPTS_STRANDED = (n) => `${plural(n, 'receipt')} an earlier run 
 // files kept with rows, the receipts moved (the panel and the tests quote
 // them). A person is named by their desktop name, never their email.
 export const PEOPLE_MATCHED = (matched, total) => `${matched} of ${plural(total, 'desktop team member')} matched a company account by email`
-export const PEOPLE_WHY = Object.freeze({ no_account: 'no WILSON account yet', no_email: 'no email on this computer', inactive: 'account deactivated' })
+const PEOPLE_WHY = Object.freeze({ no_account: 'no WILSON account yet', no_email: 'no email on this computer', inactive: 'account deactivated' })
 export const PEOPLE_NOT_MATCHED = (unmatched) => {
   const groups = Object.entries(PEOPLE_WHY).map(([why, words]) => [words, unmatched.filter(u => u.why === why).map(u => u.name)]).filter(([, names]) => names.length)
   return `${plural(unmatched.length, 'desktop team member')} not matched to a company account (${groups.map(([words, names]) => `${words}: ${names.join(', ')}`).join('; ')}): their seats, crew lines, rates and tasks arrive without the person until they join (no email is sent)`
@@ -239,13 +239,13 @@ export const DEFAULTS_LEFT = (n) => `${plural(n, 'rate card')} ${n === 1 ? 'arri
 export const PEOPLE_SET = (n) => `${plural(n, 'row')} an earlier run carried without ${n === 1 ? 'its' : 'their'} person (budget lines, tasks, the producer and director) now ${n === 1 ? 'names' : 'name'} them`
 export const RATE_CARDS_NEED_RIGHT = (n) => `${plural(n, 'rate card')} ${n === 1 ? 'stays' : 'stay'} on this computer: in the cloud rate card entries are written by a workspace admin or someone with the rate card edit grant, and you are neither`
 export const CARD_NOT_OURS = (name) => `rate card "${name}": a card with this id is in the cloud, but not one you can see (in the cloud's trash, or another company's — restored, it carries on the next run), so it was not written`
-export const TEMPLATE_NOT_OURS = (name) => `task template "${name}": a template with this id is in the cloud, but not one you can see (another company's), so it was not written`
+const TEMPLATE_NOT_OURS = (name) => `task template "${name}": a template with this id is in the cloud, but not one you can see (another company's), so it was not written`
 export const ENTRIES_NEED_GRANT = (n) => `${plural(n, 'rate card entry', 'rate card entries')} not carried: entries are written by a workspace admin or someone with the rate card edit grant`
 export const EMPTY_CARDS = (n) => `${plural(n, 'empty rate card')} (no entries, no department defaults) not carried: the cloud makes its own General and Internal cards`
 export const TEMPLATES_LEFT = (n) => `${plural(n, 'task template')} ${n === 1 ? 'stays' : 'stay'} on this computer: in the cloud templates are written by a workspace admin or manager, and a template pinned to a project by its manager`
 export const TEMPLATES_ORPHAN = (n) => `${plural(n, 'task template')} pinned to a project not on this computer not carried`
 export const ASSET_TEMPLATES_LINKED = (n) => `${plural(n, 'asset')} linked to ${n === 1 ? 'its' : 'their'} task template in the cloud`
-export const MANAGED_WORDS = 'kept with assets, scenes, shots, levels and experiences'
+const MANAGED_WORDS = 'kept with assets, scenes, shots, levels and experiences'
 export const MANAGED_FILES_WILL_UPLOAD = (n, bytes) => `${plural(n, 'file')} ${MANAGED_WORDS} (${(bytes / 1_000_000).toFixed(1)} MB) will upload to the company's storage`
 export const MANAGED_FILES_UPLOADED = (n, bytes) => `${plural(n, 'file')} ${MANAGED_WORDS} (${(bytes / 1_000_000).toFixed(1)} MB) uploaded to the company's storage`
 export const SERVER_MEDIA_STAY = (n) => `${plural(n, 'file')} ${MANAGED_WORDS} ${n === 1 ? 'stays' : 'stay'} on this computer: this company keeps its media on its own server, and the browser says where the files are`

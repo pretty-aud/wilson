@@ -31,9 +31,10 @@ import { Button } from '../../ui'
 
 const TITLE = 'Move deck attachments into project files'
 
-// MiB, and it says MiB. R1: the ceiling is a hard limit a person will run
-// into, so rounding it into "64.0 MB" and being refused at 36 is the kind of
-// small lie that costs an afternoon.
+// MiB, and it says MiB. R1: the ceiling is a hard limit a person can run
+// into, and rounding it into "64.0 MB" while an upload was refused at 36 (the
+// base64 upload of that time; F12 removed it) was the kind of small lie that
+// costs an afternoon.
 function fmtBytes(b) {
   if (!b) return '0 B'
   if (b < 1024) return `${b} B`

@@ -11,7 +11,7 @@
   "author": "Petal Studios",
   "type": "module",
   "main": "electron/main.cjs",
-  "_comment:build": "Session 40, and it lives at the ROOT rather than inside `build` ON PURPOSE: electron-builder validates the `build` object against a JSON schema and REJECTS unknown properties, so a `_comment:` key in there fails `npm run dist` outright. 🚨 `build` IS THE PACKAGER THAT SHIPS. electron-BUILDER (npm run dist) produces the nsis installer users receive; electron-FORGE (npm run package/make, forge.config.cjs) does not ship, and its packagerConfig.extraResource does NOTHING for the shipped build — the two also have OPPOSITE asar defaults. extraResources copies OUTSIDE the asar by construction, which is what an executable needs: a binary inside an archive cannot be exec'd. Verify with `npm run dist` and look in release/win-unpacked/resources/ffmpeg/, never with `npm run package`. resources/ffmpeg/ is committed (README + .gitignore) so the glob always resolves; the binary itself is gitignored because the repo is PUBLIC.",
+  "_comment:build": "Session 40, and it lives at the ROOT rather than inside `build` ON PURPOSE: electron-builder validates the `build` object against a JSON schema and REJECTS unknown properties, so a `_comment:` key in there fails `npm run dist` outright. 🚨 `build` IS THE ONE PACKAGER (F12, 2026-11-18: Electron Forge, forge.config.cjs and the Squirrel guard are gone). `npm run dist` makes the nsis installer users receive; `npm run package` is the same config left unpacked (electron-builder --dir, which names no platform: on Windows, release/win-unpacked/ with no installer and no app-update.yml, so that build cannot update itself; on another host it packs that host's app). extraResources copies OUTSIDE the asar by construction, which is what an executable needs: a binary inside an archive cannot be exec'd. Look in release/win-unpacked/resources/ffmpeg/ after either. resources/ffmpeg/ is committed (README + .gitignore) so the glob always resolves; the binary itself is gitignored because the repo is PUBLIC, so a checkout without it builds with no resources/ffmpeg/ folder at all.",
   "scripts": {
     "dev": "vite",
     "test": "vitest run",
@@ -33,10 +33,9 @@
     "preview:web": "node scripts/serve-web.mjs",
     "electron:dev": "npm run build:dev && electron .",
     "electron:start": "electron .",
-    "package": "npm run build && electron-forge package",
-    "make": "npm run build && electron-forge make",
-    "dist": "npm run build && electron-builder --win nsis",
-    "dist:publish": "npm run build && electron-builder --win nsis --publish always"
+    "_comment:package": "F12: the SAME `build` config as `dist`, left unpacked (on Windows: release/win-unpacked/, no installer). 🚨 Never START what either makes to test it: a packaged WILSON opens the real data folder of whoever starts it (WILSON_USER_DATA is honoured only unpackaged). Read the build's file list instead.",
+    "package": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder --win nsis"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
@@ -51,7 +50,6 @@
     "cors": "^2.8.6",
     "d3-force": "3.0.0",
     "d3-hierarchy": "3.1.2",
-    "electron-squirrel-startup": "^1.0.1",
     "electron-updater": "^6.3.9",
     "express": "^5.2.1",
     "jszip": "^3.10.1",
@@ -72,8 +70,6 @@
     "yjs": "^13.6.31"
   },
   "devDependencies": {
-    "@electron-forge/cli": "^7.0.0",
-    "@electron-forge/maker-squirrel": "^7.0.0",
     "@playwright/test": "^1.59.1",
     "@tailwindcss/vite": "^4.0.0",
     "@testing-library/dom": "^10.4.1",

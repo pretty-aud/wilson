@@ -77,7 +77,8 @@ const NODES = { systems: [
   ] }] },
 ] }
 // `firstLesson`: another text for the subject's first lesson, for the one test that needs it.
-const world = { writes: [], firstLesson: null }
+// `desktop`: whether the local server exists (false in every test but F12's); `local`: what was asked of it.
+const world = { writes: [], firstLesson: null, desktop: false, local: [] }
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 async function backend(url, init) {
   if ((init?.method ?? 'GET') !== 'GET') { world.writes.push({ url, body: init?.body ? JSON.parse(init.body) : null }); return json({ ok: true }) }
@@ -122,9 +123,15 @@ vi.mock('../../components/TeamMembers/useWorkspaceMembers', () => ({ useWorkspac
 vi.mock('@monaco-editor/react', () => ({ default: () => null }))
 vi.mock('../../cloud/aiProxy', () => ({ callAI: vi.fn(), isRetryableAIError: () => false }))
 vi.mock('../../lib/localData', () => ({
-  hasLocalServer: () => false,
+  hasLocalServer: () => world.desktop,
   loadOtterSettings: () => Promise.resolve({}),
   saveOtterSettings: () => Promise.resolve({}),
+}))
+// F12: every request O.T.T.E.R. itself makes of the desktop's local server, recorded. It answers
+// `needed: true`, the answer that made the mount POST as well before F12.
+vi.mock('../../lib/localServerFetch.js', async (importOriginal) => ({
+  ...(await importOriginal()),
+  localFetch: (url, init) => { world.local.push(`${init?.method ?? 'GET'} ${url}`); return Promise.resolve(json({ needed: true })) },
 }))
 vi.mock('../../lib/userState', () => ({ pushSettingsToCloud: () => Promise.resolve() }))
 
@@ -145,8 +152,29 @@ async function openLesson() {
 }
 const searchBox = () => document.querySelector('input[placeholder="Search functions..."]')
 
-beforeEach(() => { world.writes.length = 0; world.firstLesson = null; vi.spyOn(console, 'log').mockImplementation(() => {}) })
+beforeEach(() => { world.writes.length = 0; world.firstLesson = null; world.desktop = false; world.local.length = 0; vi.spyOn(console, 'log').mockImplementation(() => {}) })
 afterEach(() => { cleanup(); vi.restoreAllMocks(); renderSpy.reset() })
+
+// F12 (desktop-build D1): on every mount O.T.T.E.R. asked the local server "is the v1 to v2 migration
+// needed?" and, on yes, POSTed to a route that did nothing. Both routes and the call are gone.
+describe('F12: the desktop mount asks the local server for nothing', () => {
+  it('on the desktop, O.T.T.E.R. mounts and lists its courses without asking the two migration routes, which no longer exist', async () => {
+    world.desktop = true
+    render(createElement(Otter, { currentPage: 'otter', onNavigate: noop, onContextChange: noop }))
+    // The list is loaded AFTER the settings (and, before F12, after the migration check), so once
+    // a course is on screen the mount's own requests have all been made.
+    await waitFor(() => { if (!document.querySelector('.otter-course-open[title="C#"]')) throw new Error('no course yet') })
+    await act(async () => {})
+    expect(world.local).toEqual([])
+    expect(readFileSync(resolve(here, '../../../electron/main.cjs'), 'utf8')).not.toMatch(/\/api\/migrat/)
+  })
+  it('CONTROL: the recorder sees a request made of the local server', async () => {
+    const { localFetch } = await import('../../lib/localServerFetch.js')
+    await localFetch('/api/migration-needed')
+    await localFetch('/api/migrate', { method: 'POST' })
+    expect(world.local).toEqual(['GET /api/migration-needed', 'POST /api/migrate'])
+  })
+})
 
 describe('the lesson and the reference as drawn', () => {
   it('the lesson: its prose, its fence coloured, its table in its box, its link the shared one; the reference: its three cards', async () => {

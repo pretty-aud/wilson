@@ -81,9 +81,6 @@ const rabbitTaskItems = require('./rabbitTaskItems.cjs');
 // <data folder>/rabbit-machine-settings.json.
 const rabbitTableViews = require('./rabbitTableViews.cjs');
 
-// Handle Squirrel.Windows startup events (install, update, uninstall)
-if (require('electron-squirrel-startup')) app.quit();
-
 // ── Single instance (Bundle B3; Audrey's decision 30: "only one copy at a
 // time") ────────────────────────────────────────────────────────────────────
 // Two copies shared one `userData` directory, so two Express servers wrote the
@@ -91,14 +88,12 @@ if (require('electron-squirrel-startup')) app.quit();
 // lock — the §6 accepted limit this closes. Nostalgia TV learned the same
 // lesson the hard way.
 //
-// ⚠️ Ordering vs the Squirrel guard, stated precisely (R2 corrected an earlier,
-// looser version of this comment): `if (require('electron-squirrel-startup'))
-// app.quit();` does NOT return, so an installer process still reaches this line
-// and still takes — or fails to take — the lock. Ordering only decides who
-// quits first. If a Squirrel process fails to take it, the running app gets a
-// `second-instance` event and raises its window mid-install: cosmetic, and
-// better than the installer racing the running app for the lock, which is why
-// the guard stays first.
+// F12 (2026-11-18): the lock is the first thing a launch decides now. Until
+// Electron Forge was removed a Squirrel guard (the electron-squirrel-startup
+// package) sat above this line. It acted only when Squirrel's own Update.exe
+// started the app with a `--squirrel-*` argument, and the installer that ships
+// is electron-builder's NSIS, which starts the app with `--updated` at most:
+// no launch of a shipped WILSON ever took that branch.
 //
 // `app.quit()` starts the shutdown but does NOT stop this module evaluating, so
 // the flag is read again at whenReady rather than trusted to have taken effect.
@@ -1199,17 +1194,6 @@ function startLocalServer(distPath) {
         quiz_history: quizHistory.attempts || [],
         software,
       });
-    });
-
-    // ── Migration check (v1 → v2) ──
-    expressApp.get('/api/migration-needed', (req, res) => {
-      const dataDir = getDataDir();
-      const needed = fs.existsSync(path.join(dataDir, 'lesson-plans.bak')) || fs.existsSync(path.join(dataDir, 'progress.bak'));
-      res.json({ needed });
-    });
-
-    expressApp.post('/api/migrate', (req, res) => {
-      res.json({ ok: true, message: 'Migration handled client-side or not needed' });
     });
 
     // ── O.T.T.E.R. settings (prompts only — API key uses WILSON's localStorage) ──
@@ -3656,11 +3640,11 @@ function startLocalServer(distPath) {
     // Individual CRUD via sub-entity factory
     rabbitSubentityRoutes('project-team',    'projectTeam');
 
-    // ── Files: upload (base64 JSON payload) ──
-    // Moved word for word into electron/projectFileStream.cjs (S4b review
-    // round 1, R1-BEH-05) beside the streamed PUT, mounted below with it, so
-    // the two transports share one scope check and one directory choice and
-    // both are served for real in tests. The download route follows.
+    // ── Files: upload ──
+    // The upload is electron/projectFileStream.cjs's streamed PUT, mounted
+    // below. The base64 JSON POST that once stood here, and then beside the
+    // stream, had no caller and went with F12 (2026-11-18). The download
+    // route follows.
 
     // ── Post-overhaul S4a: where a row's bytes are on THIS disk ─────────────
     // For the rabbit:open-path IPC ("Open in default app", the explorer's
@@ -4584,9 +4568,10 @@ function startLocalServer(distPath) {
 
     // ── Streamed project-file upload (demo 2026-09-11) — electron/projectFileStream.cjs ──
     // Audrey: "[localServer] HTTP 413" adding a file to a project. The
-    // base64-in-JSON POST (…/files, above) is capped by the global 50mb json
-    // limit; this PUT streams the body straight to disk and records the same
-    // row, directory and event. Same placement rule as the bins.
+    // base64-in-JSON POST of that time (…/files, removed by F12) was capped
+    // by the global 50mb json limit; this PUT streams the body straight to
+    // disk and records the row, directory and event. Same placement rule as
+    // the bins.
     require('./projectFileStream.cjs').mountProjectFileStream(expressApp, {
       readRabbitBundle, writeRabbitBundle, rabbitTouch, rabbitLogFileEvent, rabbitNotFound,
       resolveProjectFilesDir, resolveProjectInvoicesDir, resolveProjectLegalDir, uuidv4,
@@ -4736,7 +4721,7 @@ app.on('will-quit', () => {
 // unconditionally — it only ever fires in the process that HOLDS the lock.
 //
 // MEASURED: `setAsDefaultProtocolClient` appears nowhere in electron/, and
-// neither forge nor builder registers a URL scheme, so WILSON has no deep links
+// electron-builder's config registers no URL scheme, so WILSON has no deep links
 // today and there is nothing to forward. `commandLine` is the argument vector
 // of the second copy; when a scheme is added, this handler is where it lands.
 app.on('second-instance', () => {
@@ -5525,7 +5510,6 @@ ipcMain.handle('zoom-out', () => {
   if (mainWindow) { const wc = mainWindow.webContents; const c = wc.getZoomLevel(); if (c > -5) wc.setZoomLevel(c - 0.5); return wc.getZoomLevel(); }
 });
 ipcMain.handle('zoom-reset', () => { if (mainWindow) { mainWindow.webContents.setZoomLevel(0); return 0; } });
-ipcMain.handle('zoom-get', () => { if (mainWindow) return mainWindow.webContents.getZoomLevel(); return 0; });
 
 app.whenReady().then(() => {
   // Bundle B3: the second copy quits instead of booting a second Express server
