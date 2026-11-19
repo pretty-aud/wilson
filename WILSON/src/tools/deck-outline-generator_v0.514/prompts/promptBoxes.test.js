@@ -79,11 +79,16 @@ describe('the requests read the boxes (DeckOutlineGenerator.jsx)', () => {
   })
 })
 
-// ── F12 (OUTSTANDING F6-17): the two probes build the request D.O.G. sends ───
+// ── F12 (OUTSTANDING F6-17): the two probes send D.O.G.'s system prompt and instructions ───
 // scripts/probes/deck-latency.mjs and generation-e2e.mjs measured a prompt D.O.G. never sends: the
 // export format glued onto the SYSTEM prompt, and the rules in the user turn with {{EXPORT SCHEMA}}
-// left as written. They compose it as the app does now: the system prompt alone, and the rules with
-// the format in the mark's place, after the source text.
+// left as written. They send those two parts as the app does now: the system prompt alone, and the
+// rules with the format in the mark's place, after the source text.
+//
+// That is ALL this compares (review round 1). The rest of the user turn is each side's own: the
+// app's lead-in, project context and file framing against the probe's made-up brief; and so are
+// max_tokens and the thinking settings. A probe's reading is of the app's prompt PARTS, not of a
+// deck the app would generate.
 //
 // 🚨 The probes are NEVER imported or run here. Each reads an env file, signs in and calls the one
 // AI key the moment it is loaded. Only the request's object literal is lifted from the script's
@@ -138,18 +143,21 @@ function probeProblems(name, text) {
   return problems
 }
 
-describe('F12: the probes build the full-deck request D.O.G. sends (OUTSTANDING F6-17)', () => {
-  it('the app\'s side, read from the component: the system box alone as system, the composed boxes at the end of the user turn', () => {
+describe('F12: the probes send the full deck\'s system prompt and composed instructions as D.O.G. does (OUTSTANDING F6-17)', () => {
+  it('the app\'s side, read from the component: the three boxes start from the defaults, the system box alone is system, the composed boxes end the user turn', () => {
     expect(DOG).toContain('useState(DEFAULT_FULL_DECK_SYSTEM)')
+    expect(DOG).toContain('useState(DEFAULT_FULL_DECK_INSTRUCTIONS)')
+    expect(DOG).toContain('useState(DEFAULT_FULL_DECK_OUTPUT_FORMAT)')
     expect(DOG).toContain('system: fullDeckSystemPrompt,')
     expect(DOG).toContain('const outputInstructions = composeFullDeckInstructions(fullDeckInstructions, fullDeckOutputFormat);')
     expect(DOG).toMatch(/\$\{fullDeckPlacementPrompt\.instructions\}\$\{outputInstructions\}\$\{fullDeckPlacementPrompt\.rules\}`;/)
-    // …and with no placed asset the placement prompt is two empty strings, so the turn ends with the instructions.
-    expect(DOG).toContain(": { instructions: '', rules: '' };")
+    // …and with no placed asset the FULL DECK's own placement prompt is two empty strings, so the
+    // turn ends with the instructions (the same words stand at two other sites: this is its own).
+    expect(DOG).toMatch(/const fullDeckPlacementPrompt = srcPlacement\.length > 0\s*\? buildAssetPlacementPrompt\(srcPlacement\)\s*: \{ instructions: '', rules: '' \};/)
   })
 
   for (const name of Object.keys(PROBES)) {
-    it(`${name}: its request is the app's — the same system prompt, the same composed instructions (by the fingerprint above)`, () => {
+    it(`${name}: its system prompt and its instructions are the app's (the instructions by the fingerprint above), after its source text`, () => {
       expect(probeProblems(name, probeText(name))).toEqual([])
       expect(sha(COMPOSED)).toBe('869b49a9f5f5f6ea47c6f1d69ad226cbf93f1f23aab32fea05d3edbe58e44b2c')
     })

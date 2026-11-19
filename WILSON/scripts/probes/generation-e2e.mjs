@@ -248,12 +248,14 @@ const CASES = [
     // to 3 times, appending the partial output plus a "continue" USER turn.
     // Truncation here is the design, not a fault.
     continues: true,
-    // F12 (OUTSTANDING F6-17): THE REQUEST D.O.G. SENDS. The system prompt
-    // alone as `system`; then the source text, then the rules with the export
-    // format composed into them where {{EXPORT SCHEMA}} stands, which is how
-    // generateFullDeck ends its user turn. Until F12 the format was glued onto
-    // the system prompt and the mark was sent as written, so readings from
-    // before F12 are of another request.
+    // F12 (OUTSTANDING F6-17): D.O.G.'S SYSTEM PROMPT AND INSTRUCTIONS, AS IT
+    // SENDS THEM. The system prompt alone as `system`; then the source text,
+    // then the rules with the export format composed into them where
+    // {{EXPORT SCHEMA}} stands, which is how generateFullDeck ends its user
+    // turn. Until F12 the format was glued onto the system prompt and the mark
+    // was sent as written, so readings from before F12 are of another request.
+    // Still this probe's own, not the app's: the brief in place of the app's
+    // lead-in, project context and files, and max_tokens.
     // 🚨 Keep this literal free of any call but composeFullDeckInstructions:
     // prompts/promptBoxes.test.js lifts it from this file's text and evaluates
     // it (this script is never imported by a test: it spends money).

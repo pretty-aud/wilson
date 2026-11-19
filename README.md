@@ -43,7 +43,7 @@ Built with Electron + Vite + React 19 + Tailwind CSS 4.
 | Command | What it does |
 |---|---|
 | `npm run build` | Vite production build to `dist/` |
-| `npm run package` | Build + electron-builder, unpacked (the app in `release/win-unpacked/`, no installer) |
+| `npm run package` | Build + electron-builder, unpacked (on Windows: the app in `release/win-unpacked/`, no installer) |
 | `npm run dist` | Build + electron-builder (the Windows installer users receive, in `release/`) |
 
 ## Project Structure

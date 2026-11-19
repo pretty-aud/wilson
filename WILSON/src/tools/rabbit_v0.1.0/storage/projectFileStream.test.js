@@ -12,8 +12,10 @@
 // F12 (2026-11-18): this is the ONE upload transport. The base64-in-JSON POST
 // …/files that sat beside it (nothing had called it since 2026-09-11) is
 // gone, and a POST to its address answers as any unknown route does. Every
-// rule its cases pinned is pinned here on the stream: the Legal scope check,
-// INVOICES for money, the row's shape and the 'uploaded' event.
+// rule its cases pinned that the stream shares is pinned here on the stream:
+// the Legal scope check, INVOICES for money, the row's shape, the 'uploaded'
+// event, a request with no name refused. One was the POST's own and went
+// with it: it refused a missing body, where the stream stores an empty file.
 //
 // OUTSTANDING M1-L7 (Audrey's ruling of 2026-10-30, "Yes, M1 fixes it now"):
 // with the host's hook (main.cjs: its planner's INVOICES row and its one row
@@ -221,7 +223,26 @@ describe('PUT …/files-stream', () => {
     const before = fs.readdirSync(filesDir).length
     expect((await put('nope', { name: 'x.bin' }, Buffer.from('x'))).status).toBe(404)
     expect((await put(PID, { name: '   ' }, Buffer.from('x'))).status).toBe(400)
+    // No name at all (review round 1: the removed POST's case held this; a
+    // String(undefined) here would store a file called "undefined").
+    const none = await put(PID, {}, Buffer.from('x'))
+    expect(none.status).toBe(400)
+    expect(await none.json()).toEqual({ error: 'name required' })
     expect(fs.readdirSync(filesDir).length).toBe(before)
+  })
+
+  // The removed POST refused a request with no body ("name and base64
+  // required"); that refusal was the base64 transport's own and went with it.
+  // The stream has always stored what it is sent, an empty file included
+  // (the route every upload has used since 2026-09-11): pinned here so the
+  // one difference between the two transports is on the record.
+  it('an empty body is an empty file: stored, with its row, size 0', async () => {
+    const r = await put(PID, { name: 'empty.txt', mimeType: 'text/plain' }, Buffer.alloc(0))
+    expect(r.status).toBe(200)
+    const row = await r.json()
+    expect(row.size_bytes).toBe(0)
+    expect(fs.statSync(path.join(filesDir, row.storage_path)).size).toBe(0)
+    expect(readRabbitBundle(PID).files.find(f => f.id === row.id)).toBeTruthy()
   })
 })
 

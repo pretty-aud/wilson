@@ -11,7 +11,9 @@
 //   → http://localhost:4174/wilson
 //
 // PORT env overrides the default 4174 (PORT=0 takes any free port; the line
-// printed at start says which).
+// printed at start says which). HOST env, when set, is the one address it
+// listens on (unset, as `npm run preview:web` leaves it: every address of
+// this computer, as before).
 //
 // F12 (2026-11-18): the fallback is electron/spaFallback.cjs's, root-relative.
 // It used to send `path.join(distWeb, 'index.html')`, an ABSOLUTE path,
@@ -54,7 +56,16 @@ const real = (p) => { try { return realpathSync(p) } catch { return path.resolve
 const runAsScript = Boolean(process.argv[1]) && real(process.argv[1]) === real(fileURLToPath(import.meta.url))
 
 if (runAsScript) {
-  const server = webPreviewApp().listen(Number(process.env.PORT || 4174), () => {
+  const port = Number(process.env.PORT || 4174)
+  // Express hands a failed listen (a port already taken) to this callback as
+  // its argument; say so and stop, rather than print an address nobody serves.
+  const started = (err) => {
+    if (err) {
+      console.error(`[wilson-web] cannot listen on port ${port}: ${err.message}`)
+      process.exit(1)
+    }
     console.log(`[wilson-web] serving dist-web at http://localhost:${server.address().port}/wilson`)
-  })
+  }
+  const where = process.env.HOST ? [port, process.env.HOST] : [port]
+  const server = webPreviewApp().listen(...where, started)
 }

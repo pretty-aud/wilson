@@ -1033,8 +1033,11 @@ jobs:
       # builds are right: the installed Playwright (its browsers.json names
       # one revision of each browser), the distribution and the processor.
       # No restore-keys, so another version's browsers are never restored.
+      # The key's first word names what "Install Chromium" installs: a second
+      # browser added to that line must change the key with it, or the folder
+      # restored on a hit would lack it and it would be downloaded every run.
       # GitHub keeps a cache for its own branch (and the default branch's for
-      # everyone), so a branch's first run always misses and saves.
+      # everyone), so a branch's first run always misses.
       - name: Name the browser cache
         id: pw
         if: steps.secrets.outputs.has_secrets == 'true'
@@ -1059,9 +1062,12 @@ jobs:
         run: npx playwright install chromium --with-deps
 
       # Saved only after a miss, and only once the install above has exited 0,
-      # so a half-downloaded browser is never kept.
+      # so a half-downloaded browser is never kept. Not on a session's branch
+      # (po/**): it is pushed once, so nothing would ever read what it saved.
+      # The branches that run again (the integration branch above all) keep
+      # theirs.
       - name: Keep Playwright's browsers
-        if: steps.secrets.outputs.has_secrets == 'true' && steps.pw-cache.outputs.cache-hit != 'true'
+        if: steps.secrets.outputs.has_secrets == 'true' && steps.pw-cache.outputs.cache-hit != 'true' && !startsWith(github.ref, 'refs/heads/po/')
         uses: actions/cache/save@v4
         with:
           path: ~/.cache/ms-playwright

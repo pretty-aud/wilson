@@ -20,7 +20,7 @@ import { spawn } from 'node:child_process'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const require = createRequire(import.meta.url)
 const express = require('express')
@@ -143,14 +143,31 @@ describe('the web preview, scripts/serve-web.mjs (F12)', () => {
     expect((await ask(old(plain), ['/wilson/dog']))['/wilson/dog'].status).toBe(200)
   })
 
-  it('run as a script it listens and says the port it took (the Playwright web lane starts it so); its one listen sits behind the run check', async () => {
+  it('imported, it does not listen: a process that only imports it ends at once, with nothing said', async () => {
+    // A listener would keep that process alive (and, unguarded, would open port 4174 on every
+    // address in every test run). Review round 1: the order of two words in the source proved
+    // nothing; this is the behaviour.
+    const importer = `await import(${JSON.stringify(pathToFileURL(SCRIPT).href)})`
+    const child = spawn(process.execPath, ['--input-type=module', '-e', importer], { env: { ...process.env, PORT: '0', HOST: '127.0.0.1' }, stdio: ['ignore', 'pipe', 'pipe'] })
+    let said = ''
+    child.stdout.on('data', (c) => { said += c })
+    child.stderr.on('data', (c) => { said += c })
+    const code = await new Promise((done) => {
+      const timer = setTimeout(() => { child.kill(); done('still running after 15 s') }, 15_000)
+      child.on('exit', (c) => { clearTimeout(timer); done(c) })
+    })
+    expect(code, said).toBe(0)
+    expect(said).not.toContain('serving dist-web')
+  }, 30_000)
+
+  it('run as a script it listens and says the port it took (the Playwright web lane starts it so)', async () => {
     const src = readFileSync(SCRIPT, 'utf8')
     expect(src.match(/\.listen\(/g)).toHaveLength(1)
-    expect(src.indexOf('.listen(')).toBeGreaterThan(src.indexOf('if (runAsScript)'))
-    expect(src.indexOf('if (runAsScript)')).toBeGreaterThan(-1)
     expect(src).not.toMatch(/sendFile\(/)
     // PORT=0: any free port, so nothing here can collide with a preview someone has open on 4174.
-    const child = spawn(process.execPath, [SCRIPT], { env: { ...process.env, PORT: '0' }, stdio: ['ignore', 'pipe', 'pipe'] })
+    // HOST=127.0.0.1: this computer only, as every other listener in the suite (unset, the script
+    // listens on every address, as `npm run preview:web` always has).
+    const child = spawn(process.execPath, [SCRIPT], { env: { ...process.env, PORT: '0', HOST: '127.0.0.1' }, stdio: ['ignore', 'pipe', 'pipe'] })
     try {
       const port = await new Promise((done, fail) => {
         let said = ''

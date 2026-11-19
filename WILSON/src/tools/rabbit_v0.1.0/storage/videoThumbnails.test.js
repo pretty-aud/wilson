@@ -938,7 +938,9 @@ function secondPackager(pkg, rootFiles, mainCode) {
   for (const [name, cmd] of Object.entries(pkg.scripts || {})) {
     if (name.startsWith('_comment')) continue // package.json's own notes are words, not commands
     if (/electron-forge/.test(cmd)) found.push(`the script "${name}" runs electron-forge`)
-    else if (/electron-builder/.test(cmd) && name !== 'package' && name !== 'dist') found.push(`the script "${name}" runs electron-builder, which only "package" and "dist" do`)
+    // A third script that PACKS is a second way to build the app; electron-builder's
+    // own `install-app-deps` (a rebuild of native modules) packs nothing.
+    else if (/electron-builder(?!\s+install-app-deps)/.test(cmd) && name !== 'package' && name !== 'dist') found.push(`the script "${name}" runs electron-builder, which only "package" and "dist" do`)
   }
   for (const name of Object.keys({ ...pkg.dependencies, ...pkg.devDependencies })) {
     if (/electron-forge|squirrel/i.test(name)) found.push(`the package ${name}`)
@@ -951,10 +953,12 @@ describe('wiring: packaging goes to the one packager, electron-builder (F12: For
   const pkg = JSON.parse(readRepo('package.json'))
 
   it('🚨 electron-BUILDER carries the binary — `npm run dist` is what users get, and `npm run package` is the same build unpacked', () => {
-    // Both scripts run electron-builder over the ONE `build` config, so what
-    // `npm run package` shows is what the installer holds. Before F12 `package`
-    // ran electron-forge, whose packagerConfig.extraResource did nothing for the
-    // nsis installer and whose asar default was the opposite one.
+    // Both scripts run electron-builder over the ONE `build` config, so on
+    // Windows, the platform the installer is for, what `npm run package` shows
+    // is what the installer holds (`package` names no platform: on another
+    // host it packs that host's app). Before F12 `package` ran electron-forge,
+    // whose packagerConfig.extraResource did nothing for the nsis installer
+    // and whose asar default was the opposite one.
     expect(pkg.scripts.dist).toBe('npm run build && electron-builder --win nsis')
     expect(pkg.scripts.package).toBe('npm run build && electron-builder --dir')
     const extra = pkg.build?.extraResources || []
@@ -988,8 +992,9 @@ describe('wiring: packaging goes to the one packager, electron-builder (F12: For
       'the package @electron-forge/maker-squirrel',
       'main.cjs names Squirrel in its code',
     ])
-    // …and a comment alone is not code.
-    expect(secondPackager(pkg, ['package.json'], executable('// Squirrel went with Forge\n'))).toEqual([])
+    // …and a comment alone is not code, nor is a rebuild of native modules a packager.
+    const rebuild = { ...pkg, scripts: { ...pkg.scripts, postinstall: 'electron-builder install-app-deps' } }
+    expect(secondPackager(rebuild, ['package.json'], executable('// Squirrel went with Forge\n'))).toEqual([])
   })
 
   it('both output folders stay ignored: release/ is electron-builder\'s, out/ was Forge\'s, and the repository is public', () => {

@@ -103,13 +103,15 @@ async function res200Text(r) {
 async function run(extra, label) {
   const started = Date.now()
   const el = () => ((Date.now() - started) / 1000).toFixed(0)
-  // F12 (OUTSTANDING F6-17): THE REQUEST D.O.G. SENDS. The system prompt alone
-  // as `system`; then the source text, then the rules with the export format
-  // composed into them where {{EXPORT SCHEMA}} stands, which is how
-  // generateFullDeck ends its user turn. Until F12 this sent the format glued
-  // onto the system prompt and the rules with the mark left as written: a
-  // prompt the app never sends, so figures from before F12 are of another
-  // request and do not compare with later ones.
+  // F12 (OUTSTANDING F6-17): D.O.G.'S SYSTEM PROMPT AND INSTRUCTIONS, AS IT
+  // SENDS THEM. The system prompt alone as `system`; then the source text,
+  // then the rules with the export format composed into them where
+  // {{EXPORT SCHEMA}} stands, which is how generateFullDeck ends its user
+  // turn. Until F12 this sent the format glued onto the system prompt and the
+  // rules with the mark left as written: a prompt the app never sends, so
+  // figures from before F12 are of another request and do not compare with
+  // later ones. Still this probe's own, not the app's: the brief in place of
+  // the app's lead-in, project context and files, and max_tokens.
   // 🚨 Keep this literal free of any call but composeFullDeckInstructions and
   // modelFor: prompts/promptBoxes.test.js lifts it from this file's text and
   // evaluates it (this script is never imported by a test: it spends money).

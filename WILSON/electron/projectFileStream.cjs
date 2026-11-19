@@ -32,9 +32,12 @@
 // anything that still calls it". Nothing did: the local adapter has streamed
 // every upload here since 2026-09-11, and only that route's own tests called
 // it. It is gone with its row builder, and a POST to its address is answered
-// as any unknown route is. Every rule its tests held (the Legal scope check,
-// INVOICES for money, the row's shape, the 'uploaded' event) is held on this
-// route by projectFileStream.test.js.
+// as any unknown route is. Every rule its tests held that this route shares
+// (the Legal scope check, INVOICES for money, the row's shape, the 'uploaded'
+// event, a request with no name refused) is held on this route by
+// projectFileStream.test.js. One rule was that transport's own and went with
+// it: it refused a request with no body, where this route stores what it is
+// sent, an empty file included.
 //
 // OUTSTANDING M1-L7 (Audrey's ruling of 2026-10-30, "Yes, M1 fixes it now":
 // "The same rule in the desktop's two upload routes, so the desktop and the
@@ -233,9 +236,11 @@ function mountProjectFileStream(expressApp, {
         if (!res.headersSent) res.status(500).json({ error: `upload failed: ${err.message}` });
         return;
       }
-      // The row, with the cloud row's shape. Audrey's parity rule
-      // (2026-08-10): "all functionality should be the same in both versions
-      // of the app."
+      // The row. Each column written here mirrors the cloud row's column of
+      // the same name (Audrey's parity rule, 2026-08-10: "all functionality
+      // should be the same in both versions of the app."). It is not the
+      // whole cloud row: this route records no scene, shot, level or
+      // experience link and no folder but INVOICES for money (the header).
       const fresh = readRabbitBundle(req.params.projectId) || bundle;
       if (!fresh.files) fresh.files = [];
       // M1-L7: found or made on the bundle this route writes.

@@ -75,8 +75,10 @@ import { documentKindFor } from '../../tools/rabbit_v0.1.0/deckAttachments';
  *
  *   - It is the size past which D.O.G. itself warns that the AI may refuse a
  *     PDF (`PDF_BYTE_LIMIT` in references/referenceModel.js, the provider's
- *     request ceiling), so nothing this tool moves is a document D.O.G. then
- *     warns about for its size.
+ *     request ceiling), so no PDF this tool moves is one D.O.G. then warns
+ *     about for its size. A picture has its own, lower line there (10 MiB,
+ *     `IMAGE_BYTE_LIMIT`), which this ceiling does not follow: a picture
+ *     between 10 and 32 MiB moves, and D.O.G. warns about it.
  *   - It can bind only in a narrow band. A legacy attachment is base64 ON THE
  *     PROJECT ROW, and that row is still saved as JSON through the 50 MB body
  *     limit (this tool's own write-back is such a save), so a row written
