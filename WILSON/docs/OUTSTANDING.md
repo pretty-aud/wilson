@@ -6099,6 +6099,27 @@ then three) gave 45 findings, none High and none a security defect: the twenty i
   source-scan tests and the heaviest render files) and pass alone: F9-13's kind, seen in seven of F12's eight full
   runs here. INFO.
 
+**Found by the reviewer of her ruling's change (2026-11-19), in the attachment tool; both older than F12**
+
+- **F12-21 · A run of "Move deck attachments into project files" that is stopped inside a project uploads that
+  project's already-moved files again on the next run.** `runAttachmentMigration.js` clears an entry from its copy of
+  the array after the upload returned, and saves the row once per project after its last attachment; the app
+  quitting between the two leaves the uploaded files in the store and still on the row. MEASURED by the reviewer on
+  the real runner (first upload returned, second never did: no save, and the re-run uploaded the first file again).
+  The same end by another road: when the files moved and the save of the row is refused, the report counts nothing
+  as failed, says so only in one line of its folded error list, and leaves Move enabled. What she would see: the
+  same file twice in Resources and in D.O.G., each marked Core. Fix shape: save the array after each upload that
+  returned; count a refused save under failed projects and show that line open. The runner's header and the
+  handbook said "a re-run moves exactly what is left" and are corrected. LOW. Owner: whoever the controller names.
+- **F12-22 · With no ceiling, a project record holding a file far larger than the app could ever save is decoded
+  like any other.** The app wrote these records only through the 50 MB JSON body, so one attachment is at most about
+  37 MiB and nothing is worse for anything the app wrote. A hand-made or copied-in `project.json` can hold more:
+  the dry run then says it would move, and on Move the window decodes it whole (it moves, or the decode throws and
+  it is counted failed and stays, or the window runs out of memory with the record untouched). Read, not run in
+  Electron. Fix shape, if hand-made records matter: the dry run names any attachment over a stated size, as words
+  and not as a limit. An older page written for her, `docs/walkthroughs/15_dog_attachments.md`, still describes the
+  "Left in place (too large)" list; it is hers to keep as a record. INFO.
+
 **Measured out of the row: the brief's nine, each left for the reason given**
 
 - **F12-14 · The suite glob.** The failure-replay list in `rls.yml` has been pinned against the suite directory, both

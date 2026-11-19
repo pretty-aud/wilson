@@ -3619,7 +3619,11 @@ Resources list and D.O.G.'s source set on every backend, so nothing an
 existing local project had was lost. Moving them is a deliberate one-time
 action: **Settings → RABBIT → "Move deck attachments into project files"**,
 dry run required first, and each entry cleared from the array only after its
-upload returns — so a crash mid-run means a re-run moves exactly what is left.
+upload returns — so a file whose upload failed stays, and a re-run moves
+exactly what is left. ⚠️ The row is saved once per project, after its last
+attachment: a run STOPPED inside a project (the app quit) has saved nothing for
+it, and the next run uploads that project's already-moved files a second time
+(`docs/OUTSTANDING.md` F12-21; this sentence said otherwise until 2026-11-19).
 
 **No size limit (her ruling of 2026-11-19).** Until then a file over 32 MiB was
 listed and left where it was. The limit had been sized to fit a base64 upload

@@ -51,11 +51,17 @@
 // 10 MiB (references/referenceModel.js); a moved file that large gets that
 // warning there.
 //
-// IDEMPOTENT AND RESUMABLE. Each attachment is cleared from the array only
-// after its upload has returned, and the arrays are written back per project.
-// A crash mid-project leaves the uploaded ones out of the array and the rest
-// in it, so a re-run moves exactly what is left. A re-run after a clean run
-// finds nothing and reports zero.
+// RESUMABLE, PROJECT BY PROJECT. Each attachment is cleared from the array
+// only after its upload has returned, and the arrays are written back ONCE
+// per project, after its last attachment. So a run that failed on some files
+// leaves exactly those on the row, and a re-run moves exactly what is left;
+// a re-run after a clean run finds nothing and reports zero. ⚠️ But a run
+// STOPPED inside a project (the app quit, the window reloaded) has saved
+// nothing for that project: its already-uploaded files are in the store AND
+// still on the row, and the next run uploads them a second time. This note
+// said "a crash mid-project leaves the uploaded ones out of the array" until
+// F12's reviewer ran it (2026-11-19); the behaviour is older and is recorded,
+// not changed (OUTSTANDING F12-21).
 // =============================================================================
 
 import { documentKindFor } from '../../tools/rabbit_v0.1.0/deckAttachments';

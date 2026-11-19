@@ -123,7 +123,7 @@ describe('the dry run', () => {
   })
 })
 
-// ── The ceiling, and what it does NOT do ─────────────────────────────────────
+// ── No ceiling any more, and what still guards a file ─────────────────────────────────────
 
 // Until 2026-11-19 an attachment over 32 MiB was reported and left where it
 // was. The limit's written reasons had both stopped being true (F12 measured
@@ -187,7 +187,8 @@ describe('no per-file ceiling (her ruling of 2026-11-19: "Remove the limit")', (
     expect(Object.keys(runner)).not.toContain('MAX_ATTACHMENT_BYTES')
     const panel = readFileSync(fileURLToPath(new URL('./AttachmentMigrationPanel.jsx', import.meta.url)), 'utf8')
     // The panel read `r.oversize.length` to draw its list: left in, it would throw on a report that has none.
-    expect(panel).not.toMatch(/MAX_ATTACHMENT_BYTES|oversize|tooBig|too large/)
+    // The names are pinned, not the words: a later line of copy may say "too large" of something else.
+    expect(panel).not.toMatch(/MAX_ATTACHMENT_BYTES|\.oversize\b|\btooBig\b/)
     expect(panel).toContain('Dry-run first; the move is one-way.')
   })
 })
@@ -244,9 +245,9 @@ describe('approxBytes', () => {
   it('prefers a recorded size, and otherwise derives it from the base64', () => {
     expect(approxBytes({ size: 1234, content: dataUrl() })).toBe(1234)
     // "aGV5IQ==" is 8 characters -> 6 bytes by the 3/4 rule; the true payload
-    // is 4. The estimate is deliberately an upper bound: it decides whether to
-    // ATTEMPT a move, and over-estimating skips a borderline file rather than
-    // allocating a blob to find out.
+    // is 4. The estimate is an upper bound, by 2 bytes at most. It only feeds
+    // the report's byte figure now: until 2026-11-19 it also decided whether
+    // a file was over the ceiling, without allocating a blob to find out.
     expect(approxBytes({ content: dataUrl() })).toBe(6)
   })
 })
