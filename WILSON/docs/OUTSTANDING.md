@@ -5888,6 +5888,11 @@ left, what F9 met outside its list, and what its review rounds recorded. None is
   `Dashboard/NotesView.review.test.jsx` (one or two unhandled `getClientRects is not a function` from the editor's
   scroll under jsdom, in the baseline too) and, in one run, 5 s timeouts in `enterKey.render.test.jsx`,
   `rabbitScenesRender.test.jsx` and `timelineVersions.test.jsx`. None is in F9's code; each passes alone. NOTE.
+  **F12 (2026-11-19), the editor's error FIXED:** ProseMirror measures a text range to scroll a cursor into view, and
+  jsdom's `Range` lacks `getClientRects` and `getBoundingClientRect`; `NotesView.review.test.jsx` gives them (an empty
+  answer, only where missing), and a case that puts the selection in the note's text and scrolls on purpose was red
+  first with CI's very error. With it the full suite here exited 0 for the first time in F12 (562 files, no error).
+  The timeouts are not touched.
 - **F9-14 · Rows made before F9 with a name that slugs to nothing keep the shared fallback.** The reconcile and the rebase
   (kept in their words, F9-03) store `Untitled-Project` for a stored slug of `''`, the same for every such project, and
   never fill a `null` slug; where such a project's stored root is unusable they meet in one `<root>/Untitled-Project`.
@@ -6104,7 +6109,13 @@ then three) gave 45 findings, none High and none a security defect: the twenty i
   body. Whether an empty upload should be refused on both backends was not asked. INFO.
 - **F12-13 · Full runs on this machine keep showing one to five 5-second timeouts that move between files** (the
   source-scan tests and the heaviest render files) and pass alone: F9-13's kind, seen in seven of F12's eight full
-  runs here. INFO.
+  runs here. INFO. **Two CI reds of F12's nights were these, and both are fixed (2026-11-19, at her word "Fix them
+  here"):** the editor's unhandled error (F9-13, its note), and `binsDesktopProvider.test.jsx`'s first BC2 case, which
+  read the FIRST registration while the desktop's ping can answer before the project's locations load (its first
+  registration is then the empty list, which also clears a previous company's addresses). The case now waits for the
+  cloud's list and pins that nothing else is ever registered; a CONTROL holds the load back and shows that order.
+  The provider is unchanged. Not seen by a run: the two register requests are not serialized, so a slow empty one
+  could in principle land after the cloud's list on the desktop process; nothing measured shows it.
 
 **Found by the reviewer of her ruling's change (2026-11-19), in the attachment tool; both older than F12**
 

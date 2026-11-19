@@ -204,15 +204,35 @@ describe('BC2 — the predicate: the desktop\'s file process is reachable', () =
 })
 
 describe('BC2 — registering the company\'s locations with this computer', () => {
+  // F12 (2026-11-19, CI run 44449840387): this case read the FIRST registration and was red once on CI with
+  // `[]`. Which comes first is timing: when the desktop's ping answers before the project's locations have
+  // loaded, the provider registers the list it has, empty (which also clears a previous company's addresses
+  // from this computer, as sign-out does), and the cloud's list follows as soon as it loads. What the case
+  // pins is the end and the rule: the cloud's list is registered, and nothing but the cloud's ever is.
+  const registered = () => holder.files.calls.filter(c => c[0] === 'register').map(c => c[1])
   it('on sign-in, then again on every change of the list — only what the cloud returned, the list replacing', async () => {
     await mount()
-    await waitFor(() => expect(holder.files.registerCloudBinLocations).toHaveBeenCalled())
-    expect(holder.files.calls.find(c => c[0] === 'register')[1]).toEqual([{ id: 'L1', unc_path: '\\\\nas\\footage' }])
+    await waitFor(() => expect(registered().at(-1)).toEqual([{ id: 'L1', unc_path: '\\\\nas\\footage' }]))
+    for (const list of registered()) expect(list.every(l => l.id === 'L1' && l.unc_path === '\\\\nas\\footage')).toBe(true)
     let row
     await act(async () => { row = await ctxRef.addBinLocation({ name: 'Sound', unc_path: '\\\\nas\\sound' }) })
     await waitFor(() => expect(holder.files.calls.filter(c => c[0] === 'register').at(-1)[1].map(l => l.id).sort()).toEqual(['L1', row.id].sort()))
     await act(async () => { await ctxRef.removeBinLocation(row.id) })
     await waitFor(() => expect(holder.files.calls.filter(c => c[0] === 'register').at(-1)[1]).toEqual([{ id: 'L1', unc_path: '\\\\nas\\footage' }]))
+  })
+
+  it('CONTROL (the order CI met): the ping answers before the project loads, and the cloud\'s list is still what ends up registered', async () => {
+    // The load is held until the desktop has answered, so the first registration is the empty one.
+    let releaseLoad
+    const load = holder.adapter.loadProject
+    holder.adapter.loadProject = (...args) => new Promise(r => { releaseLoad = () => r(load(...args)) })
+    const mounted = mount()
+    await waitFor(() => expect(holder.files.cloudBinsPing).toHaveBeenCalled())
+    await waitFor(() => expect(registered().length).toBeGreaterThan(0))
+    expect(registered()[0]).toEqual([])   // the first registration, which this file's first case read before F12
+    await act(async () => { releaseLoad() })
+    await mounted
+    await waitFor(() => expect(registered().at(-1)).toEqual([{ id: 'L1', unc_path: '\\\\nas\\footage' }]))
   })
 
   it('a load marks clips "not on this computer" until the desktop has answered — never "here" before anyone looked', async () => {
