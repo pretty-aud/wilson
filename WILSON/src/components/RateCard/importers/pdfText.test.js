@@ -74,6 +74,13 @@ function pdfOf(pages, { password = false } = {}) {
 const dataUrlOf = (bytes) => `data:application/pdf;base64,${Buffer.from(bytes).toString('base64')}`
 
 const TWO_PAGES = [['Producer 1250 5000', 'Director 2000'], ['Editor 900 3600', 'Colorist 1100']]
+// The document opens and its first page reads; its second page names an object that is not there (9 for 6, so
+// every offset stays true), which the package throws on as UnknownErrorException: not the file's kind of refusal.
+const pdfWithSecondPageMissing = () => {
+  const text = pdfOf(TWO_PAGES).toString('latin1')
+  if (!text.includes('/Kids [4 0 R 6 0 R]')) throw new Error('pdfOf changed its object numbers')
+  return Buffer.from(text.replace('/Kids [4 0 R 6 0 R]', '/Kids [4 0 R 9 0 R]'), 'latin1')
+}
 const NOT_A_PDF = 'This file is not a PDF, or it is damaged.'
 const LOCKED = 'This PDF is locked with a password. Save a copy without the password and try again.'
 
@@ -146,6 +153,14 @@ describe('POST /api/extract-pdf', () => {
     }
   })
 
+  it('a PDF the package cannot finish is 500 with a fixed phrase; the detail is logged, never sent', async () => {
+    const before = logged.length
+    const r = await post({ name: 'broken.pdf', dataUrl: dataUrlOf(pdfWithSecondPageMissing()) })
+    expect(r.status).toBe(500)
+    expect(await r.json()).toEqual({ error: 'extract-pdf failed' })
+    expect(logged.slice(before)).toEqual([expect.stringContaining('[RABBIT] /api/extract-pdf failed: UnknownErrorException')])
+  }, FIRST_LOAD_MS)
+
   it('requiring the route\'s module loads none of pdf-parse; the first read does', async () => {
     expect(pdfParseLoadedByTheRequire).toBe(false)
     const r = await post({ name: 'rates.pdf', dataUrl: dataUrlOf(pdfOf([['Gaffer 950']])) })
@@ -178,5 +193,11 @@ describe('the rate card\'s PDF import, through the route', () => {
     const out = await importPdf(fileOf(pdfOf([['Secret 1250']], { password: true }), 'locked.pdf'), 'USD')
     expect(out.rows).toEqual([])
     expect(out.errors).toEqual([`PDF text extraction failed: ${LOCKED}`])
+  }, FIRST_LOAD_MS)
+
+  it('shows only the status for the route\'s own failure (a 500), as before', async () => {
+    const out = await importPdf(fileOf(pdfWithSecondPageMissing(), 'broken.pdf'), 'USD')
+    expect(out.rows).toEqual([])
+    expect(out.errors).toEqual(['PDF text extraction failed: extract-pdf 500'])
   }, FIRST_LOAD_MS)
 })

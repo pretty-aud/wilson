@@ -46,7 +46,11 @@
 //
 // A body that is not a PDF (an empty one too), and a PDF locked with a
 // password, are the request's own fault: 422 with plain words, which the
-// importer shows. Anything else is 500 with the package's words, logged.
+// importer shows. Anything else is 500 with a fixed phrase; the detail is
+// logged here and never sent, because a load that fails can name absolute
+// paths under the user's profile (TPN_AUDIT's open finding on exception
+// handlers named this route's old `err.message` line; the thumbnail routes
+// answer the same way).
 // =============================================================================
 'use strict';
 
@@ -90,7 +94,7 @@ function mountPdfText(expressApp, { log = console.error } = {}) {
       const refusal = refusalOf(err);
       if (refusal) return res.status(422).json({ error: refusal });
       log('[RABBIT] /api/extract-pdf failed:', err);
-      res.status(500).json({ error: (err && err.message) || 'extract-pdf failed' });
+      res.status(500).json({ error: 'extract-pdf failed' });
     }
   });
 }
