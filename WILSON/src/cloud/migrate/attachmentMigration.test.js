@@ -20,8 +20,10 @@
 // =============================================================================
 
 import { describe, it, expect, vi } from 'vitest'
-import { runAttachmentMigration, approxBytes, MAX_ATTACHMENT_BYTES }
-  from './runAttachmentMigration'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import * as runner from './runAttachmentMigration'
+import { runAttachmentMigration, approxBytes } from './runAttachmentMigration'
 
 /** base64 for the four bytes "hey!" — small, real, and decodable by atob. */
 const B64 = 'aGV5IQ=='
@@ -123,26 +125,70 @@ describe('the dry run', () => {
 
 // ── The ceiling, and what it does NOT do ─────────────────────────────────────
 
-describe('the per-file ceiling', () => {
-  it('leaves an oversized attachment in place and names it', async () => {
-    // Reported through `size`, so the test does not have to allocate 64 MB —
-    // approxBytes prefers the recorded size for exactly this reason, and so
-    // does the runner, which is why the ceiling never decodes the blob.
-    const a = makeAdapter([project({
-      documents: [
-        { id: 'd1', name: 'huge.mov', type: 'video/quicktime',
-          content: dataUrl('video/quicktime'), size: MAX_ATTACHMENT_BYTES + 1 },
-        { id: 'd2', name: 'small.pdf', type: 'application/pdf', content: dataUrl() },
-      ],
-    })])
+// Until 2026-11-19 an attachment over 32 MiB was reported and left where it
+// was. The limit's written reasons had both stopped being true (F12 measured
+// it: OUTSTANDING F12-01), and Audrey ruled in F12's chat, verbatim: "Remove
+// the limit". Every attachment moves now, whatever its size.
+describe('no per-file ceiling (her ruling of 2026-11-19: "Remove the limit")', () => {
+  // The size the old ceiling refused by one byte. Reported through `size`, so
+  // the test does not have to allocate 32 MiB: approxBytes prefers the
+  // recorded size for exactly this reason.
+  const OVER_THE_OLD_CEILING = 32 * 1024 * 1024 + 1
+  const withABigOne = () => makeAdapter([project({
+    documents: [
+      { id: 'd1', name: 'huge.mov', type: 'video/quicktime',
+        content: dataUrl('video/quicktime'), size: OVER_THE_OLD_CEILING },
+      { id: 'd2', name: 'small.pdf', type: 'application/pdf', content: dataUrl() },
+    ],
+  })])
+
+  it('an attachment over the old 32 MiB ceiling moves like any other, and is cleared only after its upload', async () => {
+    const a = withABigOne()
     const r = await runAttachmentMigration({ adapter: a })
-    expect(r.attachments.tooBig).toBe(1)
-    expect(r.oversize[0].name).toBe('huge.mov')
-    // The small one still moved — an oversized neighbour must not stop the run.
-    expect(a.uploads.map(u => u.name)).toEqual(['small.pdf'])
-    // 🚨 And the oversized one is STILL IN THE ARRAY. Clearing it would lose
-    // the only copy: it was never uploaded.
+    // Both moved (the runner walks each array backwards, so the last entry goes first).
+    expect(a.uploads.map(u => u.name)).toEqual(['small.pdf', 'huge.mov'])
+    expect(r.attachments.found).toBe(2)
+    expect(r.attachments.moved).toBe(2)
+    expect(r.attachments.failed).toBe(0)
+    expect(r.attachments.bytes).toBeGreaterThan(OVER_THE_OLD_CEILING)
+    // Nothing is left on the project row: the big one is no longer held back.
+    expect(a.patches[0].patch.documents).toEqual([])
+    // And the report has no "too large" to say any more.
+    expect(r.attachments).not.toHaveProperty('tooBig')
+    expect(r).not.toHaveProperty('oversize')
+  })
+
+  it('the dry run counts it among what would move, with its bytes', async () => {
+    const a = withABigOne()
+    const r = await runAttachmentMigration({ adapter: a, dryRun: true })
+    expect(a.uploads).toHaveLength(0)
+    expect(a.patches).toHaveLength(0)
+    expect(r.attachments.moved).toBe(2)   // "would move"
+    expect(r.attachments.bytes).toBeGreaterThan(OVER_THE_OLD_CEILING)
+  })
+
+  it('CONTROL: a big one whose upload fails stays on the row, as any failed one does', async () => {
+    // What the ceiling protected is still protected by the order of the work:
+    // an entry is cleared only after its own upload has returned.
+    const a = withABigOne()
+    const upload = a.uploadFile
+    a.uploadFile = async (projectId, scope, file) => {
+      if (file.name === 'huge.mov') throw new Error('the disk is full')
+      return upload.call(a, projectId, scope, file)
+    }
+    const r = await runAttachmentMigration({ adapter: a })
+    expect(r.attachments.moved).toBe(1)
+    expect(r.attachments.failed).toBe(1)
+    expect(r.errors[0]).toMatchObject({ name: 'huge.mov', message: 'the disk is full' })
     expect(a.patches[0].patch.documents.map(d => d.name)).toEqual(['huge.mov'])
+  })
+
+  it('the runner exports no ceiling, and the panel neither names one nor reads a "too large" list', () => {
+    expect(Object.keys(runner)).not.toContain('MAX_ATTACHMENT_BYTES')
+    const panel = readFileSync(fileURLToPath(new URL('./AttachmentMigrationPanel.jsx', import.meta.url)), 'utf8')
+    // The panel read `r.oversize.length` to draw its list: left in, it would throw on a report that has none.
+    expect(panel).not.toMatch(/MAX_ATTACHMENT_BYTES|oversize|tooBig|too large/)
+    expect(panel).toContain('Dry-run first; the move is one-way.')
   })
 })
 

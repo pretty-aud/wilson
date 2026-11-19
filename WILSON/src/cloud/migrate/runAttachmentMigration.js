@@ -35,12 +35,21 @@
 // it measures the base64 length, which is what makes it cheap enough to run on
 // a whole install.
 //
-// PER-FILE CEILING. An attachment larger than MAX_ATTACHMENT_BYTES is REPORTED
-// AND LEFT WHERE IT IS, never moved and never truncated: a half-moved document
-// is worse than an unmoved one, because the row would then say the file is in
-// the store. The dry run names each one so nothing is a surprise at the real
-// run. (The 50 GiB bucket cap is not the concern here, as §6 #31 says — the
-// concern is the JSON row that has to be read to reach the bytes.)
+// NO PER-FILE CEILING (Audrey's ruling of 2026-11-19, in F12's chat, verbatim:
+// "Remove the limit"). Until then an attachment over 32 MiB was reported and
+// left where it was. The limit had been sized to fit a base64 upload inside
+// Local Server's 50 MB JSON body, and uploads have streamed since 2026-09-11;
+// its other written reason, "the same number D.O.G. spends on a whole
+// project", names a budget no code applies (OUTSTANDING N1-01). F12 measured
+// that it could only ever hold back a single attachment between 32 and about
+// 37 MiB (a legacy attachment is base64 ON THE PROJECT ROW, and that row is
+// saved through the 50 MB limit), and she chose to let every old attachment
+// move (OUTSTANDING F12-01, closed). What a ceiling guarded is still guarded
+// by the order of the work: an entry is never truncated, and it is cleared
+// from the row only after its own upload has returned. D.O.G. warns, as it
+// always has, that the AI may refuse a PDF over 32 MiB or a picture over
+// 10 MiB (references/referenceModel.js); a moved file that large gets that
+// warning there.
 //
 // IDEMPOTENT AND RESUMABLE. Each attachment is cleared from the array only
 // after its upload has returned, and the arrays are written back per project.
@@ -50,44 +59,6 @@
 // =============================================================================
 
 import { documentKindFor } from '../../tools/rabbit_v0.1.0/deckAttachments';
-
-/**
- * Per-file ceiling. Stated in the panel and in the report.
- *
- * 32 MiB. The NUMBER is the one review round 1 set; F12 (2026-11-18) changed
- * no behaviour here and rewrote only the reasons, because both of the written
- * ones had stopped being true:
- *
- *   - It was sized to fit a base64 body inside Local Server's 50 MB JSON
- *     limit. Round 1 lowered it from 64 for that: THE BACKEND THAT RUNS THIS
- *     IS LOCAL SERVER (the only one whose projects can hold legacy arrays),
- *     its upload then rode base64 inside JSON, and every file between 36 and
- *     64 MiB failed with a raw `[localServer] HTTP 413`, counted under
- *     `failed` rather than under `oversize` where the panel explains it.
- *     Uploads have streamed since 2026-09-11 (`localServerAdapter.uploadFile`
- *     PUTs the body to …/files-stream) and F12 removed the base64 route, so no
- *     upload rides that limit any more.
- *   - It was called "the same number D.O.G. spends on a whole project".
- *     D.O.G. applies no whole-project byte budget: the 32 MiB constant in
- *     `deckAttachments.js` has no reader (OUTSTANDING N1-01).
- *
- * What is true of 32 MiB today:
- *
- *   - It is the size past which D.O.G. itself warns that the AI may refuse a
- *     PDF (`PDF_BYTE_LIMIT` in references/referenceModel.js, the provider's
- *     request ceiling), so no PDF this tool moves is one D.O.G. then warns
- *     about for its size. A picture has its own, lower line there (10 MiB,
- *     `IMAGE_BYTE_LIMIT`), which this ceiling does not follow: a picture
- *     between 10 and 32 MiB moves, and D.O.G. warns about it.
- *   - It can bind only in a narrow band. A legacy attachment is base64 ON THE
- *     PROJECT ROW, and that row is still saved as JSON through the 50 MB body
- *     limit (this tool's own write-back is such a save), so a row written
- *     through Local Server holds at most about 37 MiB of attachments in all.
- *     Only a single attachment between 32 and about 37 MiB can be "too large"
- *     here. Whether so narrow a limit is worth keeping is Audrey's to rule
- *     (OUTSTANDING F12-01); until she does, the number stands.
- */
-export const MAX_ATTACHMENT_BYTES = 32 * 1024 * 1024;
 
 /**
  * Decode ONE `data:<mime>;base64,<payload>` string into a File.
@@ -114,8 +85,8 @@ function entryToFile(entry) {
  * Approximate decoded size from the base64 length, WITHOUT decoding.
  *
  * base64 is 4 characters per 3 bytes; the padding is at most 2. Used by the
- * dry run and by the ceiling check, so neither has to allocate the blob to
- * find out it is too big — which is the whole point of the ceiling.
+ * dry run and by the report, so the dry run can say how much would move
+ * without decoding a single blob.
  */
 export function approxBytes(entry) {
   if (typeof entry.size === 'number' && entry.size > 0) return entry.size;
@@ -129,8 +100,7 @@ function makeReport() {
   return {
     dryRun: false,
     projects:    { total: 0, withAttachments: 0, failed: 0 },
-    attachments: { found: 0, moved: 0, tooBig: 0, empty: 0, failed: 0, bytes: 0 },
-    oversize: [],   // [{ projectTitle, name, bytes }]
+    attachments: { found: 0, moved: 0, empty: 0, failed: 0, bytes: 0 },
     errors: [],     // [{ projectId, name, message }]
     startedAt: new Date().toISOString(),
     finishedAt: null,
@@ -218,12 +188,8 @@ export async function runAttachmentMigration({
           continue;
         }
 
+        // No ceiling (her ruling of 2026-11-19, the header): whatever its size, it moves.
         const bytes = approxBytes(entry);
-        if (bytes > MAX_ATTACHMENT_BYTES) {
-          report.attachments.tooBig++;
-          report.oversize.push({ projectTitle: title, name: entry.name || '(unnamed)', bytes });
-          continue;
-        }
 
         if (dryRun) {
           report.attachments.moved++;      // "would move"

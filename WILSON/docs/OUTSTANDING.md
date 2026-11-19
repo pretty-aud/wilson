@@ -6023,10 +6023,14 @@ The subtractions (desktop-build B2, B3, C5 and D1 to D3; shared D1 and D2; F6-17
 then three) gave 45 findings, none High and none a security defect: the twenty in F12's own work were fixed
 (`3760f9d0`, `fae4bd74`), and the rest are below.
 
-**Hers to rule**
+**Hers to rule (ruled)**
 
-- **F12-01 · The 32 MiB ceiling on "Move deck attachments into project files" can bind only between 32 and about
-  37 MiB.** `MAX_ATTACHMENT_BYTES` (`src/cloud/migrate/runAttachmentMigration.js`) was sized to fit a base64 upload
+- ~~**F12-01 · The 32 MiB ceiling on "Move deck attachments into project files" can bind only between 32 and about
+  37 MiB.**~~ **CLOSED by her ruling (2026-11-19, about 02:40 UTC, in F12's chat, to the question below; verbatim:
+  "Remove the limit").** The ceiling is gone from the runner and from its panel: every old attachment moves,
+  the report has no "too large" line or list, and an entry is still cleared from the row only after its own upload has
+  returned (pinned, with a big file whose upload fails). D.O.G.'s warning for a PDF over 32 MiB is as it was. The
+  entry as it stood: `MAX_ATTACHMENT_BYTES` (`src/cloud/migrate/runAttachmentMigration.js`) was sized to fit a base64 upload
   inside the 50 MB JSON body and was called "the same number D.O.G. spends on a whole project". Neither is true now:
   uploads stream (since 2026-09-11; F12 removed the base64 route), and D.O.G. applies no whole-project budget (N1-01).
   F12 kept the number and rewrote the reason. What is true: 32 MiB is the size past which D.O.G. warns that the AI may

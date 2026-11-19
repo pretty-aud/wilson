@@ -9,9 +9,15 @@
 //
 // 🚨 A DRY RUN FIRST IS NOT A SUGGESTION. This is the only irreversible thing
 // in the C3 bundle: a moved attachment leaves the project row. The dry run is
-// cheap (it measures base64 lengths, it does not decode anything) and it names
-// every file too large to move, so nothing about the real run is a surprise.
-// The Move button stays disabled until a dry run has been read.
+// cheap (it measures base64 lengths, it does not decode anything) and it says
+// how many would move and how many bytes, so nothing about the real run is a
+// surprise. The Move button stays disabled until a dry run has been read.
+//
+// No size limit (Audrey's ruling of 2026-11-19, verbatim "Remove the limit"):
+// until then a file over 32 MiB was listed and left where it was; a line and
+// a list for the files held back stood in the report, and the description
+// said so. Every old attachment moves now (runAttachmentMigration.js's header
+// has why).
 //
 // Post-overhaul merge (2026-09-30): on Settings' row contract (SettingsChrome)
 // and the kit Button, exactly as its two siblings are. The track wrote it in
@@ -24,17 +30,17 @@ import { useCallback, useState } from 'react'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { adapterSupportsWrites } from '../../tools/rabbit_v0.1.0/adapters'
 import { detectDocumentKind } from '../../tools/rabbit_v0.1.0/components/ProjectFilesTable'
-import { runAttachmentMigration, MAX_ATTACHMENT_BYTES } from './runAttachmentMigration'
+import { runAttachmentMigration } from './runAttachmentMigration'
 import '../../components/settings/settings.css'
 import { Section, Group, Row } from '../../components/settings/SettingsChrome'
 import { Button } from '../../ui'
 
 const TITLE = 'Move deck attachments into project files'
 
-// MiB, and it says MiB. R1: the ceiling is a hard limit a person can run
-// into, and rounding it into "64.0 MB" while an upload was refused at 36 (the
-// base64 upload of that time; F12 removed it) was the kind of small lie that
-// costs an afternoon.
+// MiB, and it says MiB. R1: when this panel still had a per-file ceiling,
+// rounding it into "64.0 MB" while an upload was refused at 36 was the kind
+// of small lie that costs an afternoon. The ceiling is gone (2026-11-19); the
+// unit rule stays for the bytes this reports.
 function fmtBytes(b) {
   if (!b) return '0 B'
   if (b < 1024) return `${b} B`
@@ -100,9 +106,7 @@ export default function AttachmentMigrationPanel() {
         record itself. New ones are ordinary project files, which is what D.O.G.,
         the Projects page and R.A.B.B.I.T. all read. This moves the old ones
         across — their <strong>Core</strong> marks come with them, so decks
-        generate the same way afterwards. Dry-run first; the move is one-way,
-        and files over {fmtBytes(MAX_ATTACHMENT_BYTES)} are listed and left
-        where they are.
+        generate the same way afterwards. Dry-run first; the move is one-way.
       </>}
     >
       <Group>
@@ -190,28 +194,14 @@ function AttachmentReport({ r }) {
           <Line label="with old attachments"    value={r.projects.withAttachments} />
           <Line label="attachments found"       value={r.attachments.found} />
           <Line label={dry ? 'would move' : 'moved'} value={r.attachments.moved} />
-          <Line label={`too large (over ${fmtBytes(MAX_ATTACHMENT_BYTES)})`} value={r.attachments.tooBig} />
           <Line label="empty records, left alone" value={r.attachments.empty} />
           <Line label="failed"                  value={r.attachments.failed} failed={r.attachments.failed} />
           <Line label={dry ? 'bytes to move' : 'bytes moved'} value={fmtBytes(r.attachments.bytes)} />
         </tbody>
       </table>
 
-      {/* Two disclosures, both closed by default and both hiding a LIST, not
-          a control — the one <details> shape the surface allows (C1). */}
-      {r.oversize.length > 0 && (
-        <details className="mt-3">
-          <summary className="s-label cursor-pointer">
-            {r.oversize.length} left in place (too large)
-          </summary>
-          <ul className="s-data s-row-desc mt-2 space-y-1">
-            {r.oversize.map((o, i) => (
-              <li key={i}>{o.projectTitle} — {o.name} ({fmtBytes(o.bytes)})</li>
-            ))}
-          </ul>
-        </details>
-      )}
-
+      {/* One disclosure, closed by default and hiding a LIST, not a control —
+          the one <details> shape the surface allows (C1). */}
       {r.errors.length > 0 && (
         <details className="mt-3">
           <summary className="s-label cursor-pointer">

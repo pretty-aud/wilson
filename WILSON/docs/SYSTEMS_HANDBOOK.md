@@ -3618,23 +3618,22 @@ about.
 Resources list and D.O.G.'s source set on every backend, so nothing an
 existing local project had was lost. Moving them is a deliberate one-time
 action: **Settings → RABBIT → "Move deck attachments into project files"**,
-dry run required first, per-file ceiling **32 MiB**, oversized files named and
-left in place, and each entry cleared from the array only after its upload
-returns — so a crash mid-run means a re-run moves exactly what is left.
+dry run required first, and each entry cleared from the array only after its
+upload returns — so a crash mid-run means a re-run moves exactly what is left.
 
-⚠️ **The ceiling's reason, as it is true since F12 (2026-11-18).** The number
-did not change. It was set to fit a base64 upload inside the 50 MB JSON body;
-uploads have streamed since 2026-09-11 and F12 removed the base64 route, so no
-upload rides that limit. What is true of 32 MiB now: it is the size past which
-D.O.G. itself warns that the AI may refuse a PDF (`PDF_BYTE_LIMIT`; a picture
-has its own line at 10 MiB, which the ceiling does not follow), and it can bind
-only in a narrow band, because a legacy attachment is base64 on the project
-row and that row is still saved through the 50 MB limit: a row written through
-Local Server holds at most about 37 MiB of attachments in all, so only a
-single attachment between 32 and about 37 MiB is "too large". Whether to keep
-so narrow a limit is hers to rule (`docs/OUTSTANDING.md` F12-01). The budget
-of "20 files and 32 MiB in total" stated above is not applied by any code
-today (OUTSTANDING N1-01).
+**No size limit (her ruling of 2026-11-19).** Until then a file over 32 MiB was
+listed and left where it was. The limit had been sized to fit a base64 upload
+inside the 50 MB JSON body, and uploads have streamed since 2026-09-11 (F12
+removed the base64 route); its other reason named a D.O.G. budget no code
+applies (OUTSTANDING N1-01). F12 measured that it could only ever hold back a
+single attachment between 32 and about 37 MiB, because a legacy attachment is
+base64 on the project row and that row is still saved through the 50 MB limit,
+and she ruled in F12's chat, verbatim: "Remove the limit" (OUTSTANDING F12-01,
+closed). Every old attachment moves now; the report has no "too large" line.
+D.O.G. still warns, as before, that the AI may refuse a PDF over 32 MiB or a
+picture over 10 MiB, so a moved file that large gets that warning there. The
+budget of "20 files and 32 MiB in total" stated above is not applied by any
+code today (OUTSTANDING N1-01).
 
 **Two CORE flags with opposite defaults**, deliberately not unified — see
 §17's "Correctness" note. `runAttachmentMigration` is the one place they meet
@@ -7744,13 +7743,11 @@ global Space shortcut firing from every page.
   * The **legacy arrays are still read** on every backend, so no existing
     project lost anything. Moving them is Audrey's own one-time action:
     Settings → RABBIT → "Move deck attachments into project files", dry run
-    first, per-file ceiling **32 MiB**, oversized files named and left in
-    place. The number is unchanged; its reason was rewritten by F12
-    (2026-11-18), since no upload rides the 50 MB JSON body any more (they
-    stream): 32 MiB is D.O.G.'s own warning line for a PDF, and because the
-    project row that holds a legacy attachment is still saved through that
-    50 MB limit, only a single attachment between 32 and about 37 MiB can be
-    "too large" (§12.8b; whether to keep the limit: OUTSTANDING F12-01).
+    first, and no size limit since her ruling of 2026-11-19 (verbatim:
+    "Remove the limit"). Until then a file over 32 MiB was named and left in
+    place; F12 measured that the limit could only ever hold back a single
+    attachment between 32 and about 37 MiB (§12.8b; OUTSTANDING F12-01,
+    closed).
   * `is_core_definer` keeps its `NOT NULL DEFAULT false`. D.O.G.'s legacy
     arrays default `isCore` TRUE and the two are deliberately NOT unified —
     see §17's "Correctness" note and 0075's header. The migration carries
