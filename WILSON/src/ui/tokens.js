@@ -19,8 +19,9 @@
 // a light surface comes from size and weight, and emptiness from italic.
 //
 // This module absorbed src/components/lightSurface.js (F04). Its export names
-// are kept below as aliases so its 31 importers keep working; new code reads
-// the plain names.
+// lived on here as five LIGHT_* aliases until F12 (2026-11-18): the last
+// importer had gone, so the module, its test and the aliases were deleted,
+// and src/ui/tokens.test.js keeps the contrast pins that test held.
 // =============================================================================
 
 /** Every entry of `@theme` that carries a value a JS site may need. Keys are
@@ -294,25 +295,3 @@ export const DURATION = Object.freeze({
   panel: Number(THEME['duration-panel'].replace('ms', '')),
 })
 export const EASE_RESPONSE = THEME['ease-response']
-
-// =============================================================================
-// lightSurface.js aliases (Session 43 §B), kept so its importers keep working.
-// The values are the tokens above; the table objects are one definition so
-// Team Members, Users and Logs cannot drift apart again.
-//
-// LIGHT_TABLE_HEAD_CELL was left at `fontWeight: 700` by F1 so Wave 1's
-// codemod could move it with every other 700 in one diff. The codemod never
-// saw it — `src/ui/` is outside the audit's scope — so V1 (2026-09-23) moved
-// it to 600, the only emphasis weight §3.1 has. It was a no-op either way:
-// both faces are declared 400-600, so a 700 has always rendered as 600, and
-// V1 found NONE of the four LIGHT_TABLE_* objects that stood here had a
-// caller left (Team Members, Users and Logs are on the kit's Table now), and
-// P1's §7 caller audit (2026-09-27) deleted them: their only reader was
-// lightSurface.test.js, which pinned a treatment nothing drew. The kit Table
-// is the one table treatment; `src/ui/tokens.test.js` pins that they stay gone.
-// =============================================================================
-export const LIGHT_INK = INK_LIGHT
-export const LIGHT_RULE = RULE_LIGHT
-export const LIGHT_WELL = WELL_LIGHT
-export const LIGHT_ACCENT = SIGNAL
-export const LIGHT_SURFACE_SOLID = SURFACE_LIGHT_SOLID

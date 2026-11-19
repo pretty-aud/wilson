@@ -18,6 +18,9 @@
 //
 // Extends the pattern of authContrast.test.js and lightSurface.test.js,
 // which is the only reason the light pages are as consistent as they are.
+// (lightSurface.test.js went with its module in F12, 2026-11-18; the pins
+// only it held are here now: the light rule's 1.5 floor, the two light
+// stones as failing text, the old input well, and the well against white.)
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
@@ -226,20 +229,31 @@ const PAIRS = [
 // objects no table reads since Team Members, Users and Logs moved onto the
 // kit Table (V1-15). The check is a function so its control can run it on a
 // planted copy; a guard that only ever sees the clean tree proves nothing.
+//
+// F12 (2026-11-18, the shared survey's D1): the five LIGHT_* aliases that
+// outlived them (LIGHT_INK, LIGHT_RULE, LIGHT_WELL, LIGHT_ACCENT,
+// LIGHT_SURFACE_SOLID) existed for src/components/lightSurface.js, which only
+// its own test imported. The module, its test and the aliases are deleted, so
+// the pattern is every LIGHT_* name now; the plain names (INK_LIGHT,
+// RULE_LIGHT, WELL_LIGHT, SIGNAL, SURFACE_LIGHT_SOLID) are the tokens.
 function retiredTokens(names, themeVars) {
   const found = []
-  for (const n of names) if (/^SHORTCUT_BAR$|^LIGHT_TABLE_/i.test(n)) found.push(n)
+  for (const n of names) if (/^SHORTCUT_BAR$|^LIGHT_/i.test(n)) found.push(n)
   for (const v of themeVars) if (/^shortcut-bar$/i.test(v)) found.push(`--${v}`)
   return found
 }
 
-describe('retired tokens stay retired (P1 §7 audit)', () => {
-  it('tokens.js exports no SHORTCUT_BAR or LIGHT_TABLE_*, and neither @theme nor THEME carries --shortcut-bar', () => {
+describe('retired tokens stay retired (P1 §7 audit; F12)', () => {
+  it('tokens.js exports no SHORTCUT_BAR and no LIGHT_* name, and neither @theme nor THEME carries --shortcut-bar', () => {
     expect(retiredTokens(Object.keys(T), [...Object.keys(theme), ...Object.keys(THEME)])).toEqual([])
   })
-  it('CONTROL: the check names each planted leftover', () => {
-    expect(retiredTokens(['LIGHT_TABLE_FRAME', 'SHORTCUT_BAR', 'ROW'], ['shortcut-bar', 'row']))
-      .toEqual(['LIGHT_TABLE_FRAME', 'SHORTCUT_BAR', '--shortcut-bar'])
+  it('CONTROL: the check names each planted leftover, and leaves the plain light tokens alone', () => {
+    expect(retiredTokens(['LIGHT_TABLE_FRAME', 'LIGHT_INK', 'SHORTCUT_BAR', 'ROW', 'INK_LIGHT', 'SURFACE_LIGHT_SOLID', 'HIGHLIGHT'], ['shortcut-bar', 'row']))
+      .toEqual(['LIGHT_TABLE_FRAME', 'LIGHT_INK', 'SHORTCUT_BAR', '--shortcut-bar'])
+  })
+  it('the module the aliases were for is gone with its test (F12)', () => {
+    expect(existsSync(resolve(here, '../components/lightSurface.js'))).toBe(false)
+    expect(existsSync(resolve(here, '../components/lightSurface.test.js'))).toBe(false)
   })
 })
 
@@ -257,6 +271,9 @@ describe('every ink/ground pair clears its ratio', () => {
     expect(contrast(dark, T.PAPER)).toBeLessThan(contrast(T.INK_3, T.PAPER))
     expect(contrast(light, T.GROUND_LIGHT)).toBeGreaterThanOrEqual(1.4)
     expect(contrast(light, T.GROUND_LIGHT)).toBeLessThan(contrast(T.INK_LIGHT, T.GROUND_LIGHT))
+    // The light rule's own floor, 1.5 (Session 43 §B; held by lightSurface.test.js until F12
+    // deleted that file): 1.4.11 wants a boundary seen, and it measures about 1.51.
+    expect(contrast(light, T.GROUND_LIGHT)).toBeGreaterThanOrEqual(1.5)
   })
 
   it('no surface token is white or near-white (C9)', () => {
@@ -264,6 +281,18 @@ describe('every ink/ground pair clears its ratio', () => {
       over(T.WELL_LIGHT, T.GROUND_LIGHT)]
     for (const s of surfaces) {
       expect(luminance(s), s).toBeLessThan(luminance('#e7e5e4'))
+    }
+  })
+
+  // Session 43 §B, moved here from lightSurface.test.js by F12. Audrey's complaint was "there is a
+  // white box and white header for the box that doesnt fit the visual language": the light well,
+  // as it composites over the page, is DARKER than the page, and darker than every near-white.
+  it('the light well is not a near-white card: darker than the page it sits on, and than white and the two light stones', () => {
+    expect(T.GROUND_LIGHT).toBe('#f4a261')
+    const well = over(T.WELL_LIGHT, T.GROUND_LIGHT)
+    expect(luminance(well)).toBeLessThan(luminance(T.GROUND_LIGHT))
+    for (const nearWhite of ['#ffffff', '#e7e5e4', '#d6d3d1']) {
+      expect(luminance(nearWhite), nearWhite).toBeGreaterThan(luminance(well))
     }
   })
 })
@@ -328,9 +357,20 @@ describe('the controls: values the review found in the wild, pinned as FAILING',
   })
 
   it('the greys and tints that were text on orange', () => {
-    for (const grey of ['#7c4f1f', '#a8a29e', '#78716c', '#57534e', '#fed7aa']) {
+    // '#d6d3d1' and '#e7e5e4': the two light stones, held by lightSurface.test.js until F12 deleted it.
+    for (const grey of ['#7c4f1f', '#a8a29e', '#78716c', '#57534e', '#fed7aa', '#d6d3d1', '#e7e5e4']) {
       expect(contrast(grey, T.GROUND_LIGHT), grey).toBeLessThan(4.5)
     }
+  })
+
+  // Moved here from lightSurface.test.js by F12. rgba(120, 70, 30, 0.55) is the OLD light-page
+  // input well (the operator console's company form still paints one). The light ink on it and the
+  // cream it was used with are both under AA: recorded as failing, so the next person to reach
+  // for it as a text surface sees the number first.
+  it('the old input well on orange: neither the light ink nor the cream it carried clears AA', () => {
+    const well = over('rgba(120, 70, 30, 0.55)', T.GROUND_LIGHT)
+    expect(contrast(T.INK_LIGHT, well)).toBeLessThan(4.5)
+    expect(contrast('#fde8d0', well)).toBeLessThan(4.5)
   })
 
   it('the light status colours the system review proposed (2.43 / 3.14 / 1.41)', () => {

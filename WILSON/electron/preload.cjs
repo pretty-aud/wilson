@@ -43,7 +43,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   zoomIn: () => ipcRenderer.invoke('zoom-in'),
   zoomOut: () => ipcRenderer.invoke('zoom-out'),
   zoomReset: () => ipcRenderer.invoke('zoom-reset'),
-  zoomGet: () => ipcRenderer.invoke('zoom-get'),
   onCloseRequested: (callback) => {
     ipcRenderer.on('close-requested', callback);
     return () => ipcRenderer.removeListener('close-requested', callback);

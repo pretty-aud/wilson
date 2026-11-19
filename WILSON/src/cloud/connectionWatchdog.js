@@ -119,7 +119,7 @@ export const PING_EVERY_MS = 10_000
 export const PING_BUDGET_MS = 5_000
 export const RELOAD_AFTER_MS = 60_000
 /** One second of budget per this many body bytes (a 400 kbit/s uplink). */
-export const BODY_BYTES_PER_SECOND = 51_200
+const BODY_BYTES_PER_SECOND = 51_200
 /** S2: the launch's health question to GoTrue (§11.4 step 3): the ping's own budget. */
 export const LAUNCH_BUDGET_MS = 5_000
 /** S2: the whole decision inside the cap, from the probe: two launch budgets. */

@@ -1196,17 +1196,6 @@ function startLocalServer(distPath) {
       });
     });
 
-    // ── Migration check (v1 → v2) ──
-    expressApp.get('/api/migration-needed', (req, res) => {
-      const dataDir = getDataDir();
-      const needed = fs.existsSync(path.join(dataDir, 'lesson-plans.bak')) || fs.existsSync(path.join(dataDir, 'progress.bak'));
-      res.json({ needed });
-    });
-
-    expressApp.post('/api/migrate', (req, res) => {
-      res.json({ ok: true, message: 'Migration handled client-side or not needed' });
-    });
-
     // ── O.T.T.E.R. settings (prompts only — API key uses WILSON's localStorage) ──
     expressApp.get('/api/otter-settings', (req, res) => {
       const data = readJSON(path.join(getDataDir(), 'otter-settings.json'), {
@@ -5521,7 +5510,6 @@ ipcMain.handle('zoom-out', () => {
   if (mainWindow) { const wc = mainWindow.webContents; const c = wc.getZoomLevel(); if (c > -5) wc.setZoomLevel(c - 0.5); return wc.getZoomLevel(); }
 });
 ipcMain.handle('zoom-reset', () => { if (mainWindow) { mainWindow.webContents.setZoomLevel(0); return 0; } });
-ipcMain.handle('zoom-get', () => { if (mainWindow) return mainWindow.webContents.getZoomLevel(); return 0; });
 
 app.whenReady().then(() => {
   // Bundle B3: the second copy quits instead of booting a second Express server
