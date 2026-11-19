@@ -146,7 +146,7 @@ describe('the Local Server upload streams (Audrey: "[localServer] HTTP 413", 202
     expect(localAdapter).not.toContain('arrayBufferToBase64')
     expect(localAdapter).not.toContain('base64,')
   })
-  it('main.cjs mounts projectFileStream.cjs ONCE with the same helpers the POST uses, before the SPA fallback', () => {
+  it('main.cjs mounts projectFileStream.cjs ONCE with the host\'s helpers, before the SPA fallback, and the module mounts the stream alone (F12)', () => {
     const mounts = mainCjs.match(/require\('\.\/projectFileStream\.cjs'\)\.mountProjectFileStream\(/g) || []
     expect(mounts.length).toBe(1)
     const at = mainCjs.indexOf("require('./projectFileStream.cjs')")
@@ -154,12 +154,15 @@ describe('the Local Server upload streams (Audrey: "[localServer] HTTP 413", 202
     expect(at).toBeLessThan(mainCjs.indexOf("expressApp.get('/{*splat}'"))
     // S4b (0088): and the LEGAL resolver beside INVOICES's.
     expect(mainCjs).toContain('resolveProjectFilesDir, resolveProjectInvoicesDir, resolveProjectLegalDir, uuidv4,')
-    // the base64 POST stays for anything that still calls it — beside the
-    // stream since S4b's review round 1, mounted by the same call
+    // F12 (2026-11-18): the base64 POST …/files is gone from both files (it
+    // had no caller since the adapter began to stream, 2026-09-11). The
+    // module registers one route, the PUT, and names no POST address.
     expect(mainCjs).not.toContain("expressApp.post('/api/rabbit/projects/:projectId/files', (req, res) => {")
     const streamCjs = read('../../electron/projectFileStream.cjs')
-    expect(streamCjs).toContain("const POST_ROUTE = '/api/rabbit/projects/:projectId/files';")
-    expect(streamCjs).toContain('expressApp.post(POST_ROUTE, (req, res) => {')
+    expect(streamCjs.match(/expressApp\.\w+\(/g)).toEqual(['expressApp.put('])
+    expect(streamCjs).toContain('expressApp.put(ROUTE, (req, res) => {')
+    expect(streamCjs).not.toContain('POST_ROUTE')
+    expect(streamCjs).not.toContain("'base64'")
     // M1-L7 (review rounds 1 and 2): the routes' INVOICES hook, built from
     // this planner and its one row writer — the one production wiring of the
     // rule — as a live option of THIS mount (not a comment, not another

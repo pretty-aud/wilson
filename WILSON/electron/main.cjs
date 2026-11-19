@@ -3651,11 +3651,11 @@ function startLocalServer(distPath) {
     // Individual CRUD via sub-entity factory
     rabbitSubentityRoutes('project-team',    'projectTeam');
 
-    // ── Files: upload (base64 JSON payload) ──
-    // Moved word for word into electron/projectFileStream.cjs (S4b review
-    // round 1, R1-BEH-05) beside the streamed PUT, mounted below with it, so
-    // the two transports share one scope check and one directory choice and
-    // both are served for real in tests. The download route follows.
+    // ── Files: upload ──
+    // The upload is electron/projectFileStream.cjs's streamed PUT, mounted
+    // below. The base64 JSON POST that once stood here, and then beside the
+    // stream, had no caller and went with F12 (2026-11-18). The download
+    // route follows.
 
     // ── Post-overhaul S4a: where a row's bytes are on THIS disk ─────────────
     // For the rabbit:open-path IPC ("Open in default app", the explorer's
@@ -4579,9 +4579,10 @@ function startLocalServer(distPath) {
 
     // ── Streamed project-file upload (demo 2026-09-11) — electron/projectFileStream.cjs ──
     // Audrey: "[localServer] HTTP 413" adding a file to a project. The
-    // base64-in-JSON POST (…/files, above) is capped by the global 50mb json
-    // limit; this PUT streams the body straight to disk and records the same
-    // row, directory and event. Same placement rule as the bins.
+    // base64-in-JSON POST of that time (…/files, removed by F12) was capped
+    // by the global 50mb json limit; this PUT streams the body straight to
+    // disk and records the row, directory and event. Same placement rule as
+    // the bins.
     require('./projectFileStream.cjs').mountProjectFileStream(expressApp, {
       readRabbitBundle, writeRabbitBundle, rabbitTouch, rabbitLogFileEvent, rabbitNotFound,
       resolveProjectFilesDir, resolveProjectInvoicesDir, resolveProjectLegalDir, uuidv4,

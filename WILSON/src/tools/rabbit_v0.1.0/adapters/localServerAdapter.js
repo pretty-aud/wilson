@@ -706,8 +706,9 @@ export function localServerAdapter() {
     // project). The body STREAMS to the server — Chromium reads the File
     // from disk in chunks; nothing is buffered here or there — with the
     // metadata in the query string. Same row, same directories, same
-    // 'uploaded' event as the base64 POST it replaces (which stays mounted
-    // for anything else that calls it). `onProgress` rides XHR when given.
+    // 'uploaded' event as the base64 POST it replaced (which stayed mounted
+    // with no caller until F12 removed it, 2026-11-18). `onProgress` rides
+    // XHR when given.
     async uploadFile(projectId, scope, file, opts = {}) {
       // Demo 2026-09-11: the file's own facts ride along — duration (audio
       // / video, read by a media element, best-effort) and the source's
