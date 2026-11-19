@@ -6023,10 +6023,14 @@ The subtractions (desktop-build B2, B3, C5 and D1 to D3; shared D1 and D2; F6-17
 then three) gave 45 findings, none High and none a security defect: the twenty in F12's own work were fixed
 (`3760f9d0`, `fae4bd74`), and the rest are below.
 
-**Hers to rule**
+**Hers to rule (ruled)**
 
-- **F12-01 · The 32 MiB ceiling on "Move deck attachments into project files" can bind only between 32 and about
-  37 MiB.** `MAX_ATTACHMENT_BYTES` (`src/cloud/migrate/runAttachmentMigration.js`) was sized to fit a base64 upload
+- ~~**F12-01 · The 32 MiB ceiling on "Move deck attachments into project files" can bind only between 32 and about
+  37 MiB.**~~ **CLOSED by her ruling (2026-11-19, about 02:40 UTC, in F12's chat, to the question below; verbatim:
+  "Remove the limit").** The ceiling is gone from the runner and from its panel: every old attachment moves,
+  the report has no "too large" line or list, and an entry is still cleared from the row only after its own upload has
+  returned (pinned, with a big file whose upload fails). D.O.G.'s warning for a PDF over 32 MiB is as it was. The
+  entry as it stood: `MAX_ATTACHMENT_BYTES` (`src/cloud/migrate/runAttachmentMigration.js`) was sized to fit a base64 upload
   inside the 50 MB JSON body and was called "the same number D.O.G. spends on a whole project". Neither is true now:
   uploads stream (since 2026-09-11; F12 removed the base64 route), and D.O.G. applies no whole-project budget (N1-01).
   F12 kept the number and rewrote the reason. What is true: 32 MiB is the size past which D.O.G. warns that the AI may
@@ -6077,6 +6081,13 @@ then three) gave 45 findings, none High and none a security defect: the twenty i
   shows a restored cache and an "Install Chromium" that downloads nothing, the hit is reasoned (Playwright's registry
   code; the cache action), not seen. A hit still installs the system packages, so what it saves is the download:
   seconds as a rule; the 566 s of run `44410875406` is what it guards against. LOW.
+  **Read on 2026-11-19, and the last clause is wrong.** The merge's run `44441166412` saved the cache (253 MiB, key
+  `playwright-chromium-1.59.1-ubuntu-24.04-x86_64`, on the integration branch). The next run there, `44445385225`,
+  restored it in 3 s and skipped the save, as designed, and its "Install Chromium" still took 432 s. So the slow
+  part of that step is the system packages, which run on a hit as on a miss by the brief's own design, and not the
+  browser download: the cache does not guard against the 566 s kind. What it saves is the download alone, which
+  these runs show to be small. Whether the system packages can be skipped or cached too is not F12's (the brief
+  kept them on a hit); it would need a run to prove that Chromium starts without them.
 - **F12-09 · Three lock entries npm itself would keep were removed.** `terser` 5.46.0, `@jridgewell/source-map`
   0.3.11 and terser's `commander` 2.20.3 were held by Forge's webpack template; after it only vite's optional peer
   `terser` names them, and npm 10 would keep them flagged optional and peer. Removed so the lock's diff is deletions
@@ -6094,6 +6105,27 @@ then three) gave 45 findings, none High and none a security defect: the twenty i
 - **F12-13 · Full runs on this machine keep showing one to five 5-second timeouts that move between files** (the
   source-scan tests and the heaviest render files) and pass alone: F9-13's kind, seen in seven of F12's eight full
   runs here. INFO.
+
+**Found by the reviewer of her ruling's change (2026-11-19), in the attachment tool; both older than F12**
+
+- **F12-21 · A run of "Move deck attachments into project files" that is stopped inside a project uploads that
+  project's already-moved files again on the next run.** `runAttachmentMigration.js` clears an entry from its copy of
+  the array after the upload returned, and saves the row once per project after its last attachment; the app
+  quitting between the two leaves the uploaded files in the store and still on the row. MEASURED by the reviewer on
+  the real runner (first upload returned, second never did: no save, and the re-run uploaded the first file again).
+  The same end by another road: when the files moved and the save of the row is refused, the report counts nothing
+  as failed, says so only in one line of its folded error list, and leaves Move enabled. What she would see: the
+  same file twice in Resources and in D.O.G., each marked Core. Fix shape: save the array after each upload that
+  returned; count a refused save under failed projects and show that line open. The runner's header and the
+  handbook said "a re-run moves exactly what is left" and are corrected. LOW. Owner: whoever the controller names.
+- **F12-22 · With no ceiling, a project record holding a file far larger than the app could ever save is decoded
+  like any other.** The app wrote these records only through the 50 MB JSON body, so one attachment is at most about
+  37 MiB and nothing is worse for anything the app wrote. A hand-made or copied-in `project.json` can hold more:
+  the dry run then says it would move, and on Move the window decodes it whole (it moves, or the decode throws and
+  it is counted failed and stays, or the window runs out of memory with the record untouched). Read, not run in
+  Electron. Fix shape, if hand-made records matter: the dry run names any attachment over a stated size, as words
+  and not as a limit. An older page written for her, `docs/walkthroughs/15_dog_attachments.md`, still describes the
+  "Left in place (too large)" list; it is hers to keep as a record. INFO.
 
 **Measured out of the row: the brief's nine, each left for the reason given**
 
