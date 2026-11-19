@@ -34,6 +34,16 @@
 // DOMMatrix at its top, which plain Node lacks and the binary supplies;
 // without it the require itself throws "DOMMatrix is not defined".
 //
+// MEASURED by F13 (2026-11-19) in Electron 33.4.11's own Node (20.18.3;
+// ELECTRON_RUN_AS_NODE on the worktree's own binary, a script that never
+// requires main.cjs), from the source and from the packaged build's app.asar
+// (`npm run package`, never started): both read the test PDFs. electron-builder
+// packs pdf-parse inside app.asar, its worker (pdf.worker.mjs, an ES module the
+// package import()s) with it, and the canvas's Windows binary beside it in
+// app.asar.unpacked, nested under @napi-rs/canvas; the binary was opened from
+// there. A read loads nothing of pdfjs-dist (traced). Not proved by any run:
+// the same inside the running app's main process.
+//
 // A body that is not a PDF (an empty one too), and a PDF locked with a
 // password, are the request's own fault: 422 with plain words, which the
 // importer shows. Anything else is 500 with the package's words, logged.
