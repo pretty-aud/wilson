@@ -448,7 +448,8 @@ Functions ((d)), and production's Authentication → URL Configuration naming th
 it names, and search it), and both `/wilson` and `/wilsonadmin` answer with their sign-in.
 
 **The desktop.** Only `npm run dist` ships (electron-builder, NSIS, `package.json` `build`, written to **`release\`**);
-`forge.config.cjs` makes no updatable artefact ([HB] §11). The renderer's Supabase settings are compiled in by Vite at build time,
+it is the one packager since F12 removed Electron Forge (2026-11-18), and `npm run package` is the same build left unpacked,
+which no updater can update ([HB] §11). The renderer's Supabase settings are compiled in by Vite at build time,
 and `userData/env.json` cannot change them (`electron/env.cjs`, its header); `.env.local` on her machine points at **wilson-dev**
 ([WD] *Builds*; TPN-SDLC-008). So:
 
@@ -467,8 +468,8 @@ and `userData/env.json` cannot change them (`electron/env.cjs`, its header); `.e
 4. After (g) 13, since production holds no company before it: install it on a clean Windows account and sign in once (hers) to
    her company: the company step answers against production.
 5. **Publish by hand.** The feed is `package.json`'s only publish entry, the `generic` provider at
-   `https://updates.petalstudios.co/wilson` (B2 behind it, [HB] §8); electron-builder has no uploader for a generic feed, so
-   `npm run dist:publish` uploads nothing. Upload `release\latest.yml`, the installer and its `.blockmap` to the feed's bucket. Proof:
+   `https://updates.petalstudios.co/wilson` (B2 behind it, [HB] §8); electron-builder has no uploader for a generic feed (the
+   `dist:publish` script uploaded nothing for that reason, and F12 removed it). Upload `release\latest.yml`, the installer and its `.blockmap` to the feed's bucket. Proof:
    `curl -s https://updates.petalstudios.co/wilson/latest.yml` names `version: 1.0.0` and that installer.
 
 **The file gateway** ships on its own pipeline (`.github/workflows/gateway-release.yml`, a `gateway-v*` tag; walkthrough 63), not

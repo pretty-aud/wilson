@@ -655,8 +655,11 @@ Projects, Rate Card, Team Members and the Admin Terminal at once, on a guess
 about what Audrey wants them to look like.
 
 → Fixing it means choosing a new well and re-pairing the ink — a design
-decision, not a repair. `src/components/lightSurface.js` carries the numbers
-and deliberately does NOT export the value, so nobody adopts it by accident.
+decision, not a repair. `src/components/lightSurface.js` carried the numbers
+and deliberately did NOT export the value, so nobody adopts it by accident;
+F12 (2026-11-18) deleted that file, and the pin is in `src/ui/tokens.test.js`
+now ("the old input well on orange: neither the light ink nor the cream it
+carried clears AA").
 
 ### ~~R.A.B.B.I.T. item creation fails in cloud mode~~ — FIXED (S23, `2727328`)
 Deleted per the rule for this file. Migrations 0034 + 0035 and the adapter
@@ -2759,6 +2762,14 @@ measurement a script N1 deleted (`fx10-date-fields-shots.mjs`,
   code, not run; would settle it: a project with more than 20 stored files
   selected in D.O.G., and the attachments counted. N1 left both constants (they
   are the evidence). Owner: the next session in D.O.G.'s attachments.
+  **F12 (2026-11-18), measured again:** the size cut is not applied either.
+  `DOG_ATTACHMENT_MAX_BYTES` is read only by `DOG_ATTACHMENT_MAX_MIB`, which has
+  no reader, and `orderAttachmentCandidates` has no caller outside the module,
+  so this entry's lead ("cut by size only") overstates what runs: D.O.G.
+  applies no whole-project budget at all, only a per-file warning (a PDF over
+  32 MiB, a picture over 10 MiB; `references/referenceModel.js`). The
+  handbook's §12.8b and §17 still state "20 files and 32 MiB in total"; F12
+  added a pointer to this entry beside them and left the constants (F12-01).
 - **N1-02 · The launch file's `v1-auth` entry serves a worktree that is
   gone.** It runs `npx vite …/.claude/worktrees/quirky-dewdney-93d080/WILSON
   --port 5246`; that folder no longer exists (MEASURED, `ls`, 2026-10-27). N1's
@@ -5682,7 +5693,17 @@ Terminal's change requests (MEASURED by grep, comments stripped; `otterRoutes.te
 - **F6-15 · An agent generation's failure is never drawn.** `agentGenerateCourse` and `agentGenerateSingleSubject` write
   their error under a temporary slug no row shows, and do not rethrow. Older.
 - **F6-16 · The stub fill reads its stub twice** (`stubPre` for the title, then `stubData`). Older, kept.
-- **F6-17 · The probes measure a prompt D.O.G. never sends.** `scripts/probes/deck-latency.mjs` and
+- ~~**F6-17 · The probes measure a prompt D.O.G. never sends.**~~ **CLOSED IN PART by F12 (2026-11-18; `94fb3592`,
+  `3760f9d0`, `fae4bd74`):** both probes send `DEFAULT_FULL_DECK_SYSTEM` alone as the system prompt and, after their
+  source text, `composeFullDeckInstructions(DEFAULT_FULL_DECK_INSTRUCTIONS, DEFAULT_FULL_DECK_OUTPUT_FORMAT)`, the app's
+  own function, so no `{{EXPORT SCHEMA}}` is sent and the format is sent once. Pinned without running them
+  (`prompts/promptBoxes.test.js` lifts each probe's request literal from its text; the probes were NOT run, they spend
+  on the one AI key). **What remains, and is the probes' own by design:** the rest of the user turn (the app's lead-in,
+  project context and file framing against the probe's made-up brief), `max_tokens` (16,384 against the app's
+  `FULL_DECK_ANSWER_TOKENS`) and the thinking settings (deck-latency's row A is Session 19's baseline with no thinking
+  field; the app sends `tuningFor('dog.fullDeck')`), so a probe reading is of the app's prompt parts, not of a deck the
+  app would generate; and figures from before F12 are of another request. The entry as F6 wrote it:
+  `scripts/probes/deck-latency.mjs` and
   `generation-e2e.mjs` import `DEFAULT_FULL_DECK_OUTPUT_FORMAT` and `DEFAULT_FULL_DECK_INSTRUCTIONS` (which carry
   `prompts/rules.js`), and no request carries those (REV-04): a latency measured there is of another prompt than the
   full deck sends. Since item 6 (`9e95c906`) those constants are today's text, but the probes still send them their own
@@ -5851,7 +5872,7 @@ left, what F9 met outside its list, and what its review rounds recorded. None is
   router-level). Behind the launch token; the only caller is the renderer's `localFetch`. LOW.
 - **F9-08 · `rabbit:open-in-explorer` reveals any path the page names, and `rabbit:get-file-stats` stats any path** (an
   existence and size probe). The renderer helper stops four copies of the path drifting; it does not narrow the
-  channels (B5 is F12's). LOW.
+  channels (B5 is F12's; F12 measured that its row did not hold it and left the channels: F12-20). LOW.
 - **F9-09 · `main.cjs`'s `fileSlugify` throws on a non-string** (a number in a body answers 500 where it is called
   bare); `projectSlugOf` and `assetSlugOf` wrap it. LOW.
 - **F9-10 · A poster's part, left by a crash between its write and its rename, is never swept**
@@ -5995,3 +6016,100 @@ the tests whose names claimed more than they checked (2B-04, 2C-01 to 2C-04, 2C-
   backdrop, a changed box, a half-typed task, a project switch, the row deleted under a question); no case of its own
   holds that world, only the "stays off" cases that go red with it. Review round 2, 2B-02. LOW.
 
+## F12 (2026-11-18, wave 4 of `docs/sessions/PLAN_WEEK_2026-11-04.md`) — left open
+
+The subtractions (desktop-build B2, B3, C5 and D1 to D3; shared D1 and D2; F6-17). What F12 built is in its hand-off
+(`docs/sessions/handoffs/po-f12-2026-11-18.md`); what it measured and left is here. Two review rounds (five agents,
+then three) gave 45 findings, none High and none a security defect: the twenty in F12's own work were fixed
+(`3760f9d0`, `fae4bd74`), and the rest are below.
+
+**Hers to rule**
+
+- **F12-01 · The 32 MiB ceiling on "Move deck attachments into project files" can bind only between 32 and about
+  37 MiB.** `MAX_ATTACHMENT_BYTES` (`src/cloud/migrate/runAttachmentMigration.js`) was sized to fit a base64 upload
+  inside the 50 MB JSON body and was called "the same number D.O.G. spends on a whole project". Neither is true now:
+  uploads stream (since 2026-09-11; F12 removed the base64 route), and D.O.G. applies no whole-project budget (N1-01).
+  F12 kept the number and rewrote the reason. What is true: 32 MiB is the size past which D.O.G. warns that the AI may
+  refuse a PDF; and a legacy attachment is base64 on the project row, which is still saved through the 50 MB limit, so
+  a row written through Local Server holds at most about 37 MiB of attachments in all (50 MiB of JSON, base64 at 4/3).
+  Only a single attachment between 32 and about 37 MiB is ever "too large". Her question, asked in F12's chat and in
+  walkthrough 101: keep the limit (nothing changes), or remove it so every old attachment moves (a PDF over 32 MiB
+  then moves and D.O.G. warns about it). A picture between 10 and 32 MiB already moves and is warned about.
+
+**Found by the reviewers outside F12's file list (each older than F12)**
+
+- **F12-02 · The desktop's PDF text route throws on every call.** `electron/main.cjs`'s `POST /api/extract-pdf` calls
+  `require('pdf-parse')` as a function. In the installed 2.4.5 (in `package.json` since 2026-04-06, the commit that
+  added the call) the export is an object whose reader is the class `PDFParse`, so the call throws "pdfParse is not a
+  function" and the route answers 500. MEASURED in plain Node against the installed package (`typeof` is `object`);
+  the route and its callers were read, not run, and it was not tried inside Electron. By reading: R.A.B.B.I.T.'s
+  intake takes a dropped PDF as empty text (`intake/pipeline.js` catches the 500 and returns `''`), and the rate
+  card's PDF import throws `extract-pdf 500` (`RateCard/importers/pdfImporter.js`). Fix shape:
+  `const { PDFParse } = require('pdf-parse')`, `new PDFParse({ data: buffer }).getText()`, the text and page count
+  mapped, and a route test with a one-page PDF. Review round 1. MEDIUM. Owner: whoever the controller names.
+- **F12-03 · A JSON body over 50 MB is answered 500 "internal error" on the desktop, not 413.**
+  `localServerErrorHandler` (`electron/localToken.cjs`) does not keep the status the JSON parser set, so a project row
+  or an `extract-pdf` body past the limit shows `[localServer] HTTP 500`. The handbook's older passages say 413 (true
+  on 2026-09-11, her own report). Review round 1; read and checked in-process, not in Electron. LOW.
+- **F12-04 · Comments outside F12's list still describe what F12 removed.** `electron/updater.cjs:8` ("Squirrel/Forge
+  builds": the build with no `app-update.yml` is `npm run package`'s now); `electron/fileTags.cjs:84` ("both
+  transports"); `electron/ipcGate.cjs:7` ("fifty-one channels": fifty); `electron/spaFallback.cjs:2` (one mount: the
+  web preview is a second); and comments naming `lightSurface.js`, its test or `LIGHT_INK` in ten source files
+  (`SettingsPage.jsx:665` and `Resources/ProjectFilesExplorer.jsx:42` point at the deleted test;
+  `adminTerminalCss.test.js:1332` says "The module still exists"). Words only; each on its file's next edit. INFO.
+- **F12-05 · Docs outside the brief's docs step name Forge as present or give a removed command.**
+  `docs/MASTER_PLAN.md` (three places), `docs/NETWORK_STORAGE_DESIGN.md`, `docs/SYSTEMS_DESIGN_PACK.md` and
+  `TPN_AUDIT/FINDINGS.md` (never a session's) name Forge or quote the old scripts; five history docs name
+  `scripts/timeline-window-slide.mjs`, three with its command (S5p's hand-off among them). The script is in the
+  history, last at `02ea371e`; history docs stay as written. INFO.
+- **F12-06 · Nothing re-runnable holds "no `focus:outline-none` in a swept file" any more.** The deleted
+  `scripts/sweepOutlineNone.mjs` was the one check; a utility added back beats the `@layer base` ring
+  (`src/index.css`) and leaves a control with no focus ring. Fix shape: a source-scan test, as
+  `elevationAndDisabled.test.js` holds its rules. Review round 1. INFO.
+- **F12-07 · `.claude/launch.json`'s `v1-auth` entry holds an absolute path under the user profile**, in a tracked
+  file of a public repository (N1-02 records that the worktree it serves is gone). Owner: the controller. LOW.
+
+**F12's own, left as built**
+
+- **F12-08 · The browser cache is proved by no run F12 could make.** A cache belongs to its branch. On `po/**` the
+  restore always misses and the save does not run (a session's branch is pushed once, so nothing would read it); the
+  first save is the merge commit's run on the integration branch and the first hit is the run after that. Until a run
+  shows a restored cache and an "Install Chromium" that downloads nothing, the hit is reasoned (Playwright's registry
+  code; the cache action), not seen. A hit still installs the system packages, so what it saves is the download:
+  seconds as a rule; the 566 s of run `44410875406` is what it guards against. LOW.
+- **F12-09 · Three lock entries npm itself would keep were removed.** `terser` 5.46.0, `@jridgewell/source-map`
+  0.3.11 and terser's `commander` 2.20.3 were held by Forge's webpack template; after it only vite's optional peer
+  `terser` names them, and npm 10 would keep them flagged optional and peer. Removed so the lock's diff is deletions
+  only; npm 10 rewrites nothing in the result and `npm ci` installs it. A build that ever sets
+  `build.minify: 'terser'` must add terser as a devDependency. INFO.
+- **F12-10 · `npm run package` names no platform, and its folder is not the installer's in two things.** On Windows
+  it is the installer's build left unpacked; on another host it packs that host's app. Its unpacked folder has no
+  `app-update.yml` (so the updater there says "unsupported"), and, in a checkout with no ffmpeg binary staged, no
+  `resources/ffmpeg/` at all. Never start it: a packaged WILSON opens the real data folder. INFO.
+- **F12-11 · The shipped-module test reads text.** `src/lib/electronRules.test.js` names a name computed at run
+  time as a problem, counts a require written in a comment, and accepts any `node:` name (a module Electron's own
+  Node lacks would pass). It does not check a dependency's own platform binaries or the `files` globs. INFO.
+- **F12-12 · The stream stores an empty body as an empty file** (pinned), where the removed POST refused a missing
+  body. Whether an empty upload should be refused on both backends was not asked. INFO.
+- **F12-13 · Full runs on this machine keep showing one to five 5-second timeouts that move between files** (the
+  source-scan tests and the heaviest render files) and pass alone: F9-13's kind, seen in seven of F12's eight full
+  runs here. INFO.
+
+**Measured out of the row: the brief's nine, each left for the reason given**
+
+- **F12-14 · The suite glob.** The failure-replay list in `rls.yml` has been pinned against the suite directory, both
+  ways and in number order, by `rabbit_v0.1.0/storage/rlsSuiteLists.test.js` since 2026-10-16, and its step runs
+  only on a red job, which a session cannot exercise.
+- **F12-15 · The gateway workflows are not shared with `rls.yml`.** `gateway-release.yml` runs on a tag or by hand,
+  and it signs; a session cannot run it. `gateway.yml`, `gateway-release.yml` and `backups.yml` are untouched.
+- **F12-16 · `rabbit:write-gdrive-config` has no caller** (measured). Her ruling was asked on 2026-11-18 (remove it,
+  or keep it for a connect flow later); until she rules it stays, as do the other four gdrive channels, which have
+  callers.
+- **F12-17 · Features with no surface are hers:** `rabbit_v0.1.0/agent/rabbitAgentTools.js`, the adapter methods
+  nothing calls (comments, restore, asset versions, ingestion chunks and the rest of rabbit D2), and `isSkillEnabled`.
+- **F12-18 · The stepper probes are not folded into `ui-walk`:** only a signed-in browser walk proves that fold.
+- **F12-19 · The `extract-pdf` body and the 50 MB JSON limit stay:** two tests pin the limit's line, and older
+  projects' rows still ride it (the route itself is F12-02).
+- **F12-20 · Desktop B5 (two IPC paths for "show this file in its folder") was not F12's.** F9-08 says it is; the
+  week plan's row does not, and the channels are as F9 left them. The four thumbnail channels keep F9-04 and the two
+  attachment constants keep N1-01.
