@@ -11,8 +11,10 @@
 // words in page order, a blank line between them, and no marker line (the
 // package writes "-- 1 of 2 --" after each page unless told otherwise); a body
 // that is not a PDF, an empty one and a PDF locked with a password are refused
-// in plain words (422), a missing dataUrl as before (400); the importer shows
-// those words, and reads a rate card's rows from both pages of one; and
+// in plain words (422), a missing dataUrl as before (400); a PDF the package
+// cannot finish is 500 with a fixed phrase, its detail logged and never sent
+// (review round 1); the importer shows the words of a 4xx and only the status
+// of a 5xx, and reads a rate card's rows from both pages of one; and
 // requiring the route's module loads none of the package, so the desktop's
 // startup pays nothing for it.
 //
@@ -131,12 +133,13 @@ describe('POST /api/extract-pdf', () => {
   }, FIRST_LOAD_MS)
 
   it('a body that is not a PDF, or an empty one, is refused in words (422) and is not logged as a failure', async () => {
+    const before = logged.length
     for (const bytes of [Buffer.from('Role, Day rate\nProducer, 1250\n'), Buffer.alloc(0)]) {
       const r = await post({ name: 'rates.pdf', dataUrl: dataUrlOf(bytes) })
       expect(r.status).toBe(422)
       expect(await r.json()).toEqual({ error: NOT_A_PDF })
     }
-    expect(logged).toEqual([])
+    expect(logged.slice(before)).toEqual([])
   }, FIRST_LOAD_MS)
 
   it('a PDF locked with a password is refused in words (422)', async () => {
