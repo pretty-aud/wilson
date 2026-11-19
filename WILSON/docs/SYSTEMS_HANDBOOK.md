@@ -2041,8 +2041,11 @@ and the install steps of the Vitest and Playwright jobs changed.
   Vitest job and 16 s in the Playwright job, against 16 to 24 s in the three
   runs before. No saving shows there, because the lockfile changed and so that
   run's npm cache was cold. "Install Chromium" took 95 s on its miss (26, 27
-  and once 566 s before). The hit has not been seen by a run yet
-  (`docs/OUTSTANDING.md` F12-08).
+  and once 566 s before). The first hit, run `44445385225` on the integration
+  branch: the cache restored in 3 s and nothing was saved, and "Install
+  Chromium" still took 432 s. The slow part of that step is the system
+  packages, which a hit installs as a miss does, so the cache saves only the
+  browser download, which is small (`docs/OUTSTANDING.md` F12-08).
 
 Repository secrets consumed (names only): `DEV_SUPABASE_URL`,
 `DEV_SUPABASE_ANON_KEY`, `DEV_PROBE_USERNAME`, `DEV_PROBE_PASSWORD`. The

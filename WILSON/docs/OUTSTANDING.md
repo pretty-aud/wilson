@@ -6081,6 +6081,13 @@ then three) gave 45 findings, none High and none a security defect: the twenty i
   shows a restored cache and an "Install Chromium" that downloads nothing, the hit is reasoned (Playwright's registry
   code; the cache action), not seen. A hit still installs the system packages, so what it saves is the download:
   seconds as a rule; the 566 s of run `44410875406` is what it guards against. LOW.
+  **Read on 2026-11-19, and the last clause is wrong.** The merge's run `44441166412` saved the cache (253 MiB, key
+  `playwright-chromium-1.59.1-ubuntu-24.04-x86_64`, on the integration branch). The next run there, `44445385225`,
+  restored it in 3 s and skipped the save, as designed, and its "Install Chromium" still took 432 s. So the slow
+  part of that step is the system packages, which run on a hit as on a miss by the brief's own design, and not the
+  browser download: the cache does not guard against the 566 s kind. What it saves is the download alone, which
+  these runs show to be small. Whether the system packages can be skipped or cached too is not F12's (the brief
+  kept them on a hit); it would need a run to prove that Chromium starts without them.
 - **F12-09 · Three lock entries npm itself would keep were removed.** `terser` 5.46.0, `@jridgewell/source-map`
   0.3.11 and terser's `commander` 2.20.3 were held by Forge's webpack template; after it only vite's optional peer
   `terser` names them, and npm 10 would keep them flagged optional and peer. Removed so the lock's diff is deletions
