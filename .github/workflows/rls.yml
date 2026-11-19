@@ -791,6 +791,13 @@ jobs:
     name: Vitest (renderer units)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    # F12 (desktop-build C5): nothing this job runs starts Electron (vitest
+    # reads the desktop's files as modules or as text; the lock harness is
+    # plain Node), so `npm ci` skips Electron's own binary, about 100 MB a
+    # run: node_modules/electron/install.js exits at once when this is set.
+    # A step added here that runs `electron` must take this line out.
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
     defaults:
       run:
         working-directory: WILSON
@@ -982,6 +989,11 @@ jobs:
     name: Playwright auth (wilson-dev)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    # F12 (desktop-build C5): Playwright drives Chromium against the Vite dev
+    # server and the web build; nothing here starts Electron, so `npm ci`
+    # skips its binary (see the unit job).
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
     defaults:
       run:
         working-directory: WILSON
@@ -1015,9 +1027,45 @@ jobs:
         if: steps.secrets.outputs.has_secrets == 'true'
         run: npm ci
 
+      # F12 (desktop-build C5): Playwright's browsers kept between the runs of
+      # one branch, where every run downloaded them afresh (26 s as a rule,
+      # 566 s in run 44410875406). The key is everything that decides which
+      # builds are right: the installed Playwright (its browsers.json names
+      # one revision of each browser), the distribution and the processor.
+      # No restore-keys, so another version's browsers are never restored.
+      # GitHub keeps a cache for its own branch (and the default branch's for
+      # everyone), so a branch's first run always misses and saves.
+      - name: Name the browser cache
+        id: pw
+        if: steps.secrets.outputs.has_secrets == 'true'
+        run: |
+          version="$(node -p "require('playwright-core/package.json').version")"
+          distro="$(. /etc/os-release && echo "${ID}-${VERSION_ID}")"
+          echo "key=playwright-chromium-${version}-${distro}-$(uname -m)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Playwright's browsers
+        id: pw-cache
+        if: steps.secrets.outputs.has_secrets == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ steps.pw.outputs.key }}
+
+      # The same command on a hit as on a miss. It installs the system
+      # packages every time (they are not in the cache), then downloads only
+      # a browser that is missing or incomplete: after a hit, none.
       - name: Install Chromium
         if: steps.secrets.outputs.has_secrets == 'true'
         run: npx playwright install chromium --with-deps
+
+      # Saved only after a miss, and only once the install above has exited 0,
+      # so a half-downloaded browser is never kept.
+      - name: Keep Playwright's browsers
+        if: steps.secrets.outputs.has_secrets == 'true' && steps.pw-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ steps.pw.outputs.key }}
 
       - name: Run Playwright
         if: steps.secrets.outputs.has_secrets == 'true'
