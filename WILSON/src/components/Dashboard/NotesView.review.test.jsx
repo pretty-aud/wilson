@@ -10,6 +10,17 @@ import * as Y from 'yjs'
 import { u8ToB64, b64ToU8 } from './noteSync'
 
 vi.mock('../../cloud/auth/supabaseClient', () => ({ supabase: {}, hydrateSupabase: async () => {} }))
+
+// F12 (2026-11-19): jsdom's Range lacks the two measuring methods every browser's has, and ProseMirror calls
+// them to scroll a cursor into view (the case "the editor scrolls its cursor into view" below says when). They
+// answer here as a browser answers for text with no layout: no boxes, an empty rectangle. Given only where
+// missing, so a jsdom that gains them keeps its own.
+if (!Range.prototype.getClientRects) Range.prototype.getClientRects = function getClientRects() { return [] }
+if (!Range.prototype.getBoundingClientRect) {
+  Range.prototype.getBoundingClientRect = function getBoundingClientRect() {
+    return { x: 0, y: 0, top: 0, left: 0, bottom: 0, right: 0, width: 0, height: 0, toJSON() { return {} } }
+  }
+}
 const rabbit = vi.hoisted(() => ({ current: null }))
 vi.mock('../../tools/rabbit_v0.1.0/state/RabbitProvider', () => ({ useRabbit: () => rabbit.current }))
 vi.mock('../../permissions/usePermissions', () => ({ usePermissions: () => ({ userId: 'me-0000', role: 'user', ready: true }) }))
@@ -74,6 +85,27 @@ const editorOf = async (container) => {
 }
 
 afterEach(() => { cleanup(); takePendingNote(); picker.current = null })
+
+// F12 (2026-11-19): ProseMirror scrolls the cursor into view by measuring a TEXT RANGE (coordsAtPos, then
+// range.getClientRects()), and jsdom's Range has neither getClientRects nor getBoundingClientRect, which
+// every browser has. Whenever the timing left an editor focused when one of its transactions scrolled, a
+// TypeError escaped this file as an unhandled error: the run went red with every test passed (OUTSTANDING
+// F9-13; CI runs 43825570341 and 44441166412 carry that signature). ProseMirror scrolls only when the page's
+// selection is inside the editor, which jsdom's focus() never arranges; in those runs something had left it
+// there. This case puts it there, as a click in a browser does, and scrolls on purpose.
+describe('the editor scrolls its cursor into view', () => {
+  it('with the page\'s selection inside the note\'s text, a scroll to the cursor raises nothing', async () => {
+    harness({ lists: { mine: [row()] } })
+    const { container } = mount()
+    fireEvent.click(await screen.findByText('Look of the film'))
+    const ed = await editorOf(container)
+    act(() => { ed.commands.insertContent('Harbour light') })
+    const text = document.createTreeWalker(ed.view.dom, NodeFilter.SHOW_TEXT).nextNode()
+    expect(text?.nodeValue).toContain('Harbour')
+    document.getSelection().collapse(text, 3)
+    expect(() => act(() => { ed.commands.scrollIntoView() })).not.toThrow()
+  })
+})
 
 describe('a note asked for from elsewhere (a typed link, Moth\'s Open in Notes)', () => {
   it('opens when the Notes tab mounts for it, before any list has arrived, from the shared list', async () => {
